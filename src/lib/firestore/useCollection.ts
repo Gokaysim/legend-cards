@@ -1,7 +1,13 @@
 import { onSnapshot, type Query, queryEqual } from 'firebase/firestore'
 
 import { toSubscriptionError } from './errors'
-import { type SubscribeFn, type Subscription, useSnapshotSubscription } from './subscription'
+import {
+  equalOrBothNull,
+  type SubscribeFn,
+  subscribeOrEmpty,
+  type Subscription,
+  useSnapshotSubscription,
+} from './subscription'
 
 /** A readable path for error reports: the collection path, or a marker for other queries. */
 function describeQuery(query: Query<unknown>): string {
@@ -34,10 +40,22 @@ function subscribeToQuery<T>(query: Query<T>, emit: (state: Subscription<T[]>) =
   )
 }
 
+const NO_DOCUMENTS: never[] = []
+const queryEqualOrBothNull = equalOrBothNull(queryEqual)
+const subscribeToQueryOrNothing = subscribeOrEmpty<Query<unknown>, unknown[]>(
+  subscribeToQuery,
+  NO_DOCUMENTS,
+)
+
 /**
  * Subscribes to a collection or query in real time. `data` holds the matching documents in query order.
  * Build the query from a ref with a converter from `createConverter`, so every document is validated.
+ * Pass `null` when there is nothing to subscribe to yet: the result is `ready` with no documents.
  */
-export function useCollection<T>(query: Query<T>): Subscription<T[]> {
-  return useSnapshotSubscription(query, queryEqual, subscribeToQuery as SubscribeFn<Query<T>, T[]>)
+export function useCollection<T>(query: Query<T> | null): Subscription<T[]> {
+  return useSnapshotSubscription(
+    query,
+    queryEqualOrBothNull as (a: Query<T> | null, b: Query<T> | null) => boolean,
+    subscribeToQueryOrNothing as SubscribeFn<Query<T> | null, T[]>,
+  )
 }

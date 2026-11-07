@@ -14,7 +14,8 @@ const converter = createConverter(cardSchema)
 
 /** A minimal stand-in for a Firestore snapshot: only the parts the converter reads. */
 function fakeSnapshot(path: string, data: unknown): QueryDocumentSnapshot {
-  return { data: () => data, ref: { path } } as unknown as QueryDocumentSnapshot
+  const id = path.split('/').at(-1) ?? ''
+  return { id, data: () => data, ref: { path } } as unknown as QueryDocumentSnapshot
 }
 
 describe('createConverter', () => {
@@ -36,5 +37,35 @@ describe('createConverter', () => {
     const model = { name: 'Aa-Uskh', cost: '1' }
 
     expect(converter.toFirestore(model)).toBe(model)
+  })
+
+  it('does not add the document ID without the idField option', () => {
+    expect(
+      converter.fromFirestore(fakeSnapshot('cards/c1', { name: 'Aa-Uskh' })),
+    ).not.toHaveProperty('id')
+  })
+})
+
+describe('createConverter with idField', () => {
+  const withId = createConverter(cardSchema, { idField: 'id' })
+
+  it('adds the document ID to the parsed data', () => {
+    const card = withId.fromFirestore(fakeSnapshot('cards/c7', { name: 'Aa-Uskh' }))
+
+    expect(card).toEqual({ id: 'c7', name: 'Aa-Uskh', cost: '0' })
+    // The type includes the ID as a string.
+    const id: string = card.id
+    expect(id).toBe('c7')
+  })
+
+  it('drops the ID field from writes, keeping everything else', () => {
+    expect(withId.toFirestore({ id: 'c7', name: 'Aa-Uskh', cost: '1' })).toEqual({
+      name: 'Aa-Uskh',
+      cost: '1',
+    })
+  })
+
+  it('still rejects documents that do not match the schema', () => {
+    expect(() => withId.fromFirestore(fakeSnapshot('cards/c8', { cost: 3 }))).toThrow(/cards\/c8/)
   })
 })

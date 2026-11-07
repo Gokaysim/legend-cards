@@ -25,7 +25,8 @@ export default defineConfig({
         test: {
           name: 'unit',
           environment: 'jsdom',
-          include: ['src/**/*.test.{ts,tsx}'],
+          // Script tests declare `// @vitest-environment node` themselves.
+          include: ['src/**/*.test.{ts,tsx}', 'scripts/**/*.test.ts'],
           exclude: ['**/*.emulator.test.{ts,tsx}', '**/node_modules/**'],
           setupFiles: ['./src/test/setup.ts'],
           // Vitest skips CSS by default; the theme test reads the design tokens as raw text.

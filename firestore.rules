@@ -13,6 +13,39 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // True when the signed-in user is the owner of the document keyed by `uid`.
+    function isSelf(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // A profile name: 1 to 100 characters, or null when the Google account has none (DISPLAY_NAME_MAX).
+    function validName(value) {
+      return value == null || (value is string && value.size() >= 1 && value.size() <= 100);
+    }
+
+    // A profile picture URL: at most 2048 characters, or null (PHOTO_URL_MAX).
+    function validPhoto(value) {
+      return value == null || (value is string && value.size() <= 2048);
+    }
+
+    // User profiles. Everyone signed in reads every profile. A user creates only their own, only as a player,
+    // and later changes only its name and picture. Roles are changed by the admin script (Admin SDK), never here.
+    match /users/{uid} {
+      allow read: if isSignedIn();
+      allow create: if isSelf(uid)
+        && request.resource.data.keys().hasOnly(['displayName', 'photoURL', 'role', 'createdAt'])
+        && request.resource.data.keys().hasAll(['displayName', 'photoURL', 'role', 'createdAt'])
+        && request.resource.data.role == 'player'
+        && request.resource.data.createdAt == request.time
+        && validName(request.resource.data.displayName)
+        && validPhoto(request.resource.data.photoURL);
+      allow update: if isSelf(uid)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photoURL'])
+        && validName(request.resource.data.displayName)
+        && validPhoto(request.resource.data.photoURL);
+      allow delete: if false;
+    }
+
     // Closed catch-all: anything no rule grants is denied, for signed-in and signed-out users alike.
     // A request is allowed if ANY matching rule allows it, so this never overrides a deliberately opened path.
     match /{document=**} {

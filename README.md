@@ -32,21 +32,22 @@ npm run dev
 
 ## Scripts
 
-| Script                  | What it does                                                                 |
-| ----------------------- | ---------------------------------------------------------------------------- |
-| `npm run dev`           | Start the Firebase emulators and the Vite dev server together                |
-| `npm run dev:web`       | Start only the Vite dev server                                               |
-| `npm run emulators`     | Start only the Auth and Firestore emulators, keeping their data between runs |
-| `npm run build`         | Type-check and build the production files into `dist/`                       |
-| `npm run preview`       | Serve the built `dist/` locally                                              |
-| `npm run typecheck`     | Run the TypeScript compiler without emitting files                           |
-| `npm run lint`          | Run ESLint                                                                   |
-| `npm run format`        | Format all files with Prettier                                               |
-| `npm run format:check`  | Check formatting without changing files                                      |
-| `npm run test`          | Run the unit tests (no Firebase)                                             |
-| `npm run test:watch`    | Run the unit tests in watch mode                                             |
-| `npm run test:emulator` | Start the Firebase emulators, run the emulator-backed tests, then stop them  |
-| `npm run check`         | Type check, lint, format check and unit tests: run this before every commit  |
+| Script                  | What it does                                                                              |
+| ----------------------- | ----------------------------------------------------------------------------------------- |
+| `npm run dev`           | Start the Firebase emulators and the Vite dev server together                             |
+| `npm run dev:web`       | Start only the Vite dev server                                                            |
+| `npm run emulators`     | Start only the Auth and Firestore emulators, keeping their data between runs              |
+| `npm run build`         | Type-check and build the production files into `dist/`                                    |
+| `npm run preview`       | Serve the built `dist/` locally                                                           |
+| `npm run typecheck`     | Run the TypeScript compiler without emitting files                                        |
+| `npm run lint`          | Run ESLint                                                                                |
+| `npm run format`        | Format all files with Prettier                                                            |
+| `npm run format:check`  | Check formatting without changing files                                                   |
+| `npm run test`          | Run the unit tests (no Firebase)                                                          |
+| `npm run test:watch`    | Run the unit tests in watch mode                                                          |
+| `npm run test:emulator` | Start the Firebase emulators, run the emulator-backed tests, then stop them               |
+| `npm run check`         | Type check, lint, format check and unit tests: run this before every commit               |
+| `npm run set-role`      | Set a user's role (`dm` or `player`); see [Making someone the DM](#making-someone-the-dm) |
 
 ## Local Firebase emulators
 
@@ -77,6 +78,28 @@ The app reads its Firebase settings from environment variables. At startup it ch
 The settings are `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID`, and `VITE_USE_FIREBASE_EMULATORS`.
 
 **These values are not secrets.** A Firebase web config is a set of public identifiers that ends up in the browser bundle anyway. Data is protected by the Firestore security rules (`firestore.rules`), not by hiding the config. Do not rely on keeping these values private.
+
+## Making someone the DM
+
+Everyone who signs in is a player. Only the role script can make someone the DM (or take the role away); nobody can do it from the app.
+
+1. The person signs in to the app once, so their profile exists.
+2. Run the script with their Google email address.
+
+   Against the local emulators (with `npm run dev` or `npm run emulators` running):
+
+   ```sh
+   npm run set-role -- --email someone@example.com --role dm
+   ```
+
+   Against a real project (see below), add `--project` with the project ID. The script names the project and asks you to type its ID before changing anything:
+
+   ```sh
+   gcloud auth application-default login   # once, so the script can act as you
+   npm run set-role -- --email someone@example.com --role dm --project <project-id>
+   ```
+
+Use `--role player` to take the DM role away. The change shows up in the open app at once, without a reload.
 
 ## Connecting a real Firebase project (later)
 

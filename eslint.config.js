@@ -54,4 +54,11 @@ export default defineConfig([
       ],
     },
   },
+  {
+    // Admin scripts run on Node, not in the browser.
+    files: ['scripts/**/*.ts'],
+    languageOptions: {
+      globals: globals.node,
+    },
+  },
 ])

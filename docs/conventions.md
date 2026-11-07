@@ -19,16 +19,17 @@ Turkish interface strings are written directly in the components. There is no tr
 src/
   main.tsx              entry: config check -> App (or ConfigErrorScreen)
   app/                  composition root
-    App.tsx             AuthProvider + router
-    screens.ts          the single list of main screens (path, Turkish label, icon)
+    App.tsx             AuthProvider + UsersProvider + router
+    screens.ts          the single lists of screens (main menu and Shops sub-screens)
     routes.tsx          route table: sign-in, RequireAuth, AppShell, one route per screen, not-found
     layout/             AppShell, SidebarContent, MobileNav, UserBadge, OfflineBanner
     NotFoundPage.tsx, ConfigErrorScreen.tsx
   features/             one folder per product area
     auth/               AuthProvider, useAuth, RequireAuth, SignInPage, authErrors
-    hands/ shop/ true-words/ library/ cursed-deck/ activity-log/ settings/
+    users/              profiles and roles: schema, api, UsersProvider, useIsDm, DmOnly, PlayerList
+    hands/ shops/ true-words/ custom-draft/ library/ cursed-deck/ activity-log/ rules/ settings/
                         each with its <Name>Page.tsx (placeholders for now)
-  components/ui/        shared primitives: Button, PageHeader, Placeholder, Spinner, FullScreenSpinner
+  components/ui/        shared primitives: Avatar, Button, PageHeader, Placeholder, Spinner, FullScreenSpinner
   lib/
     firebase/           settings check (config.ts) and the Firebase app, Auth and Firestore instances
     firestore/          real-time subscription hooks, converters, errors
@@ -38,13 +39,15 @@ src/
     index.css           Tailwind entry and base styles
     theme.css           design tokens
   test/                 test setup and shared test helpers
+scripts/                admin scripts on Node with the Admin SDK (see Scripts)
+tests/                  emulator tests that need no app code: access rules, admin scripts
 ```
 
 Rules:
 
 - A feature does not import another feature's internals. When two features need the same code, move it to `components/` or `lib/`.
-- Only `src/lib/firebase/` creates Firebase instances or connects to emulators.
-- Files outside `src/lib/` and the feature `api.ts` modules do not import Firebase SDKs directly.
+- Only `src/lib/firebase/` creates Firebase instances or connects to emulators in the app. Admin scripts do it only through `scripts/lib/target.ts`.
+- Files outside `src/lib/` and the feature `api.ts` modules do not import Firebase SDKs directly. There is one exception: a feature's `schema.ts` may import Firestore value types such as `Timestamp`, to validate them.
 
 ## Naming
 
@@ -100,10 +103,11 @@ Styling uses Tailwind CSS utility classes, written directly in JSX.
 
 ## Tests
 
-| Kind                             | File name                                             | Runs with               |
-| -------------------------------- | ----------------------------------------------------- | ----------------------- |
-| Unit test, no Firebase           | `*.test.ts` / `*.test.tsx`, next to the code it tests | `npm run test`          |
-| Test against the local emulators | `*.emulator.test.ts`                                  | `npm run test:emulator` |
+| Kind                             | File name                                                  | Runs with               |
+| -------------------------------- | ---------------------------------------------------------- | ----------------------- |
+| Unit test, no Firebase           | `*.test.ts` / `*.test.tsx`, next to the code it tests      | `npm run test`          |
+| Test against the local emulators | `*.emulator.test.ts`                                       | `npm run test:emulator` |
+| Admin script logic, no Firebase  | `scripts/**/*.test.ts`, with `// @vitest-environment node` | `npm run test`          |
 
 - Import `describe`, `it`, and `expect` from `vitest`. Globals are off.
 - Shared setup and helpers live in `src/test/`.
@@ -115,8 +119,13 @@ Styling uses Tailwind CSS utility classes, written directly in JSX.
 - **Use `useAuth()`.** It returns the auth `status` (`loading`, `signedOut`, `signedIn` with a plain `user`), plus `signInWithGoogle()` and `signOut()`. Feature code never imports `firebase/auth`; only `src/lib/firebase/` and `src/features/auth/` do.
 - **Every app route goes under `RequireAuth`.** It shows a neutral loading state while the session is restored, and sends signed-out users to `/sign-in`, remembering where they wanted to go. Only `/sign-in` itself is public.
 - **Sign-in is Google only, in a popup.** Error codes are mapped to Turkish messages in `authErrors.ts`. A cancelled popup shows nothing.
-- **No roles yet.** Every signed-in user sees the same app. DM and player roles come with the data model, and they are enforced in `firestore.rules`, not only in the UI.
-- **Tests** render components inside `TestAuthProvider` (`src/test/`) with a fixed state, instead of talking to Firebase.
+- **Roles come from the profile.** Every signed-in user has a profile at `users/{uid}` with the role `player` or `dm`. `UsersProvider` (`src/features/users/`) creates the profile at sign-in and shares the profiles. Read them with three hooks:
+  - `useCurrentProfile()`
+  - `useProfiles()`
+  - `useIsDm()`, which is `true` only for a loaded DM profile; loading or missing profiles count as a player
+- **DM-only controls go inside `<DmOnly>`.** Hiding is only a convenience. `firestore.rules` is the real check, so every DM-only write needs its own rule and rules test.
+- **Roles change only through the admin script** (`npm run set-role`, see [Scripts](#scripts)). Never add a client write that touches `role`.
+- **Tests** render components inside `TestAuthProvider` and `TestUsersProvider` (`src/test/`) with fixed states, instead of talking to Firebase. `renderApp` takes a `users` option and returns `setUsers` to simulate a real-time profile change.
 
 ## Data access
 
@@ -175,6 +184,34 @@ Firestore is closed by default (`firestore.rules`). Opening a collection or docu
    Run `npm run test:emulator`.
 
 5. **Feature code.** Only now write the feature's `api.ts` and the UI that reads and writes the path.
+
+## Scripts
+
+Admin scripts in `scripts/` change data with the Admin SDK, outside the security rules: roles now, and the card import next. They work the same way against the emulators and against a real project, so data work is done once.
+
+- **Layout.**
+  - One file per command in `scripts/`, for example `set-role.ts`.
+  - Shared code lives in `scripts/lib/`:
+    - `target.ts`: target choice, confirmation, Admin SDK start
+    - `messages.ts`: the Turkish CLI text
+    - one module per task with the logic, for example `setRole.ts`
+  - Logic returns results. It does not print and does not exit, so it can be tested. The command file turns results into messages and exit codes.
+- **Running.**
+  - Scripts run on Node 24 directly (`node scripts/<name>.ts`), with an npm script per command, for example `npm run set-role -- --email … --role dm`.
+  - They use erasable TypeScript only (`erasableSyntaxOnly`), relative imports with the `.ts` extension, and no app code (no `@/` alias).
+  - Arguments are parsed with `node:util` `parseArgs`, merging `TARGET_OPTIONS`.
+- **Targets.**
+  - **Without `--project`,** a script uses the local emulators of `demo-legend-cards`. It stops with a clear message if they are not running.
+  - **With `--project <id>`,** it targets that real project:
+    - It uses Application Default Credentials (`gcloud auth application-default login`, or `GOOGLE_APPLICATION_CREDENTIALS`).
+    - It asks the user to type the project ID to confirm. `--yes` skips the question for deliberate, scripted runs.
+    - `demo-` IDs are refused, and so is a run where emulator variables are set at the same time.
+  - Start every script through `connect()` from `target.ts`. Never build your own Admin SDK app.
+- **Messages.** Output is Turkish, like the rest of the interface, and lives in `messages.ts`.
+- **Tests.**
+  - Unit-test target handling and argument rules in `scripts/**/*.test.ts`, with fake dependencies.
+  - Test the data logic against the emulators in `tests/<name>.emulator.test.ts`, with `openAdmin({ kind: 'emulator', … })`.
+  - Never point a test at a real project.
 
 ## Commits
 

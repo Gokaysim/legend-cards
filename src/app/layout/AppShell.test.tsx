@@ -2,7 +2,7 @@ import { act, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { testUser } from '@/test/fixtures'
+import { ready, testProfile, testUser } from '@/test/fixtures'
 import { renderApp } from '@/test/renderApp'
 
 afterEach(() => {
@@ -15,6 +15,9 @@ function setNetwork(online: boolean) {
     window.dispatchEvent(new Event(online ? 'online' : 'offline'))
   })
 }
+
+/** The signed-in user's badge in the desktop sidebar. */
+const userBadge = () => screen.getByRole('region', { name: 'Giriş yapan kullanıcı' })
 
 describe('AppShell', () => {
   it('shows the app name and the running version', () => {
@@ -31,16 +34,49 @@ describe('AppShell', () => {
       state: { status: 'signedIn', user: { ...testUser, photoURL } },
     })
 
-    expect(screen.getByText('Gökay')).toBeInTheDocument()
+    expect(within(userBadge()).getByText('Gökay')).toBeInTheDocument()
     expect(container.querySelector(`img[src="${photoURL}"]`)).not.toBeNull()
   })
 
   it('shows an initial instead of a picture when the account has none', () => {
-    const { container } = renderApp({ path: '/hands' })
+    renderApp({ path: '/hands' })
 
-    expect(screen.getByText('Gökay')).toBeInTheDocument()
-    expect(container.querySelector('img')).toBeNull()
-    expect(screen.getByText('G')).toBeInTheDocument()
+    expect(within(userBadge()).getByText('Gökay')).toBeInTheDocument()
+    expect(userBadge().querySelector('img')).toBeNull()
+    expect(within(userBadge()).getByText('G')).toBeInTheDocument()
+  })
+
+  it('shows "Oyuncu" for a player and "DM" for the DM', () => {
+    const { setUsers } = renderApp({ path: '/hands' })
+    expect(within(userBadge()).getByText('Oyuncu')).toBeInTheDocument()
+
+    setUsers({ currentProfile: ready(testProfile({ role: 'dm' })) })
+
+    expect(within(userBadge()).getByText('DM')).toBeInTheDocument()
+    expect(within(userBadge()).queryByText('Oyuncu')).not.toBeInTheDocument()
+  })
+
+  it('switches from "Oyuncu" to "DM" in place when the role changes, without remounting', () => {
+    const { setUsers } = renderApp({ path: '/hands' })
+    const badge = userBadge()
+
+    setUsers({ currentProfile: ready(testProfile({ role: 'dm' })) })
+
+    expect(userBadge()).toBe(badge)
+    expect(within(badge).getByText('DM')).toBeInTheDocument()
+  })
+
+  it('shows no role while the profile loads, and "Oyuncu" before the profile exists', () => {
+    const { setUsers } = renderApp({
+      path: '/hands',
+      users: { currentProfile: { status: 'loading' } },
+    })
+    expect(within(userBadge()).queryByText('Oyuncu')).not.toBeInTheDocument()
+    expect(within(userBadge()).queryByText('DM')).not.toBeInTheDocument()
+
+    setUsers({ currentProfile: ready(null) })
+
+    expect(within(userBadge()).getByText('Oyuncu')).toBeInTheDocument()
   })
 
   it('signs out from the sidebar', async () => {

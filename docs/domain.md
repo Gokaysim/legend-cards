@@ -30,7 +30,30 @@ The original app was a single offline HTML file used on one computer. The new ap
 | **DM** (Dungeon Master) | Runs the game, gives out and takes away LP, decides when packs are opened, and maintains the card data. |
 | **Player**              | A member of the group with a hand of cards, an LP balance, and learned True Words.                      |
 
-In the legacy app, the DM operated everything alone and players were just names in a list. The new app signs people in with Google. Roles (DM vs. player) are not defined yet; they come with the data model.
+In the legacy app, the DM operated everything alone and players were just names in a list. The new app signs people in with Google:
+
+- **There is one group.** Everyone who signs in is a player in it and gets a profile with their Google name and picture.
+- **The DM is set by an admin script** (`npm run set-role`), never from the app. In the owner's words, "admin" and "DM" are the same role.
+- **Every signed-in user can see everything**, including the other players' profiles and, later, their cards.
+- **Only the DM edits** the card data and does the DM-only card actions. Players do some card actions for themselves, such as opening packs and using their cards. These arrive with the later card changes.
+
+## Data model
+
+All data lives in Firestore. The paths that exist so far:
+
+| Path          | Holds                                                                                      | Who writes                                                                                                               |
+| ------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| `users/{uid}` | A user's profile: display name, picture, role (`player` or `dm`), creation time. No email. | The user creates their own profile as a player and updates the name and picture. Only the admin script changes the role. |
+
+The agreed target model for the coming changes is in the design of the OpenSpec change `add-user-roles` (after it is archived: `openspec/changes/archive/*-add-user-roles/design.md`, "Target data model"). It covers:
+
+- the card library (`cards`), where each normal card records whether it is in the pool or with a player
+- the permanent history of who held which card (`userCards`)
+- pack openings and draws (`draws`)
+- the party's shared GP (`party/main`)
+- the LP and GP history (`ledger`)
+
+Each change adds its path to this table.
 
 ## Glossary
 

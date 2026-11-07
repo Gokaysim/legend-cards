@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 
 import {
   assertFails,
+  assertSucceeds,
   initializeTestEnvironment,
   type RulesTestContext,
   type RulesTestEnvironment,
@@ -13,7 +14,9 @@ import {
   type Firestore,
   getDoc,
   getDocs,
+  serverTimestamp,
   setDoc,
+  Timestamp,
   updateDoc,
 } from 'firebase/firestore'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
@@ -103,5 +106,142 @@ describe('signed-in users are denied on paths no rule opens', () => {
   it('cannot list a collection', async () => {
     const db = firestoreOf(testEnv.authenticatedContext('alice'))
     await assertFails(getDocs(collection(db, 'players')))
+  })
+})
+
+describe('user profiles (users/{uid})', () => {
+  const seededProfile = (role: 'player' | 'dm', displayName: string) => ({
+    displayName,
+    photoURL: null,
+    role,
+    createdAt: Timestamp.fromMillis(0),
+  })
+
+  /** A new profile as the application creates it. */
+  const newProfile = (overrides: Record<string, unknown> = {}) => ({
+    displayName: 'Alice',
+    photoURL: 'https://example.com/alice.png',
+    role: 'player',
+    createdAt: serverTimestamp(),
+    ...overrides,
+  })
+
+  beforeEach(async () => {
+    // Bob is a player, Dana is the DM. The DM role can only be seeded with rules disabled: no client may set it.
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(firestoreOf(admin), 'users/bob'), seededProfile('player', 'Bob'))
+      await setDoc(doc(firestoreOf(admin), 'users/dana'), seededProfile('dm', 'Dana'))
+    })
+  })
+
+  const as = (uid: string) => firestoreOf(testEnv.authenticatedContext(uid))
+
+  describe('reading', () => {
+    it('lets a signed-in user read their own profile, other profiles, and the whole list', async () => {
+      await assertSucceeds(getDoc(doc(as('bob'), 'users/bob')))
+      await assertSucceeds(getDoc(doc(as('bob'), 'users/dana')))
+      await assertSucceeds(getDocs(collection(as('alice'), 'users')))
+    })
+
+    it('denies signed-out reads', async () => {
+      const db = firestoreOf(testEnv.unauthenticatedContext())
+      await assertFails(getDoc(doc(db, 'users/bob')))
+      await assertFails(getDocs(collection(db, 'users')))
+    })
+  })
+
+  describe('creating', () => {
+    it('lets a user create their own profile as a player with the server time', async () => {
+      await assertSucceeds(setDoc(doc(as('alice'), 'users/alice'), newProfile()))
+    })
+
+    it('allows a profile without a name or picture', async () => {
+      await assertSucceeds(
+        setDoc(doc(as('alice'), 'users/alice'), newProfile({ displayName: null, photoURL: null })),
+      )
+    })
+
+    it("denies creating another user's profile", async () => {
+      await assertFails(setDoc(doc(as('alice'), 'users/carol'), newProfile()))
+    })
+
+    it('denies claiming the DM role', async () => {
+      await assertFails(setDoc(doc(as('alice'), 'users/alice'), newProfile({ role: 'dm' })))
+    })
+
+    it('denies a creation time other than the server time', async () => {
+      await assertFails(
+        setDoc(doc(as('alice'), 'users/alice'), newProfile({ createdAt: Timestamp.fromMillis(0) })),
+      )
+    })
+
+    it('denies extra fields, such as an email address', async () => {
+      await assertFails(
+        setDoc(doc(as('alice'), 'users/alice'), newProfile({ email: 'alice@example.com' })),
+      )
+    })
+
+    it('denies a profile with a missing field', async () => {
+      const { photoURL: _photoURL, ...withoutPhoto } = newProfile()
+      await assertFails(setDoc(doc(as('alice'), 'users/alice'), withoutPhoto))
+    })
+
+    it('denies an empty or over-long name and an over-long picture URL', async () => {
+      const ref = doc(as('alice'), 'users/alice')
+      await assertFails(setDoc(ref, newProfile({ displayName: '' })))
+      await assertFails(setDoc(ref, newProfile({ displayName: 'x'.repeat(101) })))
+      await assertFails(setDoc(ref, newProfile({ photoURL: 'x'.repeat(2049) })))
+    })
+  })
+
+  describe('updating', () => {
+    it('lets a user change their own name and picture', async () => {
+      await assertSucceeds(
+        updateDoc(doc(as('bob'), 'users/bob'), {
+          displayName: 'Bobby',
+          photoURL: 'https://example.com/b.png',
+        }),
+      )
+    })
+
+    it('denies a user changing their own role', async () => {
+      await assertFails(updateDoc(doc(as('bob'), 'users/bob'), { role: 'dm' }))
+      expect(await readAsAdmin('users/bob')).toMatchObject({ role: 'player' })
+    })
+
+    it('denies a user changing their own creation time or adding fields', async () => {
+      await assertFails(
+        updateDoc(doc(as('bob'), 'users/bob'), { createdAt: Timestamp.fromMillis(1000) }),
+      )
+      await assertFails(updateDoc(doc(as('bob'), 'users/bob'), { email: 'bob@example.com' }))
+    })
+
+    it('denies an invalid name on update', async () => {
+      await assertFails(updateDoc(doc(as('bob'), 'users/bob'), { displayName: '' }))
+    })
+
+    it("denies the DM changing another user's profile or role", async () => {
+      await assertFails(updateDoc(doc(as('dana'), 'users/bob'), { displayName: 'Renamed' }))
+      await assertFails(updateDoc(doc(as('dana'), 'users/bob'), { role: 'dm' }))
+      expect(await readAsAdmin('users/bob')).toMatchObject({ displayName: 'Bob', role: 'player' })
+    })
+
+    it('denies the DM removing their own role from the application', async () => {
+      await assertFails(updateDoc(doc(as('dana'), 'users/dana'), { role: 'player' }))
+    })
+
+    it('denies signed-out writes', async () => {
+      const db = firestoreOf(testEnv.unauthenticatedContext())
+      await assertFails(updateDoc(doc(db, 'users/bob'), { displayName: 'X' }))
+      await assertFails(setDoc(doc(db, 'users/eve'), newProfile()))
+    })
+  })
+
+  describe('deleting', () => {
+    it('denies every delete, including of the own profile and by the DM', async () => {
+      await assertFails(deleteDoc(doc(as('bob'), 'users/bob')))
+      await assertFails(deleteDoc(doc(as('dana'), 'users/bob')))
+      expect(await readAsAdmin('users/bob')).toBeDefined()
+    })
   })
 })

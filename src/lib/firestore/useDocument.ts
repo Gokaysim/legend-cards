@@ -1,7 +1,13 @@
 import { type DocumentReference, onSnapshot, refEqual } from 'firebase/firestore'
 
 import { toSubscriptionError } from './errors'
-import { type SubscribeFn, type Subscription, useSnapshotSubscription } from './subscription'
+import {
+  equalOrBothNull,
+  type SubscribeFn,
+  subscribeOrEmpty,
+  type Subscription,
+  useSnapshotSubscription,
+} from './subscription'
 
 function subscribeToDocument<T>(
   ref: DocumentReference<T>,
@@ -32,14 +38,24 @@ function subscribeToDocument<T>(
   )
 }
 
+const refEqualOrBothNull = equalOrBothNull(refEqual)
+const subscribeToDocumentOrNothing = subscribeOrEmpty<DocumentReference<unknown>, unknown>(
+  subscribeToDocument,
+  null,
+)
+
 /**
  * Subscribes to one document in real time. A missing document is `ready` with `data: null`.
  * Build `ref` with a converter from `createConverter`, so the data is validated and typed.
+ * Pass `null` when there is nothing to subscribe to yet: the result is `ready` with `data: null`.
  */
-export function useDocument<T>(ref: DocumentReference<T>): Subscription<T | null> {
+export function useDocument<T>(ref: DocumentReference<T> | null): Subscription<T | null> {
   return useSnapshotSubscription(
     ref,
-    refEqual,
-    subscribeToDocument as SubscribeFn<DocumentReference<T>, T | null>,
+    refEqualOrBothNull as (
+      a: DocumentReference<T> | null,
+      b: DocumentReference<T> | null,
+    ) => boolean,
+    subscribeToDocumentOrNothing as SubscribeFn<DocumentReference<T> | null, T | null>,
   )
 }

@@ -61,3 +61,28 @@ export function useSnapshotSubscription<Target, Data>(
   if (targetChanged) return LOADING
   return result !== null && result.target === current ? result.state : LOADING
 }
+
+/** Wraps an equality check for optional targets: `null` (no target) equals only `null`. */
+export function equalOrBothNull<Target>(
+  isEqual: (a: Target, b: Target) => boolean,
+): (a: Target | null, b: Target | null) => boolean {
+  return (a, b) => (a === null || b === null ? a === b : isEqual(a, b))
+}
+
+/**
+ * Wraps a subscribe function for optional targets. Without a target it listens to nothing and reports
+ * `ready` with `emptyData` at once, for example while nobody is signed in.
+ * Call it once at module level: the result must be stable, because subscriptions restart when it changes.
+ */
+export function subscribeOrEmpty<Target, Data>(
+  subscribe: SubscribeFn<Target, Data>,
+  emptyData: Data,
+): SubscribeFn<Target | null, Data> {
+  return (target, emit) => {
+    if (target === null) {
+      emit({ status: 'ready', data: emptyData, fromCache: false, hasPendingWrites: false })
+      return () => {}
+    }
+    return subscribe(target, emit)
+  }
+}

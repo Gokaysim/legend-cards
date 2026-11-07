@@ -67,10 +67,3 @@ A signed-in user SHALL be able to sign out from the shell. Signing out SHALL end
 #### Scenario: Protected screens after sign-out
 - **WHEN** a user who has signed out uses the browser's back button to return to a protected screen
 - **THEN** the sign-in screen is shown instead of that screen
-
-### Requirement: No role distinctions yet
-All signed-in users SHALL get the same access in the application. Distinctions between roles, such as DM and player, SHALL NOT exist until a later change defines them.
-
-#### Scenario: Two different accounts
-- **WHEN** two different Google accounts sign in
-- **THEN** both see the same screens and the same navigation

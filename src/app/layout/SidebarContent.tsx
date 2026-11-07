@@ -1,5 +1,7 @@
 import { NavLink } from 'react-router'
 
+import { PlayerList } from '@/features/users/PlayerList'
+import { useProfiles } from '@/features/users/usersContext'
 import { cn } from '@/lib/cn'
 
 import { SCREENS } from '../screens'
@@ -10,8 +12,9 @@ export type SidebarContentProps = {
   onNavigate?: () => void
 }
 
-/** App name, version, the screen navigation and the signed-in user. Shared by the sidebar and the mobile menu. */
+/** App name, version, the screen navigation, the players and the signed-in user. Shared by the sidebar and the mobile menu. */
 export function SidebarContent({ onNavigate }: SidebarContentProps) {
+  const profiles = useProfiles()
   return (
     <div className="flex h-full flex-col gap-6 p-5">
       <div>
@@ -38,6 +41,7 @@ export function SidebarContent({ onNavigate }: SidebarContentProps) {
           </NavLink>
         ))}
       </nav>
+      <PlayerList profiles={profiles} />
       <div className="mt-auto">
         <UserBadge />
       </div>
