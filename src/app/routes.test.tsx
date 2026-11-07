@@ -8,18 +8,20 @@ import { SCREENS } from './screens'
 
 const EXPECTED_LABELS = [
   'Oyuncu elleri',
-  'Pack Shop',
+  'Shops',
   'True Words',
+  'Custom Card Draft',
   'Kart kütüphanesi',
   'Cursed Deck',
   'İşlem Logu',
+  'Kurallar',
   'Veri / Yedek',
 ]
 
 const mainMenu = () => screen.getByRole('navigation', { name: 'Ana menü' })
 
 describe('routes and navigation', () => {
-  it('lists the seven screens in the legacy order', () => {
+  it('lists the main screens in the legacy v2.2.8 order', () => {
     renderApp({ path: '/hands' })
 
     const labels = within(mainMenu())
@@ -41,13 +43,19 @@ describe('routes and navigation', () => {
     'navigates to %s and marks it as current',
     async (label, path) => {
       const user = userEvent.setup()
-      const { router } = renderApp({ path: path === '/hands' ? '/shop' : '/hands' })
+      const { router } = renderApp({ path: path === '/hands' ? '/rules' : '/hands' })
 
       await user.click(within(mainMenu()).getByRole('link', { name: label }))
 
       expect(router.state.location.pathname).toBe(path)
       expect(screen.getByRole('heading', { level: 1, name: label })).toBeInTheDocument()
-      expect(screen.getByText('Bu ekran henüz hazır değil.')).toBeInTheDocument()
+      if (path === '/shops') {
+        // The Shops hub is a real screen: it leads to the two shops instead of a not-ready note.
+        expect(screen.getByRole('link', { name: 'Pack Shop' })).toBeInTheDocument()
+        expect(screen.getByRole('link', { name: 'Elixir Shop' })).toBeInTheDocument()
+      } else {
+        expect(screen.getByText('Bu ekran henüz hazır değil.')).toBeInTheDocument()
+      }
       expect(within(mainMenu()).getByRole('link', { name: label })).toHaveAttribute(
         'aria-current',
         'page',

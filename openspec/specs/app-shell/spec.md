@@ -7,11 +7,11 @@ Provides the frame that signed-in users work in: the navigation between the main
 ## Requirements
 
 ### Requirement: Main screen navigation
-The shell SHALL offer navigation to seven screens, with these labels in this order: "Oyuncu elleri", "Pack Shop", "True Words", "Kart kütüphanesi", "Cursed Deck", "İşlem Logu", "Veri / Yedek". Each screen SHALL have its own URL, so it can be bookmarked and reloaded. The navigation SHALL mark the current screen.
+The shell SHALL offer navigation to nine screens, with these labels in this order: "Oyuncu elleri", "Shops", "True Words", "Custom Card Draft", "Kart kütüphanesi", "Cursed Deck", "İşlem Logu", "Kurallar", "Veri / Yedek". Each screen SHALL have its own URL, so it can be bookmarked and reloaded. The navigation SHALL mark the current screen.
 
 #### Scenario: Navigating between screens
-- **WHEN** a signed-in user selects "Pack Shop" in the navigation
-- **THEN** the Pack Shop screen is shown, the URL changes to that screen's address, and "Pack Shop" is marked as the current screen
+- **WHEN** a signed-in user selects "Kurallar" in the navigation
+- **THEN** the Kurallar screen is shown, the URL changes to that screen's address, and "Kurallar" is marked as the current screen
 
 #### Scenario: Reloading a screen URL
 - **WHEN** a signed-in user reloads the browser on the True Words screen's URL
@@ -85,3 +85,21 @@ The shell SHALL show the application name "Legend Cards" and the current applica
 #### Scenario: Seeing the version
 - **WHEN** a signed-in user looks at the navigation area
 - **THEN** it shows "Legend Cards" and the version number of the running build
+### Requirement: Shops hub
+The Shops screen SHALL lead to two shop sub-screens: "Pack Shop" and "Elixir Shop". Each sub-screen SHALL have its own URL below the Shops screen's URL and SHALL offer a way back to the Shops screen. While a shop sub-screen is shown, the navigation SHALL mark "Shops" as the current screen. The sub-screens SHALL NOT be separate entries in the navigation.
+
+#### Scenario: Choosing a shop
+- **WHEN** a signed-in user on the Shops screen selects "Pack Shop"
+- **THEN** the Pack Shop screen is shown, the URL changes to the Pack Shop address below the Shops address, and "Shops" stays marked as the current screen in the navigation
+
+#### Scenario: Opening an unbuilt shop
+- **WHEN** a signed-in user opens the Elixir Shop screen before any Elixir Shop feature exists
+- **THEN** the screen shows the title "Elixir Shop", a note saying the screen is not ready yet, and a link back to the Shops screen
+
+#### Scenario: Going back to Shops
+- **WHEN** a signed-in user on the Pack Shop screen follows the link back to Shops
+- **THEN** the Shops screen is shown with both shop choices
+
+#### Scenario: Reloading a shop URL
+- **WHEN** a signed-in user reloads the browser on the Elixir Shop screen's URL
+- **THEN** the Elixir Shop screen is shown again and "Shops" is marked as the current screen

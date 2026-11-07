@@ -135,7 +135,7 @@ All stored data lives in Firestore and is read in real time.
 
 ## Adding a new screen
 
-The seven main screens were added this way. A new one follows the same steps:
+The main screens were added this way. A new one follows the same steps:
 
 1. **Feature folder.** Create `src/features/<name>/` in kebab-case, for example `src/features/pack-history/`.
 2. **Page component.** Add `<Name>Page.tsx` there, exporting a named `<Name>Page` component. Start with `<Placeholder title={screenById('<id>').label} />` until the feature exists.
@@ -152,6 +152,13 @@ The seven main screens were added this way. A new one follows the same steps:
 6. **Tests.** Extend `src/app/routes.test.tsx`: the expected label list and the navigation tests cover every screen in `SCREENS`.
 
 A screen that is not part of the main menu (for example a detail page) gets a route in `routes.tsx` under the `AppShell` children, but no `SCREENS` entry.
+
+**Sub-screens of a menu screen** follow the Shops screen:
+
+- **One list.** The sub-screens are listed in their own array next to `SCREENS` (for Shops, `SHOP_SCREENS` in `src/app/screens.ts`). `routes.tsx` maps that list to routes with a typed page record, and the parent screen renders its links from the same list.
+- **Paths.** Each sub-screen's path sits below the parent's path, for example `/shops/packs` under `/shops`. The menu's `NavLink` then keeps the parent marked while a sub-screen is open, with no extra code.
+- **Back link.** Each sub-screen shows a link back to the parent in its header (`Placeholder` and `PageHeader` take `actions`), because on phones the menu is hidden behind a button.
+- **Tests.** Cover the parent's links, the parent staying marked, and the back link, as in `src/features/shops/ShopsPage.test.tsx`.
 
 ## Adding a new data path
 

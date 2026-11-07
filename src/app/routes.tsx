@@ -5,25 +5,43 @@ import { ActivityLogPage } from '@/features/activity-log/ActivityLogPage'
 import { RequireAuth, SIGN_IN_PATH } from '@/features/auth/RequireAuth'
 import { SignInPage } from '@/features/auth/SignInPage'
 import { CursedDeckPage } from '@/features/cursed-deck/CursedDeckPage'
+import { CustomDraftPage } from '@/features/custom-draft/CustomDraftPage'
 import { HandsPage } from '@/features/hands/HandsPage'
 import { LibraryPage } from '@/features/library/LibraryPage'
+import { RulesPage } from '@/features/rules/RulesPage'
 import { SettingsPage } from '@/features/settings/SettingsPage'
-import { ShopPage } from '@/features/shop/ShopPage'
+import { ElixirShopPage } from '@/features/shops/ElixirShopPage'
+import { PackShopPage } from '@/features/shops/PackShopPage'
+import { ShopsPage } from '@/features/shops/ShopsPage'
 import { TrueWordsPage } from '@/features/true-words/TrueWordsPage'
 
 import { AppShell } from './layout/AppShell'
 import { NotFoundPage } from './NotFoundPage'
-import { DEFAULT_SCREEN_PATH, SCREENS, type ScreenId } from './screens'
+import {
+  DEFAULT_SCREEN_PATH,
+  SCREENS,
+  SHOP_SCREENS,
+  type ScreenId,
+  type ShopScreenId,
+} from './screens'
 
 /** The page for each screen. TypeScript requires an entry for every screen in SCREENS. */
 const pages: Record<ScreenId, ReactNode> = {
   hands: <HandsPage />,
-  shop: <ShopPage />,
+  shops: <ShopsPage />,
   'true-words': <TrueWordsPage />,
+  'custom-draft': <CustomDraftPage />,
   library: <LibraryPage />,
   'cursed-deck': <CursedDeckPage />,
   'activity-log': <ActivityLogPage />,
+  rules: <RulesPage />,
   settings: <SettingsPage />,
+}
+
+/** The page for each Shops sub-screen. TypeScript requires an entry for every screen in SHOP_SCREENS. */
+const shopPages: Record<ShopScreenId, ReactNode> = {
+  'pack-shop': <PackShopPage />,
+  'elixir-shop': <ElixirShopPage />,
 }
 
 export const routes: RouteObject[] = [
@@ -37,6 +55,7 @@ export const routes: RouteObject[] = [
         children: [
           { path: '/', element: <Navigate to={DEFAULT_SCREEN_PATH} replace /> },
           ...SCREENS.map((screen) => ({ path: screen.path, element: pages[screen.id] })),
+          ...SHOP_SCREENS.map((screen) => ({ path: screen.path, element: shopPages[screen.id] })),
           { path: '*', element: <NotFoundPage /> },
         ],
       },
