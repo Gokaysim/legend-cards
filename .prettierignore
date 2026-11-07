@@ -1,0 +1,9 @@
+dist/
+coverage/
+reference/
+openspec/
+.agents/
+.claude/
+.firebase/
+.firebase-emulator-data/
+package-lock.json

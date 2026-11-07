@@ -1,0 +1,43 @@
+/*
+ * Design tokens taken from the legacy design (reference/legacy).
+ * Components use only these semantic tokens: no raw hex values in class names.
+ * Tailwind's default palette is switched off, so only these colors exist.
+ */
+@theme {
+  --color-*: initial;
+
+  /* Surfaces */
+  --color-canvas: #0c111a;
+  --color-sidebar: #131a26;
+  --color-pane: #171f2d;
+  --color-pane-raised: #202a3b;
+  --color-line: #344052;
+
+  /* Text */
+  --color-ink: #e9edf5;
+  --color-ink-muted: #aab7ca;
+
+  /* Controls */
+  --color-control: #29364c;
+  --color-control-line: #50617a;
+  --color-primary: #81632c;
+  --color-primary-line: #d0a35a;
+  --color-on-primary: #ffffff;
+  --color-danger-line: #985e68;
+  --color-danger-ink: #ffd6d6;
+
+  /* Accents */
+  --color-gold: #eac57e;
+  --color-green: #65c9a3;
+
+  /* Card kinds */
+  --color-cursed: #ff526d;
+  --color-cursed-soft: #ffc1c9;
+  --color-blessed: #fff4c1;
+  --color-blessed-pill: #e8e3ce;
+  --color-true-word: #c7b5ff;
+  --color-true-word-line: #9a87d1;
+
+  /* Type */
+  --font-sans: Inter, 'Segoe UI', Arial, sans-serif;
+}

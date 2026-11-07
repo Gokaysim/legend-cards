@@ -1,0 +1,22 @@
+rules_version = '2';
+
+// Firestore security rules for Legend Card Manager.
+//
+// Access is closed by default. A later change opens a data path by adding an explicit `match` block above
+// the catch-all. Each opened path combines isSignedIn() with its own checks and comes with emulator rules tests
+// (see "Adding a new data path" in docs/conventions.md).
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // True when the request comes from a signed-in user. Every opened path must require it.
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Closed catch-all: anything no rule grants is denied, for signed-in and signed-out users alike.
+    // A request is allowed if ANY matching rule allows it, so this never overrides a deliberately opened path.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

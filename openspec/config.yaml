@@ -1,0 +1,15 @@
+schema: spec-driven
+
+# Project context: constraints that guide OpenSpec artifacts and workflows.
+context: |
+  Legend Card Manager is a real-time tracker (not a game engine) for a DM's side card system in a D&D 5e group.
+  Stack: React + strict TypeScript single-page app on Vite, Tailwind CSS v4, Firebase Auth (Google sign-in),
+  Firestore with real-time listeners, Firebase Hosting.
+  Write all artifacts, code, comments and docs in English. All user-facing interface text is Turkish;
+  game terms (Pack, Cursed, Blessed, True Words, LP) stay in English.
+  Node.js 24 via nvm: non-interactive shells start on Node 20, so run `. ~/.nvm/nvm.sh && nvm use` before any npm or node command.
+  Development is emulator-first on the demo project `demo-legend-cards`; never touch a real Firebase project unless the user asks.
+  Firestore access is deny-by-default; every new data path needs explicit rules plus emulator rules tests.
+  reference/legacy/Legend_Card_Manager_v2.1.15.html is a design and behavior reference only: never edit or port it.
+  Legacy rules that look odd are deliberate DM decisions catalogued in docs/domain.md; do not "fix" them unless asked.
+  Domain vocabulary: docs/domain.md. Code conventions: docs/conventions.md.

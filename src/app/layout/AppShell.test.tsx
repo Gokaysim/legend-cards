@@ -1,0 +1,96 @@
+import { act, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+import { testUser } from '@/test/fixtures'
+import { renderApp } from '@/test/renderApp'
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
+
+function setNetwork(online: boolean) {
+  vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(online)
+  act(() => {
+    window.dispatchEvent(new Event(online ? 'online' : 'offline'))
+  })
+}
+
+describe('AppShell', () => {
+  it('shows the app name and the running version', () => {
+    renderApp({ path: '/hands' })
+
+    expect(screen.getAllByText('✦ Legend Cards').length).toBeGreaterThan(0)
+    expect(screen.getByText(`v${__APP_VERSION__}`)).toBeInTheDocument()
+  })
+
+  it('shows the signed-in user with their picture', () => {
+    const photoURL = 'https://example.com/avatar.png'
+    const { container } = renderApp({
+      path: '/hands',
+      state: { status: 'signedIn', user: { ...testUser, photoURL } },
+    })
+
+    expect(screen.getByText('Gökay')).toBeInTheDocument()
+    expect(container.querySelector(`img[src="${photoURL}"]`)).not.toBeNull()
+  })
+
+  it('shows an initial instead of a picture when the account has none', () => {
+    const { container } = renderApp({ path: '/hands' })
+
+    expect(screen.getByText('Gökay')).toBeInTheDocument()
+    expect(container.querySelector('img')).toBeNull()
+    expect(screen.getByText('G')).toBeInTheDocument()
+  })
+
+  it('signs out from the sidebar', async () => {
+    const user = userEvent.setup()
+    const signOut = vi.fn(() => Promise.resolve())
+    renderApp({ path: '/hands', signOut })
+
+    await user.click(screen.getByRole('button', { name: 'Çıkış yap' }))
+
+    expect(signOut).toHaveBeenCalledTimes(1)
+  })
+
+  it('opens the mobile menu and closes it after choosing a screen', async () => {
+    const user = userEvent.setup()
+    const { router } = renderApp({ path: '/hands' })
+    const menuButton = screen.getByRole('button', { name: '☰ Menü' })
+    expect(menuButton).toHaveAttribute('aria-expanded', 'false')
+
+    await user.click(menuButton)
+    const drawer = screen.getByRole('dialog', { name: 'Menü' })
+    expect(menuButton).toHaveAttribute('aria-expanded', 'true')
+
+    await user.click(within(drawer).getByRole('link', { name: 'Cursed Deck' }))
+
+    expect(router.state.location.pathname).toBe('/cursed-deck')
+    expect(screen.queryByRole('dialog', { name: 'Menü' })).not.toBeInTheDocument()
+  })
+
+  it('closes the mobile menu with Escape or the backdrop', async () => {
+    const user = userEvent.setup()
+    renderApp({ path: '/hands' })
+
+    await user.click(screen.getByRole('button', { name: '☰ Menü' }))
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog', { name: 'Menü' })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '☰ Menü' }))
+    await user.click(screen.getByRole('button', { name: 'Menüyü kapat' }))
+    expect(screen.queryByRole('dialog', { name: 'Menü' })).not.toBeInTheDocument()
+  })
+
+  it('shows the offline banner while offline and hides it when back online', () => {
+    renderApp({ path: '/hands' })
+    const bannerText = 'Çevrimdışısın — değişiklikler bağlantı gelince eşitlenecek.'
+    expect(screen.queryByText(bannerText)).not.toBeInTheDocument()
+
+    setNetwork(false)
+    expect(screen.getByText(bannerText)).toBeInTheDocument()
+
+    setNetwork(true)
+    expect(screen.queryByText(bannerText)).not.toBeInTheDocument()
+  })
+})

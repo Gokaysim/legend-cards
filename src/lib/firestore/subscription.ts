@@ -1,0 +1,63 @@
+import type { Unsubscribe } from 'firebase/firestore'
+import { useEffect, useState } from 'react'
+
+import type { SubscriptionError } from './errors'
+
+/** The state of a real-time subscription. Feature code branches on `status`. */
+export type Subscription<T> =
+  | { status: 'loading' }
+  | {
+      status: 'ready'
+      data: T
+      /** The data came from the local cache, not (yet) confirmed by the server. */
+      fromCache: boolean
+      /** The data includes local writes the server has not confirmed yet. */
+      hasPendingWrites: boolean
+    }
+  | { status: 'error'; error: SubscriptionError }
+
+const LOADING = { status: 'loading' } as const
+
+/** Starts listening to `target` and reports every new state through `emit`. Returns the unsubscribe function. */
+export type SubscribeFn<Target, Data> = (
+  target: Target,
+  emit: (state: Subscription<Data>) => void,
+) => Unsubscribe
+
+/**
+ * Shared core of `useDocument` and `useCollection`.
+ *
+ * - Resubscribes only when `isEqual` says the target changed, so a new but equal ref on every render is fine.
+ * - Results are stored together with the target they belong to. A result for an old target is never
+ *   returned: after a switch the state is `loading` until the new target reports.
+ * - Cleanup unsubscribes, and a late callback after cleanup is dropped.
+ */
+export function useSnapshotSubscription<Target, Data>(
+  target: Target,
+  isEqual: (a: Target, b: Target) => boolean,
+  subscribe: SubscribeFn<Target, Data>,
+): Subscription<Data> {
+  const [current, setCurrent] = useState(target)
+  const targetChanged = current !== target && !isEqual(current, target)
+  if (targetChanged) {
+    // Adjusting state during render: React re-renders immediately with the new target.
+    setCurrent(target)
+  }
+
+  const [result, setResult] = useState<{ target: Target; state: Subscription<Data> } | null>(null)
+
+  useEffect(() => {
+    let active = true
+    const unsubscribe = subscribe(current, (state) => {
+      if (active) setResult({ target: current, state })
+    })
+    return () => {
+      active = false
+      unsubscribe()
+    }
+  }, [current, subscribe])
+
+  // In the render where the target changes, `current` is still the old target: never hand out its data.
+  if (targetChanged) return LOADING
+  return result !== null && result.target === current ? result.state : LOADING
+}
