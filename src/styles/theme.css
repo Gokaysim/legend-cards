@@ -31,6 +31,9 @@
   --color-green: #65c9a3;
 
   /* Card kinds */
+  /* Common cards have a purple frame (Kurallar: "Mor çerçeveli kartlar"). Its own token, so it is not
+     confused with the True Words purple. Used for borders only: keeps 3:1 against the panes. */
+  --color-common: #a46be0;
   --color-cursed: #ff526d;
   --color-cursed-soft: #ffc1c9;
   --color-blessed: #fff4c1;

@@ -14,10 +14,12 @@ import {
   type Firestore,
   getDoc,
   getDocs,
+  query,
   serverTimestamp,
   setDoc,
   Timestamp,
   updateDoc,
+  where,
 } from 'firebase/firestore'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
@@ -25,7 +27,7 @@ const PROJECT_ID = 'demo-legend-cards'
 
 /** Arbitrary paths, including names a later data model might use. None of them is opened yet. */
 const SAMPLE_PATHS = [
-  'cards/card-1',
+  'draws/draw-1',
   'players/player-1',
   'players/player-1/hand/entry-1',
   'anything/at/any/depth',
@@ -85,7 +87,7 @@ describe('signed-out users have no access', () => {
 
   it('cannot list a collection', async () => {
     const db = firestoreOf(testEnv.unauthenticatedContext())
-    await assertFails(getDocs(collection(db, 'cards')))
+    await assertFails(getDocs(collection(db, 'players')))
   })
 })
 
@@ -243,5 +245,68 @@ describe('user profiles (users/{uid})', () => {
       await assertFails(deleteDoc(doc(as('dana'), 'users/bob')))
       expect(await readAsAdmin('users/bob')).toBeDefined()
     })
+  })
+})
+
+describe('card definitions (cards/{cardId})', () => {
+  const seededCard = {
+    kind: 'normal',
+    name: "Aboleth's Eyes",
+    nameKey: 'abolethseyes',
+    setCode: 'Kesqer',
+    cost: '1',
+    rarity: 'common',
+    mechanicPack: 'Arcanus Divine',
+    text: 'Gain Immune.',
+    retired: false,
+  }
+  const CARD_PATH = 'cards/legend-abolethseyes'
+
+  beforeEach(async () => {
+    // Bob is a player, Dana is the DM. Cards exist only through the import script, so they are seeded here.
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const db = firestoreOf(admin)
+      await setDoc(doc(db, 'users/bob'), {
+        displayName: 'Bob',
+        photoURL: null,
+        role: 'player',
+        createdAt: Timestamp.fromMillis(0),
+      })
+      await setDoc(doc(db, 'users/dana'), {
+        displayName: 'Dana',
+        photoURL: null,
+        role: 'dm',
+        createdAt: Timestamp.fromMillis(0),
+      })
+      await setDoc(doc(db, CARD_PATH), seededCard)
+      await setDoc(doc(db, 'cards/cursed-hex'), { ...seededCard, kind: 'cursed', retired: true })
+    })
+  })
+
+  const as = (uid: string) => firestoreOf(testEnv.authenticatedContext(uid))
+
+  it.each(['bob', 'dana'])('lets %s read a card and query the whole collection', async (uid) => {
+    await assertSucceeds(getDoc(doc(as(uid), CARD_PATH)))
+    const all = await assertSucceeds(getDocs(collection(as(uid), 'cards')))
+    expect(all.size).toBe(2)
+    await assertSucceeds(
+      getDocs(query(collection(as(uid), 'cards'), where('retired', '==', false))),
+    )
+  })
+
+  it('denies signed-out reads', async () => {
+    const db = firestoreOf(testEnv.unauthenticatedContext())
+    await assertFails(getDoc(doc(db, CARD_PATH)))
+    await assertFails(getDocs(collection(db, 'cards')))
+  })
+
+  it.each(['bob', 'dana'])('denies %s creating, changing or deleting a card', async (uid) => {
+    const db = as(uid)
+    await assertFails(setDoc(doc(db, 'cards/legend-newcard'), { ...seededCard, name: 'New Card' }))
+    await assertFails(updateDoc(doc(db, CARD_PATH), { text: 'Changed by the app.' }))
+    await assertFails(setDoc(doc(db, CARD_PATH), { ...seededCard, text: 'Overwritten.' }))
+    await assertFails(deleteDoc(doc(db, CARD_PATH)))
+    expect(await readAsAdmin(CARD_PATH)).toEqual(seededCard)
+    expect(await readAsAdmin('cards/legend-newcard')).toBeUndefined()
   })
 })

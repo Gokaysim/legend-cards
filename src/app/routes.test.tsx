@@ -2,6 +2,8 @@ import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
+import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
+import { ready } from '@/test/fixtures'
 import { renderApp } from '@/test/renderApp'
 
 import { SCREENS } from './screens'
@@ -19,6 +21,32 @@ const EXPECTED_LABELS = [
 ]
 
 const mainMenu = () => screen.getByRole('navigation', { name: 'Ana menü' })
+
+/** One card of each kind, so each card screen can show that it lists only its own deck. */
+const CARDS = ready([
+  testCard("Aboleth's Eyes"),
+  testBlessedCard('Dawn of Fortune'),
+  testCursedCard('Visions of Death'),
+])
+
+/** The screens that have real content, with what each one shows instead of the not-ready note. */
+const BUILT_SCREENS: Record<string, () => void> = {
+  // The Shops hub leads to the two shops.
+  '/shops': () => {
+    expect(screen.getByRole('link', { name: 'Pack Shop' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Elixir Shop' })).toBeInTheDocument()
+  },
+  // The card screens list their own deck only.
+  '/library': () => {
+    expect(screen.getByRole('article', { name: "Aboleth's Eyes" })).toBeInTheDocument()
+    expect(screen.getByRole('article', { name: 'Dawn of Fortune' })).toBeInTheDocument()
+    expect(screen.queryByRole('article', { name: 'Visions of Death' })).not.toBeInTheDocument()
+  },
+  '/cursed-deck': () => {
+    expect(screen.getByRole('article', { name: 'Visions of Death' })).toBeInTheDocument()
+    expect(screen.queryByRole('article', { name: "Aboleth's Eyes" })).not.toBeInTheDocument()
+  },
+}
 
 describe('routes and navigation', () => {
   it('lists the main screens in the legacy v2.2.8 order', () => {
@@ -43,16 +71,19 @@ describe('routes and navigation', () => {
     'navigates to %s and marks it as current',
     async (label, path) => {
       const user = userEvent.setup()
-      const { router } = renderApp({ path: path === '/hands' ? '/rules' : '/hands' })
+      const { router } = renderApp({
+        path: path === '/hands' ? '/rules' : '/hands',
+        cards: { cards: CARDS },
+      })
 
       await user.click(within(mainMenu()).getByRole('link', { name: label }))
 
       expect(router.state.location.pathname).toBe(path)
       expect(screen.getByRole('heading', { level: 1, name: label })).toBeInTheDocument()
-      if (path === '/shops') {
-        // The Shops hub is a real screen: it leads to the two shops instead of a not-ready note.
-        expect(screen.getByRole('link', { name: 'Pack Shop' })).toBeInTheDocument()
-        expect(screen.getByRole('link', { name: 'Elixir Shop' })).toBeInTheDocument()
+      const showsContent = BUILT_SCREENS[path]
+      if (showsContent) {
+        showsContent()
+        expect(screen.queryByText('Bu ekran henüz hazır değil.')).not.toBeInTheDocument()
       } else {
         expect(screen.getByText('Bu ekran henüz hazır değil.')).toBeInTheDocument()
       }

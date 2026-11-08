@@ -41,9 +41,10 @@ In the legacy app, the DM operated everything alone and players were just names 
 
 All data lives in Firestore. The paths that exist so far:
 
-| Path          | Holds                                                                                      | Who writes                                                                                                               |
-| ------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
-| `users/{uid}` | A user's profile: display name, picture, role (`player` or `dm`), creation time. No email. | The user creates their own profile as a player and updates the name and picture. Only the admin script changes the role. |
+| Path             | Holds                                                                                                                                                                                                                                  | Who writes                                                                                                                      |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `users/{uid}`    | A user's profile: display name, picture, role (`player` or `dm`), creation time. No email.                                                                                                                                             | The user creates their own profile as a player and updates the name and picture. Only the admin script changes the role.        |
+| `cards/{cardId}` | One card definition: kind (`normal`, `blessed` or `cursed`), name, normalized name, set code, cost, rarity, mechanic pack, text, and a `retired` flag. The ID is the deck plus the normalized name, for example `legend-abolethseyes`. | Only the card import script (`npm run import-cards`). No client writes cards, not even the DM. Every signed-in user reads them. |
 
 The agreed target model for the coming changes is in the design of the OpenSpec change `add-user-roles` (after it is archived: `openspec/changes/archive/*-add-user-roles/design.md`, "Target data model"). It covers:
 
@@ -54,6 +55,12 @@ The agreed target model for the coming changes is in the design of the OpenSpec 
 - the LP and GP history (`ledger`)
 
 Each change adds its path to this table.
+
+The card library refines the target model in three ways:
+
+- The set field is `setCode`, as agreed in `docs/conventions.md`.
+- Rarity is stored in lowercase (`common`, `rare`), and the interface shows "Common" and "Rare".
+- "Blessed" and "Cursed" in the CSV Set column are markers, not sets. They become the card's `kind`, and its `setCode` is empty (`null`). Blessed and Cursed cards have no rarity, and Cursed cards have no mechanic pack.
 
 ## Glossary
 

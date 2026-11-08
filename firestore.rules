@@ -46,6 +46,13 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Card definitions. Everyone signed in reads every card, retired ones included. No client writes them, not
+    // even the DM: only the import script (Admin SDK) does. Later changes open narrow writes (for example `holder`).
+    match /cards/{cardId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
     // Closed catch-all: anything no rule grants is denied, for signed-in and signed-out users alike.
     // A request is allowed if ANY matching rule allows it, so this never overrides a deliberately opened path.
     match /{document=**} {

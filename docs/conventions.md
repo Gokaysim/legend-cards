@@ -19,7 +19,7 @@ Turkish interface strings are written directly in the components. There is no tr
 src/
   main.tsx              entry: config check -> App (or ConfigErrorScreen)
   app/                  composition root
-    App.tsx             AuthProvider + UsersProvider + router
+    App.tsx             AuthProvider + UsersProvider + CardsProvider + router
     screens.ts          the single lists of screens (main menu and Shops sub-screens)
     routes.tsx          route table: sign-in, RequireAuth, AppShell, one route per screen, not-found
     layout/             AppShell, SidebarContent, MobileNav, UserBadge, OfflineBanner
@@ -27,7 +27,11 @@ src/
   features/             one folder per product area
     auth/               AuthProvider, useAuth, RequireAuth, SignInPage, authErrors
     users/              profiles and roles: schema, api, UsersProvider, useIsDm, DmOnly, PlayerList
-    hands/ shops/ true-words/ custom-draft/ library/ cursed-deck/ activity-log/ rules/ settings/
+    cards/              card definitions: schema, api, CardsProvider, useCards, useDeckCards, the official
+                        sets, search and sort helpers, and the card browser (CardBrowser, CardFace, CardTable)
+    library/ cursed-deck/
+                        the two card screens, each a <Name>Page.tsx around the shared card browser
+    hands/ shops/ true-words/ custom-draft/ activity-log/ rules/ settings/
                         each with its <Name>Page.tsx (placeholders for now)
   components/ui/        shared primitives: Avatar, Button, PageHeader, Placeholder, Spinner, FullScreenSpinner
   lib/
@@ -38,8 +42,9 @@ src/
   styles/
     index.css           Tailwind entry and base styles
     theme.css           design tokens
-  test/                 test setup and shared test helpers
+  test/                 test setup and shared test helpers (test providers for profiles and cards, fixtures)
 scripts/                admin scripts on Node with the Admin SDK (see Scripts)
+data/                   the owner's CSV data that the scripts import (see data/README.md)
 tests/                  emulator tests that need no app code: access rules, admin scripts
 ```
 
@@ -138,6 +143,9 @@ All stored data lives in Firestore and is read in real time.
   - `loading`: show a spinner or a skeleton.
   - `ready`: `data` holds the result. A missing document is `null`.
   - `error`: show a Turkish message based on `error.kind` (`permission-denied`, `invalid-data`, `unknown`).
+- **Shared data comes from a provider.** Data that many screens need is subscribed to once, in a provider mounted in `App.tsx`, and read through hooks. Each provider has a test provider in `src/test/` that `renderApp` uses, so unit tests never touch Firebase.
+  - Profiles: `useCurrentProfile()`, `useProfiles()`, `useIsDm()` (`UsersProvider`).
+  - Cards: `useCards()` for every active card, and `useDeckCards('legend' | 'cursed')` for one deck (`CardsProvider`). Retired cards are never in them.
 - **Staleness hints.** When `ready`, `fromCache: true` means the data has not been confirmed by the server (for example while offline), and `hasPendingWrites: true` means local changes are still waiting to sync. Show a subtle hint where it matters, for example next to an LP balance.
 - **Writing.** Write with the SDK (`setDoc`, `updateDoc`, `addDoc`, `runTransaction`, …) inside the feature's `api.ts`. Writes made offline are queued and sent when the connection returns. Do not wait for a write's promise before updating the UI: the subscription already shows the change as a pending write.
 - **Errors from Firebase.** Recognize Firebase errors by their `code`, not with `instanceof`. Firebase's error classes reset their prototype, so `instanceof FirestoreError` is false even for real Firestore errors.
@@ -187,14 +195,15 @@ Firestore is closed by default (`firestore.rules`). Opening a collection or docu
 
 ## Scripts
 
-Admin scripts in `scripts/` change data with the Admin SDK, outside the security rules: roles now, and the card import next. They work the same way against the emulators and against a real project, so data work is done once.
+Admin scripts in `scripts/` change data with the Admin SDK, outside the security rules: the roles (`set-role`) and the card definitions (`import-cards`). They work the same way against the emulators and against a real project, so data work is done once.
 
 - **Layout.**
   - One file per command in `scripts/`, for example `set-role.ts`.
   - Shared code lives in `scripts/lib/`:
     - `target.ts`: target choice, confirmation, Admin SDK start
     - `messages.ts`: the Turkish CLI text
-    - one module per task with the logic, for example `setRole.ts`
+    - one module per task with the logic, for example `setRole.ts`, `cardRows.ts` and `importCards.ts`
+    - `cardCatalog.ts`: the official sets and the mechanic packs the import checks against
   - Logic returns results. It does not print and does not exit, so it can be tested. The command file turns results into messages and exit codes.
 - **Running.**
   - Scripts run on Node 24 directly (`node scripts/<name>.ts`), with an npm script per command, for example `npm run set-role -- --email … --role dm`.
@@ -212,6 +221,16 @@ Admin scripts in `scripts/` change data with the Admin SDK, outside the security
   - Unit-test target handling and argument rules in `scripts/**/*.test.ts`, with fake dependencies.
   - Test the data logic against the emulators in `tests/<name>.emulator.test.ts`, with `openAdmin({ kind: 'emulator', … })`.
   - Never point a test at a real project.
+
+### The card import
+
+`npm run import-cards` loads the card definitions from the owner's CSV files in `data/` (see `data/README.md`).
+
+- **Files.** Without options it imports `data/legend-cards.csv` and `data/cursed-cards.csv`. `--legend <csv>` or `--cursed <csv>` imports only the decks named, and leaves the other deck alone.
+- **Check first.** Every file is checked completely before anything is written. Any error stops the run with the file and row number, and nothing changes. Warnings (a row without a set, an unknown set code or mechanic pack) do not stop it.
+- **Idempotent.** A card's ID is its deck plus its normalized name (`legend-abolethseyes`). An import adds, updates, or leaves each card alone, and retires the cards that are no longer in their file; it never deletes. It writes only the definition fields and `retired`, so fields owned by later features survive.
+- **Dry run.** `--dry-run` prints the same report without writing. Use it first against a real project.
+- **One catalog, two copies.** Scripts do not import app code, so the official sets and the name normalization live both in `scripts/lib/cardCatalog.ts` and in `src/features/cards/`. `scripts/lib/cardCatalog.drift.test.ts` fails when the two disagree: change both together.
 
 ## Commits
 

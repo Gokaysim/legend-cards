@@ -25,8 +25,8 @@ The shell SHALL offer navigation to nine screens, with these labels in this orde
 Until a screen's feature exists, that screen SHALL show its title and a short Turkish note saying the screen is not built yet. It SHALL NOT show data or controls that do nothing.
 
 #### Scenario: Opening an unbuilt screen
-- **WHEN** a signed-in user opens the Cursed Deck screen before any Cursed Deck feature exists
-- **THEN** the screen shows the title "Cursed Deck" and a note saying the screen is not ready yet
+- **WHEN** a signed-in user opens the Custom Card Draft screen before any Custom Card Draft feature exists
+- **THEN** the screen shows the title "Custom Card Draft" and a note saying the screen is not ready yet
 
 ### Requirement: Not-found page
 An unknown URL inside the application SHALL show a not-found message with a link back to the default screen.

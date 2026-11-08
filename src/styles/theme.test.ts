@@ -59,4 +59,18 @@ describe('theme tokens', () => {
   it('danger text on the sidebar has at least 4.5:1 contrast', () => {
     expect(contrastRatio(token('danger-ink'), token('sidebar'))).toBeGreaterThanOrEqual(4.5)
   })
+
+  // Card frames are non-text graphics: WCAG asks for at least 3:1 against the surface they sit on.
+  for (const frame of ['common', 'gold', 'blessed', 'cursed']) {
+    for (const surface of ['pane', 'pane-raised']) {
+      it(`${frame} card frame on ${surface} has at least 3:1 contrast`, () => {
+        expect(contrastRatio(token(frame), token(surface))).toBeGreaterThanOrEqual(3)
+      })
+    }
+  }
+
+  it('keeps the Common frame purple apart from the True Words purples', () => {
+    expect(token('common')).not.toBe(token('true-word'))
+    expect(token('common')).not.toBe(token('true-word-line'))
+  })
 })

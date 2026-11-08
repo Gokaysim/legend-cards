@@ -5,9 +5,9 @@ import { Placeholder } from './Placeholder'
 
 describe('Placeholder', () => {
   it('shows the screen title and the not-ready note', () => {
-    render(<Placeholder title="Cursed Deck" />)
+    render(<Placeholder title="Custom Card Draft" />)
 
-    expect(screen.getByRole('heading', { level: 1, name: 'Cursed Deck' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'Custom Card Draft' })).toBeInTheDocument()
     expect(screen.getByText('Bu ekran henüz hazır değil.')).toBeInTheDocument()
   })
 

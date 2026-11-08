@@ -1,0 +1,296 @@
+import { render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { describe, expect, it } from 'vitest'
+
+import type { Subscription } from '@/lib/firestore/subscription'
+import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
+import { ready } from '@/test/fixtures'
+
+import { CardBrowser } from './CardBrowser'
+import type { Card } from './schema'
+
+const LEGEND: Card[] = [
+  testCard('Greedy Hands', {
+    setCode: 'Kesqer',
+    mechanicPack: 'Risk & Reward',
+    text: 'Discard a card, then draw two.',
+  }),
+  testCard('Let Go', {
+    setCode: 'Havenholm',
+    mechanicPack: 'Risk & Reward',
+    text: 'Discard your hand.',
+  }),
+  testCard("Brünn's Batallion", {
+    setCode: 'The End Is Nigh',
+    mechanicPack: 'Blood & Battle',
+    rarity: 'rare',
+    text: 'Allies gain +1 to attack.',
+  }),
+  testCard("Hrolf's Hornswaggle", {
+    setCode: 'Havenholm',
+    mechanicPack: "Dungeoneer's Kit",
+    cost: null,
+    text: '[Uno] Add +10 a d20 roll. If this is your only card, add +20.',
+  }),
+  testCard('Pandemonic Roar', { setCode: 'Pandemonium', mechanicPack: 'Arcanus Divine' }),
+  testCard('Strange Find', { setCode: 'Ulagal', mechanicPack: 'Permamancy' }),
+  testBlessedCard('Dawn of Fortune', { mechanicPack: 'Risk & Reward' }),
+  testBlessedCard('Halo of Kings', { mechanicPack: 'Legends of Old' }),
+]
+
+const CURSED: Card[] = [
+  testCursedCard('Visions of Death', { text: 'Held: Every hour draw a cursed card.' }),
+  testCursedCard('Heart Attack', { text: 'Drawn: Make a Fortitude Check or die.' }),
+]
+
+const shownNames = () =>
+  within(screen.getByRole('list', { name: 'Kartlar' }))
+    .queryAllByRole('article')
+    .map((card) => card.getAttribute('aria-label'))
+
+const options = (name: string) =>
+  within(screen.getByRole('combobox', { name }))
+    .getAllByRole('option')
+    .map((option) => option.textContent)
+
+const search = () => screen.getByRole('searchbox', { name: 'Kart ara' })
+
+describe('CardBrowser states', () => {
+  it('shows a loading indicator while the cards load', () => {
+    render(<CardBrowser deck="legend" cards={{ status: 'loading' }} />)
+    expect(screen.getByRole('status')).toHaveTextContent('Kartlar yükleniyor…')
+  })
+
+  it('shows a Turkish error and no list when the cards cannot be read', () => {
+    render(
+      <CardBrowser
+        deck="cursed"
+        cards={{
+          status: 'error',
+          error: { kind: 'permission-denied', message: 'denied', path: 'cards' },
+        }}
+      />,
+    )
+    expect(screen.getByRole('alert')).toHaveTextContent('Kartlar yüklenemedi.')
+    expect(screen.queryByRole('list')).not.toBeInTheDocument()
+  })
+
+  it('points to the import when the stored data is invalid', () => {
+    render(
+      <CardBrowser
+        deck="legend"
+        cards={{
+          status: 'error',
+          error: { kind: 'invalid-data', message: 'bad', path: 'cards/legend-x' },
+        }}
+      />,
+    )
+    expect(screen.getByRole('alert')).toHaveTextContent('import')
+  })
+
+  it('says so when there are no cards at all', () => {
+    render(<CardBrowser deck="cursed" cards={ready([])} />)
+    expect(screen.getByText('Henüz kart yok.')).toBeInTheDocument()
+    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
+  })
+})
+
+describe('CardBrowser for the Legend deck', () => {
+  it('lists every card in name order and says how many it shows', () => {
+    render(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
+
+    expect(screen.getByText('8 kart')).toBeInTheDocument()
+    expect(shownNames()).toEqual([
+      "Brünn's Batallion",
+      'Dawn of Fortune',
+      'Greedy Hands',
+      'Halo of Kings',
+      "Hrolf's Hornswaggle",
+      'Let Go',
+      'Pandemonic Roar',
+      'Strange Find',
+    ])
+  })
+
+  it('needs every comma-separated term to match, and counts the matches', async () => {
+    const user = userEvent.setup()
+    render(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
+
+    await user.type(search(), 'discard, draw')
+
+    expect(shownNames()).toEqual(['Greedy Hands'])
+    expect(screen.getByText('1 kart (toplam 8)')).toBeInTheDocument()
+  })
+
+  it('ignores accents and case', async () => {
+    const user = userEvent.setup()
+    render(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
+
+    await user.type(search(), 'BRUNN')
+
+    expect(shownNames()).toEqual(["Brünn's Batallion"])
+  })
+
+  it('finds cards by the official set name', async () => {
+    const user = userEvent.setup()
+    render(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
+
+    await user.type(search(), 'Kesqerian')
+
+    expect(shownNames()).toEqual(['Greedy Hands'])
+  })
+
+  it('hides bracket text but still finds it', async () => {
+    const user = userEvent.setup()
+    render(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
+
+    expect(screen.getByRole('article', { name: "Hrolf's Hornswaggle" })).toHaveTextContent(
+      'Add +10 a d20 roll. If this is your only card, add +20.',
+    )
+    expect(screen.queryByText(/Uno/)).not.toBeInTheDocument()
+
+    await user.type(search(), 'uno')
+    expect(shownNames()).toEqual(["Hrolf's Hornswaggle"])
+  })
+
+  it('says so when nothing matches', async () => {
+    const user = userEvent.setup()
+    render(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
+
+    await user.type(search(), 'no such card anywhere')
+
+    expect(screen.getByText('Kart bulunamadı.')).toBeInTheDocument()
+    expect(screen.queryByRole('list', { name: 'Kartlar' })).not.toBeInTheDocument()
+    expect(screen.getByText('0 kart (toplam 8)')).toBeInTheDocument()
+  })
+
+  it('offers the sets in shop order with official names, Pandemonium last among sets, then Blessed', () => {
+    render(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
+    expect(options('Set')).toEqual([
+      'Tüm setler',
+      'The End is Nigh',
+      'Kesqerian Nights',
+      'Throne of Havenholm',
+      'Ballad of Ulagal',
+      'Pandemonium',
+      'Blessed',
+    ])
+  })
+
+  it('puts a set code without an official name after the known sets, as written', () => {
+    render(
+      <CardBrowser
+        deck="legend"
+        cards={ready([
+          testCard('Odd', { setCode: 'Kesqeria' }),
+          testCard('Owl', { setCode: 'Kesqer' }),
+        ])}
+      />,
+    )
+    expect(options('Set')).toEqual(['Tüm setler', 'Kesqerian Nights', 'Kesqeria'])
+  })
+
+  it('offers the mechanic packs in Turkish alphabetical order', () => {
+    render(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
+    expect(options('Mechanic Pack')).toEqual([
+      'Tüm mechanicler',
+      'Arcanus Divine',
+      'Blood & Battle',
+      "Dungeoneer's Kit",
+      'Legends of Old',
+      'Permamancy',
+      'Risk & Reward',
+    ])
+  })
+
+  it('filters by set, and shows only the Blessed cards for "Blessed"', async () => {
+    const user = userEvent.setup()
+    render(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Set' }), 'Throne of Havenholm')
+    expect(shownNames()).toEqual(["Hrolf's Hornswaggle", 'Let Go'])
+    expect(screen.getByText('2 kart (toplam 8)')).toBeInTheDocument()
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Set' }), 'Blessed')
+    expect(shownNames()).toEqual(['Dawn of Fortune', 'Halo of Kings'])
+  })
+
+  it('combines the set filter, the mechanic pack filter and the search', async () => {
+    const user = userEvent.setup()
+    render(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
+
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'Mechanic Pack' }),
+      'Risk & Reward',
+    )
+    expect(shownNames()).toEqual(['Dawn of Fortune', 'Greedy Hands', 'Let Go'])
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Set' }), 'Throne of Havenholm')
+    expect(shownNames()).toEqual(['Let Go'])
+
+    await user.type(search(), 'draw')
+    expect(screen.getByText('Kart bulunamadı.')).toBeInTheDocument()
+  })
+
+  it('switches to the list view with the same search and filters, and back', async () => {
+    const user = userEvent.setup()
+    render(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
+
+    await user.type(search(), 'discard')
+    expect(screen.getByRole('button', { name: '▦ Kartlar' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+
+    await user.click(screen.getByRole('button', { name: '☷ Liste' }))
+
+    expect(screen.getByRole('button', { name: '☷ Liste' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.queryByRole('list', { name: 'Kartlar' })).not.toBeInTheDocument()
+    expect(screen.getAllByRole('rowheader').map((cell) => cell.textContent)).toEqual([
+      'Greedy Hands',
+      'Let Go',
+    ])
+    expect(screen.getByRole('columnheader', { name: /Mechanic Pack/ })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '▦ Kartlar' }))
+    expect(shownNames()).toEqual(['Greedy Hands', 'Let Go'])
+  })
+
+  it('shows a card added while the screen is open', () => {
+    const { rerender } = render(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
+
+    rerender(<CardBrowser deck="legend" cards={ready([...LEGEND, testCard('Fresh Import')])} />)
+
+    expect(screen.getByRole('article', { name: 'Fresh Import' })).toBeInTheDocument()
+    expect(screen.getByText('9 kart')).toBeInTheDocument()
+  })
+})
+
+describe('CardBrowser for the Cursed deck', () => {
+  const cursed: Subscription<Card[]> = ready(CURSED)
+
+  it('lists the Cursed cards with their count, and offers no set or mechanic pack filter', () => {
+    render(<CardBrowser deck="cursed" cards={cursed} />)
+
+    expect(screen.getByText('2 kart')).toBeInTheDocument()
+    expect(shownNames()).toEqual(['Heart Attack', 'Visions of Death'])
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+  })
+
+  it('searches and shows the Kart, Cost and Metin columns in the list view', async () => {
+    const user = userEvent.setup()
+    render(<CardBrowser deck="cursed" cards={cursed} />)
+
+    await user.type(search(), 'hour')
+    await user.click(screen.getByRole('button', { name: '☷ Liste' }))
+
+    expect(screen.getAllByRole('rowheader').map((cell) => cell.textContent)).toEqual([
+      'Visions of Death',
+    ])
+    expect(
+      screen
+        .getAllByRole('columnheader')
+        .map((header) => header.textContent?.replace(/[▲▼↕]|\(.*\)/g, '').trim()),
+    ).toEqual(['Kart', 'Cost', 'Metin'])
+  })
+})

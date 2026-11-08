@@ -1,7 +1,15 @@
 import { screenById } from '@/app/screens'
-import { Placeholder } from '@/components/ui/Placeholder'
+import { PageHeader } from '@/components/ui/PageHeader'
+import { CardBrowser } from '@/features/cards/CardBrowser'
+import { useDeckCards } from '@/features/cards/cardsContext'
 
-/** Placeholder until the feature is built. */
+/** Kart kütüphanesi: every active normal and Blessed card, live. */
 export function LibraryPage() {
-  return <Placeholder title={screenById('library').label} />
+  const cards = useDeckCards('legend')
+  return (
+    <section className="flex flex-col gap-6">
+      <PageHeader title={screenById('library').label} />
+      <CardBrowser deck="legend" cards={cards} />
+    </section>
+  )
 }
