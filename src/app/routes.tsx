@@ -6,7 +6,7 @@ import { RequireAuth, SIGN_IN_PATH } from '@/features/auth/RequireAuth'
 import { SignInPage } from '@/features/auth/SignInPage'
 import { CursedDeckPage } from '@/features/cursed-deck/CursedDeckPage'
 import { CustomDraftPage } from '@/features/custom-draft/CustomDraftPage'
-import { HandsPage } from '@/features/hands/HandsPage'
+import { HandsPage, PlayerHandPage } from '@/features/hands/HandsPage'
 import { LibraryPage } from '@/features/library/LibraryPage'
 import { RulesPage } from '@/features/rules/RulesPage'
 import { SettingsPage } from '@/features/settings/SettingsPage'
@@ -19,6 +19,7 @@ import { AppShell } from './layout/AppShell'
 import { NotFoundPage } from './NotFoundPage'
 import {
   DEFAULT_SCREEN_PATH,
+  HAND_ROUTE,
   SCREENS,
   SHOP_SCREENS,
   type ScreenId,
@@ -56,6 +57,8 @@ export const routes: RouteObject[] = [
           { path: '/', element: <Navigate to={DEFAULT_SCREEN_PATH} replace /> },
           ...SCREENS.map((screen) => ({ path: screen.path, element: pages[screen.id] })),
           ...SHOP_SCREENS.map((screen) => ({ path: screen.path, element: shopPages[screen.id] })),
+          // One player's hand: a detail route under "Oyuncu elleri", without a menu entry of its own.
+          { path: HAND_ROUTE, element: <PlayerHandPage /> },
           { path: '*', element: <NotFoundPage /> },
         ],
       },

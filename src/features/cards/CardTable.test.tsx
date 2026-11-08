@@ -8,10 +8,18 @@ import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 import type { Deck } from './cardsContext'
 import { CardTable } from './CardTable'
 import type { Card } from './schema'
-import { type CardSort, DEFAULT_SORT, type SortKey, sortCards } from './sort'
+import { type CardSort, DEFAULT_SORT, type SortKey, sortCards, type StatusText } from './sort'
 
 /** The table with the same sort handling as the card browser. */
-function SortableTable({ deck, cards }: { deck: Deck; cards: Card[] }) {
+function SortableTable({
+  deck,
+  cards,
+  statusText,
+}: {
+  deck: Deck
+  cards: Card[]
+  statusText?: StatusText
+}) {
   const [sort, setSort] = useState<CardSort>(DEFAULT_SORT)
   const onSort = (key: SortKey) =>
     setSort((current) =>
@@ -19,7 +27,15 @@ function SortableTable({ deck, cards }: { deck: Deck; cards: Card[] }) {
         ? { key, direction: current.direction === 'asc' ? 'desc' : 'asc' }
         : { key, direction: 'asc' },
     )
-  return <CardTable deck={deck} cards={sortCards(cards, sort)} sort={sort} onSort={onSort} />
+  return (
+    <CardTable
+      deck={deck}
+      cards={sortCards(cards, sort, statusText)}
+      sort={sort}
+      onSort={onSort}
+      statusText={statusText}
+    />
+  )
 }
 
 const headers = () =>
@@ -30,14 +46,14 @@ const headers = () =>
 const rowNames = () => screen.getAllByRole('rowheader').map((cell) => cell.textContent)
 
 describe('CardTable', () => {
-  it('has the Legend columns Kart, Set, Cost, Rarity, Mechanic Pack and Metin', () => {
+  it('has the Legend columns Kart, Set, Cost, Rarity, Mechanic Pack, Metin and Durum', () => {
     render(<SortableTable deck="legend" cards={[testCard('A')]} />)
-    expect(headers()).toEqual(['Kart', 'Set', 'Cost', 'Rarity', 'Mechanic Pack', 'Metin'])
+    expect(headers()).toEqual(['Kart', 'Set', 'Cost', 'Rarity', 'Mechanic Pack', 'Metin', 'Durum'])
   })
 
-  it('has the Cursed columns Kart, Cost and Metin', () => {
+  it('has the Cursed columns Kart, Cost, Metin and Durum', () => {
     render(<SortableTable deck="cursed" cards={[testCursedCard('Hex')]} />)
-    expect(headers()).toEqual(['Kart', 'Cost', 'Metin'])
+    expect(headers()).toEqual(['Kart', 'Cost', 'Metin', 'Durum'])
   })
 
   it('shows the official set name, "Blessed", "—" for missing values, and the visible text', () => {
@@ -55,7 +71,7 @@ describe('CardTable', () => {
     expect(owl.getByText('Hoot.')).toBeInTheDocument()
     const halo = within(screen.getByRole('row', { name: /Halo/ }))
     expect(halo.getByText('Blessed')).toBeInTheDocument()
-    expect(halo.getAllByText('—')).toHaveLength(2) // cost and rarity
+    expect(halo.getAllByText('—')).toHaveLength(3) // cost, rarity, and a status not known yet
   })
 
   it('starts sorted by name', () => {
@@ -101,5 +117,30 @@ describe('CardTable', () => {
       'descending',
     )
     expect(screen.getByRole('columnheader', { name: /Kart/ })).toHaveAttribute('aria-sort', 'none')
+  })
+
+  it("shows each card's status in the Durum column and sorts by it", async () => {
+    const user = userEvent.setup()
+    const statuses: Record<string, string> = {
+      Zor: 'Havuzda',
+      Ağır: 'Elde: Bora',
+      Çelik: 'Elde: Ayla',
+    }
+    render(
+      <SortableTable
+        deck="legend"
+        cards={[testCard('Zor'), testCard('Ağır'), testCard('Çelik')]}
+        statusText={(card) => statuses[card.name] ?? null}
+      />,
+    )
+    expect(within(screen.getByRole('row', { name: /Ağır/ })).getByText('Elde: Bora')).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: /^Durum/ }))
+
+    expect(rowNames()).toEqual(['Çelik', 'Ağır', 'Zor'])
+    expect(screen.getByRole('columnheader', { name: /Durum/ })).toHaveAttribute(
+      'aria-sort',
+      'ascending',
+    )
   })
 })

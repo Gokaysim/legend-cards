@@ -16,6 +16,9 @@ function setNetwork(online: boolean) {
   })
 }
 
+/** The desktop sidebar (the mobile menu renders the same content only while it is open). */
+const userSidebar = () => screen.getByRole('complementary')
+
 /** The signed-in user's badge in the desktop sidebar. */
 const userBadge = () => screen.getByRole('region', { name: 'Giriş yapan kullanıcı' })
 
@@ -102,6 +105,40 @@ describe('AppShell', () => {
     await user.click(within(drawer).getByRole('link', { name: 'Cursed Deck' }))
 
     expect(router.state.location.pathname).toBe('/cursed-deck')
+    expect(screen.queryByRole('dialog', { name: 'Menü' })).not.toBeInTheDocument()
+  })
+
+  it('opens a player\'s hand from the "Oyuncular" list and marks that player', async () => {
+    const user = userEvent.setup()
+    const { router } = renderApp({
+      path: '/library',
+      users: { profiles: ready([testProfile(), testProfile({ id: 'bora', displayName: 'Bora' })]) },
+    })
+    const players = within(userSidebar()).getByRole('region', { name: 'Oyuncular' })
+
+    await user.click(within(players).getByRole('link', { name: 'Bora' }))
+
+    expect(router.state.location.pathname).toBe('/hands/bora')
+    expect(screen.getByRole('heading', { level: 1, name: 'Bora — Kart Eli' })).toBeInTheDocument()
+    expect(within(players).getByRole('link', { name: 'Bora' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    )
+    expect(within(players).getByRole('link', { name: 'Gökay' })).not.toHaveAttribute('aria-current')
+  })
+
+  it("closes the mobile menu after opening a player's hand from it", async () => {
+    const user = userEvent.setup()
+    const { router } = renderApp({
+      path: '/library',
+      users: { profiles: ready([testProfile(), testProfile({ id: 'bora', displayName: 'Bora' })]) },
+    })
+
+    await user.click(screen.getByRole('button', { name: '☰ Menü' }))
+    const drawer = screen.getByRole('dialog', { name: 'Menü' })
+    await user.click(within(drawer).getByRole('link', { name: 'Bora' }))
+
+    expect(router.state.location.pathname).toBe('/hands/bora')
     expect(screen.queryByRole('dialog', { name: 'Menü' })).not.toBeInTheDocument()
   })
 

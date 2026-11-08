@@ -7,6 +7,7 @@ import type { AuthState } from '@/features/auth/authContext'
 import { testUser } from './fixtures'
 import { type TestCards, TestCardsProvider } from './TestCardsProvider'
 import { TestAuthProvider } from './TestAuthProvider'
+import { type TestHoldings, TestHoldingsProvider } from './TestHoldingsProvider'
 import { type TestUsers, TestUsersProvider } from './TestUsersProvider'
 
 export type RenderAppOptions = {
@@ -17,12 +18,17 @@ export type RenderAppOptions = {
   users?: TestUsers
   /** Cards to provide. Defaults to a ready, empty list. */
   cards?: TestCards
+  /** Open holdings to provide. Defaults to a ready, empty list. */
+  holdings?: TestHoldings
 }
 
+type Data = { users: TestUsers; cards: TestCards; holdings: TestHoldings }
+
 /**
- * Renders the real route table at `path`, with a fixed auth state (signed in by default), fixed profiles and
- * fixed cards.
- * `setUsers` re-renders the same app with other profiles, as a real-time update would, without remounting.
+ * Renders the real route table at `path`, with a fixed auth state (signed in by default), fixed profiles, cards
+ * and open holdings.
+ * `setUsers`, `setCards` and `setHoldings` re-render the same app with other data, as a real-time update would,
+ * without remounting.
  */
 export function renderApp({
   path = '/',
@@ -30,20 +36,31 @@ export function renderApp({
   signOut,
   users = {},
   cards = {},
+  holdings = {},
 }: RenderAppOptions = {}) {
   const router = createMemoryRouter(routes, { initialEntries: [path] })
-  const tree = (current: TestUsers) => (
+  let current: Data = { users, cards, holdings }
+  const tree = (data: Data) => (
     <TestAuthProvider state={state} signOut={signOut}>
-      <TestUsersProvider {...current}>
-        <TestCardsProvider {...cards}>
-          <RouterProvider router={router} />
+      <TestUsersProvider {...data.users}>
+        <TestCardsProvider {...data.cards}>
+          <TestHoldingsProvider {...data.holdings}>
+            <RouterProvider router={router} />
+          </TestHoldingsProvider>
         </TestCardsProvider>
       </TestUsersProvider>
     </TestAuthProvider>
   )
-  const view = render(tree(users))
-  const setUsers = (next: TestUsers) => {
-    view.rerender(tree(next))
+  const view = render(tree(current))
+  const update = (next: Partial<Data>) => {
+    current = { ...current, ...next }
+    view.rerender(tree(current))
   }
-  return { ...view, router, setUsers }
+  return {
+    ...view,
+    router,
+    setUsers: (next: TestUsers) => update({ users: next }),
+    setCards: (next: TestCards) => update({ cards: next }),
+    setHoldings: (next: TestHoldings) => update({ holdings: next }),
+  }
 }

@@ -20,6 +20,7 @@ import {
   Timestamp,
   updateDoc,
   where,
+  writeBatch,
 } from 'firebase/firestore'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
@@ -308,5 +309,631 @@ describe('card definitions (cards/{cardId})', () => {
     await assertFails(deleteDoc(doc(db, CARD_PATH)))
     expect(await readAsAdmin(CARD_PATH)).toEqual(seededCard)
     expect(await readAsAdmin('cards/legend-newcard')).toBeUndefined()
+  })
+})
+
+/**
+ * Shared seed for the card-holdings tests. Ayla and Bora are players, Dana is the DM. Profiles, cards and
+ * existing holdings can only be seeded with the rules disabled.
+ */
+const HOLDINGS_SEED = {
+  /** A normal card in the pool. */
+  POOL: 'legend-abolethseyes',
+  /** A normal card that Bora holds through `h-bora`. Ayla holds an extra copy of it through `h-ayla-extra`. */
+  HELD: 'legend-greedyhands',
+  BLESSED: 'legend-secondwind',
+  CURSED: 'cursed-visionsofdeath',
+  /** A retired normal card in the pool. */
+  RETIRED: 'legend-oldcard',
+}
+
+function seededUser(role: 'player' | 'dm', displayName: string) {
+  return { displayName, photoURL: null, role, createdAt: Timestamp.fromMillis(0) }
+}
+
+function seededCardOf(kind: 'normal' | 'blessed' | 'cursed', name: string, extra = {}) {
+  return {
+    kind,
+    name,
+    nameKey: name.toLowerCase().replace(/[^a-z0-9]/g, ''),
+    setCode: kind === 'normal' ? 'Kesqer' : null,
+    cost: kind === 'blessed' ? null : '1',
+    rarity: kind === 'normal' ? 'common' : null,
+    mechanicPack: kind === 'cursed' ? null : 'Arcanus Divine',
+    text: `${name} text.`,
+    retired: false,
+    ...extra,
+  }
+}
+
+/** An open holding as stored, given by Dana long ago. */
+function seededHolding(overrides: Record<string, unknown>) {
+  return {
+    cardId: HOLDINGS_SEED.POOL,
+    cardName: "Aboleth's Eyes",
+    cardKind: 'normal',
+    uid: 'ayla',
+    givenAt: Timestamp.fromMillis(1000),
+    givenBy: 'dana',
+    givenVia: 'dm',
+    transferredFrom: null,
+    active: false,
+    note: '',
+    costOverride: null,
+    returnedAt: null,
+    returnedBy: null,
+    returnReason: null,
+    usedOn: null,
+    transferredTo: null,
+    ...overrides,
+  }
+}
+
+/** A new holding as the application creates it: given now by Dana, to Ayla, for the pool card. */
+function newHolding(overrides: Record<string, unknown> = {}) {
+  return { ...seededHolding({}), givenAt: serverTimestamp(), ...overrides }
+}
+
+const asUser = (uid: string) => firestoreOf(testEnv.authenticatedContext(uid))
+
+async function seedHoldings() {
+  const { POOL, HELD, BLESSED, CURSED, RETIRED } = HOLDINGS_SEED
+  await testEnv.withSecurityRulesDisabled(async (admin) => {
+    const db = firestoreOf(admin)
+    await setDoc(doc(db, 'users/ayla'), seededUser('player', 'Ayla'))
+    await setDoc(doc(db, 'users/bora'), seededUser('player', 'Bora'))
+    await setDoc(doc(db, 'users/dana'), seededUser('dm', 'Dana'))
+    // The pool card was imported before card holdings existed: it has no holder field at all.
+    await setDoc(doc(db, `cards/${POOL}`), seededCardOf('normal', "Aboleth's Eyes"))
+    await setDoc(
+      doc(db, `cards/${HELD}`),
+      seededCardOf('normal', 'Greedy Hands', { holder: { uid: 'bora', userCardId: 'h-bora' } }),
+    )
+    await setDoc(
+      doc(db, `cards/${BLESSED}`),
+      seededCardOf('blessed', 'Second Wind', { holder: null }),
+    )
+    await setDoc(doc(db, `cards/${CURSED}`), seededCardOf('cursed', 'Visions of Death'))
+    await setDoc(doc(db, `cards/${RETIRED}`), seededCardOf('normal', 'Old Card', { retired: true }))
+    const greedy = { cardId: HELD, cardName: 'Greedy Hands' }
+    await setDoc(doc(db, 'userCards/h-bora'), seededHolding({ ...greedy, uid: 'bora' }))
+    await setDoc(doc(db, 'userCards/h-ayla-extra'), seededHolding({ ...greedy, uid: 'ayla' }))
+    await setDoc(
+      doc(db, 'userCards/h-ayla-cursed'),
+      seededHolding({ cardId: CURSED, cardName: 'Visions of Death', cardKind: 'cursed' }),
+    )
+    await setDoc(
+      doc(db, 'userCards/h-closed'),
+      seededHolding({
+        cardId: CURSED,
+        cardName: 'Visions of Death',
+        cardKind: 'cursed',
+        returnedAt: Timestamp.fromMillis(2000),
+        returnedBy: 'ayla',
+        returnReason: 'used',
+      }),
+    )
+  })
+}
+
+describe('card holdings (userCards/{holdingId})', () => {
+  const { CURSED, BLESSED, RETIRED } = HOLDINGS_SEED
+  const cursedGift = { cardId: CURSED, cardName: 'Visions of Death', cardKind: 'cursed' }
+
+  beforeEach(seedHoldings)
+
+  describe('reading', () => {
+    it.each(['ayla', 'bora', 'dana'])('lets %s read every holding, open or closed', async (uid) => {
+      await assertSucceeds(getDoc(doc(asUser(uid), 'userCards/h-bora')))
+      await assertSucceeds(getDoc(doc(asUser(uid), 'userCards/h-closed')))
+      const open = await assertSucceeds(
+        getDocs(query(collection(asUser(uid), 'userCards'), where('returnedAt', '==', null))),
+      )
+      expect(open.size).toBe(3)
+    })
+
+    it('denies signed-out reads', async () => {
+      const db = firestoreOf(testEnv.unauthenticatedContext())
+      await assertFails(getDoc(doc(db, 'userCards/h-bora')))
+      await assertFails(getDocs(collection(db, 'userCards')))
+    })
+  })
+
+  describe('creating', () => {
+    it('lets the DM give a Cursed card and a Blessed card, each more than once', async () => {
+      const db = asUser('dana')
+      await assertSucceeds(setDoc(doc(db, 'userCards/new-1'), newHolding(cursedGift)))
+      await assertSucceeds(
+        setDoc(doc(db, 'userCards/new-2'), newHolding({ ...cursedGift, uid: 'bora' })),
+      )
+      const blessed = { cardId: BLESSED, cardName: 'Second Wind', cardKind: 'blessed' }
+      await assertSucceeds(setDoc(doc(db, 'userCards/new-3'), newHolding(blessed)))
+      await assertSucceeds(setDoc(doc(db, 'userCards/new-4'), newHolding(blessed)))
+    })
+
+    it('lets the DM give a card to themselves, active, with a note and a cost', async () => {
+      await assertSucceeds(
+        setDoc(
+          doc(asUser('dana'), 'userCards/new-1'),
+          newHolding({ ...cursedGift, uid: 'dana', active: true, note: 'Not', costOverride: 'd6' }),
+        ),
+      )
+    })
+
+    it('denies a player giving a card, even to themselves', async () => {
+      await assertFails(
+        setDoc(
+          doc(asUser('ayla'), 'userCards/new-1'),
+          newHolding({ ...cursedGift, givenBy: 'ayla' }),
+        ),
+      )
+    })
+
+    it('denies signed-out creates', async () => {
+      const db = firestoreOf(testEnv.unauthenticatedContext())
+      await assertFails(setDoc(doc(db, 'userCards/new-1'), newHolding(cursedGift)))
+    })
+
+    it('denies a holding for a user ID without a profile', async () => {
+      await assertFails(
+        setDoc(doc(asUser('dana'), 'userCards/new-1'), newHolding({ ...cursedGift, uid: 'ghost' })),
+      )
+    })
+
+    it.each([
+      ['an extra field', { comment: 'x' }],
+      ['a missing field', { usedOn: undefined }],
+      ['a note over 1000 characters', { note: 'x'.repeat(1001) }],
+      ['a note that is not text', { note: 5 }],
+      ['a cost over 10 characters', { costOverride: '12345678901' }],
+      ['an empty cost', { costOverride: '' }],
+      ['an active flag that is not a boolean', { active: 'yes' }],
+      ['an empty card name', { cardName: '' }],
+      ['a given time other than the server time', { givenAt: Timestamp.fromMillis(5) }],
+      ['another user as the giver', { givenBy: 'bora' }],
+      ['an unknown way of giving', { givenVia: 'initial' }],
+      ['a dm give that continues a holding', { transferredFrom: 'h-closed' }],
+      ['a transfer that continues nothing', { givenVia: 'transfer' }],
+      [
+        'a holding that starts closed',
+        { returnedAt: serverTimestamp(), returnedBy: 'dana', returnReason: 'used' },
+      ],
+      ['a character on an open holding', { usedOn: 'Thorin' }],
+      ['a kind that differs from the card', { cardKind: 'blessed' }],
+      ['a card that does not exist', { cardId: 'cursed-nothing' }],
+    ])('denies %s', async (_case, overrides) => {
+      const holding: Record<string, unknown> = newHolding({ ...cursedGift, ...overrides })
+      for (const key of Object.keys(holding)) if (holding[key] === undefined) delete holding[key]
+      await assertFails(setDoc(doc(asUser('dana'), 'userCards/new-1'), holding))
+    })
+
+    it('denies giving a retired card', async () => {
+      const db = asUser('dana')
+      const batch = writeBatch(db)
+      batch.set(doc(db, 'userCards/new-1'), newHolding({ cardId: RETIRED, cardName: 'Old Card' }))
+      batch.update(doc(db, `cards/${RETIRED}`), { holder: { uid: 'ayla', userCardId: 'new-1' } })
+      await assertFails(batch.commit())
+      expect(await readAsAdmin(`cards/${RETIRED}`)).not.toHaveProperty('holder')
+    })
+  })
+
+  describe('notes, active state and cost overrides', () => {
+    it('lets the holder and the DM write a note of up to 1000 characters', async () => {
+      await assertSucceeds(
+        updateDoc(doc(asUser('ayla'), 'userCards/h-ayla-cursed'), {
+          note: 'Boss savaşında kullan',
+        }),
+      )
+      await assertSucceeds(
+        updateDoc(doc(asUser('dana'), 'userCards/h-ayla-cursed'), { note: 'x'.repeat(1000) }),
+      )
+      await assertSucceeds(updateDoc(doc(asUser('ayla'), 'userCards/h-ayla-cursed'), { note: '' }))
+    })
+
+    it('denies another player changing a note, and a note that is too long', async () => {
+      await assertFails(updateDoc(doc(asUser('bora'), 'userCards/h-ayla-cursed'), { note: 'Mine' }))
+      await assertFails(
+        updateDoc(doc(asUser('ayla'), 'userCards/h-ayla-cursed'), { note: 'x'.repeat(1001) }),
+      )
+    })
+
+    it('lets only the DM switch a card active or inactive', async () => {
+      await assertSucceeds(
+        updateDoc(doc(asUser('dana'), 'userCards/h-ayla-cursed'), { active: true }),
+      )
+      await assertFails(
+        updateDoc(doc(asUser('ayla'), 'userCards/h-ayla-cursed'), { active: false }),
+      )
+      await assertFails(updateDoc(doc(asUser('dana'), 'userCards/h-ayla-cursed'), { active: 'no' }))
+      expect(await readAsAdmin('userCards/h-ayla-cursed')).toMatchObject({ active: true })
+    })
+
+    it('lets only the DM set and clear a cost override of up to 10 characters', async () => {
+      const ref = (uid: string) => doc(asUser(uid), 'userCards/h-ayla-cursed')
+      await assertSucceeds(updateDoc(ref('dana'), { costOverride: '1' }))
+      await assertSucceeds(updateDoc(ref('dana'), { costOverride: null }))
+      await assertFails(updateDoc(ref('ayla'), { costOverride: '0' }))
+      await assertFails(updateDoc(ref('dana'), { costOverride: '12345678901' }))
+      await assertFails(updateDoc(ref('dana'), { costOverride: '' }))
+    })
+
+    it('denies changing two fields at once, or a field outside these', async () => {
+      const ref = doc(asUser('dana'), 'userCards/h-ayla-cursed')
+      await assertFails(updateDoc(ref, { note: 'x', active: true }))
+      await assertFails(updateDoc(ref, { uid: 'bora' }))
+      await assertFails(updateDoc(ref, { givenAt: Timestamp.fromMillis(5) }))
+    })
+
+    it('denies signed-out updates', async () => {
+      const db = firestoreOf(testEnv.unauthenticatedContext())
+      await assertFails(updateDoc(doc(db, 'userCards/h-ayla-cursed'), { note: 'x' }))
+    })
+  })
+
+  describe('closed holdings and deleting', () => {
+    it('denies every change to a closed holding, even by the DM', async () => {
+      const ref = (uid: string) => doc(asUser(uid), 'userCards/h-closed')
+      await assertFails(updateDoc(ref('dana'), { note: 'Late note' }))
+      await assertFails(updateDoc(ref('ayla'), { note: 'Late note' }))
+      await assertFails(updateDoc(ref('dana'), { active: true }))
+      await assertFails(updateDoc(ref('dana'), { costOverride: '2' }))
+      await assertFails(
+        updateDoc(ref('dana'), {
+          returnedAt: serverTimestamp(),
+          returnedBy: 'dana',
+          returnReason: 'discarded',
+          usedOn: null,
+        }),
+      )
+    })
+
+    it('denies deleting a holding, open or closed, by anyone', async () => {
+      for (const uid of ['ayla', 'dana']) {
+        await assertFails(deleteDoc(doc(asUser(uid), 'userCards/h-ayla-cursed')))
+        await assertFails(deleteDoc(doc(asUser(uid), 'userCards/h-closed')))
+      }
+      expect(await readAsAdmin('userCards/h-closed')).toBeDefined()
+    })
+  })
+})
+
+describe('card movements (userCards with cards/{cardId}.holder)', () => {
+  const { POOL, HELD, CURSED } = HOLDINGS_SEED
+  const poolHolder = (uid: string, userCardId: string) => ({ uid, userCardId })
+
+  beforeEach(seedHoldings)
+
+  /** The fields that close a holding now, by `uid`. */
+  const closing = (uid: string, reason: 'used' | 'discarded', usedOn: string | null = null) => ({
+    returnedAt: serverTimestamp(),
+    returnedBy: uid,
+    returnReason: reason,
+    usedOn,
+  })
+
+  /** A transfer of holding `fromId` of `cardId` to `toUid` as `newId`, by `by`, in one batch. */
+  function transferBatch(
+    by: string,
+    {
+      fromId,
+      cardId,
+      cardName,
+      cardKind = 'normal',
+      toUid,
+      newId,
+      moveHolder,
+    }: {
+      fromId: string
+      cardId: string
+      cardName: string
+      cardKind?: 'normal' | 'cursed'
+      toUid: string
+      newId: string
+      moveHolder: boolean
+    },
+  ) {
+    const db = asUser(by)
+    const batch = writeBatch(db)
+    batch.update(doc(db, `userCards/${fromId}`), {
+      returnedAt: serverTimestamp(),
+      returnedBy: by,
+      returnReason: 'transferred',
+      transferredTo: newId,
+    })
+    batch.set(
+      doc(db, `userCards/${newId}`),
+      newHolding({
+        cardId,
+        cardName,
+        cardKind,
+        uid: toUid,
+        givenBy: by,
+        givenVia: 'transfer',
+        transferredFrom: fromId,
+      }),
+    )
+    if (moveHolder) batch.update(doc(db, `cards/${cardId}`), { holder: poolHolder(toUid, newId) })
+    return batch
+  }
+
+  describe('allowed', () => {
+    it('lets the DM give a pool card, which takes it out of the pool', async () => {
+      const db = asUser('dana')
+      const batch = writeBatch(db)
+      batch.set(doc(db, 'userCards/new-1'), newHolding())
+      batch.update(doc(db, `cards/${POOL}`), { holder: poolHolder('ayla', 'new-1') })
+      await assertSucceeds(batch.commit())
+      expect(await readAsAdmin(`cards/${POOL}`)).toMatchObject({
+        holder: poolHolder('ayla', 'new-1'),
+      })
+    })
+
+    it('lets the DM give an extra copy of a held card, which keeps its holder', async () => {
+      await assertSucceeds(
+        setDoc(
+          doc(asUser('dana'), 'userCards/new-1'),
+          newHolding({ cardId: HELD, cardName: 'Greedy Hands' }),
+        ),
+      )
+      expect(await readAsAdmin(`cards/${HELD}`)).toMatchObject({
+        holder: poolHolder('bora', 'h-bora'),
+      })
+    })
+
+    it('lets the holder use their card on a character, which returns it to the pool', async () => {
+      const db = asUser('bora')
+      const batch = writeBatch(db)
+      batch.update(doc(db, 'userCards/h-bora'), closing('bora', 'used', 'Thorin'))
+      batch.update(doc(db, `cards/${HELD}`), { holder: null })
+      await assertSucceeds(batch.commit())
+      expect(await readAsAdmin('userCards/h-bora')).toMatchObject({
+        returnReason: 'used',
+        returnedBy: 'bora',
+        usedOn: 'Thorin',
+      })
+      expect(await readAsAdmin(`cards/${HELD}`)).toMatchObject({ holder: null })
+    })
+
+    it('lets the DM use a card for a player, without a character', async () => {
+      const db = asUser('dana')
+      const batch = writeBatch(db)
+      batch.update(doc(db, 'userCards/h-bora'), closing('dana', 'used'))
+      batch.update(doc(db, `cards/${HELD}`), { holder: null })
+      await assertSucceeds(batch.commit())
+    })
+
+    it('lets the DM discard a card, which returns it to the pool', async () => {
+      const db = asUser('dana')
+      const batch = writeBatch(db)
+      batch.update(doc(db, 'userCards/h-bora'), closing('dana', 'discarded'))
+      batch.update(doc(db, `cards/${HELD}`), { holder: null })
+      await assertSucceeds(batch.commit())
+      expect(await readAsAdmin('userCards/h-bora')).toMatchObject({ returnReason: 'discarded' })
+    })
+
+    it('lets the DM transfer a card, which moves its holder to the new holding', async () => {
+      await assertSucceeds(
+        transferBatch('dana', {
+          fromId: 'h-bora',
+          cardId: HELD,
+          cardName: 'Greedy Hands',
+          toUid: 'ayla',
+          newId: 'new-1',
+          moveHolder: true,
+        }).commit(),
+      )
+      expect(await readAsAdmin('userCards/h-bora')).toMatchObject({
+        returnReason: 'transferred',
+        transferredTo: 'new-1',
+      })
+      expect(await readAsAdmin('userCards/new-1')).toMatchObject({
+        uid: 'ayla',
+        givenVia: 'transfer',
+        transferredFrom: 'h-bora',
+      })
+      expect(await readAsAdmin(`cards/${HELD}`)).toMatchObject({
+        holder: poolHolder('ayla', 'new-1'),
+      })
+    })
+
+    it('lets the holder use an extra copy, and the DM transfer one, leaving the holder alone', async () => {
+      await assertSucceeds(
+        transferBatch('dana', {
+          fromId: 'h-ayla-extra',
+          cardId: HELD,
+          cardName: 'Greedy Hands',
+          toUid: 'dana',
+          newId: 'new-1',
+          moveHolder: false,
+        }).commit(),
+      )
+      await assertSucceeds(
+        updateDoc(doc(asUser('dana'), 'userCards/new-1'), closing('dana', 'used')),
+      )
+      expect(await readAsAdmin(`cards/${HELD}`)).toMatchObject({
+        holder: poolHolder('bora', 'h-bora'),
+      })
+    })
+
+    it('lets the holder use a Cursed card and the DM transfer one, without touching the card', async () => {
+      await assertSucceeds(
+        transferBatch('dana', {
+          fromId: 'h-ayla-cursed',
+          cardId: CURSED,
+          cardName: 'Visions of Death',
+          cardKind: 'cursed',
+          toUid: 'bora',
+          newId: 'new-1',
+          moveHolder: false,
+        }).commit(),
+      )
+      await assertSucceeds(
+        updateDoc(doc(asUser('bora'), 'userCards/new-1'), closing('bora', 'used', 'Thorin')),
+      )
+    })
+  })
+
+  describe('denied', () => {
+    it('denies a holder set without a holding', async () => {
+      await assertFails(
+        updateDoc(doc(asUser('dana'), `cards/${POOL}`), { holder: poolHolder('ayla', 'nothing') }),
+      )
+    })
+
+    it('denies a holder pointing at an existing holding', async () => {
+      const db = asUser('dana')
+      await assertFails(
+        updateDoc(doc(db, `cards/${POOL}`), { holder: poolHolder('ayla', 'h-ayla-cursed') }),
+      )
+      await assertFails(
+        updateDoc(doc(db, `cards/${POOL}`), { holder: poolHolder('bora', 'h-bora') }),
+      )
+    })
+
+    it('denies a holder that names another user than the holding', async () => {
+      const db = asUser('dana')
+      const batch = writeBatch(db)
+      batch.set(doc(db, 'userCards/new-1'), newHolding())
+      batch.update(doc(db, `cards/${POOL}`), { holder: poolHolder('bora', 'new-1') })
+      await assertFails(batch.commit())
+    })
+
+    it('denies a holding of a pool card that does not set the holder', async () => {
+      await assertFails(setDoc(doc(asUser('dana'), 'userCards/new-1'), newHolding()))
+    })
+
+    it('denies a holder set on a card that is already held', async () => {
+      const db = asUser('dana')
+      const batch = writeBatch(db)
+      batch.set(doc(db, 'userCards/new-1'), newHolding({ cardId: HELD, cardName: 'Greedy Hands' }))
+      batch.update(doc(db, `cards/${HELD}`), { holder: poolHolder('ayla', 'new-1') })
+      await assertFails(batch.commit())
+      expect(await readAsAdmin(`cards/${HELD}`)).toMatchObject({
+        holder: poolHolder('bora', 'h-bora'),
+      })
+    })
+
+    it('denies text changed together with the holder', async () => {
+      const db = asUser('dana')
+      const batch = writeBatch(db)
+      batch.set(doc(db, 'userCards/new-1'), newHolding())
+      batch.update(doc(db, `cards/${POOL}`), {
+        holder: poolHolder('ayla', 'new-1'),
+        text: 'Changed with the give.',
+      })
+      await assertFails(batch.commit())
+      expect(await readAsAdmin('userCards/new-1')).toBeUndefined()
+    })
+
+    it("denies a player closing someone else's card", async () => {
+      const db = asUser('ayla')
+      const batch = writeBatch(db)
+      batch.update(doc(db, 'userCards/h-bora'), closing('ayla', 'used'))
+      batch.update(doc(db, `cards/${HELD}`), { holder: null })
+      await assertFails(batch.commit())
+    })
+
+    it('denies a player discarding their own card', async () => {
+      const db = asUser('bora')
+      const batch = writeBatch(db)
+      batch.update(doc(db, 'userCards/h-bora'), closing('bora', 'discarded'))
+      batch.update(doc(db, `cards/${HELD}`), { holder: null })
+      await assertFails(batch.commit())
+    })
+
+    it('denies a player transferring their own card', async () => {
+      await assertFails(
+        transferBatch('bora', {
+          fromId: 'h-bora',
+          cardId: HELD,
+          cardName: 'Greedy Hands',
+          toUid: 'ayla',
+          newId: 'new-1',
+          moveHolder: true,
+        }).commit(),
+      )
+    })
+
+    it("denies closing the holder's holding without releasing the card", async () => {
+      await assertFails(updateDoc(doc(asUser('bora'), 'userCards/h-bora'), closing('bora', 'used')))
+      await assertFails(
+        updateDoc(doc(asUser('dana'), 'userCards/h-bora'), closing('dana', 'discarded')),
+      )
+    })
+
+    it('denies releasing a card whose holding stays open', async () => {
+      await assertFails(updateDoc(doc(asUser('bora'), `cards/${HELD}`), { holder: null }))
+      await assertFails(updateDoc(doc(asUser('dana'), `cards/${HELD}`), { holder: null }))
+    })
+
+    it('denies closing an extra copy together with releasing the card', async () => {
+      const db = asUser('ayla')
+      const batch = writeBatch(db)
+      batch.update(doc(db, 'userCards/h-ayla-extra'), closing('ayla', 'used'))
+      batch.update(doc(db, `cards/${HELD}`), { holder: null })
+      await assertFails(batch.commit())
+    })
+
+    it('denies a transfer that leaves the holder behind', async () => {
+      await assertFails(
+        transferBatch('dana', {
+          fromId: 'h-bora',
+          cardId: HELD,
+          cardName: 'Greedy Hands',
+          toUid: 'ayla',
+          newId: 'new-1',
+          moveHolder: false,
+        }).commit(),
+      )
+    })
+
+    it('denies a transfer whose new holding is for another card', async () => {
+      const db = asUser('dana')
+      const batch = writeBatch(db)
+      batch.update(doc(db, 'userCards/h-ayla-cursed'), {
+        returnedAt: serverTimestamp(),
+        returnedBy: 'dana',
+        returnReason: 'transferred',
+        transferredTo: 'new-1',
+      })
+      batch.set(
+        doc(db, 'userCards/new-1'),
+        newHolding({ uid: 'bora', givenVia: 'transfer', transferredFrom: 'h-ayla-cursed' }),
+      )
+      batch.update(doc(db, `cards/${POOL}`), { holder: poolHolder('bora', 'new-1') })
+      await assertFails(batch.commit())
+    })
+
+    it('denies closing a holding as transferred without the new holding', async () => {
+      await assertFails(
+        updateDoc(doc(asUser('dana'), 'userCards/h-ayla-cursed'), {
+          returnedAt: serverTimestamp(),
+          returnedBy: 'dana',
+          returnReason: 'transferred',
+          transferredTo: 'nothing',
+        }),
+      )
+    })
+
+    it('denies closing with another user as the closer, or another time than now', async () => {
+      const ref = doc(asUser('dana'), 'userCards/h-ayla-cursed')
+      await assertFails(updateDoc(ref, { ...closing('dana', 'used'), returnedBy: 'ayla' }))
+      await assertFails(
+        updateDoc(ref, { ...closing('dana', 'used'), returnedAt: Timestamp.fromMillis(5) }),
+      )
+      await assertFails(updateDoc(ref, { ...closing('dana', 'used'), usedOn: 'x'.repeat(101) }))
+      await assertFails(updateDoc(ref, closing('dana', 'discarded', 'Thorin')))
+    })
+
+    it('denies a holder on a Blessed or Cursed card', async () => {
+      const db = asUser('dana')
+      const batch = writeBatch(db)
+      batch.set(
+        doc(db, 'userCards/new-1'),
+        newHolding({ cardId: CURSED, cardName: 'Visions of Death', cardKind: 'cursed' }),
+      )
+      batch.update(doc(db, `cards/${CURSED}`), { holder: poolHolder('ayla', 'new-1') })
+      await assertFails(batch.commit())
+    })
   })
 })

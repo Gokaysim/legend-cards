@@ -57,6 +57,19 @@ describe('cardSchema', () => {
   })
 
   it.each([
+    ['normal', normal],
+    ['Blessed', blessed],
+    ['Cursed', cursed],
+  ])('reads a stored %s card without a holder as being in the pool', (_kind, card) => {
+    expect(cardSchema.parse(card).holder).toBeNull()
+  })
+
+  it('accepts a held normal card', () => {
+    const holder = { uid: 'ayla', userCardId: 'holding-1' }
+    expect(cardSchema.parse({ ...normal, holder }).holder).toEqual(holder)
+  })
+
+  it.each([
     ['a Blessed card with a rarity', { ...blessed, rarity: 'rare' }],
     ['a Blessed card with a set code', { ...blessed, setCode: 'Kesqer' }],
     ['a Cursed card with a set code', { ...cursed, setCode: 'Cursed' }],
@@ -68,6 +81,10 @@ describe('cardSchema', () => {
     ['an empty name', { ...normal, name: '' }],
     ['an empty cost string', { ...normal, cost: '' }],
     ['a missing retired flag', { ...normal, retired: undefined }],
+    ['a Blessed card with a holder', { ...blessed, holder: { uid: 'ayla', userCardId: 'h1' } }],
+    ['a Cursed card with a holder', { ...cursed, holder: { uid: 'ayla', userCardId: 'h1' } }],
+    ['a holder without a holding', { ...normal, holder: { uid: 'ayla' } }],
+    ['a holder with an empty user', { ...normal, holder: { uid: '', userCardId: 'h1' } }],
   ])('rejects %s', (_case, card) => {
     expect(cardSchema.safeParse(card).success).toBe(false)
   })

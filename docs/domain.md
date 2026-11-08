@@ -41,10 +41,11 @@ In the legacy app, the DM operated everything alone and players were just names 
 
 All data lives in Firestore. The paths that exist so far:
 
-| Path             | Holds                                                                                                                                                                                                                                  | Who writes                                                                                                                      |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `users/{uid}`    | A user's profile: display name, picture, role (`player` or `dm`), creation time. No email.                                                                                                                                             | The user creates their own profile as a player and updates the name and picture. Only the admin script changes the role.        |
-| `cards/{cardId}` | One card definition: kind (`normal`, `blessed` or `cursed`), name, normalized name, set code, cost, rarity, mechanic pack, text, and a `retired` flag. The ID is the deck plus the normalized name, for example `legend-abolethseyes`. | Only the card import script (`npm run import-cards`). No client writes cards, not even the DM. Every signed-in user reads them. |
+| Path                    | Holds                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Who writes                                                                                                                                                                                                                                                                 |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `users/{uid}`           | A user's profile: display name, picture, role (`player` or `dm`), creation time. No email.                                                                                                                                                                                                                                                                                                                                                                                                                              | The user creates their own profile as a player and updates the name and picture. Only the admin script changes the role.                                                                                                                                                   |
+| `cards/{cardId}`        | One card definition: kind (`normal`, `blessed` or `cursed`), name, normalized name, set code, cost, rarity, mechanic pack, text, and a `retired` flag. The ID is the deck plus the normalized name, for example `legend-abolethseyes`. A normal card also has a `holder`: `{ uid, userCardId }` while it is in a hand, `null` while it is in the pool. Blessed and Cursed cards are repeatable, so their `holder` is always `null`. Cards imported before card holdings have no `holder` field, which counts as `null`. | Only the card import script (`npm run import-cards`) writes the definitions, and it never writes `holder`. The application changes only a normal card's `holder`, together with the holding that explains it. Every signed-in user reads them.                             |
+| `userCards/{holdingId}` | One card's stay with one player (a holding): the card (its ID, and its name and kind when given), the player, when it was given, by whom, and how (`dm`, or `transfer` with `transferredFrom`), whether it is active, its note, and its cost override. When the card leaves the hand, the holding is closed with when, by whom, and why: `used` (with `usedOn`, the character, if given), `discarded`, or `transferred` (with `transferredTo`, the receiver's new holding). Open holdings have `returnedAt: null`.      | Only the DM gives cards. The holder or the DM uses a card and edits its note. Only the DM discards, transfers, switches a card active and sets its cost. A holding is closed, never deleted, and a closed holding never changes. Every signed-in user reads every holding. |
 
 The agreed target model for the coming changes is in the design of the OpenSpec change `add-user-roles` (after it is archived: `openspec/changes/archive/*-add-user-roles/design.md`, "Target data model"). It covers:
 
@@ -55,6 +56,13 @@ The agreed target model for the coming changes is in the design of the OpenSpec 
 - the LP and GP history (`ledger`)
 
 Each change adds its path to this table.
+
+Card holdings refine the target model too:
+
+- There is no `initial` way of giving. At the very end, before going live, the DM enters the table's current hands with the normal "give a card" action.
+- `drawId` arrives with pack-opening, together with the ways `pack` and `draw`.
+- `cardKind`, `transferredFrom` and `transferredTo` are new. They let the rules check both sides of a movement without querying, and they let a later history screen follow a card from hand to hand.
+- A DM's extra copy of a held normal card is a holding of its own that leaves the card's `holder` alone. When the holder's holding closes, the card returns to the pool even while an extra copy is still in a hand.
 
 The card library refines the target model in three ways:
 
@@ -149,6 +157,7 @@ More pack rules:
 - Cursed and Blessed cards are **repeatable**. Holding one never removes it from the pool or the Cursed Deck.
 - A random batch draw picks each card uniformly from the available cards that match its filters. It never offers the same normal card twice in one batch. Blessed cards are always available, so they come up in random draws at their share of the pool. With the owner's data (19 Blessed cards among 591), that is about 3% per card with a full pool, and more as the pool shrinks.
 - Hand order is the order the cards were received.
+- A card leaves the hand through "↩ Havuza gönder" in its details, which puts a normal card back in the pool. The new app splits this into "Kullan" (the holder or the DM; it asks, optionally, on which character the card was used) and "At" (the DM only; discarded without use). Both put a normal card back in the pool.
 
 ### LP, cost and effects
 
@@ -309,7 +318,7 @@ These look odd but are explicit decisions by the DM and the owner. Do not "fix" 
 - **Every card in a pack must be flipped** before choosing.
 - **The cursed card in a cursed pack is mandatory** (Cursed, Cursed Golden, and Pandemonium Cursed Packs).
 - **Custom Cards never enter the pool.** Returning one destroys it.
-- **Undo and the log last for one session only.**
+- **Undo and the log last for one session only.** Card history no longer does: the new app keeps every holding permanently, closed but never deleted, as agreed in `add-user-roles` ("History is permanent"). There is no undo; a mistake is corrected with the opposite action.
 
 ## Open questions for the DM
 

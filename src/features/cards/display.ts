@@ -5,6 +5,28 @@ import { matchesAllTerms, normalize, searchTerms } from './text'
 /** Shown where a card has no value, for example the cost of a Blessed card. */
 export const NO_VALUE = '—'
 
+const NUMBER_PATTERN = /^-?\d+(?:[.,]\d+)?$/
+
+/** A cost as a number when it is written as one ("3", "-1", "1,5"); `null` for "X", "d6", or no cost. */
+export function numericCost(cost: string | null): number | null {
+  const value = cost?.trim() ?? ''
+  return NUMBER_PATTERN.test(value) ? Number(value.replace(',', '.')) : null
+}
+
+/**
+ * How a hand's cost compares with the card's own cost: `lower`, `higher`, or `null` when they are equal or
+ * either is not a number.
+ */
+export function costChange(
+  cardCost: string | null,
+  handCost: string | null,
+): 'lower' | 'higher' | null {
+  const base = numericCost(cardCost)
+  const current = numericCost(handCost)
+  if (base === null || current === null || base === current) return null
+  return current < base ? 'lower' : 'higher'
+}
+
 /** The frame a card gets, after the Kurallar table rules: purple Common, gold Rare, white Blessed, red Cursed. */
 export type CardFrame = 'common' | 'rare' | 'blessed' | 'cursed'
 

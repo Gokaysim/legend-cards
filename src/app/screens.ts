@@ -27,6 +27,17 @@ export function screenById(id: ScreenId): Screen {
 }
 
 /**
+ * One player's hand on the "Oyuncu elleri" screen. It sits below the menu entry's path, so the menu keeps
+ * "Oyuncu elleri" marked while a hand is open.
+ */
+export const HAND_ROUTE = `${screenById('hands').path}/:uid`
+
+/** The URL of one player's hand. */
+export function handPath(uid: string): string {
+  return `${screenById('hands').path}/${encodeURIComponent(uid)}`
+}
+
+/**
  * The sub-screens of the Shops screen, in the order the Shops hub shows them. They are not menu
  * entries: their paths sit below `/shops`, so the menu keeps "Shops" marked while one is open.
  */

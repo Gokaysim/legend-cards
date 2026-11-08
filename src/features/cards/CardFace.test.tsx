@@ -88,3 +88,76 @@ describe('CardFace', () => {
     expect(within(card).queryByText('Mechanic Pack')).not.toBeInTheDocument()
   })
 })
+
+describe('CardFace in a hand', () => {
+  const cost = (name: string) => within(face(name)).getByText(/^Cost:/).parentElement
+
+  it('shows the cost in the hand, marked lower when it is below the card cost', () => {
+    render(<CardFace card={testCard('Cheap', { cost: '3' })} handCost="1" />)
+
+    expect(face('Cheap')).toHaveTextContent('Cost: 1')
+    expect(cost('Cheap')).toHaveAttribute('data-cost-change', 'lower')
+    expect(cost('Cheap')).toHaveClass('text-green')
+    expect(face('Cheap')).toHaveTextContent('bu elde daha düşük; temel cost: 3')
+  })
+
+  it('marks a cost above the card cost as higher', () => {
+    render(<CardFace card={testCard('Dear', { cost: '1' })} handCost="2,5" />)
+
+    expect(cost('Dear')).toHaveAttribute('data-cost-change', 'higher')
+    expect(cost('Dear')).toHaveClass('text-cursed')
+    expect(face('Dear')).toHaveTextContent('bu elde daha yüksek')
+  })
+
+  it.each([
+    ['an equal cost', '3', '3'],
+    ['a cost written another way but equal', '3', '3,0'],
+    ['a non-numeric hand cost', '3', 'X'],
+    ['a non-numeric card cost', 'd6', '2'],
+    ['no hand cost', null, null],
+  ])('does not mark %s', (_case, cardCost, handCost) => {
+    render(<CardFace card={testCard('Same', { cost: cardCost })} handCost={handCost} />)
+
+    expect(cost('Same')).not.toHaveAttribute('data-cost-change')
+    expect(face('Same')).not.toHaveTextContent('bu elde')
+  })
+
+  it('shows the hand cost in place of the card cost', () => {
+    render(<CardFace card={testCard('Dice', { cost: '2' })} handCost="d6" />)
+    expect(face('Dice')).toHaveTextContent('Cost: d6')
+  })
+
+  it('marks an active card in its frame color', () => {
+    render(
+      <>
+        <CardFace card={testCard('Owl', { rarity: 'rare' })} handCost="1" isActive />
+        <CardFace card={testCursedCard('Hex')} handCost="1" isActive />
+      </>,
+    )
+
+    expect(within(face('Owl')).getByText('● Aktif')).toHaveClass('border-gold')
+    expect(within(face('Hex')).getByText('● Aktif')).toHaveClass('border-cursed')
+  })
+
+  it('marks a card with a note and an extra copy', () => {
+    render(<CardFace card={testCard('Owl')} handCost="1" hasNote isExtraCopy />)
+
+    expect(face('Owl')).toHaveTextContent('✎ Not var')
+    expect(face('Owl')).toHaveTextContent('Ek kopya')
+  })
+
+  it('shows no marks without them, and none outside a hand', () => {
+    render(
+      <>
+        <CardFace card={testCard('Plain')} handCost="1" />
+        <CardFace card={testCard('Library')} />
+      </>,
+    )
+
+    for (const name of ['Plain', 'Library']) {
+      expect(face(name)).not.toHaveTextContent('Aktif')
+      expect(face(name)).not.toHaveTextContent('Not var')
+      expect(face(name)).not.toHaveTextContent('Ek kopya')
+    }
+  })
+})

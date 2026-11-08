@@ -3,10 +3,15 @@ import { cn } from '@/lib/cn'
 import type { Deck } from './cardsContext'
 import { NO_VALUE, rarityLabel, setLabel } from './display'
 import type { Card } from './schema'
-import type { CardSort, SortKey } from './sort'
+import type { CardSort, SortKey, StatusText } from './sort'
 import { visibleText } from './text'
 
-type Column = { key: SortKey; label: string; cell: (card: Card) => string; wide?: boolean }
+type Column = {
+  key: SortKey
+  label: string
+  cell: (card: Card, statusText: StatusText) => string
+  wide?: boolean
+}
 
 const COLUMNS: Record<SortKey, Column> = {
   name: { key: 'name', label: 'Kart', cell: (card) => card.name },
@@ -24,12 +29,17 @@ const COLUMNS: Record<SortKey, Column> = {
     cell: (card) => visibleText(card.text) || NO_VALUE,
     wide: true,
   },
+  status: {
+    key: 'status',
+    label: 'Durum',
+    cell: (card, statusText) => statusText(card) ?? NO_VALUE,
+  },
 }
 
-/** The columns of each deck's table, as in the legacy app. Durum and İşlem come with card holdings. */
+/** The columns of each deck's table, as in the legacy app, without its İşlem (edit) column. */
 const DECK_COLUMNS: Record<Deck, readonly SortKey[]> = {
-  legend: ['name', 'set', 'cost', 'rarity', 'mechanicPack', 'text'],
-  cursed: ['name', 'cost', 'text'],
+  legend: ['name', 'set', 'cost', 'rarity', 'mechanicPack', 'text', 'status'],
+  cursed: ['name', 'cost', 'text', 'status'],
 }
 
 const DIRECTION_LABELS = { asc: 'artan', desc: 'azalan' } as const
@@ -41,10 +51,12 @@ export type CardTableProps = {
   sort: CardSort
   /** Called with the column the user selected. The caller decides the new direction. */
   onSort: (key: SortKey) => void
+  /** The Durum text of a card. Without it, the column shows "—". */
+  statusText?: StatusText
 }
 
 /** The list view: one row per card. Only the table scrolls sideways at narrow widths, never the page. */
-export function CardTable({ deck, cards, sort, onSort }: CardTableProps) {
+export function CardTable({ deck, cards, sort, onSort, statusText = () => null }: CardTableProps) {
   const columns = DECK_COLUMNS[deck].map((key) => COLUMNS[key])
 
   return (
@@ -52,7 +64,7 @@ export function CardTable({ deck, cards, sort, onSort }: CardTableProps) {
       <table
         className={cn(
           'w-full border-collapse text-left text-sm',
-          deck === 'legend' ? 'min-w-3xl' : 'min-w-xl',
+          deck === 'legend' ? 'min-w-4xl' : 'min-w-2xl',
         )}
       >
         <thead className="bg-pane-raised text-ink-muted">
@@ -96,7 +108,7 @@ export function CardTable({ deck, cards, sort, onSort }: CardTableProps) {
               {columns.map((column) =>
                 column.key === 'name' ? (
                   <th key={column.key} scope="row" className="px-3 py-2 font-semibold text-ink">
-                    {column.cell(card)}
+                    {column.cell(card, statusText)}
                   </th>
                 ) : (
                   <td
@@ -106,7 +118,7 @@ export function CardTable({ deck, cards, sort, onSort }: CardTableProps) {
                       column.wide ? 'min-w-64 whitespace-pre-line' : 'whitespace-nowrap',
                     )}
                   >
-                    {column.cell(card)}
+                    {column.cell(card, statusText)}
                   </td>
                 ),
               )}

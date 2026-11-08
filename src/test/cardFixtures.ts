@@ -23,6 +23,7 @@ export function testCard(
     mechanicPack: 'Arcanus Divine',
     text: `${name} text.`,
     retired: false,
+    holder: null,
     ...overrides,
   }
 }
@@ -43,6 +44,7 @@ export function testBlessedCard(
     mechanicPack: 'Risk & Reward',
     text: `${name} text.`,
     retired: false,
+    holder: null,
     ...overrides,
   }
 }
@@ -63,6 +65,7 @@ export function testCursedCard(
     mechanicPack: null,
     text: `${name} text.`,
     retired: false,
+    holder: null,
     ...overrides,
   }
 }

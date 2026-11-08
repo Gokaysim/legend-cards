@@ -18,6 +18,39 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == uid;
     }
 
+    function userPath(uid) {
+      return /databases/$(database)/documents/users/$(uid);
+    }
+
+    function cardPath(cardId) {
+      return /databases/$(database)/documents/cards/$(cardId);
+    }
+
+    function holdingPath(holdingId) {
+      return /databases/$(database)/documents/userCards/$(holdingId);
+    }
+
+    // True when the signed-in user's profile says DM. Reads the profile once per request (cached after that).
+    function isDm() {
+      return isSignedIn()
+        && exists(userPath(request.auth.uid))
+        && get(userPath(request.auth.uid)).data.role == 'dm';
+    }
+
+    // True when an update changes no field outside `keys`.
+    function onlyChanges(keys) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
+    }
+
+    // A card's holder before and after the request. Cards stored before card holdings have no field: null.
+    function holderBefore(cardId) {
+      return get(cardPath(cardId)).data.get('holder', null);
+    }
+
+    function holderAfter(cardId) {
+      return getAfter(cardPath(cardId)).data.get('holder', null);
+    }
+
     // A profile name: 1 to 100 characters, or null when the Google account has none (DISPLAY_NAME_MAX).
     function validName(value) {
       return value == null || (value is string && value.size() >= 1 && value.size() <= 100);
@@ -46,11 +79,203 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Card definitions. Everyone signed in reads every card, retired ones included. No client writes them, not
-    // even the DM: only the import script (Admin SDK) does. Later changes open narrow writes (for example `holder`).
+    // Card definitions. Everyone signed in reads every card, retired ones included. Only the import script (Admin
+    // SDK) writes the definitions. The application changes only a normal card's `holder`, and only together with
+    // the holding that explains it (see userCards below): each side checks the other's final state.
     match /cards/{cardId} {
       allow read: if isSignedIn();
-      allow write: if false;
+      allow update: if isSignedIn()
+        && onlyChanges(['holder'])
+        && resource.data.kind == 'normal'
+        && (takenFromPool() || releasedByClosedHolding() || movedByTransfer());
+      allow create, delete: if false;
+
+      function holderNow() {
+        return resource.data.get('holder', null);
+      }
+
+      function holderNext() {
+        return request.resource.data.get('holder', null);
+      }
+
+      // The holder points at an open holding of this card for the holder's user, after the request.
+      function pointsAtOpenHolding(holder) {
+        let holding = getAfter(holdingPath(holder.userCardId)).data;
+        return holding.cardId == cardId
+          && holding.returnedAt == null
+          && holder == {'uid': holding.uid, 'userCardId': holder.userCardId};
+      }
+
+      // From the pool into a hand: the holding is created in this same request.
+      function takenFromPool() {
+        let next = holderNext();
+        return holderNow() == null
+          && next != null
+          && next.userCardId is string
+          && !exists(holdingPath(next.userCardId))
+          && existsAfter(holdingPath(next.userCardId))
+          && pointsAtOpenHolding(next);
+      }
+
+      // Back to the pool: the holding the holder pointed at is closed as used or discarded.
+      function releasedByClosedHolding() {
+        let now = holderNow();
+        return now != null
+          && holderNext() == null
+          && getAfter(holdingPath(now.userCardId)).data.returnReason in ['used', 'discarded'];
+      }
+
+      // Moved by a transfer: the old holding is closed as transferred to the new holder's holding.
+      function movedByTransfer() {
+        let now = holderNow();
+        let next = holderNext();
+        return now != null
+          && next != null
+          && next.userCardId is string
+          && getAfter(holdingPath(now.userCardId)).data.returnReason == 'transferred'
+          && getAfter(holdingPath(now.userCardId)).data.transferredTo == next.userCardId
+          && pointsAtOpenHolding(next);
+      }
+    }
+
+    // Card holdings: one card's stay with one player. Everyone signed in reads every holding, open or closed.
+    // Only the DM gives cards. A holding is closed, never deleted, and a closed holding never changes again.
+    // Every movement keeps a normal card's `holder` in step with its holdings, checked with getAfter.
+    match /userCards/{holdingId} {
+      allow read: if isSignedIn();
+      allow create: if isDm() && validNewHolding();
+      allow update: if isSignedIn()
+        && resource.data.returnedAt == null
+        && (
+          (onlyChanges(['note']) && validNote(request.resource.data.note) && (isDm() || isHolder()))
+          || (onlyChanges(['active']) && request.resource.data.active is bool && isDm())
+          || (onlyChanges(['costOverride']) && validCost(request.resource.data.costOverride) && isDm())
+          || (closesAs('used') && validUsedOn(request.resource.data.usedOn)
+              && (isDm() || isHolder()) && releasesCard())
+          || (closesAs('discarded') && request.resource.data.usedOn == null
+              && isDm() && releasesCard())
+          || (closesAsTransferred() && isDm() && movesCard())
+        );
+      allow delete: if false;
+
+      // Field limits. Keep in step with HOLDING_LIMITS in src/features/hands/schema.ts.
+      function validNote(value) {
+        return value is string && value.size() <= 1000;
+      }
+
+      function validCost(value) {
+        return value == null || (value is string && value.size() >= 1 && value.size() <= 10);
+      }
+
+      function validUsedOn(value) {
+        return value == null || (value is string && value.size() >= 1 && value.size() <= 100);
+      }
+
+      function isHolder() {
+        return request.auth.uid == resource.data.uid;
+      }
+
+      // A new, open holding with exactly the stored fields, given now by the signed-in user to someone with a
+      // profile, for an existing card of the same kind.
+      function validNewHolding() {
+        let data = request.resource.data;
+        let fields = ['cardId', 'cardName', 'cardKind', 'uid', 'givenAt', 'givenBy', 'givenVia',
+          'transferredFrom', 'active', 'note', 'costOverride', 'returnedAt', 'returnedBy', 'returnReason',
+          'usedOn', 'transferredTo'];
+        return data.keys().hasOnly(fields)
+          && data.keys().hasAll(fields)
+          && data.cardId is string
+          && data.cardName is string && data.cardName.size() >= 1 && data.cardName.size() <= 200
+          && data.uid is string
+          && data.givenAt == request.time
+          && data.givenBy == request.auth.uid
+          && data.active is bool
+          && validNote(data.note)
+          && validCost(data.costOverride)
+          && data.returnedAt == null
+          && data.returnedBy == null
+          && data.returnReason == null
+          && data.usedOn == null
+          && data.transferredTo == null
+          && exists(userPath(data.uid))
+          && exists(cardPath(data.cardId))
+          && get(cardPath(data.cardId)).data.kind == data.cardKind
+          && (
+            (data.givenVia == 'dm' && data.transferredFrom == null && givenByDm())
+            || (data.givenVia == 'transfer' && data.transferredFrom is string && continuesTransfer())
+          );
+      }
+
+      // A DM give of an active card. A normal card in the pool gets this holding as its holder. A held one is an
+      // extra copy and keeps its holder.
+      function givenByDm() {
+        let cardId = request.resource.data.cardId;
+        let before = holderBefore(cardId);
+        return get(cardPath(cardId)).data.retired == false
+          && (request.resource.data.cardKind != 'normal'
+            || (before == null
+              ? holderAfter(cardId) == {'uid': request.resource.data.uid, 'userCardId': holdingId}
+              : holderAfter(cardId) == before));
+      }
+
+      // A transfer continues a holding of the same card that this request closes as transferred to this one.
+      // The holder moves with it when it pointed at the old holding.
+      function continuesTransfer() {
+        let data = request.resource.data;
+        let previous = getAfter(holdingPath(data.transferredFrom)).data;
+        let before = holderBefore(data.cardId);
+        return previous.cardId == data.cardId
+          && previous.returnReason == 'transferred'
+          && previous.transferredTo == holdingId
+          && (data.cardKind != 'normal'
+            || (before != null && before.userCardId == data.transferredFrom
+              ? holderAfter(data.cardId) == {'uid': data.uid, 'userCardId': holdingId}
+              : holderAfter(data.cardId) == before));
+      }
+
+      // Closes the holding now, by the signed-in user, for `reason`.
+      function closesAs(reason) {
+        return onlyChanges(['returnedAt', 'returnedBy', 'returnReason', 'usedOn'])
+          && request.resource.data.returnedAt == request.time
+          && request.resource.data.returnedBy == request.auth.uid
+          && request.resource.data.returnReason == reason;
+      }
+
+      // Closes the holding now as transferred to a holding that this request creates to continue it.
+      function closesAsTransferred() {
+        let next = request.resource.data.transferredTo;
+        return onlyChanges(['returnedAt', 'returnedBy', 'returnReason', 'transferredTo'])
+          && request.resource.data.returnedAt == request.time
+          && request.resource.data.returnedBy == request.auth.uid
+          && request.resource.data.returnReason == 'transferred'
+          && next is string
+          && !exists(holdingPath(next))
+          && existsAfter(holdingPath(next))
+          && getAfter(holdingPath(next)).data.transferredFrom == holdingId;
+      }
+
+      // Using or discarding returns a normal card to the pool when its holder pointed here. Otherwise (an extra
+      // copy, a Blessed or a Cursed card) the card does not change.
+      function releasesCard() {
+        let cardId = resource.data.cardId;
+        let before = holderBefore(cardId);
+        return resource.data.cardKind != 'normal'
+          || (before != null && before.userCardId == holdingId
+            ? holderAfter(cardId) == null
+            : holderAfter(cardId) == before);
+      }
+
+      // A transfer moves a normal card's holder to the new holding when it pointed here. Otherwise the card does
+      // not change.
+      function movesCard() {
+        let cardId = resource.data.cardId;
+        let before = holderBefore(cardId);
+        let next = request.resource.data.transferredTo;
+        return resource.data.cardKind != 'normal'
+          || (before != null && before.userCardId == holdingId
+            ? holderAfter(cardId) == {'uid': getAfter(holdingPath(next)).data.uid, 'userCardId': next}
+            : holderAfter(cardId) == before);
+      }
     }
 
     // Closed catch-all: anything no rule grants is denied, for signed-in and signed-out users alike.

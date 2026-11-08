@@ -19,7 +19,7 @@ Turkish interface strings are written directly in the components. There is no tr
 src/
   main.tsx              entry: config check -> App (or ConfigErrorScreen)
   app/                  composition root
-    App.tsx             AuthProvider + UsersProvider + CardsProvider + router
+    App.tsx             AuthProvider + UsersProvider + CardsProvider + HoldingsProvider + router
     screens.ts          the single lists of screens (main menu and Shops sub-screens)
     routes.tsx          route table: sign-in, RequireAuth, AppShell, one route per screen, not-found
     layout/             AppShell, SidebarContent, MobileNav, UserBadge, OfflineBanner
@@ -27,11 +27,14 @@ src/
   features/             one folder per product area
     auth/               AuthProvider, useAuth, RequireAuth, SignInPage, authErrors
     users/              profiles and roles: schema, api, UsersProvider, useIsDm, DmOnly, PlayerList
-    cards/              card definitions: schema, api, CardsProvider, useCards, useDeckCards, the official
-                        sets, search and sort helpers, and the card browser (CardBrowser, CardFace, CardTable)
+    cards/              card definitions: schema, api, CardsProvider, useCards, useDeckCards, useCardsById,
+                        the official sets, search and sort helpers, and the card browser (CardBrowser,
+                        CardFace, CardTable)
+    hands/              card holdings: schema, api (the card movements), errors, HoldingsProvider,
+                        useOpenHoldings, and the "Oyuncu elleri" screen (HandsPage, the hand, its dialogs)
     library/ cursed-deck/
                         the two card screens, each a <Name>Page.tsx around the shared card browser
-    hands/ shops/ true-words/ custom-draft/ activity-log/ rules/ settings/
+    shops/ true-words/ custom-draft/ activity-log/ rules/ settings/
                         each with its <Name>Page.tsx (placeholders for now)
   components/ui/        shared primitives: Avatar, Button, PageHeader, Placeholder, Spinner, FullScreenSpinner
   lib/
@@ -39,10 +42,12 @@ src/
     firestore/          real-time subscription hooks, converters, errors
     cn.ts               class-name merge helper
     useOnlineStatus.ts  browser network status
+    turkish.ts          Turkish grammar helpers, such as the genitive of a name ("Ayla'nın")
   styles/
     index.css           Tailwind entry and base styles
     theme.css           design tokens
-  test/                 test setup and shared test helpers (test providers for profiles and cards, fixtures)
+  test/                 test setup and shared test helpers (test providers for profiles, cards and holdings,
+                        fixtures)
 scripts/                admin scripts on Node with the Admin SDK (see Scripts)
 data/                   the owner's CSV data that the scripts import (see data/README.md)
 tests/                  emulator tests that need no app code: access rules, admin scripts
@@ -130,7 +135,7 @@ Styling uses Tailwind CSS utility classes, written directly in JSX.
   - `useIsDm()`, which is `true` only for a loaded DM profile; loading or missing profiles count as a player
 - **DM-only controls go inside `<DmOnly>`.** Hiding is only a convenience. `firestore.rules` is the real check, so every DM-only write needs its own rule and rules test.
 - **Roles change only through the admin script** (`npm run set-role`, see [Scripts](#scripts)). Never add a client write that touches `role`.
-- **Tests** render components inside `TestAuthProvider` and `TestUsersProvider` (`src/test/`) with fixed states, instead of talking to Firebase. `renderApp` takes a `users` option and returns `setUsers` to simulate a real-time profile change.
+- **Tests** render components inside `TestAuthProvider` and `TestUsersProvider` (`src/test/`) with fixed states, instead of talking to Firebase. `renderApp` takes `users`, `cards` and `holdings` options, and returns `setUsers`, `setCards` and `setHoldings` to simulate a real-time change.
 
 ## Data access
 
@@ -145,9 +150,11 @@ All stored data lives in Firestore and is read in real time.
   - `error`: show a Turkish message based on `error.kind` (`permission-denied`, `invalid-data`, `unknown`).
 - **Shared data comes from a provider.** Data that many screens need is subscribed to once, in a provider mounted in `App.tsx`, and read through hooks. Each provider has a test provider in `src/test/` that `renderApp` uses, so unit tests never touch Firebase.
   - Profiles: `useCurrentProfile()`, `useProfiles()`, `useIsDm()` (`UsersProvider`).
-  - Cards: `useCards()` for every active card, and `useDeckCards('legend' | 'cursed')` for one deck (`CardsProvider`). Retired cards are never in them.
+  - Cards: `useCards()` for every active card, and `useDeckCards('legend' | 'cursed')` for one deck. Retired cards are never in them. `useCardsById()` maps every card by its ID, retired ones included, so a hand can still show a held card that was retired (`CardsProvider`, one subscription to every card).
+  - Holdings: `useOpenHoldings()` for every card in every hand (`HoldingsProvider`). Derive views with the pure helpers next to it: `holdingsOf(holdings, uid)` for one hand in the order the cards were received, and `holdersOf(holdings, cardId)` for who holds a copy of a card.
 - **Staleness hints.** When `ready`, `fromCache: true` means the data has not been confirmed by the server (for example while offline), and `hasPendingWrites: true` means local changes are still waiting to sync. Show a subtle hint where it matters, for example next to an LP balance.
 - **Writing.** Write with the SDK (`setDoc`, `updateDoc`, `addDoc`, `runTransaction`, …) inside the feature's `api.ts`. Writes made offline are queued and sent when the connection returns. Do not wait for a write's promise before updating the UI: the subscription already shows the change as a pending write.
+- **Transactions.** A write that must see the current server state, such as a card movement, runs in `runTransaction` in the feature's `api.ts`. Transactions need a connection: they fail offline instead of being queued, so the interface says so (see `src/features/hands/errors.ts`).
 - **Errors from Firebase.** Recognize Firebase errors by their `code`, not with `instanceof`. Firebase's error classes reset their prototype, so `instanceof FirestoreError` is false even for real Firestore errors.
 
 ## Adding a new screen
@@ -190,6 +197,10 @@ Firestore is closed by default (`firestore.rules`). Opening a collection or docu
    - every other access is denied (`assertFails`), including other users' data and invalid writes
 
    Run `npm run test:emulator`.
+
+   Two patterns in `firestore.rules` help here:
+   - **Roles.** `isDm()` checks the signed-in user's profile. It costs one document read per request, so combine it with the cheap checks first.
+   - **Writes that span documents.** When one action writes several documents that must agree, such as a card's `holder` and the holding it points at, each document's rule checks the other side's final state with `getAfter()` and `existsAfter()`, and its state before with `get()` and `exists()`. Then no write, not even one crafted outside the app, can leave them disagreeing. Test each allowed combination with a batched write, and each half on its own as denied.
 
 5. **Feature code.** Only now write the feature's `api.ts` and the UI that reads and writes the path.
 

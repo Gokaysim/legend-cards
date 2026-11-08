@@ -7,7 +7,7 @@ import { doc, type Firestore, getDocs, setDoc } from 'firebase/firestore'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import firestoreRules from '../../../firestore.rules?raw'
-import { activeCardsQuery } from './api'
+import { cardsRef } from './api'
 
 let testEnv: RulesTestEnvironment
 
@@ -49,14 +49,15 @@ beforeEach(async () => {
   })
 })
 
-describe('activeCardsQuery under the real rules', () => {
-  it('returns only the cards that are not retired, validated and with their IDs', async () => {
+describe('cardsRef under the real rules', () => {
+  it('returns every card, retired ones included, validated, with their IDs and no holder', async () => {
     const db = firestoreOf(testEnv.authenticatedContext('alice'))
 
-    const snapshot = await getDocs(activeCardsQuery(db))
+    const snapshot = await getDocs(cardsRef(db))
 
     expect(snapshot.docs.map((document) => document.data())).toEqual([
-      { id: 'cursed-hex', ...storedCard('Hex', 'hex', false) },
+      { id: 'cursed-hex', ...storedCard('Hex', 'hex', false), holder: null },
+      { id: 'cursed-oldcurse', ...storedCard('Old Curse', 'oldcurse', true), holder: null },
     ])
   })
 })

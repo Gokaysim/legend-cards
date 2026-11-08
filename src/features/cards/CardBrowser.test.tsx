@@ -8,6 +8,7 @@ import { ready } from '@/test/fixtures'
 
 import { CardBrowser } from './CardBrowser'
 import type { Card } from './schema'
+import type { CardStatus, DeckStatus } from './status'
 
 const LEGEND: Card[] = [
   testCard('Greedy Hands', {
@@ -277,7 +278,7 @@ describe('CardBrowser for the Cursed deck', () => {
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
   })
 
-  it('searches and shows the Kart, Cost and Metin columns in the list view', async () => {
+  it('searches and shows the Kart, Cost, Metin and Durum columns in the list view', async () => {
     const user = userEvent.setup()
     render(<CardBrowser deck="cursed" cards={cursed} />)
 
@@ -291,6 +292,145 @@ describe('CardBrowser for the Cursed deck', () => {
       screen
         .getAllByRole('columnheader')
         .map((header) => header.textContent?.replace(/[▲▼↕]|\(.*\)/g, '').trim()),
-    ).toEqual(['Kart', 'Cost', 'Metin'])
+    ).toEqual(['Kart', 'Cost', 'Metin', 'Durum'])
+  })
+})
+
+/** A deck status: every card in the pool except those given, with the holders' names. */
+function deckStatus(
+  cards: readonly Card[],
+  held: Record<string, Partial<CardStatus>>,
+  counts = { poolCount: 0, handCount: 0 },
+): DeckStatus {
+  return {
+    byCard: new Map(
+      cards.map((card) => [
+        card.id,
+        {
+          inPool: card.kind !== 'cursed',
+          holderNames: [],
+          ...held[card.name],
+        },
+      ]),
+    ),
+    ...counts,
+  }
+}
+
+describe('CardBrowser pool status', () => {
+  const greedy = 'Greedy Hands'
+  const ayla = { inPool: false, holderNames: ['Ayla'] }
+  const legendList = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(screen.getByRole('button', { name: '☷ Liste' }))
+  }
+  const durum = (name: string) =>
+    within(screen.getByRole('row', { name: new RegExp(name) }))
+      .getAllByRole('cell')
+      .at(-1)
+
+  it('shows a held card as "Elde" with its holder, and marks its face', async () => {
+    const user = userEvent.setup()
+    render(
+      <CardBrowser
+        deck="legend"
+        cards={ready(LEGEND)}
+        status={deckStatus(LEGEND, { [greedy]: ayla })}
+      />,
+    )
+
+    expect(screen.getByRole('article', { name: greedy })).toHaveTextContent('Elde: Ayla')
+    expect(screen.getByRole('article', { name: 'Let Go' })).not.toHaveTextContent('Elde')
+
+    await legendList(user)
+    expect(durum(greedy)).toHaveTextContent('Elde: Ayla')
+    expect(durum('Let Go')).toHaveTextContent('Havuzda')
+  })
+
+  it('shows a card back in the pool without a reload, with a higher pool count', () => {
+    const { rerender } = render(
+      <CardBrowser
+        deck="legend"
+        cards={ready(LEGEND)}
+        status={deckStatus(LEGEND, { [greedy]: ayla }, { poolCount: 7, handCount: 1 })}
+      />,
+    )
+    expect(screen.getByLabelText('Havuz durumu')).toHaveTextContent('Havuzda 7 · Ellerde 1')
+
+    rerender(
+      <CardBrowser
+        deck="legend"
+        cards={ready(LEGEND)}
+        status={deckStatus(LEGEND, {}, { poolCount: 8, handCount: 0 })}
+      />,
+    )
+
+    expect(screen.getByRole('article', { name: greedy })).not.toHaveTextContent('Elde')
+    expect(screen.getByLabelText('Havuz durumu')).toHaveTextContent('Havuzda 8 · Ellerde 0')
+  })
+
+  it('shows a Blessed card in a hand as "Havuzda · Elde", without marking its face', async () => {
+    const user = userEvent.setup()
+    render(
+      <CardBrowser
+        deck="legend"
+        cards={ready(LEGEND)}
+        status={deckStatus(LEGEND, { 'Dawn of Fortune': { holderNames: ['Ayla'] } })}
+      />,
+    )
+
+    expect(screen.getByRole('article', { name: 'Dawn of Fortune' })).not.toHaveTextContent('Elde')
+    await legendList(user)
+    expect(durum('Dawn of Fortune')).toHaveTextContent('Havuzda · Elde: Ayla')
+  })
+
+  it('lists only the pool with "Yalnızca havuzdakiler", combined with the search', async () => {
+    const user = userEvent.setup()
+    render(
+      <CardBrowser
+        deck="legend"
+        cards={ready(LEGEND)}
+        status={deckStatus(LEGEND, { [greedy]: ayla })}
+      />,
+    )
+
+    await user.click(screen.getByRole('checkbox', { name: 'Yalnızca havuzdakiler' }))
+
+    expect(shownNames()).not.toContain(greedy)
+    expect(shownNames()).toContain('Dawn of Fortune')
+    expect(shownNames()).toContain('Halo of Kings')
+    expect(screen.getByText('7 kart (toplam 8)')).toBeInTheDocument()
+
+    await user.type(search(), 'discard')
+    expect(shownNames()).toEqual(['Let Go'])
+  })
+
+  it('offers the pool-only filter only once the status is known, and not on the Cursed Deck', () => {
+    const { rerender } = render(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
+    expect(screen.getByRole('checkbox', { name: 'Yalnızca havuzdakiler' })).toBeDisabled()
+    expect(screen.queryByLabelText('Havuz durumu')).not.toBeInTheDocument()
+
+    rerender(<CardBrowser deck="cursed" cards={ready(CURSED)} status={deckStatus(CURSED, {})} />)
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Havuz durumu')).not.toBeInTheDocument()
+  })
+
+  it('shows everyone who holds a Cursed card, on its face and in the Durum column', async () => {
+    const user = userEvent.setup()
+    render(
+      <CardBrowser
+        deck="cursed"
+        cards={ready(CURSED)}
+        status={deckStatus(CURSED, { 'Visions of Death': { holderNames: ['Ayla', 'Bora'] } })}
+      />,
+    )
+
+    expect(screen.getByRole('article', { name: 'Visions of Death' })).toHaveTextContent(
+      'Elde: Ayla, Bora',
+    )
+    expect(screen.getByRole('article', { name: 'Heart Attack' })).not.toHaveTextContent('Elde')
+
+    await user.click(screen.getByRole('button', { name: '☷ Liste' }))
+    expect(durum('Visions of Death')).toHaveTextContent('Elde: Ayla, Bora')
+    expect(durum('Heart Attack')).toHaveTextContent('—')
   })
 })

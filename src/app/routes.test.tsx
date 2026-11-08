@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
-import { ready } from '@/test/fixtures'
+import { ready, testProfile, testUser } from '@/test/fixtures'
 import { renderApp } from '@/test/renderApp'
 
 import { SCREENS } from './screens'
@@ -29,8 +29,19 @@ const CARDS = ready([
   testCursedCard('Visions of Death'),
 ])
 
+/** Menu entries that land somewhere else than their own path, with the heading shown there. */
+const LANDINGS: Record<string, { pathname: string; heading: string }> = {
+  // "Oyuncu elleri" opens the signed-in player's own hand.
+  '/hands': { pathname: `/hands/${testUser.uid}`, heading: 'Gökay — Kart Eli' },
+}
+
 /** The screens that have real content, with what each one shows instead of the not-ready note. */
 const BUILT_SCREENS: Record<string, () => void> = {
+  // The hand of the signed-in player, who holds no cards here.
+  '/hands': () => {
+    expect(screen.getByRole('heading', { level: 1, name: 'Gökay — Kart Eli' })).toBeInTheDocument()
+    expect(screen.getByText('Bu elde henüz kart yok.')).toBeInTheDocument()
+  },
   // The Shops hub leads to the two shops.
   '/shops': () => {
     expect(screen.getByRole('link', { name: 'Pack Shop' })).toBeInTheDocument()
@@ -58,13 +69,31 @@ describe('routes and navigation', () => {
     expect(labels).toEqual(EXPECTED_LABELS.map((label, i) => `${SCREENS[i]?.icon}${label}`))
   })
 
-  it('opens the "Oyuncu elleri" screen from the root URL', async () => {
+  it('opens the "Oyuncu elleri" screen on the own hand from the root URL', async () => {
     const { router } = renderApp({ path: '/' })
 
     expect(
-      await screen.findByRole('heading', { level: 1, name: 'Oyuncu elleri' }),
+      await screen.findByRole('heading', { level: 1, name: 'Gökay — Kart Eli' }),
     ).toBeInTheDocument()
-    expect(router.state.location.pathname).toBe('/hands')
+    expect(router.state.location.pathname).toBe(`/hands/${testUser.uid}`)
+    expect(within(mainMenu()).getByRole('link', { name: 'Oyuncu elleri' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    )
+  })
+
+  it("shows a player's hand directly from its URL and keeps the menu entry marked", () => {
+    renderApp({
+      path: '/hands/bora',
+      users: { profiles: ready([testProfile(), testProfile({ id: 'bora', displayName: 'Bora' })]) },
+    })
+
+    expect(screen.getByRole('heading', { level: 1, name: 'Bora — Kart Eli' })).toBeInTheDocument()
+    expect(screen.queryByText('Bu ekran henüz hazır değil.')).not.toBeInTheDocument()
+    expect(within(mainMenu()).getByRole('link', { name: 'Oyuncu elleri' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    )
   })
 
   it.each(SCREENS.map((s) => [s.label, s.path] as const))(
@@ -78,8 +107,9 @@ describe('routes and navigation', () => {
 
       await user.click(within(mainMenu()).getByRole('link', { name: label }))
 
-      expect(router.state.location.pathname).toBe(path)
-      expect(screen.getByRole('heading', { level: 1, name: label })).toBeInTheDocument()
+      const landing = LANDINGS[path] ?? { pathname: path, heading: label }
+      expect(router.state.location.pathname).toBe(landing.pathname)
+      expect(screen.getByRole('heading', { level: 1, name: landing.heading })).toBeInTheDocument()
       const showsContent = BUILT_SCREENS[path]
       if (showsContent) {
         showsContent()
@@ -111,6 +141,6 @@ describe('routes and navigation', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Sayfa bulunamadı' })).toBeInTheDocument()
     await user.click(screen.getByRole('link', { name: 'Oyuncu elleri ekranına dön' }))
 
-    expect(router.state.location.pathname).toBe('/hands')
+    expect(router.state.location.pathname).toBe(`/hands/${testUser.uid}`)
   })
 })

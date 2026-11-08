@@ -8,7 +8,7 @@ import { SCREENS } from '../screens'
 import { UserBadge } from './UserBadge'
 
 export type SidebarContentProps = {
-  /** Called after the user picks a screen, so the mobile menu can close. */
+  /** Called after the user picks a screen or a player, so the mobile menu can close. */
   onNavigate?: () => void
 }
 
@@ -41,7 +41,7 @@ export function SidebarContent({ onNavigate }: SidebarContentProps) {
           </NavLink>
         ))}
       </nav>
-      <PlayerList profiles={profiles} />
+      <PlayerList profiles={profiles} onNavigate={onNavigate} />
       <div className="mt-auto">
         <UserBadge />
       </div>

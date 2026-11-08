@@ -1,4 +1,4 @@
-import { useDeferredValue, useId, useMemo, useState } from 'react'
+import { useCallback, useDeferredValue, useId, useMemo, useState } from 'react'
 
 import { Button } from '@/components/ui/Button'
 import { Spinner } from '@/components/ui/Spinner'
@@ -11,7 +11,15 @@ import { CardTable } from './CardTable'
 import { cardHaystack, cardMatchesQuery, setLabel } from './display'
 import type { Card } from './schema'
 import { setOrder } from './sets'
-import { type CardSort, compareLabels, DEFAULT_SORT, type SortKey, sortCards } from './sort'
+import {
+  type CardSort,
+  compareLabels,
+  DEFAULT_SORT,
+  type SortKey,
+  sortCards,
+  type StatusText,
+} from './sort'
+import { type DeckStatus, isMarkedHeld, statusLabel } from './status'
 
 type View = 'cards' | 'list'
 
@@ -52,13 +60,19 @@ export type CardBrowserProps = {
   deck: Deck
   /** The deck's active cards (see `useDeckCards`). */
   cards: Subscription<Card[]>
+  /**
+   * Where the cards are: in the pool or in hands, live. Until it is known, the cards show without a status and
+   * the pool-only filter is off.
+   */
+  status?: DeckStatus
 }
 
 /**
- * Browses one deck: search, the set and mechanic pack filters (Legend deck only), a card view and a sortable
- * list view, with the loading, error and empty states. Shared by the Kart kütüphanesi and the Cursed Deck.
+ * Browses one deck: search, the set, mechanic pack and pool-only filters (Legend deck only), a card view and a
+ * sortable list view with each card's status, the pool counts (Legend deck only), and the loading, error and
+ * empty states. Shared by the Kart kütüphanesi and the Cursed Deck.
  */
-export function CardBrowser({ deck, cards }: CardBrowserProps) {
+export function CardBrowser({ deck, cards, status }: CardBrowserProps) {
   if (cards.status === 'loading') {
     return <Spinner label="Kartlar yükleniyor…" className="py-12" />
   }
@@ -74,14 +88,23 @@ export function CardBrowser({ deck, cards }: CardBrowserProps) {
       <p className="rounded-xl border border-line bg-pane p-6 text-ink-muted">Henüz kart yok.</p>
     )
   }
-  return <LoadedCardBrowser deck={deck} cards={cards.data} />
+  return <LoadedCardBrowser deck={deck} cards={cards.data} status={status} />
 }
 
-function LoadedCardBrowser({ deck, cards }: { deck: Deck; cards: Card[] }) {
+function LoadedCardBrowser({
+  deck,
+  cards,
+  status,
+}: {
+  deck: Deck
+  cards: Card[]
+  status: DeckStatus | undefined
+}) {
   const ids = useId()
   const [query, setQuery] = useState('')
   const [setFilter, setSetFilter] = useState(ALL)
   const [mechanicFilter, setMechanicFilter] = useState(ALL)
+  const [isPoolOnly, setIsPoolOnly] = useState(false)
   const [view, setView] = useState<View>('cards')
   const [sort, setSort] = useState<CardSort>(DEFAULT_SORT)
   const deferredQuery = useDeferredValue(query)
@@ -93,15 +116,34 @@ function LoadedCardBrowser({ deck, cards }: { deck: Deck; cards: Card[] }) {
   const sets = useMemo(() => (deck === 'legend' ? setOptions(cards) : []), [cards, deck])
   const mechanics = useMemo(() => (deck === 'legend' ? mechanicOptions(cards) : []), [cards, deck])
 
+  const statusText = useCallback<StatusText>(
+    (card) => {
+      const cardStatus = status?.byCard.get(card.id)
+      return cardStatus ? statusLabel(card, cardStatus) : null
+    },
+    [status],
+  )
+
   const shown = useMemo(() => {
     const matching = cards.filter(
       (card) =>
         (setFilter === ALL || setLabel(card) === setFilter) &&
         (mechanicFilter === ALL || card.mechanicPack === mechanicFilter) &&
+        (!isPoolOnly || status === undefined || status.byCard.get(card.id)?.inPool === true) &&
         cardMatchesQuery(haystacks.get(card.id) ?? '', deferredQuery),
     )
-    return sortCards(matching, sort)
-  }, [cards, haystacks, setFilter, mechanicFilter, deferredQuery, sort])
+    return sortCards(matching, sort, statusText)
+  }, [
+    cards,
+    haystacks,
+    setFilter,
+    mechanicFilter,
+    isPoolOnly,
+    status,
+    deferredQuery,
+    sort,
+    statusText,
+  ])
 
   const changeSort = (key: SortKey) => {
     setSort((current) =>
@@ -159,6 +201,16 @@ function LoadedCardBrowser({ deck, cards }: { deck: Deck; cards: Card[] }) {
                 </option>
               ))}
             </select>
+            <label className="flex items-center gap-2 text-sm text-ink">
+              <input
+                type="checkbox"
+                checked={isPoolOnly}
+                disabled={status === undefined}
+                onChange={(event) => setIsPoolOnly(event.target.checked)}
+                className="size-4 accent-gold"
+              />
+              Yalnızca havuzdakiler
+            </label>
           </>
         ) : null}
         <div role="group" aria-label="Görünüm" className="flex gap-2">
@@ -179,11 +231,18 @@ function LoadedCardBrowser({ deck, cards }: { deck: Deck; cards: Card[] }) {
         </div>
       </div>
 
-      <p aria-live="polite" className="text-sm text-ink-muted">
-        {shown.length === cards.length
-          ? `${cards.length} kart`
-          : `${shown.length} kart (toplam ${cards.length})`}
-      </p>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-sm text-ink-muted">
+        <p aria-live="polite">
+          {shown.length === cards.length
+            ? `${cards.length} kart`
+            : `${shown.length} kart (toplam ${cards.length})`}
+        </p>
+        {deck === 'legend' && status ? (
+          <p aria-label="Havuz durumu">
+            Havuzda {status.poolCount} · Ellerde {status.handCount}
+          </p>
+        ) : null}
+      </div>
 
       {shown.length === 0 ? (
         <p className="rounded-xl border border-line bg-pane p-6 text-ink-muted">Kart bulunamadı.</p>
@@ -192,14 +251,30 @@ function LoadedCardBrowser({ deck, cards }: { deck: Deck; cards: Card[] }) {
           aria-label="Kartlar"
           className="grid grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] gap-3"
         >
-          {shown.map((card) => (
-            <li key={card.id}>
-              <CardFace card={card} />
-            </li>
-          ))}
+          {shown.map((card) => {
+            const cardStatus = status?.byCard.get(card.id)
+            return (
+              <li key={card.id}>
+                <CardFace
+                  card={card}
+                  heldBy={
+                    cardStatus && isMarkedHeld(card, cardStatus)
+                      ? cardStatus.holderNames
+                      : undefined
+                  }
+                />
+              </li>
+            )
+          })}
         </ul>
       ) : (
-        <CardTable deck={deck} cards={shown} sort={sort} onSort={changeSort} />
+        <CardTable
+          deck={deck}
+          cards={shown}
+          sort={sort}
+          onSort={changeSort}
+          statusText={statusText}
+        />
       )}
     </div>
   )

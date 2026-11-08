@@ -60,6 +60,13 @@ describe('theme tokens', () => {
     expect(contrastRatio(token('danger-ink'), token('sidebar'))).toBeGreaterThanOrEqual(4.5)
   })
 
+  // A hand's cost on a card face: green when it is lower than the card's cost, red when it is higher.
+  for (const accent of ['green', 'cursed']) {
+    it(`${accent} cost text on the canvas has at least 4.5:1 contrast`, () => {
+      expect(contrastRatio(token(accent), token('canvas'))).toBeGreaterThanOrEqual(4.5)
+    })
+  }
+
   // Card frames are non-text graphics: WCAG asks for at least 3:1 against the surface they sit on.
   for (const frame of ['common', 'gold', 'blessed', 'cursed']) {
     for (const surface of ['pane', 'pane-raised']) {

@@ -19,6 +19,16 @@ export const CARD_LIMITS = {
 } as const
 
 const name = z.string().min(1).max(CARD_LIMITS.name)
+
+/**
+ * Who holds a normal card: the user and their open holding (`userCards/{userCardId}`). `null` means the card is
+ * in the pool. Stored cards from before card holdings have no field, which reads as `null`.
+ */
+export const cardHolderSchema = z.object({
+  uid: z.string().min(1),
+  userCardId: z.string().min(1),
+})
+export type CardHolder = z.infer<typeof cardHolderSchema>
 const setCode = z.string().min(1).max(CARD_LIMITS.setCode)
 const mechanicPack = z.string().min(1).max(CARD_LIMITS.mechanicPack)
 
@@ -41,6 +51,7 @@ const normalCardSchema = z.object({
   setCode,
   rarity: z.enum(RARITIES),
   mechanicPack: mechanicPack.nullable(),
+  holder: cardHolderSchema.nullable().default(null),
 })
 
 /** "Blessed" is a marker, not a set: Blessed cards have no set code and no rarity. */
@@ -50,6 +61,8 @@ const blessedCardSchema = z.object({
   setCode: z.null(),
   rarity: z.null(),
   mechanicPack: mechanicPack.nullable(),
+  /** Blessed cards are repeatable: they never have a holder. */
+  holder: z.null().default(null),
 })
 
 /** Cursed cards form one global deck: no set code, rarity, or mechanic pack. */
@@ -59,11 +72,14 @@ const cursedCardSchema = z.object({
   setCode: z.null(),
   rarity: z.null(),
   mechanicPack: z.null(),
+  /** Cursed cards are repeatable: they never have a holder. */
+  holder: z.null().default(null),
 })
 
 /**
- * A card definition at `cards/{cardId}`. Only the import script writes it. Later changes add fields
- * (`holder`, `imageUrl`) with defaults, so stored cards need no migration.
+ * A card definition at `cards/{cardId}`. Only the import script writes the definition; the application changes
+ * only a normal card's `holder`, under the card-holdings rules. Fields added later (`holder`, `imageUrl`) have
+ * defaults, so stored cards need no migration.
  */
 export const cardSchema = z.discriminatedUnion('kind', [
   normalCardSchema,

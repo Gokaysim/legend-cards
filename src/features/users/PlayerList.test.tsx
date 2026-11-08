@@ -1,10 +1,31 @@
 import { render, screen, within } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import userEvent from '@testing-library/user-event'
+import type { ReactElement, ReactNode } from 'react'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router'
+import { describe, expect, it, vi } from 'vitest'
 
 import { ready, testProfile } from '@/test/fixtures'
 
 import { PlayerList } from './PlayerList'
 import { sortProfiles } from './usersContext'
+
+/** Shows the current path, so a test can see where a link went. */
+function CurrentPath() {
+  return <output aria-label="Adres">{useLocation().pathname}</output>
+}
+
+/** Renders the list inside a router at `path`. */
+function renderList(ui: ReactElement, path = '/rules') {
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <MemoryRouter initialEntries={[path]}>
+      {children}
+      <Routes>
+        <Route path="*" element={<CurrentPath />} />
+      </Routes>
+    </MemoryRouter>
+  )
+  return render(ui, { wrapper })
+}
 
 const list = () => screen.getByRole('region', { name: 'Oyuncular' })
 const rowNames = () =>
@@ -19,13 +40,13 @@ describe('PlayerList', () => {
       testProfile({ id: 'b', displayName: 'Çağla' }),
       testProfile({ id: 'c', displayName: 'Cem' }),
     ])
-    render(<PlayerList profiles={ready(profiles)} />)
+    renderList(<PlayerList profiles={ready(profiles)} />)
 
     expect(rowNames()).toEqual(['CCem', 'ÇÇağla', 'DDeniz'])
   })
 
   it('marks the DM, and only the DM', () => {
-    render(
+    renderList(
       <PlayerList
         profiles={ready([
           testProfile({ id: 'a', displayName: 'Ali' }),
@@ -40,13 +61,13 @@ describe('PlayerList', () => {
   })
 
   it('shows a label for a profile without a name', () => {
-    render(<PlayerList profiles={ready([testProfile({ displayName: null })])} />)
+    renderList(<PlayerList profiles={ready([testProfile({ displayName: null })])} />)
 
     expect(within(list()).getByText('İsimsiz oyuncu')).toBeInTheDocument()
   })
 
   it('shows the loading, error and empty states', () => {
-    const { rerender } = render(<PlayerList profiles={{ status: 'loading' }} />)
+    const { rerender } = renderList(<PlayerList profiles={{ status: 'loading' }} />)
     expect(within(list()).getByRole('status')).toHaveTextContent('Oyuncular yükleniyor…')
 
     rerender(
@@ -62,7 +83,7 @@ describe('PlayerList', () => {
 
   it('shows a new profile as soon as the list changes', () => {
     const first = testProfile({ id: 'a', displayName: 'Ali' })
-    const { rerender } = render(<PlayerList profiles={ready([first])} />)
+    const { rerender } = renderList(<PlayerList profiles={ready([first])} />)
     expect(rowNames()).toEqual(['AAli'])
 
     rerender(
@@ -70,5 +91,42 @@ describe('PlayerList', () => {
     )
 
     expect(rowNames()).toEqual(['AAli', 'BBanu'])
+  })
+
+  it("links each name to that user's hand", async () => {
+    const user = userEvent.setup()
+    const onNavigate = vi.fn()
+    renderList(
+      <PlayerList
+        profiles={ready([
+          testProfile({ id: 'ayla', displayName: 'Ayla' }),
+          testProfile({ id: 'bora', displayName: 'Bora' }),
+        ])}
+        onNavigate={onNavigate}
+      />,
+    )
+
+    await user.click(within(list()).getByRole('link', { name: 'Bora' }))
+
+    expect(screen.getByRole('status', { name: 'Adres' })).toHaveTextContent('/hands/bora')
+    expect(onNavigate).toHaveBeenCalledTimes(1)
+  })
+
+  it('marks the user whose hand is shown, and only that user', () => {
+    renderList(
+      <PlayerList
+        profiles={ready([
+          testProfile({ id: 'ayla', displayName: 'Ayla' }),
+          testProfile({ id: 'bora', displayName: 'Bora', role: 'dm' }),
+        ])}
+      />,
+      '/hands/bora',
+    )
+
+    expect(within(list()).getByRole('link', { name: /Bora/ })).toHaveAttribute(
+      'aria-current',
+      'page',
+    )
+    expect(within(list()).getByRole('link', { name: 'Ayla' })).not.toHaveAttribute('aria-current')
   })
 })
