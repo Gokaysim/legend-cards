@@ -46,16 +46,23 @@ function writableHolding(db: Firestore, holdingId?: string): DocumentReference {
   return holdingId === undefined ? doc(holdings) : doc(holdings, holdingId)
 }
 
-/** A new, open holding given now. */
-function openHolding(
+/**
+ * A new, open holding given now: the fields every way of giving writes. Defaults to a DM give, inactive, without
+ * a note or a cost. The draws feature composes it into its draw transaction.
+ */
+export function openHolding(
   fields: Pick<StoredHolding, 'cardId' | 'cardName' | 'cardKind' | 'uid' | 'givenBy'> &
     Partial<
-      Pick<StoredHolding, 'givenVia' | 'transferredFrom' | 'active' | 'note' | 'costOverride'>
+      Pick<
+        StoredHolding,
+        'givenVia' | 'transferredFrom' | 'drawId' | 'active' | 'note' | 'costOverride'
+      >
     >,
 ): WithFieldValue<StoredHolding> {
   return {
     givenVia: 'dm',
     transferredFrom: null,
+    drawId: null,
     active: false,
     note: '',
     costOverride: null,

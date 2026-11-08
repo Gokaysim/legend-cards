@@ -7,6 +7,7 @@ import { PageHeader } from '@/components/ui/PageHeader'
 import { Spinner } from '@/components/ui/Spinner'
 import { useAuth } from '@/features/auth/authContext'
 import { useCardsById } from '@/features/cards/cardsContext'
+import { DrawButtons } from '@/features/draws/DrawButtons'
 import { DmOnly } from '@/features/users/DmOnly'
 import type { UserProfile } from '@/features/users/schema'
 import { profileName, useCurrentProfile, useProfiles } from '@/features/users/usersContext'
@@ -88,11 +89,14 @@ function HandScreen({ profile }: { profile: UserProfile }) {
       <PageHeader
         title={`${profileName(profile)} — Kart Eli`}
         actions={
-          <DmOnly>
-            <Button variant="primary" onClick={() => setIsGiving(true)}>
-              + Kart ver
-            </Button>
-          </DmOnly>
+          <>
+            <DrawButtons owner={profile} />
+            <DmOnly>
+              <Button variant="primary" onClick={() => setIsGiving(true)}>
+                + Kart ver
+              </Button>
+            </DmOnly>
+          </>
         }
       />
       <HandContent profile={profile} />

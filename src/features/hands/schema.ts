@@ -4,8 +4,8 @@ import { z } from 'zod'
 import { CARD_KINDS, CARD_LIMITS } from '@/features/cards/schema'
 import { createConverter } from '@/lib/firestore/converter'
 
-/** How a card reached the hand. Pack-opening adds `pack` and `draw`. Keep in step with `firestore.rules`. */
-export const GIVEN_VIA = ['dm', 'transfer'] as const
+/** How a card reached the hand. The Pack Shop adds `pack`. Keep in step with `firestore.rules`. */
+export const GIVEN_VIA = ['dm', 'transfer', 'draw'] as const
 export type GivenVia = (typeof GIVEN_VIA)[number]
 
 /** Why a card left the hand. Keep in step with `firestore.rules`. */
@@ -43,6 +43,8 @@ export const holdingSchema = z
     givenVia: z.enum(GIVEN_VIA),
     /** For a transfer: the closed holding this one continues. */
     transferredFrom: id.nullable(),
+    /** For a drawn card: the draw that opened this holding. Stored holdings from before draws read as `null`. */
+    drawId: id.nullable().default(null),
     active: z.boolean(),
     note: z.string().max(HOLDING_LIMITS.note),
     /** The cost in this hand, as written, replacing the card's own cost. `null` keeps the card's cost. */
@@ -62,6 +64,9 @@ export const holdingSchema = z
     }
     if ((holding.givenVia === 'transfer') !== (holding.transferredFrom !== null)) {
       issue('transferredFrom', 'only a transfer continues another holding, and it always does')
+    }
+    if ((holding.givenVia === 'draw') !== (holding.drawId !== null)) {
+      issue('drawId', 'only a drawn holding names a draw, and it always does')
     }
     if ((holding.returnReason === null) !== (holding.returnedBy === null)) {
       issue('returnReason', 'a closed holding has both a reason and the user who closed it')

@@ -40,6 +40,24 @@ function storedHolding(uid: string, givenAt: number, returnedAt: number | null =
   }
 }
 
+/** A free draw by the DM into `uid`'s hand at `millis`. */
+function storedDraw(uid: string, millis: number) {
+  return {
+    kind: 'cursed',
+    uid,
+    by: 'dana',
+    at: at(millis),
+    cardId: 'cursed-visionsofdeath',
+    cardName: 'Visions of Death',
+    cardKind: 'cursed',
+    holdingId: `h-${uid}-${millis}`,
+    filters: null,
+    paidWith: 'none',
+    cost: 0,
+    entryId: null,
+  }
+}
+
 function storedEntry(account: string, millis: number) {
   const party = account === 'party'
   return {
@@ -76,10 +94,13 @@ beforeEach(async () => {
     await setDoc(doc(db, 'ledger/lp-ayla'), storedEntry('ayla', 7000))
     await setDoc(doc(db, 'ledger/lp-bora'), storedEntry('bora', 8000))
     await setDoc(doc(db, 'ledger/gp'), storedEntry('party', 9000))
+    await setDoc(doc(db, 'draws/d-ayla'), storedDraw('ayla', 10000))
+    await setDoc(doc(db, 'draws/d-bora'), storedDraw('bora', 11000))
+    await setDoc(doc(db, 'draws/d-ayla-2'), storedDraw('ayla', 12000))
   })
 })
 
-/** Runs the three queries as a signed-in player and returns the document IDs of each, in order. */
+/** Runs the four queries as a signed-in player and returns the document IDs of each, in order. */
 async function ids(uid: string | null, n: number) {
   const db = firestoreOf(testEnv.authenticatedContext('ayla'))
   const queries = logQueries(db, uid, n)
@@ -88,6 +109,7 @@ async function ids(uid: string | null, n: number) {
   return {
     given: await idsOf(queries.given),
     closed: await idsOf(queries.closed),
+    draws: await idsOf(queries.draws),
     entries: await idsOf(queries.entries),
   }
 }
@@ -97,18 +119,25 @@ describe('the log queries', () => {
     expect(await ids(null, 50)).toEqual({
       given: ['b-used', 'b-open', 'a-used', 'a-open'],
       closed: ['a-used', 'b-used'],
+      draws: ['d-ayla-2', 'd-bora', 'd-ayla'],
       entries: ['gp', 'lp-bora', 'lp-ayla'],
     })
   })
 
   it('stop at n', async () => {
-    expect(await ids(null, 1)).toEqual({ given: ['b-used'], closed: ['a-used'], entries: ['gp'] })
+    expect(await ids(null, 1)).toEqual({
+      given: ['b-used'],
+      closed: ['a-used'],
+      draws: ['d-ayla-2'],
+      entries: ['gp'],
+    })
   })
 
   it("keep only one user's records, and never the party's", async () => {
     expect(await ids('ayla', 50)).toEqual({
       given: ['a-used', 'a-open'],
       closed: ['a-used'],
+      draws: ['d-ayla-2', 'd-ayla'],
       entries: ['lp-ayla'],
     })
   })

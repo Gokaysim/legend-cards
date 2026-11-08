@@ -18,6 +18,7 @@ export function testLedgerEntry(
     balanceAfter: 7,
     source: 'manual',
     reason: "Boss'u yendi",
+    drawId: null,
     by: 'dm-1',
     at: Timestamp.fromMillis(atMillis),
     ...overrides,

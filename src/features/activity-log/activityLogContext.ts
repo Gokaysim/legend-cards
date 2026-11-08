@@ -11,7 +11,7 @@ import type { LogRecords } from './events'
  * exist only while the log is open.
  */
 export type ActivityLogSource = {
-  /** The three sources, each with its `n` newest records; with a uid, only that user's. */
+  /** The sources, each with its `n` newest records; with a uid, only that user's. */
   useLogRecords: (uid: string | null, n: number) => Subscription<LogRecords>
   /** One holding by ID, for the side of a transfer the sources did not return. `null` reads nothing. */
   useHolding: (holdingId: string | null) => Subscription<Holding | null>

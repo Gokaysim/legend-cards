@@ -3,8 +3,10 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { BalanceActions } from '@/features/balances/balancesContext'
+import { testCard, testCursedCard } from '@/test/cardFixtures'
 
 import { ready, testProfile, testUser } from '@/test/fixtures'
+import { testHolding } from '@/test/holdingFixtures'
 import { renderApp } from '@/test/renderApp'
 
 const me = testProfile()
@@ -162,5 +164,95 @@ describe('Legend Points on the hand', () => {
     expect(
       within(screen.getByLabelText('El özeti')).queryByText('Legend Point'),
     ).not.toBeInTheDocument()
+  })
+})
+
+describe('drawing on the hand', () => {
+  const eyes = testCard("Aboleth's Eyes")
+  const rite = testCard('Blood Rite')
+  const visions = testCursedCard('Visions of Death')
+  const meWithLp = { ...me, lp: 3 }
+  const drawButtons = () => [
+    main().queryByRole('button', { name: '🎲 Kart Çek' }),
+    main().queryByRole('button', { name: '☠ Cursed Kart Çek' }),
+  ]
+
+  it("shows both draw buttons on a player's own hand", () => {
+    renderApp({
+      path: `/hands/${testUser.uid}`,
+      users: { profiles: ready([meWithLp, ayla]) },
+      cards: { cards: ready([eyes, visions]) },
+    })
+
+    expect(drawButtons()).toEqual([expect.anything(), expect.anything()])
+  })
+
+  it("shows the DM both draw buttons on a player's hand", () => {
+    renderApp({
+      path: '/hands/bora',
+      users: { currentProfile: ready(dmProfile), profiles: ready([bora, dmProfile]) },
+      cards: { cards: ready([eyes, visions]) },
+    })
+
+    expect(drawButtons()).toEqual([expect.anything(), expect.anything()])
+  })
+
+  it("shows another player's hand without draw buttons", () => {
+    renderApp({
+      path: '/hands/bora',
+      users: { profiles: ready([meWithLp, bora]) },
+      cards: { cards: ready([eyes, visions]) },
+    })
+
+    expect(drawButtons()).toEqual([null, null])
+  })
+
+  it('disables the Cursed draw while the Cursed Deck is empty', () => {
+    renderApp({
+      path: `/hands/${testUser.uid}`,
+      users: { profiles: ready([meWithLp]) },
+      cards: { cards: ready([eyes, testCursedCard('Old Curse', { retired: true })]) },
+    })
+
+    expect(main().getByRole('button', { name: '☠ Cursed Kart Çek' })).toBeDisabled()
+    expect(main().getByRole('button', { name: '🎲 Kart Çek' })).toBeEnabled()
+  })
+
+  it('shows a drawn card at the end of the hand once the holding arrives', async () => {
+    const user = userEvent.setup()
+    const first = testHolding(eyes, testUser.uid, 1000)
+    const heldEyes = testCard("Aboleth's Eyes", {
+      holder: { uid: testUser.uid, userCardId: first.id },
+    })
+    const { setHoldings, setUsers } = renderApp({
+      path: `/hands/${testUser.uid}`,
+      users: { profiles: ready([meWithLp]) },
+      cards: { cards: ready([heldEyes, rite, visions]) },
+      holdings: { openHoldings: ready([first]) },
+    })
+
+    await user.click(main().getByRole('button', { name: '🎲 Kart Çek' }))
+    await user.click(screen.getByRole('button', { name: '🎲 Kart Çek (1 LP)' }))
+    expect(screen.getByRole('button', { name: 'Kart 1: çevir' })).toBeInTheDocument()
+
+    // The draw's holding and the new LP arrive through the subscriptions.
+    setHoldings({
+      openHoldings: ready([
+        first,
+        testHolding(rite, testUser.uid, 2000, {
+          givenBy: testUser.uid,
+          givenVia: 'draw',
+          drawId: 'draw-legend-bloodrite',
+        }),
+      ]),
+    })
+    setUsers({ profiles: ready([{ ...meWithLp, lp: 2 }]) })
+
+    const hand = within(screen.getByRole('list', { name: 'Eldeki kartlar' }))
+    expect(hand.getAllByRole('article').map((card) => card.getAttribute('aria-label'))).toEqual([
+      "Aboleth's Eyes",
+      'Blood Rite',
+    ])
+    expect(screen.getByText(/Bakiye:/)).toHaveTextContent('Bakiye: 2 LP')
   })
 })

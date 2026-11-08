@@ -10,7 +10,7 @@ import type { Subscription } from '@/lib/firestore/subscription'
 
 import { ready } from './fixtures'
 
-const NO_RECORDS: LogRecords = { given: [], closed: [], entries: [] }
+const NO_RECORDS: LogRecords = { given: [], closed: [], draws: [], entries: [] }
 
 export type TestActivityLog = {
   /**

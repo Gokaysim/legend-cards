@@ -4,7 +4,8 @@ import { Timestamp } from 'firebase/firestore'
 import { describe, expect, it } from 'vitest'
 
 import type { Holding } from '@/features/hands/schema'
-import { testCard } from '@/test/cardFixtures'
+import { testCard, testCursedCard } from '@/test/cardFixtures'
+import { testDmDraw, testDraw } from '@/test/drawFixtures'
 import { ready, testProfile } from '@/test/fixtures'
 import { testHolding } from '@/test/holdingFixtures'
 import { testGpEntry, testLedgerEntry } from '@/test/ledgerFixtures'
@@ -60,6 +61,7 @@ const newSide = testHolding(eyes, 'bora', 0, {
 const records = (parts: Partial<LogRecords> = {}): LogRecords => ({
   given: [],
   closed: [],
+  draws: [],
   entries: [],
   ...parts,
 })
@@ -176,6 +178,7 @@ describe('ActivityLogPage', () => {
         return ready({
           given: all.given.filter((holding) => holding.uid === uid),
           closed: all.closed.filter((holding) => holding.uid === uid),
+          draws: all.draws.filter((draw) => draw.uid === uid),
           entries: all.entries.filter((entry) => entry.account === uid),
         })
       },
@@ -220,5 +223,100 @@ describe('ActivityLogPage', () => {
 
     setActivityLog({ records: ready(records()) })
     expect(main().getByText('Henüz kayıtlı işlem yok.')).toBeInTheDocument()
+  })
+})
+
+describe('draws in the İşlem Logu', () => {
+  const rite = testCard('Blood Rite')
+  /** Ayla's paid draw of "Blood Rite", with its holding and its payment. */
+  const aylaDraws = testDraw(rite, 'ayla', 0, { id: 'd-ayla', at: on(8, 30) })
+  const drawnHolding = testHolding(rite, 'ayla', 0, {
+    id: aylaDraws.holdingId,
+    givenAt: on(8, 30),
+    givenBy: 'ayla',
+    givenVia: 'draw',
+    drawId: aylaDraws.id,
+  })
+  const payment = testLedgerEntry(0, {
+    id: aylaDraws.entryId ?? '',
+    account: 'ayla',
+    delta: -1,
+    balanceAfter: 2,
+    source: 'draw',
+    reason: null,
+    drawId: aylaDraws.id,
+    by: 'ayla',
+    at: on(8, 30),
+  })
+  const lpForBora = testLedgerEntry(0, {
+    id: 'lp-bora',
+    account: 'bora',
+    by: 'dana',
+    at: on(8, 20),
+  })
+
+  it('lists a draw among the other events, newest first', () => {
+    renderLog({ records: ready(records({ draws: [aylaDraws], entries: [lpForBora] })) })
+
+    const [first, second] = rows()
+    expect(first).toHaveTextContent('Blood Rite kartını çekti (−1 LP).')
+    expect(second).toHaveTextContent('Bora: +2 LP (5 → 7)')
+  })
+
+  it('lists a draw as one event, without its holding or its payment', () => {
+    renderLog({
+      records: ready(records({ given: [drawnHolding], draws: [aylaDraws], entries: [payment] })),
+    })
+
+    expect(rows()).toHaveLength(1)
+    expect(within(rows()[0]!).getByText('Ayla')).toBeInTheDocument()
+    expect(within(rows()[0]!).getByText('Blood Rite')).toHaveAttribute('lang', 'en')
+    expect(rows()[0]).toHaveTextContent('Blood Rite kartını çekti (−1 LP).')
+    expect(rowTexts().join(' ')).not.toContain('verdi')
+  })
+
+  it("shows the DM's draw with the DM marked, the hand, the card and the filters, without a payment", () => {
+    const dmDraw = testDmDraw(rite, 'bora', 0, {
+      id: 'd-dm',
+      by: 'dana',
+      at: on(8, 40),
+      filters: { cost: null, mechanicPack: null, rarity: 'rare', keyword: null },
+    })
+    renderLog({ records: ready(records({ draws: [dmDraw] })) })
+
+    const [row] = rows()
+    expect(within(row!).getByText('Dana')).toBeInTheDocument()
+    expect(within(row!).getByText('DM')).toBeInTheDocument()
+    expect(row).toHaveTextContent("Bora'ya Blood Rite kartını çekti (filtre: Rare).")
+    expect(row).not.toHaveTextContent('LP')
+  })
+
+  it('says that a Cursed card was drawn, and names it', () => {
+    const cursed = testDraw(testCursedCard('Visions of Death'), 'ayla', 0, {
+      id: 'd-cursed',
+      at: on(8, 50),
+    })
+    renderLog({ records: ready(records({ draws: [cursed] })) })
+
+    expect(rows()[0]).toHaveTextContent('Cursed kart çekti: Visions of Death.')
+  })
+
+  it("keeps the draws into the chosen player's hand in the player filter", async () => {
+    const user = userEvent.setup()
+    const dmDrawForAyla = testDmDraw(rite, 'ayla', 0, { id: 'd-dm', by: 'dana', at: on(8, 40) })
+    const boraDraws = testDraw(eyes, 'bora', 0, { id: 'd-bora', at: on(8, 45) })
+    const all = records({ draws: [boraDraws, dmDrawForAyla] })
+    renderLog({
+      records: (uid) =>
+        ready(
+          uid === null ? all : records({ draws: all.draws.filter((draw) => draw.uid === uid) }),
+        ),
+    })
+    expect(rows()).toHaveLength(2)
+
+    await user.selectOptions(main().getByRole('combobox', { name: 'Oyuncu' }), 'Ayla')
+
+    expect(rows()).toHaveLength(1)
+    expect(rows()[0]).toHaveTextContent("Ayla'ya Blood Rite kartını çekti.")
   })
 })

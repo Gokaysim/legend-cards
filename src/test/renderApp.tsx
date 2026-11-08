@@ -9,6 +9,7 @@ import { type TestActivityLog, TestActivityLogProvider } from './TestActivityLog
 import { TestAuthProvider } from './TestAuthProvider'
 import { type TestBalances, TestBalancesProvider } from './TestBalancesProvider'
 import { type TestCards, TestCardsProvider } from './TestCardsProvider'
+import { type TestDraws, TestDrawsProvider } from './TestDrawsProvider'
 import { type TestHoldings, TestHoldingsProvider } from './TestHoldingsProvider'
 import { type TestUsers, TestUsersProvider } from './TestUsersProvider'
 
@@ -26,6 +27,8 @@ export type RenderAppOptions = {
   balances?: TestBalances
   /** The İşlem Logu's records. Defaults to none. */
   activityLog?: TestActivityLog
+  /** Fake draws. Defaults to draws that give the first candidate. */
+  draws?: TestDraws
 }
 
 type Data = {
@@ -34,11 +37,12 @@ type Data = {
   holdings: TestHoldings
   balances: TestBalances
   activityLog: TestActivityLog
+  draws: TestDraws
 }
 
 /**
  * Renders the real route table at `path`, with a fixed auth state (signed in by default), fixed profiles, cards,
- * open holdings, party purse and log records.
+ * open holdings, party purse and log records, and fake draws.
  * `setUsers`, `setCards`, `setHoldings`, `setBalances` and `setActivityLog` re-render the same app with other
  * data, as a real-time update would, without remounting.
  */
@@ -51,9 +55,10 @@ export function renderApp({
   holdings = {},
   balances = {},
   activityLog = {},
+  draws = {},
 }: RenderAppOptions = {}) {
   const router = createMemoryRouter(routes, { initialEntries: [path] })
-  let current: Data = { users, cards, holdings, balances, activityLog }
+  let current: Data = { users, cards, holdings, balances, activityLog, draws }
   const tree = (data: Data) => (
     <TestAuthProvider state={state} signOut={signOut}>
       <TestUsersProvider {...data.users}>
@@ -61,7 +66,9 @@ export function renderApp({
           <TestCardsProvider {...data.cards}>
             <TestHoldingsProvider {...data.holdings}>
               <TestActivityLogProvider {...data.activityLog}>
-                <RouterProvider router={router} />
+                <TestDrawsProvider {...data.draws}>
+                  <RouterProvider router={router} />
+                </TestDrawsProvider>
               </TestActivityLogProvider>
             </TestHoldingsProvider>
           </TestCardsProvider>

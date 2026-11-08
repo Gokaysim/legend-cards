@@ -1,7 +1,8 @@
 import { Timestamp } from 'firebase/firestore'
 import { describe, expect, it } from 'vitest'
 
-import { testCard } from '@/test/cardFixtures'
+import { testCard, testCursedCard } from '@/test/cardFixtures'
+import { testDmDraw, testDraw } from '@/test/drawFixtures'
 import { testHolding } from '@/test/holdingFixtures'
 import { testGpEntry, testLedgerEntry } from '@/test/ledgerFixtures'
 
@@ -15,7 +16,7 @@ const eyes = testCard("Aboleth's Eyes")
 const at = (millis: number) => Timestamp.fromMillis(millis)
 
 function only(records: Partial<LogRecords>): LogEvent {
-  const [event] = deriveEvents({ given: [], closed: [], entries: [], ...records })
+  const [event] = deriveEvents({ given: [], closed: [], draws: [], entries: [], ...records })
   if (!event) throw new Error('No event')
   return event
 }
@@ -104,5 +105,63 @@ describe('describeEvent', () => {
     expect(
       text(only({ entries: [testGpEntry(1000, { delta: -2500, balanceAfter: 10000 })] })),
     ).toBe('Grup kesesi: −2.500 GP (12.500 → 10.000)')
+  })
+})
+
+describe('describing draws', () => {
+  const visions = testCursedCard('Visions of Death')
+
+  it("describes a player's paid draw", () => {
+    const event = only({ draws: [testDraw(eyes, 'ayla', 1000)] })
+    expect(text(event)).toBe("Aboleth's Eyes kartını çekti (−1 LP).")
+    expect(describeEvent(event, nameOf)).toEqual({
+      parts: ['', { card: "Aboleth's Eyes" }, ' kartını çekti (−1 LP).'],
+      reason: null,
+    })
+  })
+
+  it("describes the DM's free draw into a player's hand, without and with filters", () => {
+    expect(text(only({ draws: [testDmDraw(eyes, 'bora', 1000, { by: 'dana' })] }))).toBe(
+      "Bora'ya Aboleth's Eyes kartını çekti.",
+    )
+    const filters = {
+      cost: '2',
+      mechanicPack: 'Blood & Battle',
+      rarity: 'rare' as const,
+      keyword: 'kan',
+    }
+    expect(text(only({ draws: [testDmDraw(eyes, 'bora', 1000, { by: 'dana', filters })] }))).toBe(
+      "Bora'ya Aboleth's Eyes kartını çekti (filtre: Rare · Blood & Battle · Cost 2 · kelime “kan”).",
+    )
+    expect(
+      text(
+        only({
+          draws: [
+            testDmDraw(eyes, 'bora', 1000, {
+              by: 'dana',
+              filters: { cost: null, mechanicPack: null, rarity: 'rare', keyword: null },
+            }),
+          ],
+        }),
+      ),
+    ).toBe("Bora'ya Aboleth's Eyes kartını çekti (filtre: Rare).")
+  })
+
+  it("describes the DM's draw into the DM's own hand without a receiver", () => {
+    expect(text(only({ draws: [testDmDraw(eyes, 'dana', 1000, { by: 'dana' })] }))).toBe(
+      "Aboleth's Eyes kartını çekti.",
+    )
+  })
+
+  it('describes a Cursed draw by the player and by the DM', () => {
+    expect(text(only({ draws: [testDraw(visions, 'ayla', 1000)] }))).toBe(
+      'Cursed kart çekti: Visions of Death.',
+    )
+    expect(text(only({ draws: [testDmDraw(visions, 'cem', 1000, { by: 'dana' })] }))).toBe(
+      "Cem'e Cursed kart çekti: Visions of Death.",
+    )
+    expect(describeEvent(only({ draws: [testDraw(visions, 'ayla', 1000)] }), nameOf).parts).toEqual(
+      ['Cursed kart çekti: ', { card: 'Visions of Death' }, '.'],
+    )
   })
 })

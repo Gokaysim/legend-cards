@@ -54,6 +54,31 @@ export type ChangeBalanceInput = {
   by: string
 }
 
+/** A new ledger entry: the DM's change by hand with its reason, or a player's draw payment with its draw. */
+export type NewLedgerEntry = Pick<
+  StoredLedgerEntry,
+  'currency' | 'account' | 'delta' | 'balanceAfter' | 'by'
+> &
+  ({ source: 'manual'; reason: string } | { source: 'draw'; drawId: string })
+
+/**
+ * The fields of a ledger entry made now. Only a change by hand has a reason, and only a draw payment names its
+ * draw. The draws feature composes it into its draw transaction.
+ */
+export function newLedgerEntry(entry: NewLedgerEntry): WithFieldValue<StoredLedgerEntry> {
+  return {
+    currency: entry.currency,
+    account: entry.account,
+    delta: entry.delta,
+    balanceAfter: entry.balanceAfter,
+    source: entry.source,
+    reason: entry.source === 'manual' ? entry.reason : null,
+    drawId: entry.source === 'draw' ? entry.drawId : null,
+    by: entry.by,
+    at: serverTimestamp(),
+  }
+}
+
 /** True for an amount the DM may add or subtract in one change. */
 export function isValidAmount(amount: number): boolean {
   return Number.isInteger(amount) && amount >= 1 && amount <= BALANCE_LIMITS.amount
@@ -105,17 +130,18 @@ function changeBalanceOnce(
     if (after < 0) throw new BalanceError('insufficient', before)
 
     const entryRef = doc(collection(db, LEDGER_COLLECTION))
-    const entry: WithFieldValue<StoredLedgerEntry> = {
-      currency: account.currency,
-      account: account.currency === 'lp' ? account.uid : PARTY_ACCOUNT,
-      delta,
-      balanceAfter: after,
-      source: 'manual',
-      reason,
-      by,
-      at: serverTimestamp(),
-    }
-    transaction.set(entryRef, entry)
+    transaction.set(
+      entryRef,
+      newLedgerEntry({
+        currency: account.currency,
+        account: account.currency === 'lp' ? account.uid : PARTY_ACCOUNT,
+        delta,
+        balanceAfter: after,
+        source: 'manual',
+        reason,
+        by,
+      }),
+    )
     if (account.currency === 'lp') {
       transaction.update(doc(db, USERS_COLLECTION, account.uid), {
         lp: after,

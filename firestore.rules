@@ -38,6 +38,15 @@ service cloud.firestore {
       return /databases/$(database)/documents/ledger/$(entryId);
     }
 
+    function drawPath(drawId) {
+      return /databases/$(database)/documents/draws/$(drawId);
+    }
+
+    // A document that this same request creates: it did not exist before, and it does after.
+    function createdNow(path) {
+      return !exists(path) && existsAfter(path);
+    }
+
     // A balance write is explained by a ledger entry that this same request creates: the entry is for this
     // currency and account, its balance after is the new balance, and its change is the difference.
     function setByNewEntry(entryId, currency, account, before, after) {
@@ -84,7 +93,8 @@ service cloud.firestore {
 
     // User profiles. Everyone signed in reads every profile. A user creates only their own, only as a player,
     // and later changes only its name and picture. Roles are changed by the admin script (Admin SDK), never here.
-    // The one other write is the DM's: a player's Legend Points, together with the ledger entry that records it.
+    // The other writes are a player's Legend Points, each together with the ledger entry that records it: the DM
+    // changes them by hand, and a player pays 1 LP for their own draw.
     match /users/{uid} {
       allow read: if isSignedIn();
       allow create: if isSelf(uid)
@@ -100,11 +110,13 @@ service cloud.firestore {
           && validName(request.resource.data.displayName)
           && validPhoto(request.resource.data.photoURL)
         )
-        || lpSetByEntry();
+        || (lpSetByEntry('manual') && isDm())
+        || (isSelf(uid) && lpSetByEntry('draw'));
       allow delete: if false;
 
-      // The DM sets a player's LP (a whole number, never below 0) with a new ledger entry. A missing `lp` is 0.
-      function lpSetByEntry() {
+      // A player's LP (a whole number, never below 0) set with a new ledger entry from `source`: the DM's change by
+      // hand, or the player's draw payment, whose amount the ledger rules fix at 1. A missing `lp` is 0.
+      function lpSetByEntry(source) {
         let next = request.resource.data;
         return isSignedIn()
           && onlyChanges(['lp', 'lpEntryId'])
@@ -112,7 +124,7 @@ service cloud.firestore {
           && next.get('lp', null) is int
           && next.lp >= 0
           && setByNewEntry(next.get('lpEntryId', null), 'lp', uid, resource.data.get('lp', 0), next.lp)
-          && isDm();
+          && getAfter(ledgerPath(next.lpEntryId)).data.source == source;
       }
     }
 
@@ -136,17 +148,18 @@ service cloud.firestore {
       }
     }
 
-    // The ledger: one entry per balance change, created by the DM together with the balance it sets, and never
-    // changed or deleted. Everyone signed in reads it.
+    // The ledger: one entry per balance change, created together with the balance it sets, and never changed or
+    // deleted. Everyone signed in reads it. The DM makes changes by hand; a player pays for their own draw.
     match /ledger/{entryId} {
       allow read: if isSignedIn();
-      allow create: if validLedgerEntry() && (setsLp() || setsGp()) && isDm();
+      allow create: if validLedgerEntry() && (manualByDm() || paysForDraw());
       allow update, delete: if false;
 
       // Exactly the stored fields. Limits: keep in step with BALANCE_LIMITS in src/features/balances/schema.ts.
       function validLedgerEntry() {
         let data = request.resource.data;
-        let fields = ['currency', 'account', 'delta', 'balanceAfter', 'source', 'reason', 'by', 'at'];
+        let fields = ['currency', 'account', 'delta', 'balanceAfter', 'source', 'reason', 'drawId', 'by',
+          'at'];
         return isSignedIn()
           && data.keys().hasOnly(fields)
           && data.keys().hasAll(fields)
@@ -157,13 +170,36 @@ service cloud.firestore {
           && data.delta <= 1000000
           && data.balanceAfter is int
           && data.balanceAfter >= 0
-          && data.source == 'manual'
+          && data.by == request.auth.uid
+          && data.at == request.time;
+      }
+
+      // The DM's change by hand, with a reason, of a player's LP or the party's GP.
+      function manualByDm() {
+        let data = request.resource.data;
+        return data.source == 'manual'
+          && data.drawId == null
           && data.reason is string
           && data.reason.size() >= 1
           && data.reason.size() <= 200
           && data.reason.trim().size() >= 1
-          && data.by == request.auth.uid
-          && data.at == request.time;
+          && (setsLp() || setsGp())
+          && isDm();
+      }
+
+      // A player's payment of 1 LP for their own draw, which this same request creates and which names this entry.
+      // It has no reason: the draw explains it.
+      function paysForDraw() {
+        let data = request.resource.data;
+        return data.source == 'draw'
+          && data.reason == null
+          && data.currency == 'lp'
+          && data.account == request.auth.uid
+          && data.delta == -1
+          && data.drawId is string
+          && createdNow(drawPath(data.drawId))
+          && getAfter(drawPath(data.drawId)).data.entryId == entryId
+          && setsLp();
       }
 
       // A player's LP: the profile now points at this entry and holds its balance, which follows from the balance
@@ -252,11 +288,12 @@ service cloud.firestore {
     }
 
     // Card holdings: one card's stay with one player. Everyone signed in reads every holding, open or closed.
-    // Only the DM gives cards. A holding is closed, never deleted, and a closed holding never changes again.
-    // Every movement keeps a normal card's `holder` in step with its holdings, checked with getAfter.
+    // Only the DM gives and transfers cards. A player opens a holding only for their own draw (see draws below).
+    // A holding is closed, never deleted, and a closed holding never changes again. Every movement keeps a normal
+    // card's `holder` in step with its holdings, checked with getAfter.
     match /userCards/{holdingId} {
       allow read: if isSignedIn();
-      allow create: if isDm() && validNewHolding();
+      allow create: if isSignedIn() && validNewHolding();
       allow update: if isSignedIn()
         && resource.data.returnedAt == null
         && (
@@ -289,12 +326,12 @@ service cloud.firestore {
       }
 
       // A new, open holding with exactly the stored fields, given now by the signed-in user to someone with a
-      // profile, for an existing card of the same kind.
+      // profile, for an existing card of the same kind: a DM give, a DM transfer, or a draw.
       function validNewHolding() {
         let data = request.resource.data;
         let fields = ['cardId', 'cardName', 'cardKind', 'uid', 'givenAt', 'givenBy', 'givenVia',
-          'transferredFrom', 'active', 'note', 'costOverride', 'returnedAt', 'returnedBy', 'returnReason',
-          'usedOn', 'transferredTo'];
+          'transferredFrom', 'drawId', 'active', 'note', 'costOverride', 'returnedAt', 'returnedBy',
+          'returnReason', 'usedOn', 'transferredTo'];
         return data.keys().hasOnly(fields)
           && data.keys().hasAll(fields)
           && data.cardId is string
@@ -314,8 +351,12 @@ service cloud.firestore {
           && exists(cardPath(data.cardId))
           && get(cardPath(data.cardId)).data.kind == data.cardKind
           && (
-            (data.givenVia == 'dm' && data.transferredFrom == null && givenByDm())
-            || (data.givenVia == 'transfer' && data.transferredFrom is string && continuesTransfer())
+            (data.givenVia == 'dm' && data.transferredFrom == null && data.drawId == null
+              && givenByDm() && isDm())
+            || (data.givenVia == 'transfer' && data.transferredFrom is string && data.drawId == null
+              && continuesTransfer() && isDm())
+            || (data.givenVia == 'draw' && data.transferredFrom == null && data.drawId is string
+              && drawnInto())
           );
       }
 
@@ -344,6 +385,29 @@ service cloud.firestore {
             || (before != null && before.userCardId == data.transferredFrom
               ? holderAfter(data.cardId) == {'uid': data.uid, 'userCardId': holdingId}
               : holderAfter(data.cardId) == before));
+      }
+
+      // A draw that this same request creates opened this holding: the draw names it, this hand, this card and
+      // its kind (the draw's own rule checks that the signed-in user drew). A drawn card starts inactive, without a note or a cost, and is never
+      // retired. A normal card comes from the pool and gets this holding as its holder, so a draw never makes an
+      // extra copy.
+      function drawnInto() {
+        let data = request.resource.data;
+        let draw = getAfter(drawPath(data.drawId)).data;
+        let cardId = data.cardId;
+        return createdNow(drawPath(data.drawId))
+          && draw.holdingId == holdingId
+          && draw.uid == data.uid
+          && draw.cardId == cardId
+          && draw.cardName == data.cardName
+          && draw.cardKind == data.cardKind
+          && data.active == false
+          && data.note == ''
+          && data.costOverride == null
+          && get(cardPath(cardId)).data.retired == false
+          && (data.cardKind != 'normal'
+            || (holderBefore(cardId) == null
+              && holderAfter(cardId) == {'uid': data.uid, 'userCardId': holdingId}));
       }
 
       // Closes the holding now, by the signed-in user, for `reason`.
@@ -388,6 +452,89 @@ service cloud.firestore {
           || (before != null && before.userCardId == holdingId
             ? holderAfter(cardId) == {'uid': getAfter(holdingPath(next)).data.uid, 'userCardId': next}
             : holderAfter(cardId) == before);
+      }
+    }
+
+    // Draws: one card drawn into a hand, kept as a permanent record. Everyone signed in reads every draw. A draw is
+    // created only together with the holding it opens and, when paid, the ledger entry and the new LP; it is
+    // never changed or deleted. A player draws only into their own hand: a random draw for 1 LP, without filters,
+    // or a free Cursed draw. The DM draws into any hand for free, and may record filters on a random draw.
+    match /draws/{drawId} {
+      allow read: if isSignedIn();
+      allow create: if validDraw()
+        && opensItsHolding()
+        && (paidByPlayer() || cursedForSelf() || (isFree() && isDm()));
+      allow update, delete: if false;
+
+      // A filter value: a string within `max` characters, or null.
+      function validFilterText(value, max) {
+        return value == null || (value is string && value.size() >= 1 && value.size() <= max);
+      }
+
+      // The DM's filters, or null. Limits: keep in step with DRAW_LIMITS in src/features/draws/schema.ts.
+      function validFilters(filters) {
+        let fields = ['cost', 'mechanicPack', 'rarity', 'keyword'];
+        return filters == null
+          || (filters is map
+            && filters.keys().hasOnly(fields)
+            && filters.keys().hasAll(fields)
+            && validFilterText(filters.cost, 10)
+            && validFilterText(filters.mechanicPack, 100)
+            && (filters.rarity == null || filters.rarity in ['common', 'rare', 'blessed'])
+            && validFilterText(filters.keyword, 100));
+      }
+
+      // Exactly the stored fields, drawn now by the signed-in user. A random draw gives a normal or Blessed card,
+      // and a Cursed draw a Cursed card, without filters.
+      function validDraw() {
+        let data = request.resource.data;
+        let fields = ['kind', 'uid', 'by', 'at', 'cardId', 'cardName', 'cardKind', 'holdingId', 'filters',
+          'paidWith', 'cost', 'entryId'];
+        return isSignedIn()
+          && data.keys().hasOnly(fields)
+          && data.keys().hasAll(fields)
+          && data.uid is string
+          && data.by == request.auth.uid
+          && data.at == request.time
+          && data.cardId is string
+          && data.cardName is string
+          && data.holdingId is string
+          && ((data.kind == 'random' && data.cardKind in ['normal', 'blessed'])
+            || (data.kind == 'cursed' && data.cardKind == 'cursed' && data.filters == null))
+          && validFilters(data.filters);
+      }
+
+      // The holding this draw names is created in this same request and names this draw. The holding's own rule
+      // checks the card and the hand.
+      function opensItsHolding() {
+        let holding = holdingPath(request.resource.data.holdingId);
+        return createdNow(holding) && getAfter(holding).data.drawId == drawId;
+      }
+
+      function isFree() {
+        let data = request.resource.data;
+        return data.paidWith == 'none' && data.cost == 0 && data.entryId == null;
+      }
+
+      // A player's random draw into their own hand, without filters, paid with 1 LP through a ledger entry that
+      // this same request creates and that names this draw. The ledger rules check the amount and the balance.
+      function paidByPlayer() {
+        let data = request.resource.data;
+        return data.kind == 'random'
+          && data.uid == request.auth.uid
+          && data.filters == null
+          && data.paidWith == 'lp'
+          && data.cost == 1
+          && data.entryId is string
+          && createdNow(ledgerPath(data.entryId))
+          && getAfter(ledgerPath(data.entryId)).data.drawId == drawId;
+      }
+
+      // A free Cursed draw into the drawer's own hand.
+      function cursedForSelf() {
+        return request.resource.data.kind == 'cursed'
+          && request.resource.data.uid == request.auth.uid
+          && isFree();
       }
     }
 

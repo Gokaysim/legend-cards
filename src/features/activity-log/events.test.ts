@@ -1,7 +1,8 @@
 import { Timestamp } from 'firebase/firestore'
 import { describe, expect, it } from 'vitest'
 
-import { testCard } from '@/test/cardFixtures'
+import { testCard, testCursedCard } from '@/test/cardFixtures'
+import { testDmDraw, testDraw } from '@/test/drawFixtures'
 import { testHolding } from '@/test/holdingFixtures'
 import { testGpEntry, testLedgerEntry } from '@/test/ledgerFixtures'
 
@@ -43,6 +44,7 @@ const transferredTo = testHolding(eyes, 'bora', 5000, {
 const records = (parts: Partial<LogRecords>): LogRecords => ({
   given: [],
   closed: [],
+  draws: [],
   entries: [],
   ...parts,
 })
@@ -159,5 +161,88 @@ describe('newestEvents', () => {
 
     expect(newestEvents(all, 50).mayHaveMore).toBe(false)
     expect(newestEvents(records({ entries: [testLedgerEntry(1)] }), 1).mayHaveMore).toBe(true)
+  })
+})
+
+describe('draws', () => {
+  const rite = testCard('Blood Rite')
+  /** Ayla's paid draw of "Blood Rite" at 9000, with its holding and its payment. */
+  const draw = testDraw(rite, 'ayla', 9000)
+  const drawnHolding = testHolding(rite, 'ayla', 9000, {
+    id: draw.holdingId,
+    givenBy: 'ayla',
+    givenVia: 'draw',
+    drawId: draw.id,
+  })
+  const payment = testLedgerEntry(9000, {
+    id: draw.entryId ?? '',
+    account: 'ayla',
+    delta: -1,
+    balanceAfter: 2,
+    source: 'draw',
+    reason: null,
+    drawId: draw.id,
+    by: 'ayla',
+  })
+
+  it('makes one event of a draw, its holding and its payment', () => {
+    expect(
+      deriveEvents(records({ given: [drawnHolding], draws: [draw], entries: [payment] })),
+    ).toEqual([{ kind: 'drawn', key: `drawn:${draw.id}`, at: at(9000), by: 'ayla', draw }])
+  })
+
+  it('makes no given or balance event for the parts of a draw on their own', () => {
+    expect(deriveEvents(records({ given: [drawnHolding], entries: [payment] }))).toEqual([])
+  })
+
+  it("keeps the DM's draw and a Cursed draw as draw events, by whoever drew", () => {
+    const dmDraw = testDmDraw(rite, 'bora', 3000)
+    const cursed = testDraw(testCursedCard('Visions of Death'), 'ayla', 4000)
+    expect(
+      deriveEvents(records({ draws: [cursed, dmDraw] })).map((event) => [event.key, event.by]),
+    ).toEqual([
+      [`drawn:${cursed.id}`, 'ayla'],
+      [`drawn:${dmDraw.id}`, 'dm-1'],
+    ])
+  })
+
+  it("keeps a drawn card's later use as its own event", () => {
+    const usedLater = {
+      ...drawnHolding,
+      returnedAt: at(10000),
+      returnedBy: 'ayla',
+      returnReason: 'used' as const,
+    }
+    const { events } = newestEvents(
+      records({ given: [usedLater], closed: [usedLater], draws: [draw] }),
+      50,
+    )
+    expect(events.map((event) => event.key)).toEqual([
+      `used:${drawnHolding.id}`,
+      `drawn:${draw.id}`,
+    ])
+  })
+
+  it('keeps the page exact when the drawn holdings fill a source', () => {
+    // Each source holds its 2 newest records. The two drawn holdings push the DM's give out of `given`, and the
+    // two draws are newer than it, so the 2 newest events are exactly the two draws.
+    const second = testDraw(rite, 'ayla', 8000)
+    const secondHolding = {
+      ...drawnHolding,
+      id: second.holdingId,
+      givenAt: at(8000),
+      drawId: second.id,
+    }
+    const { events, mayHaveMore } = newestEvents(
+      records({ given: [drawnHolding, secondHolding], draws: [draw, second] }),
+      2,
+    )
+    expect(events.map((event) => event.key)).toEqual([`drawn:${draw.id}`, `drawn:${second.id}`])
+    expect(mayHaveMore).toBe(true)
+  })
+
+  it('counts the draws for whether older events may exist', () => {
+    expect(newestEvents(records({ draws: [draw] }), 1).mayHaveMore).toBe(true)
+    expect(newestEvents(records({ draws: [draw] }), 2).mayHaveMore).toBe(false)
   })
 })

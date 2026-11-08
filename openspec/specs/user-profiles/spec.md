@@ -36,7 +36,7 @@ Every signed-in user SHALL be able to read every profile, including the roles. S
 - **THEN** the server denies it
 
 ### Requirement: Users change only their own name and picture
-The server SHALL let a signed-in user create only their own profile, and only with the role "player" and the current server time as creation time. It SHALL let them update only the name and picture of their own profile. It SHALL deny every other profile write from the application, including all deletes, any change to a role, and any write to another user's profile, even when the writer is the DM. The one exception is a player's LP, which the DM changes as the balances rules allow.
+The server SHALL let a signed-in user create only their own profile, only as a player and with the server time as creation time, and update only its name and picture. It SHALL deny every other profile write from the application, including all deletes, any role change, and any write to another user's profile, even by the DM. The exceptions are a player's LP: the DM changes it under the balances rules, and a player pays 1 LP for their own draw under the card-draws rules.
 
 #### Scenario: Claiming the DM role at creation
 - **WHEN** a signed-in user tries to create their own profile with the role "dm"
@@ -57,6 +57,14 @@ The server SHALL let a signed-in user create only their own profile, and only wi
 #### Scenario: The DM changes a player's LP
 - **WHEN** the DM changes a player's LP together with the ledger entry that records it
 - **THEN** the server accepts the write, and no other field of the profile changes
+
+#### Scenario: A player pays for a draw
+- **WHEN** a player draws a card and pays 1 LP, together with the draw and its ledger entry
+- **THEN** the server accepts the lower LP, and no other field of the profile changes
+
+#### Scenario: A player pays another player's LP
+- **WHEN** a player lowers another player's LP for a draw
+- **THEN** the server denies the write
 
 ### Requirement: Role shown in the shell
 The shell SHALL show the signed-in user's role next to their name: "DM" for the DM, "Oyuncu" for a player. When the role changes, the shell SHALL show the new role without a page reload.

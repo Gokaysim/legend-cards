@@ -7,11 +7,15 @@ Records which player holds which card, from the moment a card is given until it 
 ## Requirements
 
 ### Requirement: Holding records
-Every time a player receives a card, the application SHALL record a holding: the card, the player, when it was given, by whom, and how ("dm" or "transfer"). A holding starts open. When the card leaves the hand, the holding SHALL be closed with when, by whom, and why ("used", "discarded" or "transferred"). Holdings SHALL never be deleted.
+Every time a player receives a card, the application SHALL record a holding: the card, the player, when it was given, by whom, and how ("dm", "transfer" or "draw"). A holding received through a draw SHALL name its draw. A holding starts open. When the card leaves the hand, the holding SHALL be closed with when, by whom, and why ("used", "discarded" or "transferred"). Holdings SHALL never be deleted.
 
 #### Scenario: The DM gives a card
 - **WHEN** the DM gives "Aboleth's Eyes" to Ayla
 - **THEN** an open holding records "Aboleth's Eyes", Ayla, the time, the DM as the giver, and "dm" as the way it was given
+
+#### Scenario: A drawn card
+- **WHEN** Ayla draws "Aboleth's Eyes"
+- **THEN** an open holding records "Aboleth's Eyes", Ayla, the time, Ayla as the giver, "draw" as the way it was given, and the draw
 
 #### Scenario: History survives
 - **WHEN** Ayla uses that card
@@ -59,14 +63,18 @@ The server SHALL keep a normal card's holder consistent with its holdings: a hol
 - **THEN** the server denies the write
 
 ### Requirement: The DM gives cards
-The DM SHALL be able to give any active card, of any kind, to any user who has a profile, from a "+ Kart ver" dialog on the hand screen. The dialog searches the cards as the library search does and shows each card's status. Players SHALL NOT be able to give cards, not even to themselves.
+The DM SHALL be able to give any active card, of any kind, to any user who has a profile, from a "+ Kart ver" dialog on the hand screen. The dialog searches the cards as the library search does and shows each card's status. Players SHALL NOT be able to give cards, not even to themselves. A player's only way to open a holding for themselves SHALL be a draw, as the card-draws rules allow.
 
 #### Scenario: Searching and giving
 - **WHEN** the DM opens "+ Kart ver" on Ayla's hand, searches for "aboleth", and gives "Aboleth's Eyes"
 - **THEN** the card is added to the end of Ayla's hand
 
 #### Scenario: A player tries to give a card
-- **WHEN** a player creates a holding for themselves
+- **WHEN** a player creates a holding for themselves given by "dm"
+- **THEN** the server denies it
+
+#### Scenario: A player's holding without a draw
+- **WHEN** a player creates a holding for themselves given by "draw" without the draw that it names
 - **THEN** the server denies it
 
 #### Scenario: Giving to someone without a profile

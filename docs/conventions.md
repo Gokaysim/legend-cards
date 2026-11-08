@@ -20,7 +20,7 @@ src/
   main.tsx              entry: config check -> App (or ConfigErrorScreen)
   app/                  composition root
     App.tsx             AuthProvider + UsersProvider + BalancesProvider + CardsProvider + HoldingsProvider
-                        + ActivityLogProvider + router
+                        + ActivityLogProvider + DrawsProvider + router
     screens.ts          the single lists of screens (main menu and Shops sub-screens)
     routes.tsx          route table: sign-in, RequireAuth, AppShell, one route per screen, not-found
     layout/             AppShell, SidebarContent, MobileNav, UserBadge, OfflineBanner
@@ -29,16 +29,20 @@ src/
     auth/               AuthProvider, useAuth, RequireAuth, SignInPage, authErrors
     users/              profiles and roles: schema, api, UsersProvider, useIsDm, DmOnly, PlayerList
     cards/              card definitions: schema, api, CardsProvider, useCards, useDeckCards, useCardsById,
-                        the official sets, search and sort helpers, and the card browser (CardBrowser,
-                        CardFace, CardTable)
+                        the official sets, search and sort helpers, the pool and its distribution (pool),
+                        and the card browser (CardBrowser, CardFace, CardTable)
     hands/              card holdings: schema, api (the card movements), errors, HoldingsProvider,
                         useOpenHoldings, and the "Oyuncu elleri" screen (HandsPage, the hand, its dialogs)
     balances/           LP and the party's GP: schema, api (changeBalance), errors, BalancesProvider,
                         usePartyPurse, useBalanceActions, the amount format, BalanceDialog, PartyPurse
+    draws/              drawing cards into a hand: schema, api (drawCard, one transaction per card), the random
+                        pick (pick), errors, DrawsProvider, useDrawActions, and the hand's draw buttons and
+                        dialog (DrawButtons, DrawDialog, FaceDownCard)
     library/ cursed-deck/
                         the two card screens, each a <Name>Page.tsx around the shared card browser
     activity-log/       the İşlem Logu: the log queries (api), ActivityLogProvider (useLogRecords, useHolding),
-                        events derived from holdings and the ledger (events, eventText), ActivityLogPage
+                        events derived from holdings, draws and the ledger (events, eventText),
+                        ActivityLogPage
     shops/ true-words/ custom-draft/ rules/ settings/
                         each with its <Name>Page.tsx (placeholders for now)
   components/ui/        shared primitives: Avatar, Button, PageHeader, Placeholder, Spinner, FullScreenSpinner
@@ -53,7 +57,7 @@ src/
     index.css           Tailwind entry and base styles
     theme.css           design tokens
   test/                 test setup and shared test helpers (test providers for profiles, balances, cards,
-                        holdings and the log's records, fixtures)
+                        holdings, the log's records and draws, fixtures)
 scripts/                admin scripts on Node with the Admin SDK (see Scripts)
 data/                   the owner's CSV data that the scripts import (see data/README.md)
 tests/                  emulator tests that need no app code: access rules, admin scripts
@@ -141,7 +145,7 @@ Styling uses Tailwind CSS utility classes, written directly in JSX.
   - `useIsDm()`, which is `true` only for a loaded DM profile; loading or missing profiles count as a player
 - **DM-only controls go inside `<DmOnly>`.** Hiding is only a convenience. `firestore.rules` is the real check, so every DM-only write needs its own rule and rules test.
 - **Roles change only through the admin script** (`npm run set-role`, see [Scripts](#scripts)). Never add a client write that touches `role`.
-- **Tests** render components inside `TestAuthProvider` and `TestUsersProvider` (`src/test/`) with fixed states, instead of talking to Firebase. `renderApp` takes `users`, `balances`, `cards`, `holdings` and `activityLog` options, and returns `setUsers`, `setBalances`, `setCards`, `setHoldings` and `setActivityLog` to simulate a real-time change.
+- **Tests** render components inside `TestAuthProvider` and `TestUsersProvider` (`src/test/`) with fixed states, instead of talking to Firebase. `renderApp` takes `users`, `balances`, `cards`, `holdings`, `activityLog` and `draws` options, and returns `setUsers`, `setBalances`, `setCards`, `setHoldings` and `setActivityLog` to simulate a real-time change. The `draws` option takes fake draws; by default a draw gives its first candidate.
 
 ## Data access
 
@@ -158,8 +162,10 @@ All stored data lives in Firestore and is read in real time.
   - Profiles: `useCurrentProfile()`, `useProfiles()`, `useIsDm()` (`UsersProvider`).
   - Cards: `useCards()` for every active card, and `useDeckCards('legend' | 'cursed')` for one deck. Retired cards are never in them. `useCardsById()` maps every card by its ID, retired ones included, so a hand can still show a held card that was retired (`CardsProvider`, one subscription to every card).
   - Balances: a player's LP is `lp` on their profile. `usePartyPurse()` gives the party's GP (`null` before the first change, which counts as 0), and `useBalanceActions()` the DM's changes (`BalancesProvider`).
+  - Draws: `useDrawActions()` gives `drawCard` (`DrawsProvider`). It subscribes to nothing: a drawn card arrives in the hand through `useOpenHoldings()`, and the new LP through the profiles.
   - Holdings: `useOpenHoldings()` for every card in every hand (`HoldingsProvider`). Derive views with the pure helpers next to it: `holdingsOf(holdings, uid)` for one hand in the order the cards were received, and `holdersOf(holdings, cardId)` for who holds a copy of a card.
-- **Data for one screen.** A screen that alone needs some data subscribes while it is shown, through hooks that a provider injects, so its test provider can answer instead of Firebase. The İşlem Logu reads `useLogRecords(uid, n)` and `useHolding(id)` from `ActivityLogProvider`. Its events are derived from the holdings and the ledger (`events.ts`), never written separately.
+  - The pool: derive it from the cards with the pure helpers in `cards/pool.ts`. A normal card's `holder` is the source of truth for whether it is in the pool, so `isDrawable`, `drawablePool`, `cursedPool`, the draw filters (`matchesFilters`, `drawFilterOptions`) and `poolDistribution` need only `useCards()`. The library's Durum also names who holds each card, so it comes from the holdings instead (`useDeckStatus` in `hands/cardStatus.ts`).
+- **Data for one screen.** A screen that alone needs some data subscribes while it is shown, through hooks that a provider injects, so its test provider can answer instead of Firebase. The İşlem Logu reads `useLogRecords(uid, n)` and `useHolding(id)` from `ActivityLogProvider`. Its events are derived from its three sources, the holdings, the draws and the ledger (`events.ts`), never written separately. A draw is one event: its holding and its payment make none of their own.
 - **Composite indexes.** A query that filters on one field and orders by another needs a composite index in `firestore.indexes.json`, such as the log's filtered queries. The emulator does not check indexes, so a missing one only fails on a real project: add the index in the same change as the query, and deploy it with the rules.
 - **Staleness hints.** When `ready`, `fromCache: true` means the data has not been confirmed by the server (for example while offline), and `hasPendingWrites: true` means local changes are still waiting to sync. Show a subtle hint where it matters, for example next to an LP balance.
 - **Writing.** Write with the SDK (`setDoc`, `updateDoc`, `addDoc`, `runTransaction`, …) inside the feature's `api.ts`. Writes made offline are queued and sent when the connection returns. Do not wait for a write's promise before updating the UI: the subscription already shows the change as a pending write.

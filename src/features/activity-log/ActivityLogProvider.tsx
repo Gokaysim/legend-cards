@@ -15,8 +15,12 @@ function useFirestoreLogRecords(uid: string | null, n: number) {
   const queries = useMemo(() => logQueries(db, uid, n), [uid, n])
   const given = useCollection(queries.given)
   const closed = useCollection(queries.closed)
+  const draws = useCollection(queries.draws)
   const entries = useCollection(queries.entries)
-  return useMemo(() => combineSubscriptions({ given, closed, entries }), [given, closed, entries])
+  return useMemo(
+    () => combineSubscriptions({ given, closed, draws, entries }),
+    [given, closed, draws, entries],
+  )
 }
 
 function useFirestoreHolding(holdingId: string | null) {

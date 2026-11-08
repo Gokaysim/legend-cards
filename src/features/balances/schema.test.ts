@@ -10,8 +10,19 @@ const lpEntry = {
   balanceAfter: 7,
   source: 'manual',
   reason: "Boss'u yendi",
+  drawId: null,
   by: 'dm',
   at: Timestamp.fromMillis(0),
+}
+
+const drawEntry = {
+  ...lpEntry,
+  delta: -1,
+  balanceAfter: 2,
+  source: 'draw',
+  reason: null,
+  drawId: 'draw-1',
+  by: 'ayla',
 }
 
 const gpEntry = { ...lpEntry, currency: 'gp', account: 'party', delta: -2500, balanceAfter: 10000 }
@@ -39,6 +50,27 @@ describe('ledgerEntrySchema', () => {
   it('rejects an unknown currency or source', () => {
     expect(accepts({ ...lpEntry, currency: 'xp' })).toBe(false)
     expect(accepts({ ...lpEntry, source: 'pack' })).toBe(false)
+  })
+
+  it('reads a stored entry without drawId as a change by hand', () => {
+    const { drawId: _drawId, ...stored } = lpEntry
+    const result = ledgerEntrySchema.safeParse(stored)
+    expect(result.success && result.data.drawId).toBeNull()
+  })
+
+  it('accepts a draw payment: no reason, its draw, and LP', () => {
+    expect(accepts(drawEntry)).toBe(true)
+  })
+
+  it.each([
+    ['a change by hand without a reason', { ...lpEntry, reason: null }],
+    ['a change by hand that names a draw', { ...lpEntry, drawId: 'draw-1' }],
+    ['a draw payment with a reason', { ...drawEntry, reason: 'Kart çekme' }],
+    ['a draw payment without its draw', { ...drawEntry, drawId: null }],
+    ['a draw payment in GP', { ...drawEntry, currency: 'gp', account: 'party' }],
+    ['an empty draw ID', { ...drawEntry, drawId: '' }],
+  ])('rejects %s', (_case, entry) => {
+    expect(accepts(entry)).toBe(false)
   })
 
   it('rejects an empty or over-long reason', () => {

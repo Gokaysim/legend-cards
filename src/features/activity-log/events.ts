@@ -1,4 +1,5 @@
 import type { LedgerEntry } from '@/features/balances/schema'
+import type { Draw } from '@/features/draws/schema'
 import type { Holding } from '@/features/hands/schema'
 
 /** A server time, or `null` while it is pending in the local snapshot. */
@@ -6,11 +7,12 @@ export type EventTime = Holding['givenAt']
 
 /**
  * The records the log is read from, each source newest first and limited to the same `n`:
- * holdings by the time they were given, closed holdings by the time they were closed, and ledger entries.
+ * holdings by the time they were given, closed holdings by the time they were closed, draws, and ledger entries.
  */
 export type LogRecords = {
   given: readonly Holding[]
   closed: readonly Holding[]
+  draws: readonly Draw[]
   entries: readonly LedgerEntry[]
 }
 
@@ -25,7 +27,8 @@ type EventBase = {
 /**
  * One thing that happened, derived from the records. A transfer is one event for both of its holdings, keyed by
  * the old one. When only one side is among the records (a filter or a page boundary cut the other), `from` or
- * `to` is `null`, and `missingHoldingId` names the holding to read for it.
+ * `to` is `null`, and `missingHoldingId` names the holding to read for it. A draw is one event for the draw, its
+ * holding and its payment.
  */
 export type LogEvent =
   | (EventBase & { kind: 'given' | 'used' | 'discarded'; holding: Holding })
@@ -38,6 +41,7 @@ export type LogEvent =
       to: Holding | null
       missingHoldingId: string | null
     })
+  | (EventBase & { kind: 'drawn'; draw: Draw })
   | (EventBase & { kind: 'balance'; entry: LedgerEntry })
 
 type TransferEvent = Extract<LogEvent, { kind: 'transferred' }>
@@ -69,7 +73,11 @@ function transferEvent(from: Holding | null, to: Holding | null): TransferEvent 
   }
 }
 
-/** Every event of the records, merged: one per action, a transfer once. Not sorted. */
+/**
+ * Every event of the records, merged: one per action, a transfer once, a draw once. A drawn holding and a draw
+ * payment are part of their draw's event, so they make none of their own; the drawn card's later use, discard or
+ * transfer is its own event. Not sorted.
+ */
 export function deriveEvents(records: LogRecords): LogEvent[] {
   const events = new Map<string, LogEvent>()
   const addTransfer = (from: Holding | null, to: Holding | null) => {
@@ -83,6 +91,7 @@ export function deriveEvents(records: LogRecords): LogEvent[] {
   }
 
   for (const holding of records.given) {
+    if (holding.givenVia === 'draw') continue
     if (holding.givenVia === 'transfer') addTransfer(null, holding)
     else {
       events.set(`given:${holding.id}`, {
@@ -107,7 +116,17 @@ export function deriveEvents(records: LogRecords): LogEvent[] {
       })
     }
   }
+  for (const draw of records.draws) {
+    events.set(`drawn:${draw.id}`, {
+      kind: 'drawn',
+      key: `drawn:${draw.id}`,
+      at: draw.at,
+      by: draw.by,
+      draw,
+    })
+  }
   for (const entry of records.entries) {
+    if (entry.source === 'draw') continue
     events.set(`balance:${entry.id}`, {
       kind: 'balance',
       key: `balance:${entry.id}`,
@@ -121,7 +140,8 @@ export function deriveEvents(records: LogRecords): LogEvent[] {
 
 /**
  * The `limit` newest events of the records, and whether older ones may exist. Exact as long as each source holds
- * its own `limit` newest records: the newest events overall are always among them.
+ * its own `limit` newest records: the newest events overall are always among them. A skipped drawn holding or
+ * draw payment has the same time as its draw's event, so it never pushes an older event out of the page.
  */
 export function newestEvents(
   records: LogRecords,
@@ -131,6 +151,7 @@ export function newestEvents(
   const mayHaveMore =
     records.given.length >= limit ||
     records.closed.length >= limit ||
+    records.draws.length >= limit ||
     records.entries.length >= limit
   return { events: events.slice(0, limit), mayHaveMore }
 }

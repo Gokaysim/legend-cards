@@ -7,8 +7,11 @@ import { createConverter } from '@/lib/firestore/converter'
 export const CURRENCIES = ['lp', 'gp'] as const
 export type Currency = (typeof CURRENCIES)[number]
 
-/** Where a balance change came from. Pack-opening adds `pack` and `draw`. Keep in step with `firestore.rules`. */
-export const LEDGER_SOURCES = ['manual'] as const
+/**
+ * Where a balance change came from: the DM by hand, or a player's payment for a draw. The Pack Shop adds `pack`.
+ * Keep in step with `firestore.rules`.
+ */
+export const LEDGER_SOURCES = ['manual', 'draw'] as const
 export type LedgerSource = (typeof LEDGER_SOURCES)[number]
 
 /** Limits of one change. Keep in step with `validLedgerEntry` in `firestore.rules`. */
@@ -44,19 +47,30 @@ export const ledgerEntrySchema = z
       .refine((delta) => delta !== 0, 'a change is never 0'),
     balanceAfter: z.number().int().min(0),
     source: z.enum(LEDGER_SOURCES),
-    /** The DM's reason, shown as "Neden". */
-    reason: z.string().min(1).max(BALANCE_LIMITS.reason),
+    /** The DM's reason for a change by hand, shown as "Neden". A draw payment has none: its draw explains it. */
+    reason: z.string().min(1).max(BALANCE_LIMITS.reason).nullable(),
+    /** For a draw payment: the draw it paid for. Stored entries from before draws read as `null`. */
+    drawId: id.nullable().default(null),
     /** The uid of the user who made the change. */
     by: id,
     at: serverTime,
   })
   .superRefine((entry, context) => {
+    const issue = (path: string, message: string) => {
+      context.addIssue({ code: 'custom', path: [path], message })
+    }
     if ((entry.currency === 'gp') !== (entry.account === PARTY_ACCOUNT)) {
-      context.addIssue({
-        code: 'custom',
-        path: ['account'],
-        message: 'GP belongs to the party, and LP to a player',
-      })
+      issue('account', 'GP belongs to the party, and LP to a player')
+    }
+    const manual = entry.source === 'manual'
+    if (manual !== (entry.reason !== null)) {
+      issue('reason', 'a change by hand has a reason, and a draw payment has none')
+    }
+    if (manual === (entry.drawId !== null)) {
+      issue('drawId', 'a draw payment names its draw, and a change by hand names none')
+    }
+    if (entry.source === 'draw' && entry.currency !== 'lp') {
+      issue('currency', 'a draw is paid with LP')
     }
   })
 

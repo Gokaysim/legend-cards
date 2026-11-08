@@ -28,7 +28,7 @@ const PROJECT_ID = 'demo-legend-cards'
 
 /** Arbitrary paths, including names a later data model might use. None of them is opened yet. */
 const SAMPLE_PATHS = [
-  'draws/draw-1',
+  'packOpenings/opening-1',
   'players/player-1',
   'players/player-1/hand/entry-1',
   'anything/at/any/depth',
@@ -357,6 +357,7 @@ function seededHolding(overrides: Record<string, unknown>) {
     givenBy: 'dana',
     givenVia: 'dm',
     transferredFrom: null,
+    drawId: null,
     active: false,
     note: '',
     costOverride: null,
@@ -966,6 +967,7 @@ describe('balances (users/{uid}.lp, party/main, ledger/{entryId})', () => {
       balanceAfter: 7,
       source: 'manual',
       reason: "Boss'u yendi",
+      drawId: null,
       by: 'dana',
       at: serverTimestamp(),
       ...overrides,
@@ -1161,6 +1163,454 @@ describe('balances (users/{uid}.lp, party/main, ledger/{entryId})', () => {
       const db = firestoreOf(testEnv.unauthenticatedContext())
       await assertFails(setDoc(doc(db, 'party/main'), { gp: 1, gpEntryId: 'x' }))
       await assertFails(setDoc(doc(db, 'ledger/x'), ledgerEntry()))
+    })
+  })
+})
+
+describe('draws (draws/{drawId} with its holding, card, ledger entry and LP)', () => {
+  const { POOL, HELD, BLESSED, CURSED, RETIRED } = HOLDINGS_SEED
+  const POOL_CARD = { cardId: POOL, cardName: "Aboleth's Eyes", cardKind: 'normal' }
+  const BLESSED_CARD = { cardId: BLESSED, cardName: 'Second Wind', cardKind: 'blessed' }
+  const CURSED_CARD = { cardId: CURSED, cardName: 'Visions of Death', cardKind: 'cursed' }
+  const HELD_CARD = { cardId: HELD, cardName: 'Greedy Hands', cardKind: 'normal' }
+  const RETIRED_CARD = { cardId: RETIRED, cardName: 'Old Card', cardKind: 'normal' }
+  /** A second normal card in the pool. */
+  const OTHER_CARD = { cardId: 'legend-bloodrite', cardName: 'Blood Rite', cardKind: 'normal' }
+  const FILTERS = { cost: '1', mechanicPack: 'Arcanus Divine', rarity: 'common', keyword: 'eyes' }
+
+  beforeEach(async () => {
+    await seedHoldings()
+    // Ayla has 3 LP from an earlier entry; Bora has none.
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const db = firestoreOf(admin)
+      await updateDoc(doc(db, 'users/ayla'), { lp: 3, lpEntryId: 'e-old' })
+      await setDoc(doc(db, `cards/${OTHER_CARD.cardId}`), seededCardOf('normal', 'Blood Rite'))
+    })
+  })
+
+  async function setLp(uid: string, lp: number) {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await updateDoc(doc(firestoreOf(admin), `users/${uid}`), { lp, lpEntryId: 'e-old' })
+    })
+  }
+
+  type DrawSpec = {
+    /** Whose hand. Default: the writer's. */
+    uid?: string
+    card?: { cardId: string; cardName: string; cardKind: string }
+    kind?: 'random' | 'cursed'
+    /** Default: a player's random draw is paid, everything else is free. */
+    paid?: boolean
+    /** Overrides of the draw's fields. */
+    draw?: Record<string, unknown>
+    /** Overrides of the holding's fields, or `null` to write no holding. */
+    holding?: Record<string, unknown> | null
+    /** Whether a card gets the new holding as its holder. Default: for a normal card. */
+    takesCard?: boolean
+    /** Which card gets the holder. Default: the drawn card. */
+    holderCard?: string
+    /** Overrides of the entry's fields, or `null` to write no entry. Only for a paid draw. */
+    entry?: Record<string, unknown> | null
+    /** Overrides of the new LP, or `null` to leave the profile alone. Only for a paid draw. */
+    balance?: Record<string, unknown> | null
+    /** Whose LP pays. Default: the hand's owner. */
+    payer?: string
+  }
+
+  /** Ayla's payment of 1 LP (3 -> 2) for the draw `d-new`, as `writer` writes it. */
+  function drawEntry(writer: string, overrides: Record<string, unknown> = {}) {
+    return {
+      currency: 'lp',
+      account: 'ayla',
+      delta: -1,
+      balanceAfter: 2,
+      source: 'draw',
+      reason: null,
+      drawId: 'd-new',
+      by: writer,
+      at: serverTimestamp(),
+      ...overrides,
+    }
+  }
+
+  /**
+   * One draw as the application writes it, in one batch: the draw `d-new`, its holding `h-new`, the normal card's
+   * holder and, when paid, the entry `e-new` and the new LP (Ayla 3 -> 2). Default: Ayla's paid draw of the pool
+   * card into her own hand.
+   */
+  function draw(writer: string, spec: DrawSpec = {}) {
+    const db = asUser(writer)
+    const uid = spec.uid ?? writer
+    const card = spec.card ?? POOL_CARD
+    const kind = spec.kind ?? (card.cardKind === 'cursed' ? 'cursed' : 'random')
+    const paid = spec.paid ?? (kind === 'random' && writer !== 'dana')
+    const payer = spec.payer ?? uid
+    const batch = writeBatch(db)
+    batch.set(doc(db, 'draws/d-new'), {
+      kind,
+      uid,
+      by: writer,
+      at: serverTimestamp(),
+      ...card,
+      holdingId: 'h-new',
+      filters: null,
+      paidWith: paid ? 'lp' : 'none',
+      cost: paid ? 1 : 0,
+      entryId: paid ? 'e-new' : null,
+      ...spec.draw,
+    })
+    if (spec.holding !== null) {
+      batch.set(
+        doc(db, 'userCards/h-new'),
+        newHolding({
+          ...card,
+          uid,
+          givenBy: writer,
+          givenVia: 'draw',
+          drawId: 'd-new',
+          ...spec.holding,
+        }),
+      )
+    }
+    if (spec.takesCard ?? card.cardKind === 'normal') {
+      batch.update(doc(db, `cards/${spec.holderCard ?? card.cardId}`), {
+        holder: { uid, userCardId: 'h-new' },
+      })
+    }
+    if (paid && spec.entry !== null) {
+      batch.set(doc(db, 'ledger/e-new'), drawEntry(writer, { account: payer, ...spec.entry }))
+    }
+    if (paid && spec.balance !== null) {
+      batch.update(doc(db, `users/${payer}`), { lp: 2, lpEntryId: 'e-new', ...spec.balance })
+    }
+    return batch.commit()
+  }
+
+  describe('allowed', () => {
+    // The heaviest request of the app: five documents, each checking the others. It must stay within the
+    // rules' lookup limits.
+    it("allows a player's paid draw of a pool card: five documents in one batch", async () => {
+      await assertSucceeds(draw('ayla'))
+      expect(await readAsAdmin('draws/d-new')).toMatchObject({ uid: 'ayla', entryId: 'e-new' })
+      expect(await readAsAdmin('userCards/h-new')).toMatchObject({
+        givenVia: 'draw',
+        drawId: 'd-new',
+      })
+      expect(await readAsAdmin(`cards/${POOL}`)).toMatchObject({
+        holder: { uid: 'ayla', userCardId: 'h-new' },
+      })
+      expect(await readAsAdmin('ledger/e-new')).toMatchObject({
+        source: 'draw',
+        delta: -1,
+        balanceAfter: 2,
+        reason: null,
+        drawId: 'd-new',
+      })
+      expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 2, lpEntryId: 'e-new' })
+    })
+
+    it("allows a player's paid draw of a Blessed card, which keeps no holder", async () => {
+      await assertSucceeds(draw('ayla', { card: BLESSED_CARD }))
+      expect(await readAsAdmin(`cards/${BLESSED}`)).toMatchObject({ holder: null })
+      expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 2 })
+    })
+
+    it("allows a player's free Cursed draw for themselves", async () => {
+      await assertSucceeds(draw('ayla', { card: CURSED_CARD }))
+      expect(await readAsAdmin('draws/d-new')).toMatchObject({ kind: 'cursed', paidWith: 'none' })
+      expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 3, lpEntryId: 'e-old' })
+    })
+
+    it("allows the DM's free draw into a player's hand, with filters", async () => {
+      await setLp('ayla', 0)
+      await assertSucceeds(draw('dana', { uid: 'ayla', draw: { filters: FILTERS } }))
+      expect(await readAsAdmin('draws/d-new')).toMatchObject({ by: 'dana', filters: FILTERS })
+      expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 0 })
+    })
+
+    it("allows the DM's Cursed draw into a player's hand", async () => {
+      await assertSucceeds(draw('dana', { uid: 'bora', card: CURSED_CARD }))
+    })
+
+    it("allows the DM's draw into the DM's own hand", async () => {
+      await assertSucceeds(draw('dana', { card: BLESSED_CARD }))
+    })
+
+    it('lets every signed-in user read every draw', async () => {
+      await draw('ayla')
+      await assertSucceeds(getDoc(doc(asUser('bora'), 'draws/d-new')))
+      await assertSucceeds(getDocs(collection(asUser('bora'), 'draws')))
+      await assertSucceeds(
+        getDocs(query(collection(asUser('bora'), 'draws'), where('uid', '==', 'ayla'))),
+      )
+    })
+  })
+
+  describe('denied', () => {
+    it('denies signed-out reads', async () => {
+      await draw('ayla')
+      const db = firestoreOf(testEnv.unauthenticatedContext())
+      await assertFails(getDoc(doc(db, 'draws/d-new')))
+      await assertFails(getDocs(collection(db, 'draws')))
+    })
+
+    it("denies a player's draw into another player's hand, random or Cursed", async () => {
+      await setLp('bora', 3)
+      await assertFails(draw('ayla', { uid: 'bora' }))
+      await assertFails(draw('ayla', { uid: 'bora', paid: false }))
+      await assertFails(draw('ayla', { uid: 'bora', card: CURSED_CARD }))
+      await assertFails(draw('ayla', { uid: 'bora', payer: 'ayla' }))
+      expect(await readAsAdmin('draws/d-new')).toBeUndefined()
+    })
+
+    it("denies a player's free random draw, and a player's draw with filters", async () => {
+      await assertFails(draw('ayla', { paid: false }))
+      await assertFails(draw('ayla', { draw: { filters: FILTERS } }))
+      await assertFails(draw('ayla', { paid: false, draw: { filters: FILTERS } }))
+    })
+
+    it('denies a draw without its holding, and a holding given via a draw without its draw', async () => {
+      await assertFails(draw('ayla', { holding: null, takesCard: false }))
+      await assertFails(draw('dana', { uid: 'ayla', card: BLESSED_CARD, holding: null }))
+      const db = asUser('ayla')
+      const batch = writeBatch(db)
+      batch.set(
+        doc(db, 'userCards/h-new'),
+        newHolding({ uid: 'ayla', givenBy: 'ayla', givenVia: 'draw', drawId: 'd-none' }),
+      )
+      batch.update(doc(db, `cards/${POOL}`), { holder: { uid: 'ayla', userCardId: 'h-new' } })
+      await assertFails(batch.commit())
+      await assertFails(
+        setDoc(
+          doc(asUser('ayla'), 'userCards/h-new'),
+          newHolding({ ...CURSED_CARD, givenBy: 'ayla', givenVia: 'draw', drawId: 'd-none' }),
+        ),
+      )
+    })
+
+    it('denies a paid draw without its entry, without the lower LP, or paying 2 LP', async () => {
+      await assertFails(draw('ayla', { entry: null }))
+      await assertFails(draw('ayla', { balance: null }))
+      await assertFails(draw('ayla', { entry: { delta: -2, balanceAfter: 1 }, balance: { lp: 1 } }))
+      await assertFails(draw('ayla', { draw: { cost: 2 } }))
+      await assertFails(draw('ayla', { draw: { paidWith: 'none' } }))
+      expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 3 })
+    })
+
+    it('denies a paid draw at 0 LP', async () => {
+      await setLp('ayla', 0)
+      await assertFails(draw('ayla', { entry: { balanceAfter: -1 }, balance: { lp: -1 } }))
+      await assertFails(draw('ayla', { entry: { balanceAfter: 0 }, balance: { lp: 0 } }))
+    })
+
+    it('denies a random draw of a held normal card, a Cursed card, or a retired card', async () => {
+      await assertFails(draw('ayla', { card: HELD_CARD }))
+      await assertFails(draw('ayla', { card: HELD_CARD, takesCard: false }))
+      await assertFails(draw('ayla', { card: CURSED_CARD, kind: 'random' }))
+      await assertFails(draw('dana', { uid: 'ayla', card: CURSED_CARD, kind: 'random' }))
+      await assertFails(draw('ayla', { card: RETIRED_CARD }))
+      expect(await readAsAdmin(`cards/${HELD}`)).toMatchObject({
+        holder: { uid: 'bora', userCardId: 'h-bora' },
+      })
+    })
+
+    it('denies a Cursed draw of a normal card, and a Cursed draw with filters', async () => {
+      await assertFails(draw('ayla', { kind: 'cursed', paid: false }))
+      await assertFails(
+        draw('dana', { uid: 'ayla', card: CURSED_CARD, draw: { filters: FILTERS } }),
+      )
+    })
+
+    it('denies a drawn holding whose card, hand, or kind disagrees with its draw', async () => {
+      const other = OTHER_CARD.cardId
+      await assertFails(draw('ayla', { holding: { cardId: other }, holderCard: other }))
+      await assertFails(draw('ayla', { holding: { cardName: 'Other name' } }))
+      await assertFails(draw('dana', { uid: 'ayla', card: BLESSED_CARD, holding: { uid: 'bora' } }))
+      await assertFails(
+        draw('dana', {
+          uid: 'ayla',
+          card: { ...BLESSED_CARD, cardKind: 'normal' },
+          holding: { cardKind: 'blessed' },
+          takesCard: false,
+        }),
+      )
+      await assertFails(draw('ayla', { holding: { active: true } }))
+      await assertFails(draw('ayla', { holding: { note: 'Not' } }))
+      await assertFails(draw('ayla', { holding: { costOverride: 'd6' } }))
+      await assertFails(draw('ayla', { holding: { drawId: 'd-other' } }))
+      await assertFails(draw('ayla', { draw: { holdingId: 'h-other' } }))
+    })
+
+    it('denies two holdings for one draw, and two draws for one holding', async () => {
+      const db = asUser('dana')
+      const twoHoldings = writeBatch(db)
+      twoHoldings.set(doc(db, 'draws/d-new'), {
+        kind: 'random',
+        uid: 'ayla',
+        by: 'dana',
+        at: serverTimestamp(),
+        ...BLESSED_CARD,
+        holdingId: 'h-new',
+        filters: null,
+        paidWith: 'none',
+        cost: 0,
+        entryId: null,
+      })
+      for (const id of ['h-new', 'h-two']) {
+        twoHoldings.set(
+          doc(db, `userCards/${id}`),
+          newHolding({ ...BLESSED_CARD, givenVia: 'draw', drawId: 'd-new' }),
+        )
+      }
+      await assertFails(twoHoldings.commit())
+
+      const twoDraws = writeBatch(db)
+      for (const id of ['d-new', 'd-two']) {
+        twoDraws.set(doc(db, `draws/${id}`), {
+          kind: 'random',
+          uid: 'ayla',
+          by: 'dana',
+          at: serverTimestamp(),
+          ...BLESSED_CARD,
+          holdingId: 'h-new',
+          filters: null,
+          paidWith: 'none',
+          cost: 0,
+          entryId: null,
+        })
+      }
+      twoDraws.set(
+        doc(db, 'userCards/h-new'),
+        newHolding({ ...BLESSED_CARD, givenVia: 'draw', drawId: 'd-two' }),
+      )
+      await assertFails(twoDraws.commit())
+    })
+
+    it('denies two draws paid with one entry, and a payment for a free Cursed draw', async () => {
+      const db = asUser('ayla')
+      const twoDraws = writeBatch(db)
+      for (const [drawId, holdingId] of [
+        ['d-new', 'h-new'],
+        ['d-two', 'h-two'],
+      ] as const) {
+        twoDraws.set(doc(db, `draws/${drawId}`), {
+          kind: 'random',
+          uid: 'ayla',
+          by: 'ayla',
+          at: serverTimestamp(),
+          ...BLESSED_CARD,
+          holdingId,
+          filters: null,
+          paidWith: 'lp',
+          cost: 1,
+          entryId: 'e-new',
+        })
+        twoDraws.set(
+          doc(db, `userCards/${holdingId}`),
+          newHolding({ ...BLESSED_CARD, givenBy: 'ayla', givenVia: 'draw', drawId }),
+        )
+      }
+      twoDraws.set(doc(db, 'ledger/e-new'), drawEntry('ayla', { drawId: 'd-two' }))
+      twoDraws.update(doc(db, 'users/ayla'), { lp: 2, lpEntryId: 'e-new' })
+      await assertFails(twoDraws.commit())
+
+      const paidCursed = writeBatch(db)
+      paidCursed.set(doc(db, 'ledger/e-new'), drawEntry('ayla'))
+      paidCursed.update(doc(db, 'users/ayla'), { lp: 2, lpEntryId: 'e-new' })
+      paidCursed.set(doc(db, 'draws/d-new'), {
+        kind: 'cursed',
+        uid: 'ayla',
+        by: 'ayla',
+        at: serverTimestamp(),
+        ...CURSED_CARD,
+        holdingId: 'h-new',
+        filters: null,
+        paidWith: 'none',
+        cost: 0,
+        entryId: null,
+      })
+      paidCursed.set(
+        doc(db, 'userCards/h-new'),
+        newHolding({ ...CURSED_CARD, givenBy: 'ayla', givenVia: 'draw', drawId: 'd-new' }),
+      )
+      await assertFails(paidCursed.commit())
+    })
+
+    it('denies a player creating a holding given via "dm", even with a draw', async () => {
+      await assertFails(draw('ayla', { holding: { givenVia: 'dm', drawId: null } }))
+      await assertFails(
+        setDoc(
+          doc(asUser('ayla'), 'userCards/h-new'),
+          newHolding({ ...BLESSED_CARD, givenBy: 'ayla' }),
+        ),
+      )
+    })
+
+    it('denies a player lowering their own LP with an entry by hand', async () => {
+      const db = asUser('ayla')
+      const batch = writeBatch(db)
+      batch.set(doc(db, 'ledger/e-new'), {
+        currency: 'lp',
+        account: 'ayla',
+        delta: -1,
+        balanceAfter: 2,
+        source: 'manual',
+        reason: 'Kart çekme',
+        drawId: null,
+        by: 'ayla',
+        at: serverTimestamp(),
+      })
+      batch.update(doc(db, 'users/ayla'), { lp: 2, lpEntryId: 'e-new' })
+      await assertFails(batch.commit())
+      await assertFails(draw('ayla', { entry: { source: 'manual', reason: 'Kart çekme' } }))
+    })
+
+    it("denies a player paying for a draw with another player's LP", async () => {
+      await setLp('bora', 3)
+      await assertFails(draw('ayla', { payer: 'bora' }))
+      await assertFails(draw('bora', { uid: 'ayla', payer: 'bora' }))
+      expect(await readAsAdmin('users/bora')).toMatchObject({ lp: 3 })
+    })
+
+    it('denies a draw payment with a reason, and a change by hand without one', async () => {
+      await assertFails(draw('ayla', { entry: { reason: 'Kart çekme' } }))
+      const db = asUser('dana')
+      const batch = writeBatch(db)
+      batch.set(doc(db, 'ledger/e-new'), {
+        currency: 'lp',
+        account: 'ayla',
+        delta: 2,
+        balanceAfter: 5,
+        source: 'manual',
+        reason: null,
+        drawId: null,
+        by: 'dana',
+        at: serverTimestamp(),
+      })
+      batch.update(doc(db, 'users/ayla'), { lp: 5, lpEntryId: 'e-new' })
+      await assertFails(batch.commit())
+    })
+
+    it('denies a drawer other than the writer, a time other than now, and bad filters', async () => {
+      await assertFails(draw('ayla', { draw: { by: 'bora' } }))
+      await assertFails(draw('ayla', { draw: { at: Timestamp.fromMillis(5) } }))
+      await assertFails(draw('ayla', { entry: { at: Timestamp.fromMillis(5) } }))
+      await assertFails(draw('ayla', { draw: { extra: true } }))
+      await assertFails(
+        draw('dana', { uid: 'ayla', draw: { filters: { ...FILTERS, rarity: 'epic' } } }),
+      )
+      await assertFails(
+        draw('dana', { uid: 'ayla', draw: { filters: { ...FILTERS, keyword: 'x'.repeat(101) } } }),
+      )
+      await assertFails(draw('dana', { uid: 'ayla', draw: { filters: { rarity: 'rare' } } }))
+    })
+
+    it('denies updating or deleting a draw, even by the DM', async () => {
+      await assertSucceeds(draw('ayla'))
+      await assertFails(updateDoc(doc(asUser('dana'), 'draws/d-new'), { cardName: 'Changed' }))
+      await assertFails(updateDoc(doc(asUser('ayla'), 'draws/d-new'), { cardName: 'Changed' }))
+      await assertFails(deleteDoc(doc(asUser('dana'), 'draws/d-new')))
+      await assertFails(deleteDoc(doc(asUser('ayla'), 'draws/d-new')))
     })
   })
 })

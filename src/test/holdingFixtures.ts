@@ -23,6 +23,7 @@ export function testHolding(
     givenBy: 'dm-1',
     givenVia: 'dm',
     transferredFrom: null,
+    drawId: null,
     active: false,
     note: '',
     costOverride: null,

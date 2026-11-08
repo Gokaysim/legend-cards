@@ -12,6 +12,7 @@ const open = {
   givenBy: 'dana',
   givenVia: 'dm',
   transferredFrom: null,
+  drawId: null,
   active: false,
   note: '',
   costOverride: null,
@@ -60,6 +61,7 @@ describe('holdingSchema', () => {
       },
     ],
     ['a holding whose server times are still pending', { ...open, givenAt: null }],
+    ['a drawn holding', { ...open, givenBy: 'ayla', givenVia: 'draw', drawId: 'draw-1' }],
   ])('accepts %s', (_case, holding) => {
     expect(holdingSchema.safeParse(holding).success).toBe(true)
   })
@@ -85,7 +87,19 @@ describe('holdingSchema', () => {
     ['an open holding that names a new holding', { ...open, transferredTo: 'h2' }],
     ['a missing field', { ...open, active: undefined }],
     ['a given time that is not a timestamp', { ...open, givenAt: 1000 }],
+    ['a drawn holding without its draw', { ...open, givenVia: 'draw' }],
+    ['a dm give that names a draw', { ...open, drawId: 'draw-1' }],
+    [
+      'a transfer that names a draw',
+      { ...open, givenVia: 'transfer', transferredFrom: 'h1', drawId: 'draw-1' },
+    ],
   ])('rejects %s', (_case, holding) => {
     expect(holdingSchema.safeParse(holding).success).toBe(false)
+  })
+
+  it('reads a stored holding without drawId as null', () => {
+    const { drawId: _drawId, ...stored } = open
+    const result = holdingSchema.safeParse(stored)
+    expect(result.success && result.data.drawId).toBeNull()
   })
 })

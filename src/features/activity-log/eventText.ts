@@ -1,4 +1,6 @@
 import { formatAmount, formatDelta } from '@/features/balances/format'
+import type { DrawFilters } from '@/features/cards/pool'
+import type { Draw } from '@/features/draws/schema'
 import type { Holding } from '@/features/hands/schema'
 import { ablative, dative, genitive } from '@/lib/turkish'
 
@@ -25,6 +27,35 @@ function usedSentence(event: LogEvent & { holding: Holding }, nameOf: NameOf): S
   const owner = event.by === holding.uid ? '' : `${genitive(nameOf(holding.uid))} `
   const where = holding.usedOn === null ? '' : ` ${holding.usedOn} üzerinde`
   return [owner, card(holding.cardName), ` kartını${where} kullandı.`]
+}
+
+const RARITY_LABELS = { common: 'Common', rare: 'Rare', blessed: 'Blessed' } as const
+
+/** The DM's filters as the log shows them ("filtre: Rare · Blood & Battle"), or `null` without filters. */
+function filtersText(filters: DrawFilters | null): string | null {
+  if (filters === null) return null
+  const parts = [
+    filters.rarity === null ? null : RARITY_LABELS[filters.rarity],
+    filters.mechanicPack,
+    filters.cost === null ? null : `Cost ${filters.cost}`,
+    filters.keyword === null ? null : `kelime “${filters.keyword}”`,
+  ].filter((part) => part !== null)
+  return parts.length === 0 ? null : `filtre: ${parts.join(' · ')}`
+}
+
+/**
+ * A draw: "Aboleth's Eyes kartını çekti (−1 LP).", or into another hand (the DM's draw) "Bora'ya Aboleth's Eyes
+ * kartını çekti (filtre: Rare · Blood & Battle)." A Cursed draw: "Cursed kart çekti: Visions of Death."
+ */
+function drawnSentence(draw: Draw, nameOf: NameOf): SentencePart[] {
+  const into = draw.by === draw.uid ? '' : `${dative(nameOf(draw.uid))} `
+  if (draw.kind === 'cursed') return [`${into}Cursed kart çekti: `, card(draw.cardName), '.']
+  const details = [
+    draw.paidWith === 'lp' ? `${formatDelta(-draw.cost)} LP` : null,
+    filtersText(draw.filters),
+  ].filter((part) => part !== null)
+  const suffix = details.length === 0 ? '' : ` (${details.join('; ')})`
+  return [into, card(draw.cardName), ` kartını çekti${suffix}.`]
 }
 
 /**
@@ -74,6 +105,8 @@ export function describeEvent(
         reason: null,
       }
     }
+    case 'drawn':
+      return { parts: drawnSentence(event.draw, nameOf), reason: null }
     case 'balance': {
       const { entry } = event
       const owner = entry.currency === 'gp' ? 'Grup kesesi' : nameOf(entry.account)
