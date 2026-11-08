@@ -17,8 +17,10 @@ import {
 
 import { cardRef } from '@/features/cards/api'
 import type { Card } from '@/features/cards/schema'
+import { firebaseCode } from '@/lib/firestore/errors'
+import { cleanText } from '@/lib/text'
 
-import { firebaseCode, HoldingError } from './errors'
+import { HoldingError } from './errors'
 import { HOLDING_LIMITS, type Holding, holdingConverter, type StoredHolding } from './schema'
 
 /** Keep in step with `firestore.rules`. */
@@ -234,15 +236,6 @@ export async function transferHolding(
     }
     return next.id
   })
-}
-
-/**
- * Trims a typed value and cuts it to `max` characters. A blank value becomes `null`. Cuts by code points, so an
- * emoji at the limit is never split in half.
- */
-export function cleanText(value: string | null | undefined, max: number): string | null {
-  const trimmed = value?.trim() ?? ''
-  return trimmed === '' ? null : Array.from(trimmed).slice(0, max).join('')
 }
 
 // The plain updates below are single-field writes with no transaction: they work offline, and the subscription

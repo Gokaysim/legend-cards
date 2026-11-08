@@ -30,6 +30,27 @@ service cloud.firestore {
       return /databases/$(database)/documents/userCards/$(holdingId);
     }
 
+    function partyPath() {
+      return /databases/$(database)/documents/party/main;
+    }
+
+    function ledgerPath(entryId) {
+      return /databases/$(database)/documents/ledger/$(entryId);
+    }
+
+    // A balance write is explained by a ledger entry that this same request creates: the entry is for this
+    // currency and account, its balance after is the new balance, and its change is the difference.
+    function setByNewEntry(entryId, currency, account, before, after) {
+      let entry = getAfter(ledgerPath(entryId)).data;
+      return entryId is string
+        && !exists(ledgerPath(entryId))
+        && existsAfter(ledgerPath(entryId))
+        && entry.currency == currency
+        && entry.account == account
+        && entry.balanceAfter == after
+        && entry.delta == after - before;
+    }
+
     // True when the signed-in user's profile says DM. Reads the profile once per request (cached after that).
     function isDm() {
       return isSignedIn()
@@ -63,6 +84,7 @@ service cloud.firestore {
 
     // User profiles. Everyone signed in reads every profile. A user creates only their own, only as a player,
     // and later changes only its name and picture. Roles are changed by the admin script (Admin SDK), never here.
+    // The one other write is the DM's: a player's Legend Points, together with the ledger entry that records it.
     match /users/{uid} {
       allow read: if isSignedIn();
       allow create: if isSelf(uid)
@@ -72,11 +94,102 @@ service cloud.firestore {
         && request.resource.data.createdAt == request.time
         && validName(request.resource.data.displayName)
         && validPhoto(request.resource.data.photoURL);
-      allow update: if isSelf(uid)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photoURL'])
-        && validName(request.resource.data.displayName)
-        && validPhoto(request.resource.data.photoURL);
+      allow update: if (
+          isSelf(uid)
+          && onlyChanges(['displayName', 'photoURL'])
+          && validName(request.resource.data.displayName)
+          && validPhoto(request.resource.data.photoURL)
+        )
+        || lpSetByEntry();
       allow delete: if false;
+
+      // The DM sets a player's LP (a whole number, never below 0) with a new ledger entry. A missing `lp` is 0.
+      function lpSetByEntry() {
+        let next = request.resource.data;
+        return isSignedIn()
+          && onlyChanges(['lp', 'lpEntryId'])
+          && resource.data.role == 'player'
+          && next.get('lp', null) is int
+          && next.lp >= 0
+          && setByNewEntry(next.get('lpEntryId', null), 'lp', uid, resource.data.get('lp', 0), next.lp)
+          && isDm();
+      }
+    }
+
+    // The party purse: the group's shared GP. Everyone signed in reads it. Only the DM writes it, and only together
+    // with the ledger entry that records the change. A missing purse holds 0 GP.
+    match /party/main {
+      allow read: if isSignedIn();
+      allow create: if gpSetByEntry(0);
+      allow update: if gpSetByEntry(resource.data.gp);
+      allow delete: if false;
+
+      function gpSetByEntry(before) {
+        let next = request.resource.data;
+        return isSignedIn()
+          && next.keys().hasOnly(['gp', 'gpEntryId'])
+          && next.keys().hasAll(['gp', 'gpEntryId'])
+          && next.gp is int
+          && next.gp >= 0
+          && setByNewEntry(next.gpEntryId, 'gp', 'party', before, next.gp)
+          && isDm();
+      }
+    }
+
+    // The ledger: one entry per balance change, created by the DM together with the balance it sets, and never
+    // changed or deleted. Everyone signed in reads it.
+    match /ledger/{entryId} {
+      allow read: if isSignedIn();
+      allow create: if validLedgerEntry() && (setsLp() || setsGp()) && isDm();
+      allow update, delete: if false;
+
+      // Exactly the stored fields. Limits: keep in step with BALANCE_LIMITS in src/features/balances/schema.ts.
+      function validLedgerEntry() {
+        let data = request.resource.data;
+        let fields = ['currency', 'account', 'delta', 'balanceAfter', 'source', 'reason', 'by', 'at'];
+        return isSignedIn()
+          && data.keys().hasOnly(fields)
+          && data.keys().hasAll(fields)
+          && data.account is string
+          && data.delta is int
+          && data.delta != 0
+          && data.delta >= -1000000
+          && data.delta <= 1000000
+          && data.balanceAfter is int
+          && data.balanceAfter >= 0
+          && data.source == 'manual'
+          && data.reason is string
+          && data.reason.size() >= 1
+          && data.reason.size() <= 200
+          && data.reason.trim().size() >= 1
+          && data.by == request.auth.uid
+          && data.at == request.time;
+      }
+
+      // A player's LP: the profile now points at this entry and holds its balance, which follows from the balance
+      // before (missing: 0) and the change.
+      function setsLp() {
+        let data = request.resource.data;
+        let profile = userPath(data.account);
+        return data.currency == 'lp'
+          && exists(profile)
+          && get(profile).data.role == 'player'
+          && getAfter(profile).data.get('lpEntryId', null) == entryId
+          && getAfter(profile).data.get('lp', null) == data.balanceAfter
+          && get(profile).data.get('lp', 0) + data.delta == data.balanceAfter;
+      }
+
+      // The party's GP: the purse now points at this entry and holds its balance. A purse created by this request
+      // held 0 before.
+      function setsGp() {
+        let data = request.resource.data;
+        return data.currency == 'gp'
+          && data.account == 'party'
+          && existsAfter(partyPath())
+          && getAfter(partyPath()).data.gpEntryId == entryId
+          && getAfter(partyPath()).data.gp == data.balanceAfter
+          && (exists(partyPath()) ? get(partyPath()).data.gp : 0) + data.delta == data.balanceAfter;
+      }
     }
 
     // Card definitions. Everyone signed in reads every card, retired ones included. Only the import script (Admin

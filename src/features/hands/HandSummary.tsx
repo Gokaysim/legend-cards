@@ -1,9 +1,16 @@
-import { useId } from 'react'
+import { type ReactNode, useId, useState } from 'react'
 
+import { Button } from '@/components/ui/Button'
+import { BalanceDialog } from '@/features/balances/BalanceDialog'
+import { formatAmount } from '@/features/balances/format'
 import { setDisplayName, setOrder } from '@/features/cards/sets'
 import { compareLabels } from '@/features/cards/sort'
 import { visibleText } from '@/features/cards/text'
+import { DmOnly } from '@/features/users/DmOnly'
+import type { UserProfile } from '@/features/users/schema'
+import { profileName } from '@/features/users/usersContext'
 import { cn } from '@/lib/cn'
+import { genitive } from '@/lib/turkish'
 
 import type { HandEntry } from './handEntries'
 
@@ -20,28 +27,75 @@ function handSets(entries: readonly HandEntry[]): { name: string; count: number 
   return [...counts.values()].sort((a, b) => a.order - b.order || compareLabels(a.name, b.name))
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
+function Stat({
+  label,
+  value,
+  action,
+  className,
+}: {
+  label: string
+  value: ReactNode
+  /** A control next to the value, outside the `dd`, so the value reads on its own. */
+  action?: ReactNode
+  className?: string
+}) {
   return (
-    <div className="flex flex-col gap-1 rounded-xl border border-line bg-pane p-3">
+    <div className={cn('flex flex-col gap-1 rounded-xl border border-line bg-pane p-3', className)}>
       <dt className="text-xs font-semibold tracking-wide text-ink-muted uppercase">{label}</dt>
-      <dd className="text-2xl font-semibold text-ink">{value}</dd>
+      <div className="flex items-center justify-between gap-2">
+        <dd className="text-2xl font-semibold text-ink tabular-nums">{value}</dd>
+        {action}
+      </div>
     </div>
   )
 }
 
 /**
- * Above the hand: how many cards it holds, how many are active, from how many sets, and how many are Cursed.
- * Lists the active cards with their visible text, and the sets with their card counts.
+ * Above the hand: a player's Legend Points (the DM changes them here; the DM has none), how many cards the hand
+ * holds, how many are active, from how many sets, and how many are Cursed. Lists the active cards with their
+ * visible text, and the sets with their card counts.
  */
-export function HandSummary({ entries }: { entries: readonly HandEntry[] }) {
+export function HandSummary({
+  entries,
+  profile,
+}: {
+  entries: readonly HandEntry[]
+  /** Whose hand this is, live. */
+  profile: UserProfile
+}) {
   const ids = useId()
+  const [isChangingLp, setIsChangingLp] = useState(false)
+  const isPlayer = profile.role === 'player'
+  const playerName = profileName(profile)
   const active = entries.filter((entry) => entry.holding.active)
   const sets = handSets(entries)
   const cursedCount = entries.filter((entry) => entry.card.kind === 'cursed').length
 
   return (
     <div className="flex flex-col gap-3">
-      <dl aria-label="El özeti" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <dl
+        aria-label="El özeti"
+        className={cn('grid grid-cols-2 gap-2', isPlayer ? 'sm:grid-cols-5' : 'sm:grid-cols-4')}
+      >
+        {isPlayer ? (
+          <Stat
+            label="Legend Point"
+            value={formatAmount(profile.lp)}
+            className="col-span-2 sm:col-span-1"
+            action={
+              <DmOnly>
+                <Button
+                  variant="ghost"
+                  className="shrink-0 px-2 py-1"
+                  aria-label={`${genitive(playerName)} LP'sini değiştir`}
+                  onClick={() => setIsChangingLp(true)}
+                >
+                  ± LP
+                </Button>
+              </DmOnly>
+            }
+          />
+        ) : null}
         <Stat label="Eldeki kart" value={entries.length} />
         <Stat label="Aktif efekt" value={active.length} />
         <Stat label="Farklı set" value={sets.length} />
@@ -105,6 +159,15 @@ export function HandSummary({ entries }: { entries: readonly HandEntry[] }) {
           )}
         </section>
       </div>
+      {isChangingLp ? (
+        <BalanceDialog
+          currency="lp"
+          uid={profile.id}
+          name={playerName}
+          balance={profile.lp}
+          onClose={() => setIsChangingLp(false)}
+        />
+      ) : null}
     </div>
   )
 }

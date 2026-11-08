@@ -3,6 +3,7 @@ import { NavLink } from 'react-router'
 
 import { handPath } from '@/app/screens'
 import { Avatar } from '@/components/ui/Avatar'
+import { formatAmount } from '@/features/balances/format'
 import { cn } from '@/lib/cn'
 import type { Subscription } from '@/lib/firestore/subscription'
 
@@ -19,7 +20,8 @@ export type PlayerListProps = {
 
 /**
  * The "Oyuncular" list: everyone who has signed up, with the DM marked. Each name opens that user's hand, and the
- * user whose hand is shown is marked (`aria-current`).
+ * user whose hand is shown is marked (`aria-current`). Each player's LP stands next to the name, outside the
+ * link, so the link is named by the player alone. The DM has no LP.
  */
 export function PlayerList({ profiles, onNavigate }: PlayerListProps) {
   const headingId = useId()
@@ -45,13 +47,13 @@ export function PlayerList({ profiles, onNavigate }: PlayerListProps) {
       ) : (
         <ul className="flex flex-col gap-1">
           {profiles.data.map((profile) => (
-            <li key={profile.id}>
+            <li key={profile.id} className="flex items-center gap-1">
               <NavLink
                 to={handPath(profile.id)}
                 onClick={onNavigate}
                 className={({ isActive }) =>
                   cn(
-                    'flex min-w-0 items-center gap-2 rounded-lg px-3 py-1 text-sm text-ink transition-colors hover:bg-pane-raised',
+                    'flex min-w-0 flex-1 items-center gap-2 rounded-lg px-3 py-1 text-sm text-ink transition-colors hover:bg-pane-raised',
                     isActive && 'bg-pane-raised font-semibold text-gold',
                   )
                 }
@@ -60,6 +62,11 @@ export function PlayerList({ profiles, onNavigate }: PlayerListProps) {
                 <span className="truncate">{profileName(profile)}</span>
                 {profile.role === 'dm' ? <RoleTag role="dm" /> : null}
               </NavLink>
+              {profile.role === 'player' ? (
+                <span className="shrink-0 pr-3 text-xs text-ink-muted tabular-nums">
+                  {formatAmount(profile.lp)} LP
+                </span>
+              ) : null}
             </li>
           ))}
         </ul>

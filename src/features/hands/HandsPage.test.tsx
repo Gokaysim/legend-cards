@@ -1,5 +1,8 @@
 import { screen, within } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import userEvent from '@testing-library/user-event'
+import { describe, expect, it, vi } from 'vitest'
+
+import type { BalanceActions } from '@/features/balances/balancesContext'
 
 import { ready, testProfile, testUser } from '@/test/fixtures'
 import { renderApp } from '@/test/renderApp'
@@ -95,5 +98,69 @@ describe('a hand URL', () => {
     })
 
     expect(main().getByRole('alert')).toHaveTextContent('Oyuncular yüklenemedi.')
+  })
+})
+
+describe('Legend Points on the hand', () => {
+  const aylaWithLp = { ...ayla, lp: 7 }
+  /** The value of a stat in the hand summary, by its label. */
+  const stat = (label: string) =>
+    within(screen.getByLabelText('El özeti')).getByText(label).nextElementSibling?.textContent
+
+  it("shows a player's LP as the first stat", () => {
+    renderApp({ path: '/hands/ayla', users: { profiles: ready([aylaWithLp, me]) } })
+
+    expect(stat('Legend Point')).toBe('7')
+    const labels = within(screen.getByLabelText('El özeti'))
+      .getAllByRole('term')
+      .map((term) => term.textContent)
+    expect(labels[0]).toBe('Legend Point')
+  })
+
+  it('offers players no LP change, not even on their own hand', () => {
+    renderApp({ path: `/hands/${testUser.uid}`, users: { profiles: ready([ayla, me]) } })
+    expect(main().queryByRole('button', { name: /LP'sini değiştir/ })).not.toBeInTheDocument()
+  })
+
+  it("lets the DM change a player's LP from the hand", async () => {
+    const user = userEvent.setup()
+    const changeBalance = vi.fn<BalanceActions['changeBalance']>(() => Promise.resolve('e1'))
+    renderApp({
+      path: '/hands/ayla',
+      users: { currentProfile: ready(dmProfile), profiles: ready([aylaWithLp, dmProfile]) },
+      balances: { actions: { changeBalance } },
+    })
+
+    await user.click(main().getByRole('button', { name: "Ayla'nın LP'sini değiştir" }))
+    const dialog = within(screen.getByRole('dialog', { name: 'Legend Point: Ayla' }))
+    await user.type(dialog.getByRole('spinbutton', { name: 'Miktar' }), '2')
+    await user.type(dialog.getByRole('textbox', { name: 'Neden' }), "Boss'u yendi")
+    await user.click(dialog.getByRole('button', { name: '+ Ekle' }))
+
+    expect(changeBalance).toHaveBeenCalledExactlyOnceWith({
+      account: { currency: 'lp', uid: 'ayla' },
+      delta: 2,
+      reason: "Boss'u yendi",
+      by: testUser.uid,
+    })
+  })
+
+  it('shows the new LP live', () => {
+    const { setUsers } = renderApp({
+      path: '/hands/ayla',
+      users: { profiles: ready([aylaWithLp, me]) },
+    })
+    setUsers({ profiles: ready([{ ...aylaWithLp, lp: 9 }, me]) })
+    expect(stat('Legend Point')).toBe('9')
+  })
+
+  it("shows no LP on the DM's own hand", () => {
+    renderApp({
+      path: `/hands/${testUser.uid}`,
+      users: { currentProfile: ready(dmProfile), profiles: ready([dmProfile]) },
+    })
+    expect(
+      within(screen.getByLabelText('El özeti')).queryByText('Legend Point'),
+    ).not.toBeInTheDocument()
   })
 })

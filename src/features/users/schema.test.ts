@@ -29,6 +29,23 @@ describe('userProfileSchema', () => {
     expect(userProfileSchema.safeParse({ ...valid, role: 'admin' }).success).toBe(false)
   })
 
+  it('reads a profile stored before Legend Points as 0 LP without an entry', () => {
+    const result = userProfileSchema.parse(valid)
+    expect(result.lp).toBe(0)
+    expect(result.lpEntryId).toBeNull()
+  })
+
+  it('keeps stored Legend Points and their entry', () => {
+    const result = userProfileSchema.parse({ ...valid, lp: 7, lpEntryId: 'entry-1' })
+    expect(result.lp).toBe(7)
+    expect(result.lpEntryId).toBe('entry-1')
+  })
+
+  it('rejects negative or fractional Legend Points', () => {
+    expect(userProfileSchema.safeParse({ ...valid, lp: -1 }).success).toBe(false)
+    expect(userProfileSchema.safeParse({ ...valid, lp: 1.5 }).success).toBe(false)
+  })
+
   it('rejects an empty or over-long name', () => {
     expect(userProfileSchema.safeParse({ ...valid, displayName: '' }).success).toBe(false)
     expect(userProfileSchema.safeParse({ ...valid, displayName: 'x'.repeat(101) }).success).toBe(

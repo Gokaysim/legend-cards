@@ -43,9 +43,11 @@ All data lives in Firestore. The paths that exist so far:
 
 | Path                    | Holds                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Who writes                                                                                                                                                                                                                                                                 |
 | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `users/{uid}`           | A user's profile: display name, picture, role (`player` or `dm`), creation time. No email.                                                                                                                                                                                                                                                                                                                                                                                                                              | The user creates their own profile as a player and updates the name and picture. Only the admin script changes the role.                                                                                                                                                   |
+| `users/{uid}`           | A user's profile: display name, picture, role (`player` or `dm`), creation time. No email. A player's Legend Points (`lp`, a whole number, never below 0; missing counts as 0) and `lpEntryId`, the ledger entry that set them.                                                                                                                                                                                                                                                                                         | The user creates their own profile as a player and updates the name and picture. Only the admin script changes the role. Only the DM changes `lp`, on a player's profile, together with the ledger entry that records it.                                                  |
 | `cards/{cardId}`        | One card definition: kind (`normal`, `blessed` or `cursed`), name, normalized name, set code, cost, rarity, mechanic pack, text, and a `retired` flag. The ID is the deck plus the normalized name, for example `legend-abolethseyes`. A normal card also has a `holder`: `{ uid, userCardId }` while it is in a hand, `null` while it is in the pool. Blessed and Cursed cards are repeatable, so their `holder` is always `null`. Cards imported before card holdings have no `holder` field, which counts as `null`. | Only the card import script (`npm run import-cards`) writes the definitions, and it never writes `holder`. The application changes only a normal card's `holder`, together with the holding that explains it. Every signed-in user reads them.                             |
 | `userCards/{holdingId}` | One card's stay with one player (a holding): the card (its ID, and its name and kind when given), the player, when it was given, by whom, and how (`dm`, or `transfer` with `transferredFrom`), whether it is active, its note, and its cost override. When the card leaves the hand, the holding is closed with when, by whom, and why: `used` (with `usedOn`, the character, if given), `discarded`, or `transferred` (with `transferredTo`, the receiver's new holding). Open holdings have `returnedAt: null`.      | Only the DM gives cards. The holder or the DM uses a card and edits its note. Only the DM discards, transfers, switches a card active and sets its cost. A holding is closed, never deleted, and a closed holding never changes. Every signed-in user reads every holding. |
+| `party/main`            | The party purse: the group's shared GP (`gp`, a whole number, never below 0) and `gpEntryId`, the ledger entry that set it. It exists from the first GP change; before that the purse holds 0 GP.                                                                                                                                                                                                                                                                                                                       | Only the DM, together with the ledger entry that records the change. Every signed-in user reads it.                                                                                                                                                                        |
+| `ledger/{entryId}`      | One balance change: the currency (`lp` or `gp`), the account (the player's uid, or `party`), the change (`delta`, never 0), the balance after it, the source (`manual` for now), the DM's reason (1 to 200 characters), who made it, and when. The balance before is the balance after minus the change.                                                                                                                                                                                                                | Only the DM creates entries, each together with the balance it sets. An entry is never changed or deleted. Every signed-in user reads the ledger.                                                                                                                          |
 
 The agreed target model for the coming changes is in the design of the OpenSpec change `add-user-roles` (after it is archived: `openspec/changes/archive/*-add-user-roles/design.md`, "Target data model"). It covers:
 
@@ -63,6 +65,13 @@ Card holdings refine the target model too:
 - `drawId` arrives with pack-opening, together with the ways `pack` and `draw`.
 - `cardKind`, `transferredFrom` and `transferredTo` are new. They let the rules check both sides of a movement without querying, and they let a later history screen follow a card from hand to hand.
 - A DM's extra copy of a held normal card is a holding of its own that leaves the card's `holder` alone. When the holder's holding closes, the card returns to the pool even while an extra copy is still in a hand.
+
+Balances refine the target model too:
+
+- The target model's `reason: manual | pack | draw` is called `source`. `reason` is the DM's own text, which the interface calls "Neden".
+- `lpEntryId` and `gpEntryId` are new. They let the rules find the entry that explains a balance without querying, as `holder.userCardId` does for cards.
+- The party purse's account in the ledger is the fixed string `party`.
+- `drawId` and the sources `pack` and `draw` arrive with pack-opening.
 
 The card library refines the target model in three ways:
 
@@ -161,7 +170,7 @@ More pack rules:
 
 ### LP, cost and effects
 
-- LP changes only through the DM's manual plus and minus actions, by a chosen positive amount. Each change is logged.
+- LP changes only through the DM's manual plus and minus actions, by a chosen positive amount. Each change is logged. The new app keeps this for the DM, needs a reason for every change, and never lets LP go below 0 (see [Deliberate decisions](#deliberate-decisions-do-not-fix)).
 - Card costs keep their written form (`X`, `d6`, and so on). A cost override applies to one hand card, not to the card definition.
 - Any hand card and any learned True Word can be switched active or inactive.
 
@@ -246,7 +255,7 @@ More pack rules:
   - `cursedelixirwithdrawal.png` for Elixir Withdrawal
 - **Backups.** The ZIP backup also includes custom effects, Custom Cards, and elixirs.
 - **Search.** Search matches all card fields. Terms separated by commas or semicolons must **all** appear.
-- **Undo and the log** cover the current session only. They are not saved and not included in backups.
+- **Undo and the log** cover the current session only. They are not saved and not included in backups. The new app's İşlem Logu is permanent instead (see [Deliberate decisions](#deliberate-decisions-do-not-fix)).
 
 ## Table rules (Kurallar page)
 
@@ -309,7 +318,9 @@ The v2.2.8 rules page (`rulesPage`) has the Cardmaker explain the rules that the
 
 These look odd but are explicit decisions by the DM and the owner. Do not "fix" them unless the owner asks.
 
-- **LP is only changed by hand.** Pack prices are labels, so opening a pack never deducts LP.
+- **LP is only changed by hand.** Pack prices are labels, so opening a pack never deducts LP. In the new app, "by hand" means the DM's changes; pack-opening will let a player's own pack payment lower their LP, as agreed in `add-user-roles`.
+- **Balances never go below 0.** Neither a player's LP nor the party's GP. Subtracting more is refused. The legacy app let LP go negative; the owner decided against it in `add-legend-points-and-log`.
+- **Every LP and GP change needs a reason.** The DM writes it, and the ledger keeps it with the change. The legacy app asked for none.
 - **The pack thresholds are what they are**: 9 cards for set packs, 29 for Mechanic Packs, 49 non-blessed Rare cards for Golden, and the others as in the table above.
 - **Golden Packs have a 2% Blessed chance.**
 - **The official set names are a fixed, hardcoded list.** They are not derived from the data.
@@ -319,6 +330,7 @@ These look odd but are explicit decisions by the DM and the owner. Do not "fix" 
 - **The cursed card in a cursed pack is mandatory** (Cursed, Cursed Golden, and Pandemonium Cursed Packs).
 - **Custom Cards never enter the pool.** Returning one destroys it.
 - **Undo and the log last for one session only.** Card history no longer does: the new app keeps every holding permanently, closed but never deleted, as agreed in `add-user-roles` ("History is permanent"). There is no undo; a mistake is corrected with the opposite action.
+- **The İşlem Logu is permanent.** It is read from the card holdings and the ledger, never written separately, so it lists every card given, used, discarded or transferred and every LP and GP change, across sessions and devices. Switching a card active, notes and cost overrides are current state, not events, so the log does not list them.
 
 ## Open questions for the DM
 

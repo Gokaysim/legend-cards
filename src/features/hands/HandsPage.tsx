@@ -128,7 +128,7 @@ function HandContent({ profile }: { profile: UserProfile }) {
   const selected = entries.find((entry) => entry.holding.id === selectedId)
   return (
     <>
-      <HandSummary entries={entries} />
+      <HandSummary entries={entries} profile={profile} />
       <HandView entries={entries} onSelect={setSelectedId} />
       {selected ? (
         <HoldingDialog

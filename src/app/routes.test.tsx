@@ -57,6 +57,10 @@ const BUILT_SCREENS: Record<string, () => void> = {
     expect(screen.getByRole('article', { name: 'Visions of Death' })).toBeInTheDocument()
     expect(screen.queryByRole('article', { name: "Aboleth's Eyes" })).not.toBeInTheDocument()
   },
+  // The log, before anything happened.
+  '/log': () => {
+    expect(screen.getByText('Henüz kayıtlı işlem yok.')).toBeInTheDocument()
+  },
 }
 
 describe('routes and navigation', () => {

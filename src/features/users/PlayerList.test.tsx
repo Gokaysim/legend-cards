@@ -30,8 +30,8 @@ function renderList(ui: ReactElement, path = '/rules') {
 const list = () => screen.getByRole('region', { name: 'Oyuncular' })
 const rowNames = () =>
   within(list())
-    .getAllByRole('listitem')
-    .map((row) => row.textContent)
+    .getAllByRole('link')
+    .map((link) => link.textContent)
 
 describe('PlayerList', () => {
   it('lists the profiles in Turkish name order', () => {
@@ -128,5 +128,32 @@ describe('PlayerList', () => {
       'page',
     )
     expect(within(list()).getByRole('link', { name: 'Ayla' })).not.toHaveAttribute('aria-current')
+  })
+
+  it("shows each player's LP next to the name, and none for the DM", () => {
+    renderList(
+      <PlayerList
+        profiles={ready([
+          testProfile({ id: 'a', displayName: 'Ayla', lp: 7 }),
+          testProfile({ id: 'b', displayName: 'Dana', role: 'dm', lp: 3 }),
+          testProfile({ id: 'c', displayName: 'Zeki', lp: 12500 }),
+        ])}
+      />,
+    )
+
+    const [ayla, dana, zeki] = within(list()).getAllByRole('listitem')
+    expect(ayla).toHaveTextContent('7 LP')
+    expect(within(ayla!).getByRole('link')).toHaveAccessibleName('Ayla')
+    expect(dana).not.toHaveTextContent('LP')
+    expect(zeki).toHaveTextContent('12.500 LP')
+  })
+
+  it('shows the new LP when it changes, without a reload', () => {
+    const before = [testProfile({ id: 'a', displayName: 'Ayla', lp: 7 })]
+    const { rerender } = renderList(<PlayerList profiles={ready(before)} />)
+
+    rerender(<PlayerList profiles={ready([{ ...before[0]!, lp: 9 }])} />)
+
+    expect(within(list()).getByRole('listitem')).toHaveTextContent('9 LP')
   })
 })

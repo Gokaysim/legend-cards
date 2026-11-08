@@ -19,7 +19,8 @@ Turkish interface strings are written directly in the components. There is no tr
 src/
   main.tsx              entry: config check -> App (or ConfigErrorScreen)
   app/                  composition root
-    App.tsx             AuthProvider + UsersProvider + CardsProvider + HoldingsProvider + router
+    App.tsx             AuthProvider + UsersProvider + BalancesProvider + CardsProvider + HoldingsProvider
+                        + ActivityLogProvider + router
     screens.ts          the single lists of screens (main menu and Shops sub-screens)
     routes.tsx          route table: sign-in, RequireAuth, AppShell, one route per screen, not-found
     layout/             AppShell, SidebarContent, MobileNav, UserBadge, OfflineBanner
@@ -32,22 +33,27 @@ src/
                         CardFace, CardTable)
     hands/              card holdings: schema, api (the card movements), errors, HoldingsProvider,
                         useOpenHoldings, and the "Oyuncu elleri" screen (HandsPage, the hand, its dialogs)
+    balances/           LP and the party's GP: schema, api (changeBalance), errors, BalancesProvider,
+                        usePartyPurse, useBalanceActions, the amount format, BalanceDialog, PartyPurse
     library/ cursed-deck/
                         the two card screens, each a <Name>Page.tsx around the shared card browser
-    shops/ true-words/ custom-draft/ activity-log/ rules/ settings/
+    activity-log/       the İşlem Logu: the log queries (api), ActivityLogProvider (useLogRecords, useHolding),
+                        events derived from holdings and the ledger (events, eventText), ActivityLogPage
+    shops/ true-words/ custom-draft/ rules/ settings/
                         each with its <Name>Page.tsx (placeholders for now)
   components/ui/        shared primitives: Avatar, Button, PageHeader, Placeholder, Spinner, FullScreenSpinner
   lib/
     firebase/           settings check (config.ts) and the Firebase app, Auth and Firestore instances
-    firestore/          real-time subscription hooks, converters, errors
+    firestore/          real-time subscription hooks, converters, errors (including firebaseCode)
     cn.ts               class-name merge helper
     useOnlineStatus.ts  browser network status
     turkish.ts          Turkish grammar helpers, such as the genitive of a name ("Ayla'nın")
+    text.ts             cleanText: trims typed text and cuts it to a limit
   styles/
     index.css           Tailwind entry and base styles
     theme.css           design tokens
-  test/                 test setup and shared test helpers (test providers for profiles, cards and holdings,
-                        fixtures)
+  test/                 test setup and shared test helpers (test providers for profiles, balances, cards,
+                        holdings and the log's records, fixtures)
 scripts/                admin scripts on Node with the Admin SDK (see Scripts)
 data/                   the owner's CSV data that the scripts import (see data/README.md)
 tests/                  emulator tests that need no app code: access rules, admin scripts
@@ -135,7 +141,7 @@ Styling uses Tailwind CSS utility classes, written directly in JSX.
   - `useIsDm()`, which is `true` only for a loaded DM profile; loading or missing profiles count as a player
 - **DM-only controls go inside `<DmOnly>`.** Hiding is only a convenience. `firestore.rules` is the real check, so every DM-only write needs its own rule and rules test.
 - **Roles change only through the admin script** (`npm run set-role`, see [Scripts](#scripts)). Never add a client write that touches `role`.
-- **Tests** render components inside `TestAuthProvider` and `TestUsersProvider` (`src/test/`) with fixed states, instead of talking to Firebase. `renderApp` takes `users`, `cards` and `holdings` options, and returns `setUsers`, `setCards` and `setHoldings` to simulate a real-time change.
+- **Tests** render components inside `TestAuthProvider` and `TestUsersProvider` (`src/test/`) with fixed states, instead of talking to Firebase. `renderApp` takes `users`, `balances`, `cards`, `holdings` and `activityLog` options, and returns `setUsers`, `setBalances`, `setCards`, `setHoldings` and `setActivityLog` to simulate a real-time change.
 
 ## Data access
 
@@ -151,11 +157,15 @@ All stored data lives in Firestore and is read in real time.
 - **Shared data comes from a provider.** Data that many screens need is subscribed to once, in a provider mounted in `App.tsx`, and read through hooks. Each provider has a test provider in `src/test/` that `renderApp` uses, so unit tests never touch Firebase.
   - Profiles: `useCurrentProfile()`, `useProfiles()`, `useIsDm()` (`UsersProvider`).
   - Cards: `useCards()` for every active card, and `useDeckCards('legend' | 'cursed')` for one deck. Retired cards are never in them. `useCardsById()` maps every card by its ID, retired ones included, so a hand can still show a held card that was retired (`CardsProvider`, one subscription to every card).
+  - Balances: a player's LP is `lp` on their profile. `usePartyPurse()` gives the party's GP (`null` before the first change, which counts as 0), and `useBalanceActions()` the DM's changes (`BalancesProvider`).
   - Holdings: `useOpenHoldings()` for every card in every hand (`HoldingsProvider`). Derive views with the pure helpers next to it: `holdingsOf(holdings, uid)` for one hand in the order the cards were received, and `holdersOf(holdings, cardId)` for who holds a copy of a card.
+- **Data for one screen.** A screen that alone needs some data subscribes while it is shown, through hooks that a provider injects, so its test provider can answer instead of Firebase. The İşlem Logu reads `useLogRecords(uid, n)` and `useHolding(id)` from `ActivityLogProvider`. Its events are derived from the holdings and the ledger (`events.ts`), never written separately.
+- **Composite indexes.** A query that filters on one field and orders by another needs a composite index in `firestore.indexes.json`, such as the log's filtered queries. The emulator does not check indexes, so a missing one only fails on a real project: add the index in the same change as the query, and deploy it with the rules.
 - **Staleness hints.** When `ready`, `fromCache: true` means the data has not been confirmed by the server (for example while offline), and `hasPendingWrites: true` means local changes are still waiting to sync. Show a subtle hint where it matters, for example next to an LP balance.
 - **Writing.** Write with the SDK (`setDoc`, `updateDoc`, `addDoc`, `runTransaction`, …) inside the feature's `api.ts`. Writes made offline are queued and sent when the connection returns. Do not wait for a write's promise before updating the UI: the subscription already shows the change as a pending write.
-- **Transactions.** A write that must see the current server state, such as a card movement, runs in `runTransaction` in the feature's `api.ts`. Transactions need a connection: they fail offline instead of being queued, so the interface says so (see `src/features/hands/errors.ts`).
-- **Errors from Firebase.** Recognize Firebase errors by their `code`, not with `instanceof`. Firebase's error classes reset their prototype, so `instanceof FirestoreError` is false even for real Firestore errors.
+- **Transactions.** A write that must see the current server state, such as a card movement or a balance change, runs in `runTransaction` in the feature's `api.ts`. Transactions need a connection: they fail offline instead of being queued, so the interface says so (see `src/features/hands/errors.ts` and `src/features/balances/errors.ts`).
+  - When two devices race, the rules can deny the loser's commit (`permission-denied`) before the SDK retries it, because they evaluate it against the winner's state. Re-read from the server to tell a race from a real denial: `giveCard` then reports who took the card, and `changeBalance` runs again when the balance moved.
+- **Errors from Firebase.** Recognize Firebase errors by their `code` (`firebaseCode(error)` from `src/lib/firestore/errors.ts`), not with `instanceof`. Firebase's error classes reset their prototype, so `instanceof FirestoreError` is false even for real Firestore errors.
 
 ## Adding a new screen
 

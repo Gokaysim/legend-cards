@@ -9,6 +9,13 @@ function isFirestoreError(error: unknown): error is Error & { code: FirestoreErr
   return error instanceof Error && typeof (error as { code?: unknown }).code === 'string'
 }
 
+/** The code of a Firebase error, recognized by shape, not with `instanceof`, or `null` for anything else. */
+export function firebaseCode(error: unknown): string | null {
+  if (!(error instanceof Error)) return null
+  const code = (error as { code?: unknown }).code
+  return typeof code === 'string' ? code : null
+}
+
 function describeIssues(issues: readonly z.core.$ZodIssue[]): string {
   return issues.map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`).join('; ')
 }

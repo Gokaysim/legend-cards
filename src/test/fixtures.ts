@@ -20,6 +20,8 @@ export function testProfile(overrides: Partial<UserProfile> = {}): UserProfile {
     photoURL: null,
     role: 'player',
     createdAt: Timestamp.fromMillis(0),
+    lp: 0,
+    lpEntryId: null,
     ...overrides,
   }
 }

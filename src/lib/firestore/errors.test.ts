@@ -2,7 +2,7 @@ import { FirestoreError } from 'firebase/firestore'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
-import { InvalidDataError, toSubscriptionError } from './errors'
+import { firebaseCode, InvalidDataError, toSubscriptionError } from './errors'
 
 /** FirestoreError has a public runtime constructor, but its type declares it private. */
 const FirestoreErrorClass = FirestoreError as unknown as new (
@@ -57,5 +57,16 @@ describe('toSubscriptionError', () => {
       message: 'weird',
       path: 'cards',
     })
+  })
+})
+
+describe('firebaseCode', () => {
+  it('reads the code of a Firebase error by shape, and nothing else', () => {
+    expect(firebaseCode(new FirestoreErrorClass('permission-denied', 'denied'))).toBe(
+      'permission-denied',
+    )
+    expect(firebaseCode(Object.assign(new Error('x'), { code: 'unavailable' }))).toBe('unavailable')
+    expect(firebaseCode(new Error('plain'))).toBeNull()
+    expect(firebaseCode('permission-denied')).toBeNull()
   })
 })

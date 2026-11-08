@@ -937,3 +937,230 @@ describe('card movements (userCards with cards/{cardId}.holder)', () => {
     })
   })
 })
+
+describe('balances (users/{uid}.lp, party/main, ledger/{entryId})', () => {
+  beforeEach(async () => {
+    // Ayla has 5 LP from an earlier entry; Bora's profile predates Legend Points (no field: 0); Dana is the DM.
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const db = firestoreOf(admin)
+      await setDoc(doc(db, 'users/ayla'), {
+        ...seededUser('player', 'Ayla'),
+        lp: 5,
+        lpEntryId: 'e-old',
+      })
+      await setDoc(doc(db, 'users/bora'), seededUser('player', 'Bora'))
+      await setDoc(doc(db, 'users/dana'), seededUser('dm', 'Dana'))
+      await setDoc(
+        doc(db, 'ledger/e-old'),
+        ledgerEntry({ delta: 5, balanceAfter: 5, at: Timestamp.fromMillis(1000) }),
+      )
+    })
+  })
+
+  /** A ledger entry as the application writes it: Dana adds 2 LP to Ayla now. */
+  function ledgerEntry(overrides: Record<string, unknown> = {}) {
+    return {
+      currency: 'lp',
+      account: 'ayla',
+      delta: 2,
+      balanceAfter: 7,
+      source: 'manual',
+      reason: "Boss'u yendi",
+      by: 'dana',
+      at: serverTimestamp(),
+      ...overrides,
+    }
+  }
+
+  type Change = {
+    /** The new balance and its pointer, or `null` to leave the balance document alone. */
+    balance?: Record<string, unknown> | null
+    /** The entry's fields, or `null` to write no entry. */
+    entry?: Record<string, unknown> | null
+    entryId?: string
+  }
+
+  /** One batch with a player's new LP and its entry, as the application writes it. Defaults: Ayla 5 → 7. */
+  function changeLp(writer: string, uid = 'ayla', change: Change = {}) {
+    const db = asUser(writer)
+    const entryId = change.entryId ?? 'e-new'
+    const batch = writeBatch(db)
+    if (change.entry !== null) {
+      batch.set(doc(db, `ledger/${entryId}`), ledgerEntry({ account: uid, ...change.entry }))
+    }
+    if (change.balance !== null) {
+      batch.update(doc(db, `users/${uid}`), { lp: 7, lpEntryId: entryId, ...change.balance })
+    }
+    return batch.commit()
+  }
+
+  /** One batch with the party's new GP and its entry. Defaults: an empty purse → 7,500 GP. */
+  function changeGp(writer: string, change: Change = {}) {
+    const db = asUser(writer)
+    const entryId = change.entryId ?? 'g-new'
+    const batch = writeBatch(db)
+    if (change.entry !== null) {
+      batch.set(
+        doc(db, `ledger/${entryId}`),
+        ledgerEntry({
+          currency: 'gp',
+          account: 'party',
+          delta: 7500,
+          balanceAfter: 7500,
+          ...change.entry,
+        }),
+      )
+    }
+    if (change.balance !== null) {
+      batch.set(doc(db, 'party/main'), { gp: 7500, gpEntryId: entryId, ...change.balance })
+    }
+    return batch.commit()
+  }
+
+  describe('reading', () => {
+    it('lets every signed-in user read the purse, LP and the ledger', async () => {
+      await changeGp('dana')
+      await assertSucceeds(getDoc(doc(asUser('bora'), 'party/main')))
+      await assertSucceeds(getDoc(doc(asUser('bora'), 'ledger/e-old')))
+      await assertSucceeds(getDocs(collection(asUser('bora'), 'ledger')))
+      await assertSucceeds(getDoc(doc(asUser('bora'), 'users/ayla')))
+    })
+
+    it('denies signed-out reads', async () => {
+      const db = firestoreOf(testEnv.unauthenticatedContext())
+      await assertFails(getDoc(doc(db, 'party/main')))
+      await assertFails(getDoc(doc(db, 'ledger/e-old')))
+      await assertFails(getDocs(collection(db, 'ledger')))
+    })
+  })
+
+  describe('allowed', () => {
+    it("lets the DM change a player's LP together with its entry", async () => {
+      await assertSucceeds(changeLp('dana'))
+      expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 7, lpEntryId: 'e-new' })
+      expect(await readAsAdmin('ledger/e-new')).toMatchObject({ delta: 2, balanceAfter: 7 })
+    })
+
+    it('counts a profile without LP as 0 LP', async () => {
+      await assertSucceeds(
+        changeLp('dana', 'bora', { balance: { lp: 3 }, entry: { delta: 3, balanceAfter: 3 } }),
+      )
+    })
+
+    it('lets the DM subtract LP down to exactly 0', async () => {
+      await assertSucceeds(
+        changeLp('dana', 'ayla', { balance: { lp: 0 }, entry: { delta: -5, balanceAfter: 0 } }),
+      )
+    })
+
+    it('lets the DM create the purse with the first GP change, and change it later', async () => {
+      await assertSucceeds(changeGp('dana'))
+      await assertSucceeds(
+        changeGp('dana', {
+          entryId: 'g-next',
+          balance: { gp: 12500 },
+          entry: { delta: 5000, balanceAfter: 12500 },
+        }),
+      )
+      expect(await readAsAdmin('party/main')).toEqual({ gp: 12500, gpEntryId: 'g-next' })
+    })
+  })
+
+  describe('denied', () => {
+    it('denies a player changing their own LP or the purse', async () => {
+      await assertFails(changeLp('ayla', 'ayla', { entry: { by: 'ayla' } }))
+      await assertFails(changeGp('ayla', { entry: { by: 'ayla' } }))
+      expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 5 })
+    })
+
+    it("denies LP on the DM's profile", async () => {
+      await assertFails(
+        changeLp('dana', 'dana', { balance: { lp: 2 }, entry: { balanceAfter: 2 } }),
+      )
+    })
+
+    it('denies a balance without its entry, and an entry without its balance', async () => {
+      await assertFails(changeLp('dana', 'ayla', { entry: null }))
+      await assertFails(changeLp('dana', 'ayla', { balance: null }))
+      await assertFails(changeGp('dana', { entry: null }))
+      await assertFails(changeGp('dana', { balance: null }))
+    })
+
+    it('denies a change that disagrees with its entry', async () => {
+      await assertFails(changeLp('dana', 'ayla', { balance: { lp: 8 } }))
+      await assertFails(changeLp('dana', 'ayla', { entry: { delta: 3, balanceAfter: 7 } }))
+      await assertFails(changeGp('dana', { balance: { gp: 7000 } }))
+      await assertFails(changeLp('dana', 'ayla', { entry: { currency: 'gp' } }))
+      await assertFails(changeLp('dana', 'ayla', { entry: { account: 'bora' } }))
+    })
+
+    it('denies a balance below 0, a fraction, and a change over the limit', async () => {
+      await assertFails(
+        changeLp('dana', 'ayla', { balance: { lp: -1 }, entry: { delta: -6, balanceAfter: -1 } }),
+      )
+      await assertFails(
+        changeLp('dana', 'ayla', {
+          balance: { lp: 7.5 },
+          entry: { delta: 2.5, balanceAfter: 7.5 },
+        }),
+      )
+      await assertFails(
+        changeLp('dana', 'ayla', {
+          balance: { lp: 1_000_006 },
+          entry: { delta: 1_000_001, balanceAfter: 1_000_006 },
+        }),
+      )
+    })
+
+    it('denies an empty, blank or over-long reason', async () => {
+      await assertFails(changeLp('dana', 'ayla', { entry: { reason: '' } }))
+      await assertFails(changeLp('dana', 'ayla', { entry: { reason: '   ' } }))
+      await assertFails(changeLp('dana', 'ayla', { entry: { reason: 'x'.repeat(201) } }))
+      await assertSucceeds(changeLp('dana', 'ayla', { entry: { reason: 'x'.repeat(200) } }))
+    })
+
+    it('denies another writer, another time than now, another source, and extra fields', async () => {
+      await assertFails(changeLp('dana', 'ayla', { entry: { by: 'ayla' } }))
+      await assertFails(changeLp('dana', 'ayla', { entry: { at: Timestamp.fromMillis(5) } }))
+      await assertFails(changeLp('dana', 'ayla', { entry: { source: 'pack' } }))
+      await assertFails(changeLp('dana', 'ayla', { entry: { drawId: 'd1' } }))
+      await assertFails(changeGp('dana', { balance: { note: 'x' } }))
+    })
+
+    it('denies reusing an existing entry, and two entries for one change', async () => {
+      await assertFails(
+        updateDoc(doc(asUser('dana'), 'users/ayla'), { lp: 10, lpEntryId: 'e-old' }),
+      )
+      const db = asUser('dana')
+      const batch = writeBatch(db)
+      batch.set(doc(db, 'ledger/e-new'), ledgerEntry())
+      batch.set(doc(db, 'ledger/e-extra'), ledgerEntry())
+      batch.update(doc(db, 'users/ayla'), { lp: 7, lpEntryId: 'e-new' })
+      await assertFails(batch.commit())
+    })
+
+    it('denies changing or deleting a ledger entry or the purse', async () => {
+      await changeGp('dana')
+      const db = asUser('dana')
+      await assertFails(updateDoc(doc(db, 'ledger/e-old'), { reason: 'Düzeltme' }))
+      await assertFails(deleteDoc(doc(db, 'ledger/e-old')))
+      await assertFails(deleteDoc(doc(db, 'party/main')))
+    })
+
+    it("denies the DM changing a player's name, picture or role, even with an LP change", async () => {
+      await assertFails(changeLp('dana', 'ayla', { balance: { displayName: 'Renamed' } }))
+      await assertFails(changeLp('dana', 'ayla', { balance: { photoURL: 'https://x.test/a.png' } }))
+      await assertFails(changeLp('dana', 'ayla', { balance: { role: 'dm' } }))
+      await assertFails(
+        updateDoc(doc(asUser('dana'), 'users/ayla'), { photoURL: 'https://x.test/a.png' }),
+      )
+      expect(await readAsAdmin('users/ayla')).toMatchObject({ displayName: 'Ayla', role: 'player' })
+    })
+
+    it('denies signed-out writes', async () => {
+      const db = firestoreOf(testEnv.unauthenticatedContext())
+      await assertFails(setDoc(doc(db, 'party/main'), { gp: 1, gpEntryId: 'x' }))
+      await assertFails(setDoc(doc(db, 'ledger/x'), ledgerEntry()))
+    })
+  })
+})

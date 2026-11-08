@@ -1,3 +1,5 @@
+import { firebaseCode } from '@/lib/firestore/errors'
+
 /** A card movement that the current data does not allow, found inside a transaction before anything is written. */
 export type HoldingErrorKind = 'taken' | 'closed' | 'card-missing'
 
@@ -25,13 +27,6 @@ export type HoldingFailure =
   | { kind: 'offline' }
   | { kind: 'permission-denied' }
   | { kind: 'unknown' }
-
-/** The code of a Firebase error, recognized by shape, not with `instanceof` (see docs/conventions.md). */
-export function firebaseCode(error: unknown): string | null {
-  if (!(error instanceof Error)) return null
-  const code = (error as { code?: unknown }).code
-  return typeof code === 'string' ? code : null
-}
 
 /** Maps anything a card movement or a holding update can throw to a failure the interface explains. */
 export function toHoldingFailure(error: unknown): HoldingFailure {

@@ -21,6 +21,10 @@ export const userProfileSchema = z.object({
   role: z.enum(ROLES),
   // null only in the local snapshot right after creation, while the server timestamp is pending.
   createdAt: z.instanceof(Timestamp).nullable(),
+  /** A player's Legend Points. Only the DM changes them, each time with a ledger entry. Missing: 0. */
+  lp: z.number().int().min(0).default(0),
+  /** The ledger entry that set the current `lp`. Missing: null, before the first change. */
+  lpEntryId: z.string().min(1).nullable().default(null),
 })
 
 export const userProfileConverter = createConverter(userProfileSchema, { idField: 'id' })

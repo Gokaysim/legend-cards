@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router'
 
+import { PartyPurse } from '@/features/balances/PartyPurse'
 import { PlayerList } from '@/features/users/PlayerList'
 import { useProfiles } from '@/features/users/usersContext'
 import { cn } from '@/lib/cn'
@@ -12,7 +13,7 @@ export type SidebarContentProps = {
   onNavigate?: () => void
 }
 
-/** App name, version, the screen navigation, the players and the signed-in user. Shared by the sidebar and the mobile menu. */
+/** App name, version, the screen navigation, the party purse, the players and the signed-in user. Shared by the sidebar and the mobile menu. */
 export function SidebarContent({ onNavigate }: SidebarContentProps) {
   const profiles = useProfiles()
   return (
@@ -41,6 +42,7 @@ export function SidebarContent({ onNavigate }: SidebarContentProps) {
           </NavLink>
         ))}
       </nav>
+      <PartyPurse />
       <PlayerList profiles={profiles} onNavigate={onNavigate} />
       <div className="mt-auto">
         <UserBadge />
