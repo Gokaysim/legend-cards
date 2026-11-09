@@ -201,3 +201,35 @@ describe('FaceDownCard backs with pictures', () => {
     expect(back).not.toHaveTextContent('Çevir')
   })
 })
+
+describe('FaceDownCard magnifier', () => {
+  it('has no magnifier while face down, and one once turned', async () => {
+    const user = userEvent.setup()
+    render(<FaceDownCard card={eyes} position={1} back={NEUTRAL_BACK} />)
+
+    expect(screen.queryByRole('button', { name: /büyüt/ })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Kart 1: çevir' }))
+
+    expect(screen.getByRole('button', { name: "Aboleth's Eyes: büyüt" })).toBeInTheDocument()
+  })
+
+  it('shows the magnifier when a controlled card turns', () => {
+    const { rerender } = render(
+      <FaceDownCard
+        card={eyes}
+        position={1}
+        back={NEUTRAL_BACK}
+        isRevealed={false}
+        onReveal={vi.fn()}
+      />,
+    )
+    expect(screen.queryByRole('button', { name: /büyüt/ })).not.toBeInTheDocument()
+
+    rerender(
+      <FaceDownCard card={eyes} position={1} back={NEUTRAL_BACK} isRevealed onReveal={vi.fn()} />,
+    )
+
+    expect(screen.getByRole('button', { name: "Aboleth's Eyes: büyüt" })).toBeInTheDocument()
+  })
+})

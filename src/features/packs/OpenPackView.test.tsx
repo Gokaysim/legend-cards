@@ -397,3 +397,39 @@ describe('the opening animation', () => {
     expect(screen.queryByTestId('pack-burst')).not.toBeInTheDocument()
   })
 })
+
+describe('zooming a card of the pack', () => {
+  it('zooms a turned card, and closing the zoom view leaves the pack as it was', async () => {
+    const { user } = watch({ viewer: asAyla, pack: aylasPack({ revealed: ALL_TURNED }) })
+    const pack = screen.getByRole('dialog')
+    await user.click(within(pack).getByRole('button', { name: 'B: seç' }))
+
+    await user.click(within(pack).getByRole('button', { name: 'C: büyüt' }))
+
+    const zoom = screen.getByRole<HTMLDialogElement>('dialog', { name: 'C' })
+    expect(zoom).toHaveTextContent('Kesqerian Nights · Cost 1 · Common')
+    // As Escape does: the browser closes the zoom view.
+    act(() => zoom.close())
+
+    expect(screen.getAllByRole('dialog')).toEqual([pack])
+    expect(pack).toHaveAttribute('open')
+    expect(within(pack).getAllByRole('article')).toHaveLength(5)
+    expect(within(pack).getByRole('button', { name: 'B: seç' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+  })
+
+  it("lets a watcher zoom a turned card of another player's pack, and only that one, without a write", async () => {
+    const { user, actions } = watch({
+      pack: testPack('ayla', { offered: CARDS.map((card) => card.id), revealed: [0] }),
+    })
+
+    expect(packDialog().getAllByRole('button', { name: /büyüt/ })).toHaveLength(1)
+    await user.click(packDialog().getByRole('button', { name: 'A: büyüt' }))
+
+    expect(screen.getByRole('dialog', { name: 'A' })).toBeInTheDocument()
+    expect(actions.turnPackCard).not.toHaveBeenCalled()
+    expect(actions.choosePackCard).not.toHaveBeenCalled()
+  })
+})

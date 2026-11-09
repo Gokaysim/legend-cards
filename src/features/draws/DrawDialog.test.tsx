@@ -372,3 +372,22 @@ describe('while drawing and when a draw fails', () => {
     expect(control('🎲 Kart Çek (1 LP)')).toBeDisabled()
   })
 })
+
+describe('zooming a drawn card', () => {
+  it('zooms a turned card, and closing the zoom view leaves the draw open', async () => {
+    const { user, onClose } = setup()
+    await user.click(control('🎲 Kart Çek (1 LP)'))
+    await user.click(control('Kart 1: çevir'))
+    const draw = screen.getByRole('dialog', { name: '🎲 Kart Çek · Ayla' })
+
+    await user.click(within(draw).getByRole('button', { name: "Aboleth's Eyes: büyüt" }))
+
+    const zoom = screen.getByRole<HTMLDialogElement>('dialog', { name: "Aboleth's Eyes" })
+    expect(zoom).toHaveTextContent('Kesqerian Nights · Cost 1 · Common')
+    act(() => zoom.close())
+
+    expect(screen.getAllByRole('dialog')).toEqual([draw])
+    expect(onClose).not.toHaveBeenCalled()
+    expect(within(draw).getByRole('article', { name: "Aboleth's Eyes" })).toBeInTheDocument()
+  })
+})

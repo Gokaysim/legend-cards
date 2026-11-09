@@ -3,8 +3,10 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
 import type { Subscription } from '@/lib/firestore/subscription'
+import { testArt } from '@/test/artFixtures'
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 import { ready } from '@/test/fixtures'
+import { TestArtProvider } from '@/test/TestArtProvider'
 
 import { CardBrowser } from './CardBrowser'
 import type { Card } from './schema'
@@ -257,6 +259,21 @@ describe('CardBrowser for the Legend deck', () => {
     expect(shownNames()).toEqual(['Greedy Hands', 'Let Go'])
   })
 
+  it('gives every card face a magnifier, and no row of the list view', async () => {
+    const user = userEvent.setup()
+    render(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
+
+    expect(
+      screen
+        .getAllByRole('button', { name: /: büyüt$/ })
+        .map((button) => button.getAttribute('aria-label')),
+    ).toEqual(shownNames().map((name) => `${name}: büyüt`))
+
+    await user.click(screen.getByRole('button', { name: '☷ Liste' }))
+
+    expect(screen.queryByRole('button', { name: /büyüt/ })).not.toBeInTheDocument()
+  })
+
   it('shows a card added while the screen is open', () => {
     const { rerender } = render(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
 
@@ -276,6 +293,23 @@ describe('CardBrowser for the Cursed deck', () => {
     expect(screen.getByText('2 kart')).toBeInTheDocument()
     expect(shownNames()).toEqual(['Heart Attack', 'Visions of Death'])
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+  })
+
+  it('zooms a Cursed card to its picture, named Cursed with its cost', async () => {
+    const user = userEvent.setup()
+    const url = '/art/cards/cursed-visionsofdeath.0123456789.webp'
+    render(
+      <TestArtProvider manifest={testArt({ cards: { 'cursed-visionsofdeath': url } })}>
+        <CardBrowser deck="cursed" cards={cursed} />
+      </TestArtProvider>,
+    )
+    expect(screen.getAllByRole('button', { name: /: büyüt$/ })).toHaveLength(2)
+
+    await user.click(screen.getByRole('button', { name: 'Visions of Death: büyüt' }))
+
+    const zoom = screen.getByRole('dialog', { name: 'Visions of Death' })
+    expect(zoom).toHaveTextContent('Cursed · Cost 1')
+    expect(within(zoom).getByRole('img', { name: 'Visions of Death' })).toHaveAttribute('src', url)
   })
 
   it('searches and shows the Kart, Cost, Metin and Durum columns in the list view', async () => {

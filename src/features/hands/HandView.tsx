@@ -15,7 +15,7 @@ export type HandViewProps = {
   onSelect: (holdingId: string) => void
 }
 
-/** The hand in the order received, as card faces or as a list. Each card opens its details. */
+/** The hand in the order received, as card faces or as a list. Each card opens its details, and each face zooms. */
 export function HandView({ entries, onSelect }: HandViewProps) {
   const [view, setView] = useState<View>('cards')
 
@@ -51,20 +51,16 @@ export function HandView({ entries, onSelect }: HandViewProps) {
           className="grid grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] gap-3"
         >
           {entries.map(({ holding, card, cost, isExtraCopy }) => (
-            <li key={holding.id} className="relative">
+            <li key={holding.id}>
+              {/* The face opens the details; its magnifier opens the zoom view instead. */}
               <CardFace
                 card={card}
                 handCost={cost}
                 isActive={holding.active}
                 hasNote={holding.note !== ''}
                 isExtraCopy={isExtraCopy}
-              />
-              {/* The whole face opens the details; the face itself stays readable as an article. */}
-              <button
-                type="button"
-                onClick={() => onSelect(holding.id)}
-                aria-label={`${card.name}: ayrıntılar`}
-                className="absolute inset-0 rounded-xl hover:bg-ink/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold"
+                onOpen={() => onSelect(holding.id)}
+                openLabel={`${card.name}: ayrıntılar`}
               />
             </li>
           ))}

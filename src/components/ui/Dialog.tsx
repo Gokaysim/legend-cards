@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useId, useRef } from 'react'
+import { type MouseEvent, type ReactNode, useEffect, useId, useRef } from 'react'
 
 import { cn } from '@/lib/cn'
 
@@ -6,19 +6,41 @@ import { Button } from './Button'
 
 export type DialogProps = {
   title: string
-  /** Called when the user closes the dialog: the "Kapat" button or Escape. The caller unmounts it. */
+  /**
+   * Called when the user closes the dialog: the "Kapat" button, Escape, or with `closeOnBackdrop`, a click outside it.
+   * The caller unmounts it.
+   */
   onClose: () => void
   children: ReactNode
   className?: string
   /** The close button's text. Defaults to "✕ Kapat". */
   closeLabel?: string
+  /** `true` also closes it with a click or tap outside it, on the backdrop. */
+  closeOnBackdrop?: boolean
+}
+
+/**
+ * A pointer on the dialog's backdrop: the backdrop belongs to the `<dialog>` itself, outside its box. Its content
+ * fills the box, so a target that is the `<dialog>` inside its box can only be its own scrollbar.
+ */
+function isOnBackdrop(event: MouseEvent<HTMLDialogElement>): boolean {
+  if (event.target !== event.currentTarget) return false
+  const box = event.currentTarget.getBoundingClientRect()
+  return (
+    event.clientX < box.left ||
+    event.clientX > box.right ||
+    event.clientY < box.top ||
+    event.clientY > box.bottom
+  )
 }
 
 /**
  * A modal dialog on the native `<dialog>`, the same on every width. It opens as a modal when it mounts: render it
  * only while it should be open. The browser keeps the focus inside it, closes it with Escape, and puts the rest of
  * the page behind it. Removing it from the page closes it. Mark the field that should get the focus first with
- * `data-autofocus`; otherwise the close button gets it.
+ * `data-autofocus`; otherwise the close button gets it. A dialog may open inside another one: closing the inner
+ * one leaves the outer one open. With `closeOnBackdrop`, a press that starts and ends outside the dialog closes it, so
+ * dragging out of it, for example while selecting text, does not.
  */
 export function Dialog({
   title,
@@ -26,9 +48,11 @@ export function Dialog({
   children,
   className,
   closeLabel = '✕ Kapat',
+  closeOnBackdrop = false,
 }: DialogProps) {
   const ref = useRef<HTMLDialogElement>(null)
   const titleId = useId()
+  const pressedOnBackdrop = useRef(false)
 
   useEffect(() => {
     const dialog = ref.current
@@ -44,7 +68,25 @@ export function Dialog({
     <dialog
       ref={ref}
       aria-labelledby={titleId}
-      onClose={onClose}
+      // React hands a nested dialog's `close` event up to every dialog around it; only this dialog's own closes it.
+      onClose={(event) => {
+        if (event.target === event.currentTarget) onClose()
+      }}
+      onPointerDown={
+        closeOnBackdrop
+          ? (event) => {
+              pressedOnBackdrop.current = isOnBackdrop(event)
+            }
+          : undefined
+      }
+      onClick={
+        closeOnBackdrop
+          ? (event) => {
+              if (pressedOnBackdrop.current && isOnBackdrop(event)) onClose()
+              pressedOnBackdrop.current = false
+            }
+          : undefined
+      }
       className={cn(
         'm-auto max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100vw-2rem)] overflow-y-auto rounded-2xl border border-line bg-pane p-0 text-ink backdrop:bg-canvas/80 sm:max-w-xl',
         className,

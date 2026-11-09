@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react'
+import { act, fireEvent, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -351,5 +351,45 @@ describe('HoldingDialog actions', () => {
     expect(details().getByRole('alert')).toHaveTextContent(
       'Bağlantı yok: kart hareketleri için internet bağlantısı gerekiyor.',
     )
+  })
+})
+
+describe('HoldingDialog zoom', () => {
+  it("zooms the details' face, and closing the zoom view as Escape does leaves the details open", async () => {
+    const { user } = await openDetails({ holding: { note: 'Boss savaşında kullan' } })
+    const detailsDialog = screen.getByRole('dialog', { name: 'Night Owl' })
+    const magnifier = within(detailsDialog).getByRole('button', { name: 'Night Owl: büyüt' })
+
+    await user.click(magnifier)
+
+    const dialogs = screen.getAllByRole<HTMLDialogElement>('dialog', { name: 'Night Owl' })
+    expect(dialogs).toHaveLength(2)
+    const zoom = dialogs.find((dialog) => dialog !== detailsDialog)!
+    expect(zoom).toHaveTextContent('Kesqerian Nights · Cost 3 · Common')
+    expect(zoom).not.toHaveTextContent('Boss savaşında kullan')
+
+    act(() => zoom.close())
+
+    expect(screen.getAllByRole('dialog')).toEqual([detailsDialog])
+    expect(detailsDialog).toHaveAttribute('open')
+    expect(magnifier).toHaveFocus()
+  })
+
+  it('closes only the zoom view with a click outside it, leaving the details open', async () => {
+    const { user } = await openDetails()
+    const detailsDialog = screen.getByRole('dialog', { name: 'Night Owl' })
+    const magnifier = within(detailsDialog).getByRole('button', { name: 'Night Owl: büyüt' })
+    await user.click(magnifier)
+    const zoom = screen
+      .getAllByRole('dialog', { name: 'Night Owl' })
+      .find((dialog) => dialog !== detailsDialog)!
+    zoom.getBoundingClientRect = () => new DOMRect(100, 50, 600, 800)
+
+    // The zoom view's backdrop covers the page, the details included.
+    fireEvent.pointerDown(zoom, { clientX: 40, clientY: 400 })
+    fireEvent.click(zoom, { clientX: 40, clientY: 400 })
+
+    expect(screen.getAllByRole('dialog')).toEqual([detailsDialog])
+    expect(magnifier).toHaveFocus()
   })
 })

@@ -1,7 +1,7 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { testArt } from '@/test/artFixtures'
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
@@ -143,11 +143,39 @@ describe('CardFace in a hand', () => {
     expect(within(face('Hex')).getByText('● Aktif')).toHaveClass('border-cursed')
   })
 
-  it('marks a card with a note and an extra copy', () => {
+  it('marks an extra copy, and shows a note as the icon in the bottom-left corner instead of a mark', () => {
     render(<CardFace card={testCard('Owl')} handCost="1" hasNote isExtraCopy />)
 
-    expect(face('Owl')).toHaveTextContent('✎ Not var')
-    expect(face('Owl')).toHaveTextContent('Ek kopya')
+    const card = face('Owl')
+    const marks = card.querySelector('[data-marks]')
+    expect(marks).toHaveTextContent('Ek kopya')
+    expect(marks).not.toHaveTextContent('Not var')
+    // Screen readers read "Not var" at all times; the icon itself is only seen.
+    expect(within(card).getByText('Not var')).toHaveClass('sr-only')
+    const icon = card.querySelector('[data-note-icon]')
+    expect(icon).toHaveTextContent('✎')
+    expect(icon).toHaveAttribute('aria-hidden', 'true')
+    expect(icon).toHaveClass('absolute', 'bottom-2', 'left-2', 'pointer-events-none')
+    // Room for the icon below the text.
+    expect(card).toHaveClass('pb-10')
+  })
+
+  it('shows the note icon on hover or keyboard focus, and at all times without hover', () => {
+    render(<CardFace card={testCard('Owl')} handCost="1" hasNote />)
+
+    expect(face('Owl').querySelector('[data-note-icon]')).toHaveClass(
+      'opacity-0',
+      'group-hover:opacity-100',
+      'group-has-[:focus-visible]:opacity-100',
+      'no-hover:opacity-100',
+    )
+    expect(face('Owl')).toHaveClass('group')
+  })
+
+  it('has no marks row when the note is its only mark', () => {
+    render(<CardFace card={testCard('Owl')} handCost="1" hasNote />)
+
+    expect(face('Owl').querySelector('[data-marks]')).toBeNull()
   })
 
   it('shows no marks without them, and none outside a hand', () => {
@@ -162,7 +190,120 @@ describe('CardFace in a hand', () => {
       expect(face(name)).not.toHaveTextContent('Aktif')
       expect(face(name)).not.toHaveTextContent('Not var')
       expect(face(name)).not.toHaveTextContent('Ek kopya')
+      expect(face(name).querySelector('[data-note-icon]')).toBeNull()
+      expect(face(name)).not.toHaveClass('pb-10')
     }
+  })
+})
+
+describe('CardFace magnifier', () => {
+  const magnifier = (name: string) =>
+    within(face(name)).getByRole('button', { name: `${name}: büyüt` })
+
+  it('sits in the top-right corner, shown on hover or keyboard focus, and at all times without hover', () => {
+    render(<CardFace card={testCard('Night Owl')} />)
+
+    expect(magnifier('Night Owl')).toHaveClass(
+      'absolute',
+      'top-2',
+      'right-2',
+      'opacity-0',
+      'group-hover:opacity-100',
+      'group-has-[:focus-visible]:opacity-100',
+      'no-hover:opacity-100',
+    )
+    expect(magnifier('Night Owl')).toHaveTextContent('🔍')
+    expect(face('Night Owl')).toHaveClass('group', 'relative')
+  })
+
+  it('leaves out the magnifier when the face is not zoomable', () => {
+    render(<CardFace card={testCard('Night Owl')} isZoomable={false} />)
+
+    expect(within(face('Night Owl')).queryByRole('button')).not.toBeInTheDocument()
+  })
+
+  it('opens the zoom view outside the face, and gives the focus back to the magnifier when it closes', async () => {
+    const user = userEvent.setup()
+    render(<CardFace card={testCard('Night Owl', { cost: '2', rarity: 'rare' })} />)
+    // The zoom view shows the face without pictures again, so the page's face is taken first.
+    const card = face('Night Owl')
+
+    await user.click(magnifier('Night Owl'))
+
+    const zoom = screen.getByRole('dialog', { name: 'Night Owl' })
+    expect(zoom).toHaveTextContent('Kesqerian Nights · Cost 2 · Rare')
+    expect(card).not.toContainElement(zoom)
+
+    await user.click(within(zoom).getByRole('button', { name: '✕ Kapat' }))
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(magnifier('Night Owl')).toHaveFocus()
+  })
+
+  it('closes the zoom view when the browser closes it, as on Escape, and gives the focus back', async () => {
+    const user = userEvent.setup()
+    render(<CardFace card={testCard('Night Owl')} />)
+
+    await user.click(magnifier('Night Owl'))
+    const zoom = screen.getByRole<HTMLDialogElement>('dialog', { name: 'Night Owl' })
+    act(() => zoom.close())
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(magnifier('Night Owl')).toHaveFocus()
+  })
+
+  it('zooms a hand card with its cost in the hand', async () => {
+    const user = userEvent.setup()
+    render(<CardFace card={testCard('Night Owl', { cost: '3' })} handCost="1" isActive hasNote />)
+
+    await user.click(magnifier('Night Owl'))
+
+    const zoom = screen.getByRole('dialog', { name: 'Night Owl' })
+    expect(zoom).toHaveTextContent('Kesqerian Nights · Cost 1 (temel: 3) · Common')
+    expect(within(zoom).getByText(/^Cost:/).parentElement).toHaveAttribute(
+      'data-cost-change',
+      'lower',
+    )
+    expect(zoom).not.toHaveTextContent('Aktif')
+    expect(zoom).not.toHaveTextContent('Not var')
+  })
+})
+
+describe('CardFace opened as a whole', () => {
+  it('opens with onOpen from the face, first in the Tab order, below the magnifier', async () => {
+    const user = userEvent.setup()
+    const onOpen = vi.fn()
+    render(
+      <CardFace
+        card={testCard('Night Owl')}
+        handCost="1"
+        onOpen={onOpen}
+        openLabel="Night Owl: ayrıntılar"
+      />,
+    )
+
+    const open = within(face('Night Owl')).getByRole('button', { name: 'Night Owl: ayrıntılar' })
+    const zoomButton = within(face('Night Owl')).getByRole('button', { name: 'Night Owl: büyüt' })
+    expect(open).toHaveClass('absolute', 'z-1', 'hover:bg-ink/5')
+    expect(zoomButton).toHaveClass('z-20')
+
+    await user.tab()
+    expect(open).toHaveFocus()
+    await user.tab()
+    expect(zoomButton).toHaveFocus()
+
+    await user.click(open)
+    expect(onOpen).toHaveBeenCalledOnce()
+
+    await user.click(zoomButton)
+    expect(onOpen).toHaveBeenCalledOnce()
+    expect(screen.getByRole('dialog', { name: 'Night Owl' })).toBeInTheDocument()
+  })
+
+  it('has no whole-face control without onOpen', () => {
+    render(<CardFace card={testCard('Night Owl')} />)
+
+    expect(within(face('Night Owl')).getAllByRole('button')).toHaveLength(1)
   })
 })
 
@@ -246,16 +387,40 @@ describe('CardFace with a picture', () => {
     expect(within(card).getByRole('img', { name: 'Hex' })).toBeInTheDocument()
     expect(card).toHaveAttribute('data-frame', 'cursed')
     expect(within(card).queryByText('Set')).not.toBeInTheDocument()
-    expect(within(card).queryByRole('button')).not.toBeInTheDocument()
+    expect(
+      within(card).queryByRole('button', { name: 'Set, rarity ve mechanic pack' }),
+    ).not.toBeInTheDocument()
   })
 
-  it("keeps a marked hand card's marks on its picture", () => {
+  it("keeps a marked hand card's marks, and puts its note icon and magnifier in the picture's corners", () => {
     renderWithArt(<CardFace card={ABOLETH} handCost="3" isActive hasNote />)
 
     const card = face("Aboleth's Eyes")
-    expect(within(card).getByRole('img', { name: "Aboleth's Eyes" })).toBeInTheDocument()
+    const picture = within(card).getByRole('img', { name: "Aboleth's Eyes" })
     expect(within(card).getByText('● Aktif')).toHaveClass('border-common')
-    expect(card).toHaveTextContent('✎ Not var')
+    expect(card.querySelector('[data-marks]')).not.toHaveTextContent('Not var')
+    expect(within(card).getByText('Not var')).toHaveClass('sr-only')
+    const icon = card.querySelector('[data-note-icon]')
+    expect(picture.parentElement).toContainElement(icon as HTMLElement)
+    expect(icon).toHaveClass('bottom-[2%]', 'left-[3%]')
+    const magnifier = within(card).getByRole('button', { name: "Aboleth's Eyes: büyüt" })
+    expect(picture.parentElement).toContainElement(magnifier)
+    expect(magnifier).toHaveClass('top-[2%]', 'right-[3%]')
+    // The picture face needs no room below its picture for the icon.
+    expect(card).not.toHaveClass('pb-10')
+  })
+
+  it("zooms a picture face to the card's picture", async () => {
+    const user = userEvent.setup()
+    renderWithArt(<CardFace card={ABOLETH} />)
+
+    await user.click(within(face("Aboleth's Eyes")).getByRole('button', { name: /büyüt/ }))
+
+    const zoom = screen.getByRole('dialog', { name: "Aboleth's Eyes" })
+    expect(within(zoom).getByRole('img', { name: "Aboleth's Eyes" })).toHaveAttribute(
+      'src',
+      ABOLETH_URL,
+    )
   })
 
   it('shows a cheaper hand cost as a badge on the picture, marked lower', () => {

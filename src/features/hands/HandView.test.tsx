@@ -69,8 +69,44 @@ describe('hand contents', () => {
     expect(owlFace).toHaveTextContent('bu elde daha düşük')
     expect(owlFace).not.toHaveTextContent('Ek kopya')
     const greedyFace = screen.getByRole('article', { name: 'Greedy Hands' })
-    expect(greedyFace).toHaveTextContent('Not var')
+    // The note is the icon in the face's corner, read by screen readers as "Not var", not a mark.
+    expect(within(greedyFace).getByText('Not var')).toHaveClass('sr-only')
+    expect(greedyFace.querySelector('[data-note-icon]')).toHaveTextContent('✎')
     expect(greedyFace).toHaveTextContent('Ek kopya')
+    expect(owlFace.querySelector('[data-note-icon]')).toBeNull()
+  })
+
+  it("opens a card's details from its face, and only the zoom view from its magnifier", async () => {
+    const user = userEvent.setup()
+    renderHand([testHolding(owl, 'ayla', 1000)])
+
+    await user.click(screen.getByRole('button', { name: 'Night Owl: büyüt' }))
+
+    expect(screen.getAllByRole('dialog')).toHaveLength(1)
+    const zoom = screen.getByRole('dialog', { name: 'Night Owl' })
+    expect(zoom).toHaveTextContent('Kesqerian Nights · Cost 3 · Common')
+    expect(zoom).not.toHaveTextContent('Kart notu')
+
+    await user.click(within(zoom).getByRole('button', { name: '✕ Kapat' }))
+    await user.click(screen.getByRole('button', { name: 'Night Owl: ayrıntılar' }))
+
+    expect(screen.getByRole('dialog', { name: 'Night Owl' })).toHaveTextContent('Kart notu')
+  })
+
+  it('closes the zoom view when the card leaves the hand on another device', async () => {
+    const user = userEvent.setup()
+    const { setHoldings } = renderHand([
+      testHolding(owl, 'ayla', 1000),
+      testHolding(letGo, 'ayla', 2000),
+    ])
+    await user.click(screen.getByRole('button', { name: 'Night Owl: büyüt' }))
+    expect(screen.getByRole('dialog', { name: 'Night Owl' })).toBeInTheDocument()
+
+    // The DM discards Night Owl: its holding is no longer open.
+    setHoldings({ openHoldings: ready([testHolding(letGo, 'ayla', 2000)]) })
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(handFaces()).toEqual(['Let Go'])
   })
 
   it('lists the hand with the #, Kart, Set, Cost, Rarity, Mechanic Pack, Metin and Durum columns', async () => {

@@ -34,7 +34,8 @@ src/
     users/              profiles and roles: schema, api, UsersProvider, useIsDm, DmOnly, PlayerList
     cards/              card definitions: schema, api, CardsProvider, useCards, useDeckCards, useCardsById,
                         the official sets, search and sort helpers, the pool and its distribution (pool),
-                        and the card browser (CardBrowser, CardFace, CardTable)
+                        the card browser (CardBrowser, CardFace, CardTable), the cost badge (CostBadge), and the
+                        zoom view (CardZoomDialog, opened from a face's magnifier)
     hands/              card holdings: schema, api (the card movements), errors, HoldingsProvider,
                         useOpenHoldings, and the "Oyuncu elleri" screen (HandsPage, the hand, its dialogs)
     balances/           LP and the party's GP: schema, api (changeBalance), errors, BalancesProvider,
@@ -63,7 +64,10 @@ src/
     shops/              the Shops hub (ShopsPage), and the Elixir Shop placeholder
     custom-draft/ settings/
                         each with its <Name>Page.tsx (placeholders for now)
-  components/ui/        shared primitives: Avatar, Button, PageHeader, Placeholder, Spinner, FullScreenSpinner
+  components/ui/        shared primitives: Avatar, Button, Dialog (a native modal dialog; one may open inside
+                        another, and closing the inner one leaves the outer one open; `closeOnBackdrop` also closes
+                        it with a click outside, as the zoom view does), PageHeader, Placeholder, Spinner,
+                        FullScreenSpinner
   lib/
     firebase/           settings check (config.ts) and the Firebase app, Auth and Firestore instances
     firestore/          real-time subscription hooks, converters, errors (including firebaseCode)
@@ -211,6 +215,7 @@ The card, cardback, pack, True Word and Cardmaker pictures are static files on H
 - **Every picture has a CSS fallback.** A component asks for its picture through `usePicture(url)`, and without one (no build, a missing picture, or an image that fails to load) it keeps the look it has without pictures. Never make a feature depend on a picture.
 - **Pictures that repeat the text are decorative.** A card or word picture has the name as its `alt`, and the text it shows stays in the DOM as `sr-only`. A pack picture beside its name and the Cardmaker have `alt=""`.
 - **A face-down card never gives its card away.** Its back comes from the spread (`SpreadBack`: `spreadBackOf(packType, setCode)` for a pack, `NEUTRAL_BACK` or `CURSED_BACK` for a draw), never from the card under it: see [domain.md](domain.md#pictures).
+- **Every card face zooms.** `CardFace` has a magnifier in its top-right corner that opens `CardZoomDialog` for its card and hand cost; pass `isZoomable={false}` only for the face inside the zoom view. A face that opens something when selected, such as a hand card's details, takes `onOpen` and `openLabel` instead of a button laid over it from outside: the face's corner icons show on its own hover, which a button outside the face would hide.
 - **The shocked pair** comes from `useBlessedShock()`. Render its `overlay` inside the component's dialog: a modal dialog covers anything outside it.
 
 ## Adding a new screen
