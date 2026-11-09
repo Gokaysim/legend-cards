@@ -18,6 +18,7 @@ export function LibraryPage() {
     <section className="flex flex-col gap-6">
       <PageHeader
         title={screenById('library').label}
+        mascot={screenById('library').mascot}
         actions={<Button onClick={() => setIsDistributionOpen(true)}>▥ Havuz Dağılımı</Button>}
       />
       <CardBrowser deck="legend" cards={cards} status={status} />

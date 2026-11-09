@@ -2,11 +2,12 @@ import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
+import { testArt } from '@/test/artFixtures'
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 import { ready, testProfile, testUser } from '@/test/fixtures'
 import { renderApp } from '@/test/renderApp'
 
-import { SCREENS } from './screens'
+import { SCREENS, SHOP_SCREENS } from './screens'
 
 const EXPECTED_LABELS = [
   'Oyuncu elleri',
@@ -151,5 +152,75 @@ describe('routes and navigation', () => {
     await user.click(screen.getByRole('link', { name: 'Oyuncu elleri ekranına dön' }))
 
     expect(router.state.location.pathname).toBe(`/hands/${testUser.uid}`)
+  })
+})
+
+describe("each screen's Cardmaker", () => {
+  /** Every Cardmaker the archives have; `cardmaker_keep` (Shops) and `cardmaker_custom` are not among them. */
+  const ART = testArt({
+    mascots: Object.fromEntries(
+      [
+        'cardmaker_shop',
+        'cardmaker_lib',
+        'cardmaker_cursed',
+        'cardmaker_true',
+        'cardmaker_think',
+        'cardmaker_zaddir',
+        'cardmaker_wave',
+        'cardmaker_peek',
+      ].map((stem) => [stem, `/art/mascots/${stem}.0123456789.webp`]),
+    ),
+  })
+  /** The decorative Cardmaker picture in the screen's title row, if any. */
+  const headerMascot = () =>
+    screen.getByRole('heading', { level: 1 }).closest('header')?.querySelector('img[data-mascot]')
+
+  it.each([
+    ['/shops/packs', 'cardmaker_shop'],
+    ['/library', 'cardmaker_lib'],
+    ['/cursed-deck', 'cardmaker_cursed'],
+    ['/true-words', 'cardmaker_true'],
+    ['/log', 'cardmaker_think'],
+    ['/shops/elixirs', 'cardmaker_zaddir'],
+    ['/rules', 'cardmaker_wave'],
+    ['/settings', 'cardmaker_peek'],
+  ])('shows %s with its Cardmaker, as decoration', (path, stem) => {
+    renderApp({ path, cards: { cards: CARDS }, art: ART })
+
+    const mascot = headerMascot()
+    expect(mascot).toHaveAttribute('src', `/art/mascots/${stem}.0123456789.webp`)
+    expect(mascot).toHaveAttribute('alt', '')
+  })
+
+  it('names the Cardmaker of every screen in the screen lists', () => {
+    expect(Object.fromEntries(SCREENS.map((s) => [s.id, s.mascot]))).toEqual({
+      hands: null,
+      shops: 'cardmaker_keep',
+      'true-words': 'cardmaker_true',
+      'custom-draft': 'cardmaker_custom',
+      library: 'cardmaker_lib',
+      'cursed-deck': 'cardmaker_cursed',
+      'activity-log': 'cardmaker_think',
+      rules: 'cardmaker_wave',
+      settings: 'cardmaker_peek',
+    })
+    expect(SHOP_SCREENS.map((s) => s.mascot)).toEqual(['cardmaker_shop', 'cardmaker_zaddir'])
+  })
+
+  it.each([
+    ['the Shops screen, whose Cardmaker has no picture', '/shops', 'Shops'],
+    ['the Custom Card Draft, whose Cardmaker has no picture', '/custom-draft', 'Custom Card Draft'],
+    ['a hand, which has no Cardmaker', `/hands/${testUser.uid}`, 'Gökay — Kart Eli'],
+  ])('shows %s without a picture', (_case, path, title) => {
+    renderApp({ path, art: ART })
+
+    expect(screen.getByRole('heading', { level: 1, name: title })).toBeInTheDocument()
+    expect(headerMascot()).toBeNull()
+  })
+
+  it('shows no Cardmaker anywhere without pictures', () => {
+    renderApp({ path: '/library', cards: { cards: CARDS } })
+
+    expect(document.querySelector('img[data-mascot]')).toBeNull()
   })
 })

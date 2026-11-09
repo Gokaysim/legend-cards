@@ -21,3 +21,6 @@ coverage/
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# Pictures built by `npm run build-art` from the owner's archives
+public/art/

@@ -1,8 +1,10 @@
+import { CURSED_BACK, NEUTRAL_BACK, type SpreadBack } from '@/features/art/spreadBack'
 import { formatAmount } from '@/features/balances/format'
 import { cursedPool, isDrawable } from '@/features/cards/pool'
 import type { Card } from '@/features/cards/schema'
 import { officialSet, setDisplayName, setOrder } from '@/features/cards/sets'
 import { compareLabels } from '@/features/cards/sort'
+import { normalize } from '@/features/cards/text'
 import { type PackType, SET_PACK_TYPES } from '@/features/draws/schema'
 
 // The Pack Shop's packs, their prices, and when each can be opened (docs/domain.md, Packs). Pure helpers on the
@@ -79,6 +81,17 @@ export const GOLDEN_PACKS: readonly PackDef[] = [
   { key: 'cursedGolden', type: 'cursedGolden', setCode: null, mechanicPack: null },
 ]
 
+/**
+ * The Cardmaker of a set's group in the shop (design D9): `cardmaker_` and the set code in lowercase without spaces,
+ * as the legacy app names them: `cardmaker_kesqer`, `cardmaker_theendisnigh`, `cardmaker_pandemonium`.
+ */
+export function groupMascotStem(setCode: string): string {
+  return `cardmaker_${normalize(officialSet(setCode)?.code ?? setCode)}`
+}
+
+/** The Golden Packs group's Cardmaker, shown larger. */
+export const GOLDEN_GROUP_MASCOT = 'cardmaker_gold'
+
 /** One set's packs, shown as a group under Set Packs. */
 export type SetGroup = { setCode: string; title: string; packs: PackDef[] }
 
@@ -130,6 +143,27 @@ export function packCatalog(cards: readonly Card[]): PackCatalog {
     mechanicPack,
   }))
   return { setGroups, mechanicPacks, goldenPacks: GOLDEN_PACKS }
+}
+
+/**
+ * The back every face-down card of a pack shows (design D7): the set's cardback for a set's Standard, Premium or
+ * Pandemonium Pack, the Cursed cardback for every Cursed type, and the neutral back for a Mechanic or Golden Pack,
+ * whose cards can be of any set. Never the card's own: a back gives nothing away.
+ */
+export function spreadBackOf(packType: PackType, setCode: string | null): SpreadBack {
+  switch (packType) {
+    case 'standard':
+    case 'premium':
+    case 'pandemonium':
+      return setCode === null ? NEUTRAL_BACK : { kind: 'set', setCode }
+    case 'cursed':
+    case 'pandemoniumCursed':
+    case 'cursedGolden':
+      return CURSED_BACK
+    case 'mechanic':
+    case 'golden':
+      return NEUTRAL_BACK
+  }
 }
 
 /** The pack a record or a link names, rebuilt from its type and scope. */

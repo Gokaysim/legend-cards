@@ -2,6 +2,7 @@ import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
+import { testArt } from '@/test/artFixtures'
 import { testCursedCard } from '@/test/cardFixtures'
 import { ready, testProfile, testUser } from '@/test/fixtures'
 import { testPartyPurse } from '@/test/ledgerFixtures'
@@ -30,7 +31,7 @@ function renderShop({
   viewer?: typeof me
   cards?: typeof SHOP_CARDS
   openPack?: PackActions['openPack']
-} & Pick<Parameters<typeof renderApp>[0] & object, 'table' | 'packs' | 'balances'> = {}) {
+} & Pick<Parameters<typeof renderApp>[0] & object, 'table' | 'packs' | 'balances' | 'art'> = {}) {
   return renderApp({
     path,
     users: { currentProfile: ready(viewer), profiles: ready([ayla, bora, viewer]) },
@@ -93,6 +94,96 @@ describe('Pack Shop layout', () => {
     renderShop({ path: '/shops/packs?group=golden' })
     expect(packButton('Golden Pack')).toHaveTextContent('4 LP / 10.000 GP')
     expect(packButton('Cursed Golden Pack')).toHaveTextContent('3 LP / 7.500 GP')
+  })
+})
+
+describe('pack pictures', () => {
+  const ART = testArt({
+    packs: {
+      'mechanic:Blood & Battle': '/art/packs/mechanic-blood-battle.0123456789.webp',
+      golden: '/art/packs/golden.0123456789.webp',
+    },
+    cardbacks: { Kesqer: '/art/backs/kesqer.0123456789.webp' },
+  })
+  const pictureOf = (title: string) => packButton(title).querySelector('img')
+
+  it("shows a Mechanic Pack's picture with its name", () => {
+    renderShop({ art: ART })
+
+    expect(pictureOf('Blood & Battle Mechanic Pack')).toHaveAttribute(
+      'src',
+      '/art/packs/mechanic-blood-battle.0123456789.webp',
+    )
+    expect(pictureOf('Blood & Battle Mechanic Pack')).toHaveAttribute('alt', '')
+    expect(packButton('Blood & Battle Mechanic Pack')).toHaveTextContent(
+      'Blood & Battle Mechanic Pack',
+    )
+  })
+
+  it("shows a set's packs on the set's cardback, with their names and prices", () => {
+    renderShop({ path: '/shops/packs?group=Kesqer', art: ART })
+
+    for (const [title, price] of [
+      ['Kesqerian Nights Standard Pack', '2 LP / 5.000 GP'],
+      ['Kesqerian Nights Premium Pack', '3 LP / 7.500 GP'],
+      ['Kesqerian Nights Cursed Pack', '1 LP / 2.500 GP'],
+    ] as const) {
+      expect(pictureOf(title)).toHaveAttribute('src', '/art/backs/kesqer.0123456789.webp')
+      expect(packButton(title)).toHaveTextContent(title)
+      expect(packButton(title)).toHaveTextContent(price)
+    }
+  })
+
+  it('keeps the glyph for a pack without a picture', () => {
+    renderShop({ path: '/shops/packs?group=Havenholm', art: ART })
+
+    expect(pictureOf('Throne of Havenholm Standard Pack')).toBeNull()
+    expect(packButton('Throne of Havenholm Standard Pack')).toHaveTextContent('🎴')
+  })
+})
+
+describe("the groups' Cardmakers", () => {
+  const ART = testArt({
+    mascots: {
+      cardmaker_shop: '/art/mascots/cardmaker_shop.0123456789.webp',
+      cardmaker_ulagal: '/art/mascots/cardmaker_ulagal.0123456789.webp',
+      cardmaker_pandemonium: '/art/mascots/cardmaker_pandemonium.0123456789.webp',
+      cardmaker_gold: '/art/mascots/cardmaker_gold.0123456789.webp',
+    },
+  })
+  const mascots = () =>
+    [...document.querySelectorAll('img[data-mascot]')].map((img) => img.getAttribute('data-mascot'))
+  const groupRow = (title: string) =>
+    main().getByRole('heading', { level: 2, name: title }).parentElement?.parentElement
+
+  it("shows the shop's Cardmaker by the title of the main view", () => {
+    renderShop({ art: ART })
+    expect(mascots()).toEqual(['cardmaker_shop'])
+  })
+
+  it("shows a set group's own Cardmaker with the group's title, instead of the shop's", () => {
+    renderShop({ path: '/shops/packs?group=Ulagal', art: ART })
+
+    expect(mascots()).toEqual(['cardmaker_ulagal'])
+    expect(groupRow('Ballad of Ulagal Packs')?.querySelector('img')).toHaveAttribute(
+      'src',
+      '/art/mascots/cardmaker_ulagal.0123456789.webp',
+    )
+  })
+
+  it("shows Pandemonium's Cardmaker, and the Golden Packs' larger", () => {
+    const { unmount } = renderShop({ path: '/shops/packs?group=Pandemonium', art: ART })
+    expect(mascots()).toEqual(['cardmaker_pandemonium'])
+    unmount()
+
+    renderShop({ path: '/shops/packs?group=golden', art: ART })
+    expect(mascots()).toEqual(['cardmaker_gold'])
+    expect(groupRow('Golden Packs')?.querySelector('img')).toHaveClass('sm:max-h-40')
+  })
+
+  it("keeps the shop's Cardmaker for a group without its own picture", () => {
+    renderShop({ path: '/shops/packs?group=Kesqer', art: ART })
+    expect(mascots()).toEqual(['cardmaker_shop'])
   })
 })
 

@@ -2,8 +2,10 @@ import { act, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import type { ArtManifest } from '@/features/art/schema'
 import type { PackOpening } from '@/features/draws/schema'
-import { testCard, testCursedCard } from '@/test/cardFixtures'
+import { testArt } from '@/test/artFixtures'
+import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 import { ready, testProfile, testUser } from '@/test/fixtures'
 import { testPack } from '@/test/packFixtures'
 import { renderApp } from '@/test/renderApp'
@@ -20,6 +22,7 @@ const bora = testProfile({ id: 'bora', displayName: 'Bora' })
 const dm = testProfile({ role: 'dm', displayName: 'Dana' })
 const CARDS = ['A', 'B', 'C', 'D', 'E'].map((name) => testCard(name))
 const VISIONS = testCursedCard('Visions of Death')
+const WIND = testBlessedCard('Second Wind')
 const ALL_TURNED = [0, 1, 2, 3, 4]
 
 function fakeActions() {
@@ -36,11 +39,18 @@ function watch({
   viewer = { ...bora, id: testUser.uid },
   pack = testPack('ayla'),
   actions = fakeActions(),
-}: { viewer?: typeof bora; pack?: PackOpening; actions?: ReturnType<typeof fakeActions> } = {}) {
+  art,
+}: {
+  viewer?: typeof bora
+  pack?: PackOpening
+  actions?: ReturnType<typeof fakeActions>
+  art?: ArtManifest
+} = {}) {
   const view = renderApp({
+    art,
     path: '/library',
     users: { currentProfile: ready(viewer), profiles: ready([ayla, viewer]) },
-    cards: { cards: ready([...CARDS, VISIONS]) },
+    cards: { cards: ready([...CARDS, VISIONS, WIND]) },
     table: { openPackId: pack.status === 'open' ? pack.id : null },
     packs: { pack, actions },
   })
@@ -98,6 +108,98 @@ describe('everyone watches the open pack', () => {
     const backs = packDialog().getAllByRole('img', { name: /: kapalı$/ })
     const look = (element: HTMLElement) => element.className + element.innerHTML
     expect(new Set(backs.map(look)).size).toBe(1)
+  })
+})
+
+describe('the backs of a pack', () => {
+  const BACKS = testArt({
+    cardbacks: {
+      Kesqer: '/art/backs/kesqer.0123456789.webp',
+      blessed: '/art/backs/blessed.0123456789.webp',
+      cursed: '/art/backs/cursed.0123456789.webp',
+    },
+  })
+  const backPictures = () =>
+    packDialog()
+      .getAllByRole('img', { name: /: kapalı$/ })
+      .map((back) => back.querySelector('img')?.getAttribute('src'))
+
+  it("shows a set pack's cards on the set's cardback", () => {
+    watch({ pack: testPack('ayla', { offered: CARDS.map((card) => card.id) }), art: BACKS })
+
+    expect(backPictures()).toEqual(Array(5).fill('/art/backs/kesqer.0123456789.webp'))
+  })
+
+  it('shows every card of a Cursed Pack, the Cursed card included, on the Cursed cardback', () => {
+    const offered = [...CARDS.slice(0, 5).map((card) => card.id), VISIONS.id]
+    watch({ pack: testPack('ayla', { packType: 'cursed', offered, cost: 1 }), art: BACKS })
+
+    expect(backPictures()).toEqual(Array(6).fill('/art/backs/cursed.0123456789.webp'))
+  })
+
+  it('keeps the neutral back for a Mechanic Pack', () => {
+    const pack = testPack('ayla', {
+      packType: 'mechanic',
+      setCode: null,
+      mechanicPack: 'Arcanus Divine',
+      offered: CARDS.map((card) => card.id),
+      cost: 4,
+    })
+    watch({ pack, art: BACKS })
+
+    expect(backPictures()).toEqual(Array(5).fill(undefined))
+  })
+})
+
+describe('the shocked Cardmaker', () => {
+  const PAIR = testArt({
+    mascots: {
+      cardmaker_shockl: '/art/mascots/cardmaker_shockl.0123456789.webp',
+      cardmaker_shockr: '/art/mascots/cardmaker_shockr.0123456789.webp',
+    },
+  })
+  /** A Mechanic Pack with the Blessed card Second Wind third. */
+  const offered = [
+    CARDS[0]?.id ?? '',
+    CARDS[1]?.id ?? '',
+    WIND.id,
+    CARDS[2]?.id ?? '',
+    CARDS[3]?.id ?? '',
+  ]
+  const mechanicPack = (overrides: Partial<PackOpening> = {}) =>
+    testPack('ayla', {
+      packType: 'mechanic',
+      setCode: null,
+      mechanicPack: 'Arcanus Divine',
+      offered,
+      cost: 4,
+      ...overrides,
+    })
+  const shocked = () => screen.queryByTestId('blessed-shock')
+
+  it('appears for a watcher when a Blessed card turns live, and leaves after 1.1 s', () => {
+    vi.useFakeTimers()
+    const { setPack } = watch({ pack: mechanicPack(), art: PAIR })
+
+    setPack(mechanicPack({ revealed: [0] }))
+    expect(shocked()).not.toBeInTheDocument()
+
+    setPack(mechanicPack({ revealed: [0, 2] }))
+    expect(packDialog().getByRole('article', { name: 'Second Wind' })).toBeInTheDocument()
+    expect(packDialog().getByTestId('blessed-shock')).toBeInTheDocument()
+    act(() => {
+      vi.advanceTimersByTime(1100)
+    })
+    expect(shocked()).not.toBeInTheDocument()
+  })
+
+  it('does not appear in a view that opens on an already turned Blessed card', () => {
+    const { setPack } = watch({ pack: mechanicPack({ revealed: [2] }), art: PAIR })
+    expect(packDialog().getByRole('article', { name: 'Second Wind' })).toBeInTheDocument()
+    expect(shocked()).not.toBeInTheDocument()
+
+    setPack(mechanicPack({ revealed: [2, 0] }))
+    expect(shocked()).not.toBeInTheDocument()
   })
 })
 

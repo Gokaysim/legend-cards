@@ -19,6 +19,7 @@ The app is being rebuilt as an online, multi-device app with React, TypeScript, 
   `npm install` refuses to run on an older Node version (`engine-strict`).
 
 - **Java 21 or newer** (a JDK) for the local Firebase emulators.
+- **7-Zip** (`brew install sevenzip`), only on the machine that builds the card pictures (see [Building the pictures](#building-the-pictures)).
 
 ## Setup
 
@@ -32,24 +33,25 @@ npm run dev
 
 ## Scripts
 
-| Script                      | What it does                                                                                               |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `npm run dev`               | Start the Firebase emulators and the Vite dev server together                                              |
-| `npm run dev:web`           | Start only the Vite dev server                                                                             |
-| `npm run emulators`         | Start only the Auth and Firestore emulators, keeping their data between runs                               |
-| `npm run build`             | Type-check and build the production files into `dist/`                                                     |
-| `npm run preview`           | Serve the built `dist/` locally                                                                            |
-| `npm run typecheck`         | Run the TypeScript compiler without emitting files                                                         |
-| `npm run lint`              | Run ESLint                                                                                                 |
-| `npm run format`            | Format all files with Prettier                                                                             |
-| `npm run format:check`      | Check formatting without changing files                                                                    |
-| `npm run test`              | Run the unit tests (no Firebase)                                                                           |
-| `npm run test:watch`        | Run the unit tests in watch mode                                                                           |
-| `npm run test:emulator`     | Start the Firebase emulators, run the emulator-backed tests, then stop them                                |
-| `npm run check`             | Type check, lint, format check and unit tests: run this before every commit                                |
-| `npm run set-role`          | Set a user's role (`dm` or `player`); see [Making someone the DM](#making-someone-the-dm)                  |
-| `npm run import-cards`      | Load the card definitions from `data/` into Firestore; see [Loading the cards](#loading-the-cards)         |
-| `npm run import-true-words` | Load the True Words from `data/true-words.csv` into Firestore; see [Loading the cards](#loading-the-cards) |
+| Script                      | What it does                                                                                                              |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `npm run dev`               | Start the Firebase emulators and the Vite dev server together                                                             |
+| `npm run dev:web`           | Start only the Vite dev server                                                                                            |
+| `npm run emulators`         | Start only the Auth and Firestore emulators, keeping their data between runs                                              |
+| `npm run build`             | Type-check and build the production files into `dist/`                                                                    |
+| `npm run preview`           | Serve the built `dist/` locally                                                                                           |
+| `npm run typecheck`         | Run the TypeScript compiler without emitting files                                                                        |
+| `npm run lint`              | Run ESLint                                                                                                                |
+| `npm run format`            | Format all files with Prettier                                                                                            |
+| `npm run format:check`      | Check formatting without changing files                                                                                   |
+| `npm run test`              | Run the unit tests (no Firebase)                                                                                          |
+| `npm run test:watch`        | Run the unit tests in watch mode                                                                                          |
+| `npm run test:emulator`     | Start the Firebase emulators, run the emulator-backed tests, then stop them                                               |
+| `npm run check`             | Type check, lint, format check and unit tests: run this before every commit                                               |
+| `npm run set-role`          | Set a user's role (`dm` or `player`); see [Making someone the DM](#making-someone-the-dm)                                 |
+| `npm run import-cards`      | Load the card definitions from `data/` into Firestore; see [Loading the cards](#loading-the-cards)                        |
+| `npm run import-true-words` | Load the True Words from `data/true-words.csv` into Firestore; see [Loading the cards](#loading-the-cards)                |
+| `npm run build-art`         | Build the card pictures from the owner's archives into `public/art/`; see [Building the pictures](#building-the-pictures) |
 
 ## Local Firebase emulators
 
@@ -106,6 +108,22 @@ npm run import-true-words -- --dry-run --project <project-id>
 npm run import-true-words -- --project <project-id>
 ```
 
+## Building the pictures
+
+The card, cardback, pack, True Word and Cardmaker pictures come from the owner's five `.7z` archives (about 560 MB of PNG). They stay outside the repository. The build script reads them from a folder, converts the pictures to WebP, and writes them with a manifest to `public/art/`, which is not committed:
+
+```sh
+npm run build-art -- --source ~/Downloads --dry-run   # report only: what matches, what is missing
+npm run build-art -- --source ~/Downloads             # write public/art/
+```
+
+- The script never changes the archives. It extracts them into a temporary folder that it always removes, and takes loose `.png` files in the folder as they are.
+- It matches each file by its name, and by the alias table `data/image-aliases.csv` for names that differ from the data (see [data/README.md](data/README.md#pictures)).
+- The report, in Turkish, counts the pictures per kind, names each card, word, cardback, pack and Cardmaker without one, and lists the duplicate and unknown files. A row of the alias table that names nothing stops the build before anything is written.
+- Run it again after the archives, the card data or the alias table change. It replaces the earlier pictures. A changed picture gets a new address, so browsers never show an old one.
+
+Without `public/art/`, the app still works and draws every card, back, pack and True Word with CSS. `npm run dev` serves the pictures as soon as they are built; reload the page.
+
 ## Making someone the DM
 
 Everyone who signs in is a player. Only the role script can make someone the DM (or take the role away); nobody can do it from the app.
@@ -141,8 +159,11 @@ Not needed for development. When the app is ready to go online:
    ```sh
    npx firebase login
    npx firebase use --add          # choose the new project, give it an alias such as "prod"
+   npm run build-art -- --source <folder with the archives>
    npm run build
    npx firebase deploy --only hosting,firestore
    ```
 
 `firebase deploy` publishes the app and the security rules to the real project. Only run it on purpose.
+
+Deploy only from a machine that has built the pictures: `npm run build` copies `public/art/` into `dist/`, and a deploy without it publishes the app without pictures. Hosting serves the pictures to anyone who knows their address, without signing in; the owner accepted this.

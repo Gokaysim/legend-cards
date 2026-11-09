@@ -19,14 +19,17 @@ Turkish interface strings are written directly in the components. There is no tr
 src/
   main.tsx              entry: config check -> App (or ConfigErrorScreen)
   app/                  composition root
-    App.tsx             AuthProvider + UsersProvider + BalancesProvider + CardsProvider + HoldingsProvider
-                        + TableProvider + PacksProvider + ActivityLogProvider + DrawsProvider
-                        + TrueWordsProvider + router
+    App.tsx             ArtProvider + AuthProvider + UsersProvider + BalancesProvider + CardsProvider
+                        + HoldingsProvider + TableProvider + PacksProvider + ActivityLogProvider
+                        + DrawsProvider + TrueWordsProvider + router
     screens.ts          the single lists of screens (main menu and Shops sub-screens)
     routes.tsx          route table: sign-in, RequireAuth, AppShell, one route per screen, not-found
     layout/             AppShell, SidebarContent, MobileNav, UserBadge, OfflineBanner
     NotFoundPage.tsx, ConfigErrorScreen.tsx
   features/             one folder per product area
+    art/                the built pictures: the manifest schema (EMPTY_ART), ArtProvider (loadArtManifest), useArt,
+                        usePicture (the fallback after a load error), CardPicture, the spread backs (SpreadBack,
+                        spreadBackUrl), Mascot, and useBlessedShock (the shocked Cardmaker pair)
     auth/               AuthProvider, useAuth, RequireAuth, SignInPage, authErrors
     users/              profiles and roles: schema, api, UsersProvider, useIsDm, DmOnly, PlayerList
     cards/              card definitions: schema, api, CardsProvider, useCards, useDeckCards, useCardsById,
@@ -69,7 +72,8 @@ src/
     theme.css           design tokens
   test/                 test setup and shared test helpers (test providers for profiles, balances, cards,
                         holdings, the table, packs, the log's records and draws, fixtures)
-scripts/                admin scripts on Node with the Admin SDK (see Scripts)
+public/art/             the pictures that `npm run build-art` builds, with their manifest; not committed
+scripts/                admin scripts on Node with the Admin SDK, and the picture build (see Scripts)
 data/                   the owner's CSV data that the scripts import (see data/README.md)
 tests/                  emulator tests that need no app code: access rules, admin scripts
 ```
@@ -156,7 +160,7 @@ Styling uses Tailwind CSS utility classes, written directly in JSX.
   - `useIsDm()`, which is `true` only for a loaded DM profile; loading or missing profiles count as a player
 - **DM-only controls go inside `<DmOnly>`.** Hiding is only a convenience. `firestore.rules` is the real check, so every DM-only write needs its own rule and rules test.
 - **Roles change only through the admin script** (`npm run set-role`, see [Scripts](#scripts)). Never add a client write that touches `role`.
-- **Tests** render components inside `TestAuthProvider` and `TestUsersProvider` (`src/test/`) with fixed states, instead of talking to Firebase. `renderApp` takes `users`, `balances`, `cards`, `holdings`, `table`, `packs`, `trueWords`, `activityLog` and `draws` options, and returns `setUsers`, `setBalances`, `setCards`, `setHoldings`, `setTable`, `setPacks`, `setTrueWords` and `setActivityLog` to simulate a real-time change. The `draws` option takes fake draws; by default a draw gives its first candidate. The `table` option takes an `openPackId`; by default no pack is open. The `packs` option takes the open `pack` and fake pack steps, which succeed by default. The `trueWords` option takes the `words`, the `knownWords` records, the `openDrafts` and fake True Word steps, which succeed by default (fixtures in `src/test/trueWordFixtures.ts`).
+- **Tests** render components inside `TestAuthProvider` and `TestUsersProvider` (`src/test/`) with fixed states, instead of talking to Firebase. `renderApp` takes `users`, `balances`, `cards`, `holdings`, `table`, `packs`, `trueWords`, `activityLog`, `draws` and `art` options, and returns `setUsers`, `setBalances`, `setCards`, `setHoldings`, `setTable`, `setPacks`, `setTrueWords` and `setActivityLog` to simulate a real-time change. The `draws` option takes fake draws; by default a draw gives its first candidate. The `table` option takes an `openPackId`; by default no pack is open. The `packs` option takes the open `pack` and fake pack steps, which succeed by default. The `trueWords` option takes the `words`, the `knownWords` records, the `openDrafts` and fake True Word steps, which succeed by default (fixtures in `src/test/trueWordFixtures.ts`). The `art` option takes a picture manifest; by default it is `EMPTY_ART`, so every test sees the CSS look unless it gives pictures.
 
 ## Data access
 
@@ -189,6 +193,17 @@ All stored data lives in Firestore and is read in real time.
   - Every api function that moves a card, draws or changes a balance throws `await explainDenial(db, error)` on a denial. It reads `table/main` from the server and turns the denial into a `TableBusyError` when a pack is open. Each feature's failure mapper reports it as `{ kind: 'table-busy' }`.
   - Controls that start such an action are disabled while `useIsTableBusy()` is true, with `TABLE_BUSY_NOTE` as their `title` and `<TableBusyNote />` next to them. Notes, switching a card active and cost overrides are not actions of this kind: they stay enabled.
 - **Errors from Firebase.** Recognize Firebase errors by their `code` (`firebaseCode(error)` from `src/lib/firestore/errors.ts`), not with `instanceof`. Firebase's error classes reset their prototype, so `instanceof FirestoreError` is false even for real Firestore errors.
+
+## Pictures
+
+The card, cardback, pack, True Word and Cardmaker pictures are static files on Hosting, not data: `npm run build-art` writes them with a manifest to `public/art/` (see [The picture build](#the-picture-build)). Vite serves that folder in development and copies it into `dist/`.
+
+- **Read them with `useArt()`** (`src/features/art/`). It gives `cardUrl(id)`, `wordUrl(id)`, `backUrl(key)`, `packUrl(key)` and `mascotUrl(stem)`, each the picture's URL or `null`. Set and pack keys are compared as set names are, so a set code written "The End Is Nigh" in the data finds the picture of "The End is Nigh".
+- **`ArtProvider`** fetches `art/manifest.json` once at start. A failed request, an HTML answer (Vite and Hosting answer a missing file with `index.html`) or an invalid manifest gives `EMPTY_ART`: no pictures.
+- **Every picture has a CSS fallback.** A component asks for its picture through `usePicture(url)`, and without one (no build, a missing picture, or an image that fails to load) it keeps the look it has without pictures. Never make a feature depend on a picture.
+- **Pictures that repeat the text are decorative.** A card or word picture has the name as its `alt`, and the text it shows stays in the DOM as `sr-only`. A pack picture beside its name and the Cardmaker have `alt=""`.
+- **A face-down card never gives its card away.** Its back comes from the spread (`SpreadBack`: `spreadBackOf(packType, setCode)` for a pack, `NEUTRAL_BACK` or `CURSED_BACK` for a draw), never from the card under it: see [domain.md](domain.md#pictures).
+- **The shocked pair** comes from `useBlessedShock()`. Render its `overlay` inside the component's dialog: a modal dialog covers anything outside it.
 
 ## Adding a new screen
 
@@ -239,14 +254,14 @@ Firestore is closed by default (`firestore.rules`). Opening a collection or docu
 
 ## Scripts
 
-Admin scripts in `scripts/` change data with the Admin SDK, outside the security rules: the roles (`set-role`), the card definitions (`import-cards`) and the True Words (`import-true-words`). They work the same way against the emulators and against a real project, so data work is done once.
+Admin scripts in `scripts/` change data with the Admin SDK, outside the security rules: the roles (`set-role`), the card definitions (`import-cards`) and the True Words (`import-true-words`). They work the same way against the emulators and against a real project, so data work is done once. The picture build (`build-art`) lives there too, but never touches Firebase.
 
 - **Layout.**
   - One file per command in `scripts/`, for example `set-role.ts`.
   - Shared code lives in `scripts/lib/`:
     - `target.ts`: target choice, confirmation, Admin SDK start
     - `messages.ts`: the Turkish CLI text
-    - one module per task with the logic, for example `setRole.ts`, `cardRows.ts`, `importCards.ts`, `trueWordRows.ts` and `importTrueWords.ts`
+    - one module per task with the logic, for example `setRole.ts`, `cardRows.ts`, `importCards.ts`, `trueWordRows.ts`, `importTrueWords.ts`, `artFiles.ts` and `artWrite.ts`
     - `csv.ts`: reading a CSV file and comparing header names, shared by both imports
     - `cardCatalog.ts`: the official sets and the mechanic packs the import checks against
   - Logic returns results. It does not print and does not exit, so it can be tested. The command file turns results into messages and exit codes.
@@ -284,6 +299,17 @@ Admin scripts in `scripts/` change data with the Admin SDK, outside the security
 - **Check first.** The columns Name, Cost and Text are required. An empty name or cost, a cost over 10 characters, or a duplicate name stops the run with its row number, and nothing changes. An empty text is a warning.
 - **Idempotent.** A word's ID is `tw-` plus its normalized name (`tw-ancientword`). The import adds, updates, leaves alone or retires words, never deletes them, and writes only `name`, `nameKey`, `cost`, `text` and `retired`. Learned words and drafts are never touched.
 - **Dry run.** `--dry-run` prints the same report without writing.
+
+### The picture build
+
+`npm run build-art -- --source <folder> [--dry-run]` builds the pictures from the owner's archives (see [data/README.md](../data/README.md#pictures)).
+
+- **Read only.** It never changes the source folder, and never reads or writes Firestore, so it takes no `--project` and does not use `target.ts`.
+- **7-Zip.** It runs `7zz` (`brew install sevenzip`), and stops without it. Each archive is extracted with `7zz e` into its own folder inside a temporary folder, which is removed at the end, after a failure or Ctrl+C too.
+- **Check first.** The data files and the alias table are read before anything is extracted. An alias row that names nothing stops the run with its row number.
+- **Pure matching.** `artFiles.ts` holds the rules: `planArt(files, data, aliases)` returns the assignments, duplicates, unknown files and coverage, and `readAliases` checks the table. It never touches files. `artWrite.ts` converts with `sharp` and writes the manifest last, so a run that fails halfway leaves no manifest and the app keeps its CSS look.
+- **The manifest's IDs** are the Firestore document IDs (`cardId`, `trueWordId`), computed from the data files, so the build does not read Firestore.
+- **Tests.** `artFiles.test.ts` covers each rule; `artInventory.test.ts` plans the archives' real file names (`artInventory.fixture.ts`) against the repository data, so a data or alias change that loses a picture fails there. Regenerate the fixture from `7zz l` when the archives change.
 
 ## Commits
 

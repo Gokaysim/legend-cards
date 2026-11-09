@@ -1,7 +1,11 @@
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import type { ReactNode } from 'react'
 import { describe, expect, it } from 'vitest'
 
+import { testArt } from '@/test/artFixtures'
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
+import { TestArtProvider } from '@/test/TestArtProvider'
 
 import { CardFace } from './CardFace'
 
@@ -159,5 +163,147 @@ describe('CardFace in a hand', () => {
       expect(face(name)).not.toHaveTextContent('Not var')
       expect(face(name)).not.toHaveTextContent('Ek kopya')
     }
+  })
+})
+
+const ABOLETH = testCard("Aboleth's Eyes", {
+  cost: '3',
+  setCode: 'Kesqer',
+  rarity: 'common',
+  mechanicPack: 'Arcanus Divine',
+  text: 'For the rest of this combat, gain Immune to any Illusion effect.',
+})
+const ABOLETH_URL = '/art/cards/legend-abolethseyes.0123456789.webp'
+const ART = testArt({
+  cards: {
+    [ABOLETH.id]: ABOLETH_URL,
+    'cursed-hex': '/art/cards/cursed-hex.0123456789.webp',
+  },
+})
+
+/** Renders with the test pictures: Aboleth's Eyes and the Cursed card Hex have one. */
+const renderWithArt = (ui: ReactNode) =>
+  render(<TestArtProvider manifest={ART}>{ui}</TestArtProvider>)
+
+describe('CardFace with a picture', () => {
+  it("shows the picture in the kind's frame, with no text under it", () => {
+    renderWithArt(<CardFace card={ABOLETH} />)
+
+    const card = face("Aboleth's Eyes")
+    const picture = within(card).getByRole('img', { name: "Aboleth's Eyes" })
+    expect(picture).toHaveAttribute('src', ABOLETH_URL)
+    expect(picture).toHaveAttribute('loading', 'lazy')
+    expect(card).toHaveAttribute('data-frame', 'common')
+    expect(card).toHaveClass('border-common')
+    // Only the picture and its overlays take room: the details sit inside the picture's box.
+    const details = within(card).getByText('Set').closest('dl')
+    expect(picture.parentElement).toContainElement(details)
+  })
+
+  it('shows the set, rarity and mechanic pack in a note on the set symbol, on hover or tap', async () => {
+    const user = userEvent.setup()
+    renderWithArt(<CardFace card={ABOLETH} />)
+
+    const card = face("Aboleth's Eyes")
+    const symbol = within(card).getByRole('button', { name: 'Set, rarity ve mechanic pack' })
+    const note = within(card).getByText('Set').closest('dl')?.parentElement
+    expect(symbol).toHaveAccessibleDescription(/Kesqerian Nights.*Common.*Arcanus Divine/)
+    // Transparent until the pointer rests on the symbol, but still read by screen readers.
+    expect(note).toHaveClass('opacity-0', 'peer-hover:opacity-100', 'pointer-events-none')
+    expect(within(card).getByText('Set').nextElementSibling).toHaveTextContent('Kesqerian Nights')
+    expect(within(card).getByText('Rarity').nextElementSibling).toHaveTextContent('Common')
+    expect(within(card).getByText('Mechanic Pack').nextElementSibling).toHaveTextContent(
+      'Arcanus Divine',
+    )
+
+    await user.click(symbol)
+    expect(note).toHaveAttribute('data-shown', 'true')
+    expect(note).toHaveClass('opacity-100')
+
+    await user.tab()
+    expect(note).not.toHaveAttribute('data-shown')
+  })
+
+  it('keeps the cost, name and text for screen readers, without drawing them', () => {
+    renderWithArt(<CardFace card={ABOLETH} />)
+
+    const card = face("Aboleth's Eyes")
+    const name = within(card).getByRole('heading', { name: "Aboleth's Eyes" })
+    expect(name).toHaveClass('sr-only')
+    expect(within(card).getByText(/gain Immune to any Illusion effect/)).toHaveClass('sr-only')
+    expect(card).toHaveTextContent('Cost: 3')
+    expect(
+      within(card)
+        .getByText(/^Cost:/)
+        .closest('.sr-only'),
+    ).not.toBeNull()
+  })
+
+  it('gives a Cursed card no note on its symbol', () => {
+    renderWithArt(<CardFace card={testCursedCard('Hex')} />)
+
+    const card = face('Hex')
+    expect(within(card).getByRole('img', { name: 'Hex' })).toBeInTheDocument()
+    expect(card).toHaveAttribute('data-frame', 'cursed')
+    expect(within(card).queryByText('Set')).not.toBeInTheDocument()
+    expect(within(card).queryByRole('button')).not.toBeInTheDocument()
+  })
+
+  it("keeps a marked hand card's marks on its picture", () => {
+    renderWithArt(<CardFace card={ABOLETH} handCost="3" isActive hasNote />)
+
+    const card = face("Aboleth's Eyes")
+    expect(within(card).getByRole('img', { name: "Aboleth's Eyes" })).toBeInTheDocument()
+    expect(within(card).getByText('● Aktif')).toHaveClass('border-common')
+    expect(card).toHaveTextContent('✎ Not var')
+  })
+
+  it('shows a cheaper hand cost as a badge on the picture, marked lower', () => {
+    renderWithArt(<CardFace card={ABOLETH} handCost="1" />)
+
+    const badge = within(face("Aboleth's Eyes")).getByText(/^Cost:/).parentElement
+    expect(badge).toHaveTextContent('Cost: 1 (bu elde daha düşük; temel cost: 3)')
+    expect(badge).toHaveAttribute('data-cost-change', 'lower')
+    expect(badge).toHaveClass('absolute', 'text-green')
+    expect(badge?.closest('.sr-only')).toBeNull()
+  })
+
+  it('marks a dearer hand cost as higher', () => {
+    renderWithArt(<CardFace card={ABOLETH} handCost="5" />)
+
+    const badge = within(face("Aboleth's Eyes")).getByText(/^Cost:/).parentElement
+    expect(badge).toHaveAttribute('data-cost-change', 'higher')
+    expect(badge).toHaveClass('text-cursed')
+  })
+
+  it('shows no badge when the hand cost is the card cost', () => {
+    renderWithArt(<CardFace card={ABOLETH} handCost="3" />)
+
+    const badge = within(face("Aboleth's Eyes")).getByText(/^Cost:/).parentElement
+    expect(badge).not.toHaveAttribute('data-cost-change')
+    expect(badge?.closest('.sr-only')).not.toBeNull()
+  })
+
+  it('keeps the CSS face for a card without a picture', () => {
+    renderWithArt(<CardFace card={testCard('Scorched Earth', { text: 'Burn it all.' })} />)
+
+    const card = face('Scorched Earth')
+    expect(within(card).queryByRole('img')).not.toBeInTheDocument()
+    expect(within(card).getByRole('heading', { name: 'Scorched Earth' })).not.toHaveClass('sr-only')
+    expect(within(card).getByText('Burn it all.')).not.toHaveClass('sr-only')
+  })
+
+  it('falls back to the CSS face when the picture fails to load', () => {
+    renderWithArt(<CardFace card={ABOLETH} handCost="1" />)
+
+    fireEvent.error(within(face("Aboleth's Eyes")).getByRole('img'))
+
+    const card = face("Aboleth's Eyes")
+    expect(within(card).queryByRole('img')).not.toBeInTheDocument()
+    expect(within(card).getByRole('heading', { name: "Aboleth's Eyes" })).not.toHaveClass('sr-only')
+    expect(within(card).getByText(/^Cost:/).parentElement).toHaveAttribute(
+      'data-cost-change',
+      'lower',
+    )
   })
 })

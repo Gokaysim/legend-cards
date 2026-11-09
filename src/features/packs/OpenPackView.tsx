@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/Button'
 import { Dialog } from '@/components/ui/Dialog'
+import { useBlessedShock } from '@/features/art/useBlessedShock'
 import { useAuth } from '@/features/auth/authContext'
 import { formatAmount } from '@/features/balances/format'
 import { useCardsById } from '@/features/cards/cardsContext'
@@ -15,7 +16,7 @@ import { dative, genitive } from '@/lib/turkish'
 import { useOnlineStatus } from '@/lib/useOnlineStatus'
 import { useReducedMotion } from '@/lib/useReducedMotion'
 
-import { packOpeningTitle } from './catalog'
+import { packOpeningTitle, spreadBackOf } from './catalog'
 import { type PackFailure, packFailureMessage, toPackFailure } from './errors'
 import { OpenPackBanner } from './OpenPackBanner'
 import { useOpenPack, usePackActions } from './packsContext'
@@ -123,10 +124,25 @@ function PackDialog({
   const isOpen = pack.status === 'open'
   const canAct = isOpen && uid !== null && (uid === pack.uid || isDm)
   const isCursedType = isCursedPackType(pack.packType)
+  const back = spreadBackOf(pack.packType, pack.setCode)
   const allTurned = new Set(pack.revealed).size === pack.offered.length
   const cards = cardsById.status === 'ready' ? cardsById.data : null
   const cardOf = (cardId: string): Card | undefined => cards?.get(cardId)
   const selectedCard = selected === null ? undefined : cardOf(selected)
+
+  // The shocked pair for a Blessed card turned while this view is open, here or on another device. A card already
+  // face up when the view opened does not start it.
+  const { shock, overlay } = useBlessedShock()
+  const seenRevealed = useRef(pack.revealed)
+  useEffect(() => {
+    const seen = new Set(seenRevealed.current)
+    seenRevealed.current = pack.revealed
+    const turnedBlessed = pack.revealed.some((position) => {
+      const cardId = pack.offered[position]
+      return !seen.has(position) && cardId !== undefined && cards?.get(cardId)?.kind === 'blessed'
+    })
+    if (turnedBlessed) shock()
+  }, [pack.revealed, pack.offered, cards, shock])
 
   const run = async (work: () => Promise<unknown>) => {
     setFailure(null)
@@ -226,7 +242,7 @@ function PackDialog({
                     <FaceDownCard
                       card={card}
                       position={index + 1}
-                      tone={isCursedType ? 'cursed' : 'random'}
+                      back={back}
                       isRevealed={isTurned}
                       onReveal={() => turn(index)}
                       canTurn={canAct}
@@ -310,6 +326,7 @@ function PackDialog({
           </div>
         </div>
       ) : null}
+      {overlay}
     </Dialog>
   )
 }

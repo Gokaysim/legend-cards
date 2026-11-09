@@ -131,7 +131,7 @@ export function HoldingDialog({ entry, holderName, onClose }: HoldingDialogProps
   return (
     <Dialog title={card.name} onClose={onClose}>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-        <div className="mx-auto w-40 shrink-0 sm:mx-0">
+        <div className="mx-auto w-full max-w-72 shrink-0 sm:mx-0 sm:w-60">
           <CardFace
             card={card}
             handCost={cost}

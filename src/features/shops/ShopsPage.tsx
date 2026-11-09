@@ -7,7 +7,7 @@ import { PageHeader } from '@/components/ui/PageHeader'
 export function ShopsPage() {
   return (
     <section className="flex flex-col gap-6">
-      <PageHeader title={screenById('shops').label} />
+      <PageHeader title={screenById('shops').label} mascot={screenById('shops').mascot} />
       <ul className="grid max-w-4xl grid-cols-1 gap-6 sm:grid-cols-2">
         {SHOP_SCREENS.map((shop) => (
           <li key={shop.id}>

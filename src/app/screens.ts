@@ -1,17 +1,42 @@
 /**
  * The main screens, in navigation order: the single list that both the router and the sidebar read.
- * Labels and icons come from the legacy design (v2.2.8). Paths are English slugs; labels are Turkish.
+ * Labels, icons and each screen's Cardmaker (`mascot`, a picture stem, or `null` for none) come from the legacy
+ * design (v2.2.8). Paths are English slugs; labels are Turkish.
  */
 export const SCREENS = [
-  { id: 'hands', path: '/hands', label: 'Oyuncu elleri', icon: '♠' },
-  { id: 'shops', path: '/shops', label: 'Shops', icon: '🎁' },
-  { id: 'true-words', path: '/true-words', label: 'True Words', icon: '✦' },
-  { id: 'custom-draft', path: '/custom-draft', label: 'Custom Card Draft', icon: '✧' },
-  { id: 'library', path: '/library', label: 'Kart kütüphanesi', icon: '▤' },
-  { id: 'cursed-deck', path: '/cursed-deck', label: 'Cursed Deck', icon: '☠' },
-  { id: 'activity-log', path: '/log', label: 'İşlem Logu', icon: '☷' },
-  { id: 'rules', path: '/rules', label: 'Kurallar', icon: '📖' },
-  { id: 'settings', path: '/settings', label: 'Veri / Yedek', icon: '⚙' },
+  { id: 'hands', path: '/hands', label: 'Oyuncu elleri', icon: '♠', mascot: null },
+  { id: 'shops', path: '/shops', label: 'Shops', icon: '🎁', mascot: 'cardmaker_keep' },
+  {
+    id: 'true-words',
+    path: '/true-words',
+    label: 'True Words',
+    icon: '✦',
+    mascot: 'cardmaker_true',
+  },
+  {
+    id: 'custom-draft',
+    path: '/custom-draft',
+    label: 'Custom Card Draft',
+    icon: '✧',
+    mascot: 'cardmaker_custom',
+  },
+  {
+    id: 'library',
+    path: '/library',
+    label: 'Kart kütüphanesi',
+    icon: '▤',
+    mascot: 'cardmaker_lib',
+  },
+  {
+    id: 'cursed-deck',
+    path: '/cursed-deck',
+    label: 'Cursed Deck',
+    icon: '☠',
+    mascot: 'cardmaker_cursed',
+  },
+  { id: 'activity-log', path: '/log', label: 'İşlem Logu', icon: '☷', mascot: 'cardmaker_think' },
+  { id: 'rules', path: '/rules', label: 'Kurallar', icon: '📖', mascot: 'cardmaker_wave' },
+  { id: 'settings', path: '/settings', label: 'Veri / Yedek', icon: '⚙', mascot: 'cardmaker_peek' },
 ] as const
 
 export type Screen = (typeof SCREENS)[number]
@@ -47,6 +72,7 @@ export const SHOP_SCREENS = [
     path: '/shops/packs',
     label: 'Pack Shop',
     icon: '🎴',
+    mascot: 'cardmaker_shop',
     summary: 'Spesifik bir set veya mekanikten 5 kart gör, birini seç.',
   },
   {
@@ -54,6 +80,7 @@ export const SHOP_SCREENS = [
     path: '/shops/elixirs',
     label: 'Elixir Shop',
     icon: '⚗',
+    mascot: 'cardmaker_zaddir',
     summary: 'Kartların kendilerini değiştirmeyi sağlayan etkiler.',
   },
 ] as const

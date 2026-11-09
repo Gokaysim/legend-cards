@@ -196,7 +196,7 @@ The new app (`add-pack-shop`) keeps these rules and the thresholds, with these d
 - **Payment.** A player opens a pack into their own hand and pays its LP price when it opens. The DM opens a pack into any hand and charges the player's LP or the party's GP, starting at the pack's price; any whole amount is allowed, and 0 opens it for free. Only the DM pays with GP.
 - **One open pack, and the table waits.** While a pack is open, nobody moves a card or a balance, and everyone sees the pack and each card turned over, live.
 - **Choosing and cancelling.** The hand's owner or the DM turns the cards over and chooses. A player cannot leave an open pack; only the DM cancels it, which gives no card and refunds the payment.
-- **No pictures yet.** The burst animation is drawn with CSS, and there is no "shocked" Cardmaker or mascot until card pictures arrive.
+- **Pictures.** Since `add-card-images`, cards, cardbacks, packs, True Words and the Cardmaker show the owner's pictures (see [Pictures](#pictures)), and a revealed Blessed card brings the shocked Cardmaker pair. The burst animation is still drawn with CSS.
 
 ### Pool, hands and drawing
 
@@ -306,6 +306,30 @@ The new app (`add-true-words`) adds to this:
 - **Search.** Search matches all card fields. Terms separated by commas or semicolons must **all** appear.
 - **Undo and the log** cover the current session only. They are not saved and not included in backups. The new app's İşlem Logu is permanent instead (see [Deliberate decisions](#deliberate-decisions-do-not-fix)).
 
+## Pictures
+
+The pictures come from the owner's archives, built into the app by `npm run build-art` (see [data/README.md](../data/README.md#pictures) for the archives and the alias table). Without them, or for a picture that is missing, the app draws the CSS look it had before. They are static files: anyone who knows a picture's address can open it without signing in, which the owner accepted.
+
+**File names.** The legacy names are kept: a card's normalized name (`abolethseyes`), `cursed_<name>` for a Cursed card, `tw<name>` for a True Word, `<set>_cb` with `blessed_cb` and `cursed_cb` for the cardbacks, `pack_<mechanic stem>`, `pack_gold` and `pack_cursedgold` for the pack pictures, `<set>_std|prm|crs` for a set's own pack picture, and the `cardmaker_*` names for the Cardmaker. Names that differ from the data go through the alias table. Three Blessed pictures carry older names: `charmingrogue` is Roguish Charm, `drivendiehard` Second Wind, and `durabledwarf` Forgewizard Constitution.
+
+**Where they show.**
+
+- **Card faces** in the library, the Cursed Deck, the hand, the card details, and the revealed cards of draws and packs show the card's picture inside the kind's frame color. The picture carries the cost, name and text, and nothing is written under it: the set, rarity and mechanic pack show in a small note while the pointer rests on the set symbol in the picture's bottom-right corner, or after a tap on it, as the owner asked. A face without a picture keeps them below its text. A hand cost that differs from the card's own cost is a badge on the picture's cost corner.
+- **Pack Shop tiles** show the pack's picture. A set pack without its own picture shows its set's cardback, as in the legacy app.
+- **True Word tiles** show the word's picture in place of the text, with the name and the "<cost> LP" badge.
+- **The Cardmaker** stands next to each screen's title: Pack Shop `cardmaker_shop`, library `cardmaker_lib`, Cursed Deck `cardmaker_cursed`, True Words `cardmaker_true`, log `cardmaker_think`, Elixir Shop `cardmaker_zaddir`, Kurallar `cardmaker_wave`, Veri / Yedek `cardmaker_peek`. Each set group of the Pack Shop has its set's Cardmaker, Pandemonium `cardmaker_pandemonium`, and the Golden Packs group a larger `cardmaker_gold`. The Shops screen and the Custom Card Draft have none yet: their pictures (`cardmaker_keep`, `cardmaker_custom`) are not in the archives.
+- **The shocked pair** (`cardmaker_shockl`, `cardmaker_shockr`) appears on both sides for about a second when a Blessed card is turned over in a draw or a pack, on every device that sees it turn. A card already face up when the view opens does not start it.
+
+**Backs never give a card away.** Every face-down card of one spread shows the same back, chosen by the spread and never by the card under it:
+
+| Spread                                                            | Back                                      |
+| ----------------------------------------------------------------- | ----------------------------------------- |
+| a Cursed draw; a Cursed, Cursed Golden or Pandemonium Cursed Pack | the Cursed cardback (`cursed_cb`)         |
+| a set's Standard, Premium or Pandemonium Pack                     | that set's cardback                       |
+| a random draw, a Mechanic Pack, a Golden Pack                     | the neutral back, drawn without a picture |
+
+The legacy app showed each card's own set back, so a Blessed card showed the Blessed back (`blessed_cb`) before it was turned. See [Deliberate decisions](#deliberate-decisions-do-not-fix).
+
 ## Table rules (Kurallar page)
 
 The v2.2.8 rules page (`rulesPage`) has the Cardmaker explain the rules that the players follow at the table. They are summarized here in English.
@@ -377,6 +401,7 @@ These look odd but are explicit decisions by the DM and the owner. Do not "fix" 
 - **A True Word draft does not hold the table, but a pack holds the draft.** Two players can know the same word, so a draft keeps nothing from anyone, and others keep playing while it is open. While a pack is open, though, nobody starts, finishes, skips or cancels a draft, and the DM neither teaches nor takes back a word; switching a word active stays possible.
 - **The table waits for an open pack.** Only one pack is open at a time. Until it is chosen from or cancelled, nobody, the DM included, draws, opens a pack, moves a card or changes a balance; notes, switching cards active and cost overrides stay possible. A player cannot leave an open pack: only the DM ends one without a choice, which refunds its payment. There is no timeout. The owner decided this in `add-pack-shop`, so that a card shown in an open pack can never be taken elsewhere.
 - **A random draw gives every drawable card the same chance, Blessed cards included**, as in the legacy app. Blessed cards are always in the pool, so they come up at their share of it (with the owner's data, 19 among 591 cards, about 3% with a full pool, and more as the pool shrinks). The rules page's fixed 2% is not used. The owner decided this in `add-card-draws`.
+- **The neutral back.** A random draw, a Mechanic Pack and a Golden Pack show a neutral back drawn without a picture, the same for every card, because their cards can be of any set, Blessed included. The legacy app showed each card's set back there, which gave a Blessed card away with the Blessed back before it was turned. The owner chose this in `add-card-images`.
 - **The official set names are a fixed, hardcoded list.** They are not derived from the data.
 - **Pandemonium is a rare-only set with its own packs.** It has no Standard, Premium or Cursed Pack. Its Pandemonium Pack and Pandemonium Cursed Pack form their own group under Set Packs. (v2.1.15 listed the Pandemonium Pack under Rare Packs.)
 - **Cursed and Blessed cards are repeatable.**

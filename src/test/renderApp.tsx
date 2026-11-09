@@ -2,10 +2,12 @@ import { render } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 
 import { routes } from '@/app/routes'
+import type { ArtManifest } from '@/features/art/schema'
 import type { AuthState } from '@/features/auth/authContext'
 
 import { testUser } from './fixtures'
 import { type TestActivityLog, TestActivityLogProvider } from './TestActivityLogProvider'
+import { TestArtProvider } from './TestArtProvider'
 import { TestAuthProvider } from './TestAuthProvider'
 import { type TestBalances, TestBalancesProvider } from './TestBalancesProvider'
 import { type TestCards, TestCardsProvider } from './TestCardsProvider'
@@ -38,6 +40,8 @@ export type RenderAppOptions = {
   packs?: TestPacks
   /** The words, known words, open drafts and fake True Word steps. Defaults to none, and steps that succeed. */
   trueWords?: TestTrueWords
+  /** The built pictures. Defaults to `EMPTY_ART`: every card, back, pack and word keeps its look without pictures. */
+  art?: ArtManifest
 }
 
 type Data = {
@@ -50,12 +54,13 @@ type Data = {
   table: TestTable
   packs: TestPacks
   trueWords: TestTrueWords
+  art: ArtManifest | undefined
 }
 
 /**
  * Renders the real route table at `path`, with a fixed auth state (signed in by default), fixed profiles, cards,
- * open holdings, party purse, table lock, open pack, True Words and log records, and fake draws, pack and True Word
- * steps. `setUsers`, `setCards`, `setHoldings`, `setBalances`, `setTable`, `setPacks`, `setTrueWords` and
+ * open holdings, party purse, table lock, open pack, True Words, log records and pictures, and fake draws, pack and
+ * True Word steps. `setUsers`, `setCards`, `setHoldings`, `setBalances`, `setTable`, `setPacks`, `setTrueWords` and
  * `setActivityLog` re-render the same app with other data, as a real-time update would, without remounting.
  */
 export function renderApp({
@@ -71,6 +76,7 @@ export function renderApp({
   table = {},
   packs = {},
   trueWords = {},
+  art,
 }: RenderAppOptions = {}) {
   const router = createMemoryRouter(routes, { initialEntries: [path] })
   let current: Data = {
@@ -83,29 +89,32 @@ export function renderApp({
     table,
     packs,
     trueWords,
+    art,
   }
   const tree = (data: Data) => (
-    <TestAuthProvider state={state} signOut={signOut}>
-      <TestUsersProvider {...data.users}>
-        <TestBalancesProvider {...data.balances}>
-          <TestCardsProvider {...data.cards}>
-            <TestHoldingsProvider {...data.holdings}>
-              <TestTableProvider {...data.table}>
-                <TestPacksProvider {...data.packs}>
-                  <TestActivityLogProvider {...data.activityLog}>
-                    <TestDrawsProvider {...data.draws}>
-                      <TestTrueWordsProvider {...data.trueWords}>
-                        <RouterProvider router={router} />
-                      </TestTrueWordsProvider>
-                    </TestDrawsProvider>
-                  </TestActivityLogProvider>
-                </TestPacksProvider>
-              </TestTableProvider>
-            </TestHoldingsProvider>
-          </TestCardsProvider>
-        </TestBalancesProvider>
-      </TestUsersProvider>
-    </TestAuthProvider>
+    <TestArtProvider manifest={data.art}>
+      <TestAuthProvider state={state} signOut={signOut}>
+        <TestUsersProvider {...data.users}>
+          <TestBalancesProvider {...data.balances}>
+            <TestCardsProvider {...data.cards}>
+              <TestHoldingsProvider {...data.holdings}>
+                <TestTableProvider {...data.table}>
+                  <TestPacksProvider {...data.packs}>
+                    <TestActivityLogProvider {...data.activityLog}>
+                      <TestDrawsProvider {...data.draws}>
+                        <TestTrueWordsProvider {...data.trueWords}>
+                          <RouterProvider router={router} />
+                        </TestTrueWordsProvider>
+                      </TestDrawsProvider>
+                    </TestActivityLogProvider>
+                  </TestPacksProvider>
+                </TestTableProvider>
+              </TestHoldingsProvider>
+            </TestCardsProvider>
+          </TestBalancesProvider>
+        </TestUsersProvider>
+      </TestAuthProvider>
+    </TestArtProvider>
   )
   const view = render(tree(current))
   const update = (next: Partial<Data>) => {

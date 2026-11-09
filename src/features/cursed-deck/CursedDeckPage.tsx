@@ -10,7 +10,10 @@ export function CursedDeckPage() {
   const status = useDeckStatus('cursed')
   return (
     <section className="flex flex-col gap-6">
-      <PageHeader title={screenById('cursed-deck').label} />
+      <PageHeader
+        title={screenById('cursed-deck').label}
+        mascot={screenById('cursed-deck').mascot}
+      />
       <CardBrowser deck="cursed" cards={cards} status={status} />
     </section>
   )

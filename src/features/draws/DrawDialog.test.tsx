@@ -1,11 +1,14 @@
-import { render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import type { ArtManifest } from '@/features/art/schema'
 import type { Card } from '@/features/cards/schema'
 import type { UserProfile } from '@/features/users/schema'
+import { testArt } from '@/test/artFixtures'
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 import { ready, testProfile, testUser } from '@/test/fixtures'
+import { TestArtProvider } from '@/test/TestArtProvider'
 import { TestAuthProvider } from '@/test/TestAuthProvider'
 import { TestCardsProvider } from '@/test/TestCardsProvider'
 import { TestDrawsProvider } from '@/test/TestDrawsProvider'
@@ -46,22 +49,32 @@ type Setup = {
   asDm?: boolean
   cards?: Card[]
   drawCard?: DrawActions['drawCard']
+  art?: ArtManifest
 }
 
-function setup({ mode = 'random', owner = me, asDm = false, cards = CARDS, drawCard }: Setup = {}) {
+function setup({
+  mode = 'random',
+  owner = me,
+  asDm = false,
+  cards = CARDS,
+  drawCard,
+  art,
+}: Setup = {}) {
   const user = userEvent.setup()
   const draw = vi.fn<DrawActions['drawCard']>(drawCard ?? drawsInTurn())
   const onClose = vi.fn()
   const tree = (current: UserProfile) => (
-    <TestAuthProvider state={{ status: 'signedIn', user: testUser }}>
-      <TestUsersProvider currentProfile={ready(asDm ? dm : me)}>
-        <TestCardsProvider cards={ready(cards)}>
-          <TestDrawsProvider actions={{ drawCard: draw }}>
-            <DrawDialog mode={mode} owner={current} onClose={onClose} />
-          </TestDrawsProvider>
-        </TestCardsProvider>
-      </TestUsersProvider>
-    </TestAuthProvider>
+    <TestArtProvider manifest={art}>
+      <TestAuthProvider state={{ status: 'signedIn', user: testUser }}>
+        <TestUsersProvider currentProfile={ready(asDm ? dm : me)}>
+          <TestCardsProvider cards={ready(cards)}>
+            <TestDrawsProvider actions={{ drawCard: draw }}>
+              <DrawDialog mode={mode} owner={current} onClose={onClose} />
+            </TestDrawsProvider>
+          </TestCardsProvider>
+        </TestUsersProvider>
+      </TestAuthProvider>
+    </TestArtProvider>
   )
   const view = render(tree(owner))
   return { user, draw, onClose, setOwner: (next: UserProfile) => view.rerender(tree(next)) }
@@ -201,6 +214,77 @@ describe('the Cursed draw', () => {
     })
     expect(backs()).toHaveLength(2)
     expect(backs()[0]).toHaveClass('border-cursed')
+  })
+})
+
+describe('the backs of drawn cards', () => {
+  /** Every cardback has a picture, so a back that showed the card's own would show. */
+  const BACKS = testArt({
+    cardbacks: {
+      Kesqer: '/art/backs/kesqer.0123456789.webp',
+      blessed: '/art/backs/blessed.0123456789.webp',
+      cursed: '/art/backs/cursed.0123456789.webp',
+    },
+  })
+
+  it("keeps the neutral back for a random draw's Blessed card, as for any other", async () => {
+    const { user } = setup({ cards: [WIND, EYES], art: BACKS })
+    await user.click(control('🎲 Kart Çek (1 LP)'))
+    await user.click(control('🎲 Kart Çek (1 LP)'))
+
+    const [blessedBack, normalBack] = backs()
+    expect(blessedBack?.querySelector('img')).toBeNull()
+    expect(blessedBack).toHaveTextContent('✦')
+    expect(blessedBack?.outerHTML.replace('Kart 1', 'Kart 2')).toBe(normalBack?.outerHTML)
+  })
+
+  it('shows the Cursed cardback for a Cursed draw', async () => {
+    const { user } = setup({ mode: 'cursed', art: BACKS })
+    await user.click(control('☠ Cursed Kart Çek'))
+
+    expect(backs()[0]?.querySelector('img')).toHaveAttribute(
+      'src',
+      '/art/backs/cursed.0123456789.webp',
+    )
+  })
+})
+
+describe('the shocked Cardmaker', () => {
+  const PAIR = testArt({
+    mascots: {
+      cardmaker_shockl: '/art/mascots/cardmaker_shockl.0123456789.webp',
+      cardmaker_shockr: '/art/mascots/cardmaker_shockr.0123456789.webp',
+    },
+  })
+  const shocked = () => screen.queryByTestId('blessed-shock')
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('appears when a drawn Blessed card is turned, and leaves after 1.1 s', async () => {
+    const { user } = setup({ cards: [WIND, EYES], art: PAIR })
+    await user.click(control('🎲 Kart Çek (1 LP)'))
+    vi.useFakeTimers()
+
+    fireEvent.click(control('Kart 1: çevir'))
+
+    expect(screen.getByRole('article', { name: 'Second Wind' })).toBeInTheDocument()
+    expect(within(screen.getByRole('dialog')).getByTestId('blessed-shock')).toBeInTheDocument()
+    act(() => {
+      vi.advanceTimersByTime(1100)
+    })
+    expect(shocked()).not.toBeInTheDocument()
+  })
+
+  it('does not appear for a card that is not Blessed', async () => {
+    const { user } = setup({ cards: [EYES], art: PAIR })
+    await user.click(control('🎲 Kart Çek (1 LP)'))
+
+    await user.click(control('Kart 1: çevir'))
+
+    expect(screen.getByRole('article', { name: "Aboleth's Eyes" })).toBeInTheDocument()
+    expect(shocked()).not.toBeInTheDocument()
   })
 })
 

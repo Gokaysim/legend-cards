@@ -2,7 +2,9 @@ import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
+import type { ArtManifest } from '@/features/art/schema'
 import { TABLE_BUSY_NOTE } from '@/features/table/errors'
+import { testArt } from '@/test/artFixtures'
 import { ready, testProfile, testUser } from '@/test/fixtures'
 import { renderApp } from '@/test/renderApp'
 import { testLearnedWord, testTrueWord, testWordDraft } from '@/test/trueWordFixtures'
@@ -37,11 +39,15 @@ function watch({
   draft = aylasDraft(),
   knownWords = [],
   table,
+  words = WORDS,
+  art,
 }: {
   viewer?: typeof ayla
   draft?: WordDraft
   knownWords?: ReturnType<typeof testLearnedWord>[]
   table?: { openPackId: string | null }
+  words?: typeof WORDS
+  art?: ArtManifest
 } = {}) {
   const actions = fakeActions()
   const aylaProfile = { ...ayla, id: testUser.uid }
@@ -53,8 +59,9 @@ function watch({
         viewer.role === 'dm' ? [aylaProfile, { ...viewer, id: 'dana' }] : [aylaProfile],
       ),
     },
+    art,
     trueWords: {
-      words: ready(WORDS),
+      words: ready(words),
       knownWords: ready(knownWords),
       openDrafts: ready([draft]),
       actions,
@@ -82,6 +89,28 @@ describe('the open draft panel', () => {
       wordId: AID.id,
       by: testUser.uid,
     })
+  })
+
+  it('shows a word with its picture in place of its text, with its name, cost and control', () => {
+    const abyss = { ...ABYSS, cost: '5', text: 'Once per turn a random card of yours is free.' }
+    const { panel } = watch({
+      words: [abyss, AID, DRAGON],
+      art: testArt({ words: { [ABYSS.id]: '/art/words/tw-abyss.0123456789.webp' } }),
+    })
+
+    const tile = within(panel.getByRole('article', { name: 'Abyss' }))
+    expect(tile.getByRole('img', { name: 'Abyss' })).toHaveAttribute(
+      'src',
+      '/art/words/tw-abyss.0123456789.webp',
+    )
+    expect(tile.getByRole('heading', { name: 'Abyss' })).toBeInTheDocument()
+    expect(tile.getByText('5 LP')).toBeInTheDocument()
+    expect(tile.getByText(/a random card of yours is free/)).toHaveClass('sr-only')
+    expect(tile.getByRole('button', { name: 'Abyss: öğren' })).toHaveTextContent('Öğren')
+    // A word without a picture keeps its text.
+    const aid = within(panel.getByRole('article', { name: 'Aid' }))
+    expect(aid.queryByRole('img')).not.toBeInTheDocument()
+    expect(aid.getByText('Aid text.')).not.toHaveClass('sr-only')
   })
 
   it('marks a shown word that the player came to know meanwhile, and does not let it be learned', () => {

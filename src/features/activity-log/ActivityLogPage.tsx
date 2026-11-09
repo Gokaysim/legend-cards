@@ -91,7 +91,10 @@ export function ActivityLogPage() {
 
   return (
     <section className="flex flex-col gap-6">
-      <PageHeader title={screenById('activity-log').label} />
+      <PageHeader
+        title={screenById('activity-log').label}
+        mascot={screenById('activity-log').mascot}
+      />
 
       <div className="flex flex-wrap items-center gap-2">
         <label htmlFor={`${ids}-filter`} className="text-sm font-medium text-ink">

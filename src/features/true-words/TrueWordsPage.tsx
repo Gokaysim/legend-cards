@@ -23,11 +23,11 @@ const FOR_PARAM = 'for'
  * "Biliyor", and their open draft shows above the list, live.
  */
 export function TrueWordsPage() {
-  const title = screenById('true-words').label
+  const { label: title, mascot } = screenById('true-words')
   const words = useTrueWords()
   return (
     <section className="flex flex-col gap-6">
-      <PageHeader title={title} />
+      <PageHeader title={title} mascot={mascot} />
       {words.status === 'loading' ? (
         <Spinner label="True Words yükleniyor…" className="py-12" />
       ) : words.status === 'error' ? (

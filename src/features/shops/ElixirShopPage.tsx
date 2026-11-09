@@ -5,5 +5,6 @@ import { BackToShopsLink } from './BackToShopsLink'
 
 /** Placeholder until the feature is built. */
 export function ElixirShopPage() {
-  return <Placeholder title={shopScreenById('elixir-shop').label} actions={<BackToShopsLink />} />
+  const screen = shopScreenById('elixir-shop')
+  return <Placeholder title={screen.label} mascot={screen.mascot} actions={<BackToShopsLink />} />
 }

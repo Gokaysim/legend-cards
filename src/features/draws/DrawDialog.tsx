@@ -3,6 +3,8 @@ import { useId, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Dialog } from '@/components/ui/Dialog'
 import { Spinner } from '@/components/ui/Spinner'
+import { CURSED_BACK, NEUTRAL_BACK } from '@/features/art/spreadBack'
+import { useBlessedShock } from '@/features/art/useBlessedShock'
 import { useAuth } from '@/features/auth/authContext'
 import { formatAmount } from '@/features/balances/format'
 import { useCards } from '@/features/cards/cardsContext'
@@ -68,6 +70,7 @@ export function DrawDialog({ mode, owner, onClose }: DrawDialogProps) {
   const actions = useDrawActions()
   const isOnline = useOnlineStatus()
   const ownerName = profileName(owner)
+  const { shock, overlay } = useBlessedShock()
 
   const paid = mode === 'random' && !isDm
   const hasFilters = mode === 'random' && isDm
@@ -272,13 +275,16 @@ export function DrawDialog({ mode, owner, onClose }: DrawDialogProps) {
                 <FaceDownCard
                   card={result.card}
                   position={index + 1}
-                  tone={mode === 'cursed' ? 'cursed' : 'random'}
+                  // Every card of a draw shows the same back: a random draw's may be Blessed.
+                  back={mode === 'cursed' ? CURSED_BACK : NEUTRAL_BACK}
+                  onTurn={result.card.kind === 'blessed' ? shock : undefined}
                 />
               </li>
             ))}
           </ol>
         </section>
       ) : null}
+      {overlay}
     </Dialog>
   )
 }

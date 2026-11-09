@@ -1,5 +1,8 @@
 import type { ReactNode } from 'react'
 
+import { useArt } from '@/features/art/artContext'
+import { CardPicture } from '@/features/art/CardPicture'
+import { usePicture } from '@/features/art/usePicture'
 import { visibleText } from '@/features/cards/text'
 import { cn } from '@/lib/cn'
 
@@ -18,10 +21,11 @@ export type TrueWordTileProps = {
 }
 
 /**
- * One True Word, drawn in CSS until card-images: ✦, its name, its cost as "<cost> LP", and its visible text. Known
- * and active words are marked.
+ * One True Word: ✦, its name, its cost as "<cost> LP", and its picture, or without one its visible text. With the
+ * picture, which carries the text, the text stays for screen readers (design D8). Known and active words are marked.
  */
 export function TrueWordTile({ word, isKnown, isActive, children, className }: TrueWordTileProps) {
+  const picture = usePicture(useArt().wordUrl(word.id))
   const text = visibleText(word.text)
   return (
     <article
@@ -43,7 +47,21 @@ export function TrueWordTile({ word, isKnown, isActive, children, className }: T
           {costLabel(word.cost)}
         </span>
       </header>
-      <p lang="en" className="grow text-sm break-words whitespace-pre-line text-ink-muted">
+      {picture.src === null ? null : (
+        <CardPicture
+          src={picture.src}
+          alt={word.name}
+          onError={picture.onError}
+          className="mx-auto max-w-56"
+        />
+      )}
+      <p
+        lang="en"
+        className={cn(
+          'grow text-sm break-words whitespace-pre-line text-ink-muted',
+          picture.src !== null && 'sr-only',
+        )}
+      >
         {text === '' ? 'Efekt metni yok.' : text}
       </p>
       {isKnown || isActive ? (

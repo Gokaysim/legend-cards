@@ -23,6 +23,7 @@
     "set-role": "node scripts/set-role.ts",
     "import-cards": "node scripts/import-cards.ts",
     "import-true-words": "node scripts/import-true-words.ts",
+    "build-art": "node scripts/build-art.ts",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm run test"
   },
   "dependencies": {
@@ -57,6 +58,7 @@
     "jsdom": "^29.1.1",
     "prettier": "^3.9.10",
     "prettier-plugin-tailwindcss": "^0.8.1",
+    "sharp": "^0.35.5",
     "tailwindcss": "^4.3.4",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.72.1",

@@ -2,8 +2,12 @@ import { useState } from 'react'
 
 import { Button } from '@/components/ui/Button'
 import { Dialog } from '@/components/ui/Dialog'
+import { useArt } from '@/features/art/artContext'
+import { CardPicture } from '@/features/art/CardPicture'
+import { usePicture } from '@/features/art/usePicture'
 import { useAuth } from '@/features/auth/authContext'
 import { visibleText } from '@/features/cards/text'
+import { cn } from '@/lib/cn'
 import { TABLE_BUSY_NOTE } from '@/features/table/errors'
 import { useIsTableBusy } from '@/features/table/tableContext'
 import { useIsDm } from '@/features/users/usersContext'
@@ -21,7 +25,8 @@ export type TrueWordDialogProps = {
 }
 
 /**
- * A known word's details: its cost, text, how it was learned, and whether it is active. The DM switches it active
+ * A known word's details: its picture large, or without one its text, its cost, how it was learned, and whether it is
+ * active. The DM switches it active
  * (also while a pack is open) and takes it back, after a confirmation, to correct a mistake. Others only read.
  */
 export function TrueWordDialog({ entry, holderName, onClose }: TrueWordDialogProps) {
@@ -32,6 +37,7 @@ export function TrueWordDialog({ entry, holderName, onClose }: TrueWordDialogPro
   const isTableBusy = useIsTableBusy()
   const isOnline = useOnlineStatus()
   const actions = useTrueWordActions()
+  const picture = usePicture(useArt().wordUrl(word.id))
   const [isConfirming, setIsConfirming] = useState(false)
   const [isBusy, setIsBusy] = useState(false)
   const [failure, setFailure] = useState<WordFailure | null>(null)
@@ -62,6 +68,14 @@ export function TrueWordDialog({ entry, holderName, onClose }: TrueWordDialogPro
   const text = visibleText(word.text)
   return (
     <Dialog title={`✦ ${word.name}`} onClose={onClose}>
+      {picture.src === null ? null : (
+        <CardPicture
+          src={picture.src}
+          alt={word.name}
+          onError={picture.onError}
+          className="mx-auto max-w-72"
+        />
+      )}
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
         <dt className="text-ink-muted">Kimde</dt>
         <dd className="text-ink">{holderName}</dd>
@@ -76,7 +90,13 @@ export function TrueWordDialog({ entry, holderName, onClose }: TrueWordDialogPro
           {record.active ? '● Aktif' : 'Aktif değil'}
         </dd>
       </dl>
-      <p lang="en" className="text-sm break-words whitespace-pre-line text-ink">
+      <p
+        lang="en"
+        className={cn(
+          'text-sm break-words whitespace-pre-line text-ink',
+          picture.src !== null && 'sr-only',
+        )}
+      >
         {text === '' ? 'Efekt metni yok.' : text}
       </p>
       {word.retired ? (

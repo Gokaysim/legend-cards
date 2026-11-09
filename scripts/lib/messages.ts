@@ -1,3 +1,4 @@
+import type { AliasError, AliasKind, ArtFile, ArtGroup, ArtPlan } from './artFiles.ts'
 import type { CardFileError, CardFileWarning, Deck, LimitedField } from './cardRows.ts'
 import type { CardOutcome, DeckPlan } from './importCards.ts'
 import type { WordPlan } from './importTrueWords.ts'
@@ -132,6 +133,76 @@ function wordReport({ counts, words }: WordPlan, dryRun: boolean): string[] {
   return lines
 }
 
+const ALIAS_KIND_LABELS: Readonly<Record<AliasKind, string>> = {
+  legend: 'Legend kart',
+  cursed: 'Cursed kart',
+  word: 'True Word',
+  asset: 'Asset',
+}
+
+/** The alias table's columns as it writes them. */
+const ALIAS_COLUMN_LABELS: Readonly<Record<string, string>> = {
+  file: 'File',
+  kind: 'Kind',
+  name: 'Name',
+}
+
+function aliasError(file: string, error: AliasError): string {
+  switch (error.kind) {
+    case 'unreadable':
+      return `${file}: CSV okunamadı (${error.detail}).`
+    case 'missing-columns':
+      return `${file}: eksik sütun: ${error.columns.map((column) => ALIAS_COLUMN_LABELS[column] ?? column).join(', ')}. Sütunlar File, Kind, Name olmalı.`
+    case 'empty-cell':
+      return `${file}, satır ${error.row}: ${error.column} boş.`
+    case 'unknown-kind':
+      return `${file}, satır ${error.row}: "${error.value}" geçerli bir Kind değil; legend, cursed, word ya da asset olmalı.`
+    case 'unknown-target':
+      return `${file}, satır ${error.row}: ${ALIAS_KIND_LABELS[error.aliasKind]} "${error.name}" bulunamadı.`
+    case 'duplicate-file':
+      return `${file}, satır ${error.rows[0]} ve ${error.rows[1]}: "${error.file}" dosyası iki kez var.`
+  }
+}
+
+const ART_GROUP_LABELS: Readonly<Record<ArtGroup, string>> = {
+  normal: 'Normal kartlar',
+  blessed: 'Blessed kartlar',
+  cursed: 'Cursed kartlar',
+  word: 'True Words',
+  back: "Cardback'ler",
+  pack: 'Pack görselleri',
+  setPack: 'Set pack görselleri',
+  mascot: 'Cardmaker',
+}
+
+/** A file in the report: its name, and the archive it came from. */
+type ReportedFile = ArtFile & { from?: string | null }
+const fileLabel = ({ name, from }: ReportedFile) => (from ? `${name} (${from})` : name)
+
+/** What a picture build found: the pictures per kind with the ones missing, the duplicates and the unknown files. */
+function artReport<F extends ReportedFile>(plan: ArtPlan<F>, fileCount: number): string[] {
+  const lines = [`${fileCount} dosya okundu.`]
+  for (const [group, { expected, found, missing }] of Object.entries(plan.coverage) as [
+    ArtGroup,
+    ArtPlan<F>['coverage'][ArtGroup],
+  ][]) {
+    const label = ART_GROUP_LABELS[group]
+    if (group === 'setPack') {
+      lines.push(`  ${label}: ${found} (görseli olmayan set pack'te setin cardback'i gösterilir)`)
+      continue
+    }
+    const count = `  ${label}: ${found}/${expected}`
+    lines.push(missing.length > 0 ? `${count} · görseli yok: ${missing.join(', ')}` : count)
+  }
+  lines.push(`Çift dosyalar (kullanılmadı): ${plan.duplicates.length}`)
+  for (const { file, target, winner } of plan.duplicates) {
+    lines.push(`  ${fileLabel(file)} → ${target.label}; kullanılan: ${fileLabel(winner)}`)
+  }
+  lines.push(`Tanınmayan dosyalar (atlandı): ${plan.unknown.length}`)
+  for (const file of plan.unknown) lines.push(`  ${fileLabel(file)}`)
+  return lines
+}
+
 /** Turkish messages printed by the admin scripts. Code and comments stay in English. */
 export const messages = {
   targetEmulator: 'Hedef: yerel emulatorler (demo-legend-cards)',
@@ -187,4 +258,27 @@ export const messages = {
     count === 0
       ? 'Hiçbir True Word yazılmadı: her şey zaten güncel.'
       : `${count} True Word yazıldı.`,
+  usageBuildArt:
+    'Kullanım: npm run build-art -- --source <klasör> [--dry-run]\n' +
+    'Klasördeki .7z arşivlerini ve .png dosyalarını okur, onlara dokunmaz; görselleri public/art/ klasörüne yazar.',
+  sevenZipMissing:
+    '7-Zip bulunamadı (`7zz` komutu yok). Kurmak için: brew install sevenzip. Hiçbir şey yazılmadı.',
+  sourceUnreadable: (folder: string, detail: string) =>
+    `"${folder}" klasörü okunamadı: ${detail}. Hiçbir şey yazılmadı.`,
+  noSourceFiles: (folder: string) =>
+    `"${folder}" klasöründe .7z arşivi ya da .png dosyası yok. Hiçbir şey yazılmadı.`,
+  artDataInvalid: (count: number) =>
+    `Veri dosyalarında ${count} hata var. Hiçbir görsel yazılmadı: önce dosyaları düzelt.`,
+  aliasError,
+  aliasesInvalid: (count: number) =>
+    `Alias tablosunda ${count} hata var. Hiçbir görsel yazılmadı: önce tabloyu düzelt.`,
+  extracting: (archive: string) => `${archive} açılıyor…`,
+  extractFailed: (archive: string, detail: string) =>
+    `"${archive}" açılamadı: ${detail}. Hiçbir görsel yazılmadı.`,
+  dryRunArtHeader: 'Deneme (--dry-run): hiçbir görsel yazılmadı. Gerçek bir build şunu yapardı:',
+  artReport,
+  artProgress: (done: number, total: number) => `Görseller dönüştürülüyor: ${done}/${total}`,
+  artWritten: (count: number, folder: string) => `${count} görsel ve manifest yazıldı: ${folder}`,
+  artWriteFailed: (detail: string) =>
+    `Görseller yazılamadı: ${detail}. Manifest yazılmadı: uygulama görselsiz (CSS) görünümde kalır.`,
 } as const
