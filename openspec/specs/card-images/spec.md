@@ -111,8 +111,8 @@ On a card face with a picture, the set, rarity and mechanic pack SHALL show in a
 - **THEN** a note shows "Kesqerian Nights · Common" and its mechanic pack, and it goes away when the pointer leaves or the symbol loses the focus
 
 #### Scenario: A marked card in a hand
-- **WHEN** Ayla's hand shows her active card with a note
-- **THEN** its face shows the picture with the "● Aktif" and "Not var" marks
+- **WHEN** Ayla's hand shows her active card with a note, and a user rests the pointer on it
+- **THEN** its face shows the picture with the "● Aktif" mark, and the "✎" note icon in the picture's bottom-left corner
 
 ### Requirement: Hand cost on a picture
 When a card's cost in a hand differs from its own cost, its face with a picture SHALL show the hand cost as a badge on the picture's cost corner. The badge SHALL be marked lower or higher when both costs are numbers.
