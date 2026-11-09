@@ -1,5 +1,6 @@
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { Timestamp } from 'firebase/firestore'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { BalanceActions } from '@/features/balances/balancesContext'
@@ -311,5 +312,86 @@ describe('drawing on the hand', () => {
       'Blood Rite',
     ])
     expect(screen.getByText(/Bakiye:/)).toHaveTextContent('Bakiye: 2 LP')
+  })
+})
+
+describe('the Notlar tab', () => {
+  const note = (text: string) => ({
+    text,
+    updatedBy: 'ayla',
+    updatedAt: Timestamp.fromMillis(1000),
+  })
+  const tabs = () => main().getAllByRole('tab')
+
+  it('comes third, after the cards and the True Words, and is kept in the URL', async () => {
+    const user = userEvent.setup()
+    const { router } = renderApp({ path: '/hands/ayla', users: { profiles: ready([me, ayla]) } })
+
+    expect(tabs().map((tab) => tab.textContent)).toEqual(['♠ Kartlar', '✦ True Words', '✎ Notlar'])
+
+    await user.click(main().getByRole('tab', { name: '✎ Notlar' }))
+
+    expect(router.state.location.search).toBe('?tab=notes')
+    expect(main().getByRole('tab', { name: '✎ Notlar' })).toHaveAttribute('aria-selected', 'true')
+    expect(main().getByRole('heading', { name: 'Oyuncu notu' })).toBeInTheDocument()
+
+    await user.click(main().getByRole('tab', { name: '♠ Kartlar' }))
+    expect(router.state.location.search).toBe('')
+  })
+
+  it('opens again from its URL, as after a reload', () => {
+    renderApp({ path: '/hands/bora?tab=notes', users: { profiles: ready([me, bora]) } })
+
+    expect(main().getByRole('tab', { name: '✎ Notlar' })).toHaveAttribute('aria-selected', 'true')
+    expect(main().getByRole('heading', { name: 'Oyuncu notu' })).toBeInTheDocument()
+  })
+
+  it('is marked while the player note has text, on every tab', () => {
+    renderApp({
+      path: '/hands/ayla',
+      users: { profiles: ready([me, ayla]) },
+      notes: { playerNotes: { ayla: ready(note('Kayıp kardeşini arıyor.')) } },
+    })
+
+    const tab = main().getByRole('tab', { name: '✎ Notlar (not var)' })
+    expect(tab).toHaveTextContent('✎ Notlar •')
+  })
+
+  it('follows the player note live', () => {
+    const { setNotes } = renderApp({
+      path: '/hands/ayla',
+      users: { profiles: ready([me, ayla]) },
+    })
+    expect(main().getByRole('tab', { name: '✎ Notlar' })).toBeInTheDocument()
+
+    setNotes({ playerNotes: { ayla: ready(note('Yeni not.')) } })
+
+    expect(main().getByRole('tab', { name: '✎ Notlar (not var)' })).toBeInTheDocument()
+  })
+
+  it.each([
+    ['a blank player note', ready(note('  \n '))],
+    ['a player note that is still loading', { status: 'loading' as const }],
+    ['no player note', ready(null)],
+  ])('is not marked for %s', (_case, playerNote) => {
+    renderApp({
+      path: '/hands/ayla',
+      users: { profiles: ready([me, ayla]) },
+      notes: { playerNotes: { ayla: playerNote } },
+    })
+
+    expect(main().getByRole('tab', { name: '✎ Notlar' })).not.toHaveTextContent('•')
+  })
+
+  it('is not marked by a DM note, and the DM note is not read until the tab opens', () => {
+    const onUseDmNote = vi.fn()
+    renderApp({
+      path: '/hands/bora',
+      users: { currentProfile: ready(dmProfile), profiles: ready([bora, dmProfile]) },
+      notes: { dmNotes: { bora: ready(note('Gizli plan.')) }, onUseDmNote },
+    })
+
+    expect(main().getByRole('tab', { name: '✎ Notlar' })).not.toHaveTextContent('•')
+    expect(onUseDmNote).not.toHaveBeenCalled()
   })
 })

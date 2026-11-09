@@ -1264,6 +1264,36 @@ service cloud.firestore {
       }
     }
 
+    // A note about the player `uid` as this request writes it: exactly its text (at most 2000 characters; keep in
+    // step with NOTE_LIMITS in src/features/player-notes/schema.ts), the signed-in user as its last editor, and
+    // the server time. Only users with a profile have notes. Notes are not table actions, so an open pack does not
+    // stop them.
+    function validNoteDoc(uid) {
+      let data = request.resource.data;
+      return isSignedIn()
+        && data.keys().hasOnly(['text', 'updatedBy', 'updatedAt'])
+        && data.keys().hasAll(['text', 'updatedBy', 'updatedAt'])
+        && data.text is string
+        && data.text.size() <= 2000
+        && data.updatedBy == request.auth.uid
+        && data.updatedAt == request.time
+        && exists(userPath(uid));
+    }
+
+    // The player note: the whole table reads it; the player writes their own, and the DM anyone's.
+    match /playerNotes/{uid} {
+      allow read: if isSignedIn();
+      allow create, update: if validNoteDoc(uid) && (isSelf(uid) || isDm());
+      allow delete: if false;
+    }
+
+    // The DM note: only the DM reads and writes it, the note about the DM included. No player ever reads one.
+    match /dmNotes/{uid} {
+      allow read: if isDm();
+      allow create, update: if validNoteDoc(uid) && isDm();
+      allow delete: if false;
+    }
+
     // Closed catch-all: anything no rule grants is denied, for signed-in and signed-out users alike.
     // A request is allowed if ANY matching rule allows it, so this never overrides a deliberately opened path.
     match /{document=**} {

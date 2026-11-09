@@ -1,13 +1,23 @@
 import { useId, useMemo, useState } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router'
 
-import { HAND_TAB_PARAM, handPath, packShopPath, screenById, TRUE_WORDS_TAB } from '@/app/screens'
+import {
+  HAND_TAB_PARAM,
+  handPath,
+  NOTES_TAB,
+  packShopPath,
+  screenById,
+  TRUE_WORDS_TAB,
+} from '@/app/screens'
 import { Button } from '@/components/ui/Button'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Spinner } from '@/components/ui/Spinner'
 import { useAuth } from '@/features/auth/authContext'
 import { useCardsById } from '@/features/cards/cardsContext'
 import { DrawButtons } from '@/features/draws/DrawButtons'
+import { HandNotes } from '@/features/player-notes/HandNotes'
+import { usePlayerNote } from '@/features/player-notes/playerNotesContext'
+import { hasNoteText } from '@/features/player-notes/schema'
 import { TABLE_BUSY_NOTE } from '@/features/table/errors'
 import { TableBusyNote } from '@/features/table/TableBusyNote'
 import { useIsTableBusy } from '@/features/table/tableContext'
@@ -128,11 +138,24 @@ function HandScreen({ profile }: { profile: UserProfile }) {
   )
 }
 
-type HandTab = 'cards' | 'true-words'
+type HandTab = 'cards' | 'true-words' | 'notes'
+
+/** Each tab's value in the URL. The cards tab has none: it is the hand's default. */
+const TAB_VALUES: Record<Exclude<HandTab, 'cards'>, string> = {
+  'true-words': TRUE_WORDS_TAB,
+  notes: NOTES_TAB,
+}
+
+function tabOf(value: string | null): HandTab {
+  if (value === TRUE_WORDS_TAB) return 'true-words'
+  if (value === NOTES_TAB) return 'notes'
+  return 'cards'
+}
 
 /**
- * The hand of one player, live: the summary, then two tabs, kept in the URL (`?tab=true-words`): the cards with the
- * details of the selected card, and the player's True Words.
+ * The hand of one player, live: the summary, then three tabs, kept in the URL (`?tab=true-words`, `?tab=notes`):
+ * the cards with the details of the selected card, the player's True Words, and the player's notes. The Notlar tab
+ * is marked while the player note has text; the DM note never marks it, because the DM's screen may face the table.
  */
 function HandContent({ profile }: { profile: UserProfile }) {
   const ids = useId()
@@ -142,7 +165,9 @@ function HandContent({ profile }: { profile: UserProfile }) {
   const knownWords = useKnownWords(profile.id)
   const [params, setParams] = useSearchParams()
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const tab: HandTab = params.get(HAND_TAB_PARAM) === TRUE_WORDS_TAB ? 'true-words' : 'cards'
+  const tab = tabOf(params.get(HAND_TAB_PARAM))
+  const playerNote = usePlayerNote(profile.id)
+  const hasPlayerNote = playerNote.status === 'ready' && hasNoteText(playerNote.data)
 
   const wordEntries = useMemo(
     () =>
@@ -155,7 +180,7 @@ function HandContent({ profile }: { profile: UserProfile }) {
   const chooseTab = (next: HandTab) => {
     const search = new URLSearchParams(params)
     if (next === 'cards') search.delete(HAND_TAB_PARAM)
-    else search.set(HAND_TAB_PARAM, TRUE_WORDS_TAB)
+    else search.set(HAND_TAB_PARAM, TAB_VALUES[next])
     setParams(search)
   }
 
@@ -181,6 +206,7 @@ function HandContent({ profile }: { profile: UserProfile }) {
   const tabs: { id: HandTab; label: string }[] = [
     { id: 'cards', label: '♠ Kartlar' },
     { id: 'true-words', label: '✦ True Words' },
+    { id: 'notes', label: '✎ Notlar' },
   ]
   return (
     <>
@@ -197,12 +223,20 @@ function HandContent({ profile }: { profile: UserProfile }) {
             onClick={() => chooseTab(id)}
           >
             {label}
+            {id === 'notes' && hasPlayerNote ? (
+              <>
+                {' '}
+                <span aria-hidden="true">•</span> <span className="sr-only">(not var)</span>
+              </>
+            ) : null}
           </Button>
         ))}
       </div>
       <div role="tabpanel" id={`${ids}-panel`} aria-labelledby={`${ids}-tab-${tab}`}>
         {tab === 'cards' ? (
           <HandView entries={entries} onSelect={setSelectedId} />
+        ) : tab === 'notes' ? (
+          <HandNotes profile={profile} playerNote={playerNote} />
         ) : words.status === 'error' || knownWords.status === 'error' ? (
           <p
             role="alert"

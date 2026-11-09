@@ -11,6 +11,7 @@ import { useIsTableBusy } from '@/features/table/tableContext'
 import { profileName, useIsDm, useProfiles } from '@/features/users/usersContext'
 import { genitive } from '@/lib/turkish'
 import { useOnlineStatus } from '@/lib/useOnlineStatus'
+import { useSavedField } from '@/lib/useSavedField'
 
 import { type HoldingFailure, holdingFailureMessage, toHoldingFailure } from './errors'
 import type { HandEntry } from './handEntries'
@@ -19,38 +20,6 @@ import { HOLDING_LIMITS } from './schema'
 
 const fieldClasses =
   'w-full rounded-lg border border-control-line bg-control px-3 py-2 text-sm text-ink placeholder:text-ink-muted'
-
-/**
- * A text field saved when it loses focus, if it changed. While the user types, and until the subscription shows
- * the saved value, the field keeps what the user wrote; otherwise it follows the stored value live.
- */
-function useSavedField(
-  stored: string,
-  save: (value: string) => Promise<void>,
-  onError: (error: unknown) => void,
-  normalize: (value: string) => string = (value) => value,
-) {
-  const [draft, setDraft] = useState<string | null>(null)
-  const [saving, setSaving] = useState<string | null>(null)
-  if (saving !== null && saving === stored) setSaving(null)
-
-  return {
-    value: draft ?? saving ?? stored,
-    onFocus: () => setDraft(saving ?? stored),
-    onChange: (value: string) => setDraft(value),
-    onBlur: () => {
-      if (draft === null) return
-      setDraft(null)
-      const next = normalize(draft)
-      if (next === stored) return
-      setSaving(next)
-      save(next).catch((error: unknown) => {
-        setSaving(null)
-        onError(error)
-      })
-    },
-  }
-}
 
 type Step = 'idle' | 'use' | 'discard' | 'transfer'
 

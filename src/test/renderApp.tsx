@@ -14,6 +14,7 @@ import { type TestCards, TestCardsProvider } from './TestCardsProvider'
 import { type TestDraws, TestDrawsProvider } from './TestDrawsProvider'
 import { type TestHoldings, TestHoldingsProvider } from './TestHoldingsProvider'
 import { type TestPacks, TestPacksProvider } from './TestPacksProvider'
+import { type TestNotes, TestPlayerNotesProvider } from './TestPlayerNotesProvider'
 import { type TestTable, TestTableProvider } from './TestTableProvider'
 import { type TestTrueWords, TestTrueWordsProvider } from './TestTrueWordsProvider'
 import { type TestUsers, TestUsersProvider } from './TestUsersProvider'
@@ -40,6 +41,8 @@ export type RenderAppOptions = {
   packs?: TestPacks
   /** The words, known words, open drafts and fake True Word steps. Defaults to none, and steps that succeed. */
   trueWords?: TestTrueWords
+  /** The player notes and DM notes, and fake saves. Defaults to no notes, and saves that succeed. */
+  notes?: TestNotes
   /** The built pictures. Defaults to `EMPTY_ART`: every card, back, pack and word keeps its look without pictures. */
   art?: ArtManifest
 }
@@ -54,14 +57,16 @@ type Data = {
   table: TestTable
   packs: TestPacks
   trueWords: TestTrueWords
+  notes: TestNotes
   art: ArtManifest | undefined
 }
 
 /**
  * Renders the real route table at `path`, with a fixed auth state (signed in by default), fixed profiles, cards,
- * open holdings, party purse, table lock, open pack, True Words, log records and pictures, and fake draws, pack and
- * True Word steps. `setUsers`, `setCards`, `setHoldings`, `setBalances`, `setTable`, `setPacks`, `setTrueWords` and
- * `setActivityLog` re-render the same app with other data, as a real-time update would, without remounting.
+ * open holdings, party purse, table lock, open pack, True Words, notes, log records and pictures, and fake draws,
+ * pack and True Word steps and note saves. `setUsers`, `setCards`, `setHoldings`, `setBalances`, `setTable`,
+ * `setPacks`, `setTrueWords`, `setNotes` and `setActivityLog` re-render the same app with other data, as a real-time
+ * update would, without remounting.
  */
 export function renderApp({
   path = '/',
@@ -76,6 +81,7 @@ export function renderApp({
   table = {},
   packs = {},
   trueWords = {},
+  notes = {},
   art,
 }: RenderAppOptions = {}) {
   const router = createMemoryRouter(routes, { initialEntries: [path] })
@@ -89,6 +95,7 @@ export function renderApp({
     table,
     packs,
     trueWords,
+    notes,
     art,
   }
   const tree = (data: Data) => (
@@ -103,7 +110,9 @@ export function renderApp({
                     <TestActivityLogProvider {...data.activityLog}>
                       <TestDrawsProvider {...data.draws}>
                         <TestTrueWordsProvider {...data.trueWords}>
-                          <RouterProvider router={router} />
+                          <TestPlayerNotesProvider {...data.notes}>
+                            <RouterProvider router={router} />
+                          </TestPlayerNotesProvider>
                         </TestTrueWordsProvider>
                       </TestDrawsProvider>
                     </TestActivityLogProvider>
@@ -132,5 +141,6 @@ export function renderApp({
     setTable: (next: TestTable) => update({ table: next }),
     setPacks: (next: TestPacks) => update({ packs: next }),
     setTrueWords: (next: TestTrueWords) => update({ trueWords: next }),
+    setNotes: (next: TestNotes) => update({ notes: next }),
   }
 }

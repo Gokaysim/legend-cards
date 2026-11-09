@@ -112,9 +112,10 @@ export function trueWordsPath(forUid?: string): string {
   return forUid === undefined ? path : `${path}?for=${encodeURIComponent(forUid)}`
 }
 
-/** The search parameter and value of a hand's True Words tab. */
+/** The search parameter of a hand's tab, and the values of its True Words and Notlar tabs. */
 export const HAND_TAB_PARAM = 'tab'
 export const TRUE_WORDS_TAB = 'true-words'
+export const NOTES_TAB = 'notes'
 
 /** A player's hand, opened on its True Words tab. */
 export function handTrueWordsPath(uid: string): string {

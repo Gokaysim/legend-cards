@@ -21,7 +21,7 @@ src/
   app/                  composition root
     App.tsx             ArtProvider + AuthProvider + UsersProvider + BalancesProvider + CardsProvider
                         + HoldingsProvider + TableProvider + PacksProvider + ActivityLogProvider
-                        + DrawsProvider + TrueWordsProvider + router
+                        + DrawsProvider + TrueWordsProvider + PlayerNotesProvider + router
     screens.ts          the single lists of screens (main menu and Shops sub-screens)
     routes.tsx          route table: sign-in, RequireAuth, AppShell, one route per screen, not-found
     layout/             AppShell, SidebarContent, MobileNav, UserBadge, OfflineBanner
@@ -51,6 +51,9 @@ src/
                         learnWord, skipDraft, cancelDraft, teachWord, takeBackWord, setWordActive), errors,
                         TrueWordsProvider, useTrueWords, useKnownWords, useOpenDraft, useTrueWordActions,
                         the True Words screen, the open draft panel, and the hand's True Words tab
+    player-notes/       the player note and the DM note: schema (hasNoteText), api (playerNoteRef, dmNoteRef,
+                        savePlayerNote, saveDmNote), PlayerNotesProvider, usePlayerNote, useDmNote (only inside
+                        <DmOnly>; dmNoteTarget), useNoteActions, and the hand's Notlar tab (HandNotes)
     library/ cursed-deck/
                         the two card screens, each a <Name>Page.tsx around the shared card browser
     activity-log/       the İşlem Logu: the log queries (api), ActivityLogProvider (useLogRecords, useHolding),
@@ -66,6 +69,8 @@ src/
     firestore/          real-time subscription hooks, converters, errors (including firebaseCode)
     cn.ts               class-name merge helper
     useOnlineStatus.ts  browser network status
+    useSavedField.ts    a text field saved on blur that keeps the user's draft while live changes arrive
+                        (the card note, the cost override and the player notes)
     turkish.ts          Turkish grammar helpers, such as the genitive of a name ("Ayla'nın")
     random.ts           cryptographic random picks: randomIndex, pickRandom, sample, shuffle
     text.ts             cleanText: trims typed text and cuts it to a limit
@@ -73,7 +78,7 @@ src/
     index.css           Tailwind entry and base styles
     theme.css           design tokens
   test/                 test setup and shared test helpers (test providers for profiles, balances, cards,
-                        holdings, the table, packs, the log's records and draws, fixtures)
+                        holdings, the table, packs, the log's records and draws, the notes, fixtures)
 public/art/             the pictures that `npm run build-art` builds, with their manifest; not committed
 scripts/                admin scripts on Node with the Admin SDK, and the picture build (see Scripts)
 data/                   the owner's CSV data that the scripts import (see data/README.md)
@@ -162,7 +167,7 @@ Styling uses Tailwind CSS utility classes, written directly in JSX.
   - `useIsDm()`, which is `true` only for a loaded DM profile; loading or missing profiles count as a player
 - **DM-only controls go inside `<DmOnly>`.** Hiding is only a convenience. `firestore.rules` is the real check, so every DM-only write needs its own rule and rules test.
 - **Roles change only through the admin script** (`npm run set-role`, see [Scripts](#scripts)). Never add a client write that touches `role`.
-- **Tests** render components inside `TestAuthProvider` and `TestUsersProvider` (`src/test/`) with fixed states, instead of talking to Firebase. `renderApp` takes `users`, `balances`, `cards`, `holdings`, `table`, `packs`, `trueWords`, `activityLog`, `draws` and `art` options, and returns `setUsers`, `setBalances`, `setCards`, `setHoldings`, `setTable`, `setPacks`, `setTrueWords` and `setActivityLog` to simulate a real-time change. The `draws` option takes fake draws; by default a draw gives its first candidate. The `table` option takes an `openPackId`; by default no pack is open. The `packs` option takes the open `pack` and fake pack steps, which succeed by default. The `trueWords` option takes the `words`, the `knownWords` records, the `openDrafts` and fake True Word steps, which succeed by default (fixtures in `src/test/trueWordFixtures.ts`). The `art` option takes a picture manifest; by default it is `EMPTY_ART`, so every test sees the CSS look unless it gives pictures.
+- **Tests** render components inside `TestAuthProvider` and `TestUsersProvider` (`src/test/`) with fixed states, instead of talking to Firebase. `renderApp` takes `users`, `balances`, `cards`, `holdings`, `table`, `packs`, `trueWords`, `notes`, `activityLog`, `draws` and `art` options, and returns `setUsers`, `setBalances`, `setCards`, `setHoldings`, `setTable`, `setPacks`, `setTrueWords`, `setNotes` and `setActivityLog` to simulate a real-time change. The `draws` option takes fake draws; by default a draw gives its first candidate. The `table` option takes an `openPackId`; by default no pack is open. The `packs` option takes the open `pack` and fake pack steps, which succeed by default. The `trueWords` option takes the `words`, the `knownWords` records, the `openDrafts` and fake True Word steps, which succeed by default (fixtures in `src/test/trueWordFixtures.ts`). The `notes` option takes the `playerNotes` and `dmNotes` by uid (each a subscription, for example `ready(note)`), fake saves, which succeed by default, and `onUseDmNote`, which is called with every uid whose DM note a component reads, so a test can show that a player's screen never asks for one. The `art` option takes a picture manifest; by default it is `EMPTY_ART`, so every test sees the CSS look unless it gives pictures.
 
 ## Data access
 
@@ -186,6 +191,7 @@ All stored data lives in Firestore and is read in real time.
   - Holdings: `useOpenHoldings()` for every card in every hand (`HoldingsProvider`). Derive views with the pure helpers next to it: `holdingsOf(holdings, uid)` for one hand in the order the cards were received, and `holdersOf(holdings, cardId)` for who holds a copy of a card.
   - The pool: derive it from the cards with the pure helpers in `cards/pool.ts`. A normal card's `holder` is the source of truth for whether it is in the pool, so `isDrawable`, `drawablePool`, `cursedPool`, the draw filters (`matchesFilters`, `drawFilterOptions`) and `poolDistribution` need only `useCards()`. The library's Durum also names who holds each card, so it comes from the holdings instead (`useDeckStatus` in `hands/cardStatus.ts`).
 - **Data for one screen.** A screen that alone needs some data subscribes while it is shown, through hooks that a provider injects, so its test provider can answer instead of Firebase. The İşlem Logu reads `useLogRecords(uid, n)` and `useHolding(id)` from `ActivityLogProvider`. Its events are derived from its sources, the holdings, the draws (with the pack openings), the ledger, the True Word drafts and the learned True Words (`events.ts`), never written separately, through seven queries (`logQueries`): given holdings, closed holdings, draws, changes by hand, drafts, words taught, and words taken back. A draw is one event, and so is a pack opening, at the time it was opened, and a True Word draft, at the time it started. Their holdings, learned words, payments and refunds make no events of their own: the log queries leave them out (`givenVia` `dm` or `transfer`, `source` `manual`, and `learnedVia` `dm`), so every record a query returns is exactly one event and paging stays exact. A word taught and later taken back is one event in each of its two queries.
+  - The hand screen reads the notes the same way: `usePlayerNote(uid)`, `useDmNote(uid)` and `useNoteActions()` from `PlayerNotesProvider` (`src/features/player-notes/`). `HandsPage` subscribes to the player note while a hand is shown, for the Notlar tab's marker. Only the DM note panel, inside `<DmOnly>` and mounted only while the Notlar tab is open, calls `useDmNote`. The real hook also asks for nothing unless `useIsDm()` is true (`dmNoteTarget`). So a player's device never requests `dmNotes`, which the rules deny it anyway.
 - **Composite indexes.** A query that filters on one field and orders by another needs a composite index in `firestore.indexes.json`, such as the log's filtered queries. The emulator does not check indexes, so a missing one only fails on a real project: add the index in the same change as the query, and deploy it with the rules.
 - **Staleness hints.** When `ready`, `fromCache: true` means the data has not been confirmed by the server (for example while offline), and `hasPendingWrites: true` means local changes are still waiting to sync. Show a subtle hint where it matters, for example next to an LP balance.
 - **Writing.** Write with the SDK (`setDoc`, `updateDoc`, `addDoc`, `runTransaction`, …) inside the feature's `api.ts`. Writes made offline are queued and sent when the connection returns. Do not wait for a write's promise before updating the UI: the subscription already shows the change as a pending write.

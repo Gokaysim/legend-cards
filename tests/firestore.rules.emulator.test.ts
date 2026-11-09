@@ -3232,3 +3232,163 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
     })
   })
 })
+
+describe('player notes (playerNotes/{uid}) and DM notes (dmNotes/{uid})', () => {
+  const COLLECTIONS = ['playerNotes', 'dmNotes'] as const
+  type NoteCollection = (typeof COLLECTIONS)[number]
+
+  /** Who may write the note about Ayla in each collection: Ayla herself, or the DM. */
+  const WRITER: Record<NoteCollection, string> = { playerNotes: 'ayla', dmNotes: 'dana' }
+
+  /** A note as the application saves it: the signed-in user as its last editor, and the server time. */
+  const noteBy = (uid: string, overrides: Record<string, unknown> = {}) => ({
+    text: 'Kayıp kardeşini arıyor.',
+    updatedBy: uid,
+    updatedAt: serverTimestamp(),
+    ...overrides,
+  })
+
+  const save = (by: string, path: string, overrides?: Record<string, unknown>) =>
+    setDoc(doc(asUser(by), path), noteBy(by, overrides))
+
+  /** Bora has both notes, last saved by Dana. Ayla has none yet, so her first save creates the document. */
+  const STORED = { text: 'Eski not.', updatedBy: 'dana', updatedAt: Timestamp.fromMillis(1000) }
+
+  beforeEach(async () => {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const db = firestoreOf(admin)
+      await setDoc(doc(db, 'users/ayla'), seededUser('player', 'Ayla'))
+      await setDoc(doc(db, 'users/bora'), seededUser('player', 'Bora'))
+      await setDoc(doc(db, 'users/dana'), seededUser('dm', 'Dana'))
+      await setDoc(doc(db, 'playerNotes/bora'), STORED)
+      await setDoc(doc(db, 'dmNotes/bora'), STORED)
+    })
+  })
+
+  describe('signed out', () => {
+    it.each(COLLECTIONS)('denies reading and writing %s', async (collectionName) => {
+      const db = firestoreOf(testEnv.unauthenticatedContext())
+      await assertFails(getDoc(doc(db, `${collectionName}/bora`)))
+      await assertFails(
+        setDoc(doc(db, `${collectionName}/ayla`), {
+          text: 'x',
+          updatedBy: 'ayla',
+          updatedAt: serverTimestamp(),
+        }),
+      )
+    })
+  })
+
+  describe('the player note', () => {
+    it.each(['ayla', 'bora', 'dana'])('lets %s read any player note', async (uid) => {
+      await assertSucceeds(getDoc(doc(asUser(uid), 'playerNotes/bora')))
+      await assertSucceeds(getDoc(doc(asUser(uid), 'playerNotes/ayla')))
+      await assertSucceeds(getDocs(collection(asUser(uid), 'playerNotes')))
+    })
+
+    it('lets a player create and change their own note', async () => {
+      await assertSucceeds(save('ayla', 'playerNotes/ayla'))
+      expect(await readAsAdmin('playerNotes/ayla')).toMatchObject({
+        text: 'Kayıp kardeşini arıyor.',
+        updatedBy: 'ayla',
+      })
+      await assertSucceeds(save('bora', 'playerNotes/bora', { text: '' }))
+      expect(await readAsAdmin('playerNotes/bora')).toMatchObject({ text: '', updatedBy: 'bora' })
+    })
+
+    it("lets the DM write any player's note", async () => {
+      await assertSucceeds(save('dana', 'playerNotes/ayla'))
+      await assertSucceeds(save('dana', 'playerNotes/bora', { text: 'DM yazdı.' }))
+      expect(await readAsAdmin('playerNotes/bora')).toMatchObject({
+        text: 'DM yazdı.',
+        updatedBy: 'dana',
+      })
+    })
+
+    it("denies a player writing another player's note", async () => {
+      await assertFails(save('bora', 'playerNotes/ayla'))
+      await assertFails(save('ayla', 'playerNotes/bora'))
+      await assertFails(updateDoc(doc(asUser('ayla'), 'playerNotes/bora'), { text: 'x' }))
+      expect(await readAsAdmin('playerNotes/bora')).toMatchObject(STORED)
+    })
+  })
+
+  describe('the DM note', () => {
+    it('lets the DM read DM notes, existing or not', async () => {
+      await assertSucceeds(getDoc(doc(asUser('dana'), 'dmNotes/bora')))
+      await assertSucceeds(getDoc(doc(asUser('dana'), 'dmNotes/ayla')))
+      await assertSucceeds(getDocs(collection(asUser('dana'), 'dmNotes')))
+    })
+
+    it('denies a player reading any DM note, the one about them included', async () => {
+      await assertFails(getDoc(doc(asUser('ayla'), 'dmNotes/ayla')))
+      await assertFails(getDoc(doc(asUser('ayla'), 'dmNotes/bora')))
+      await assertFails(getDoc(doc(asUser('bora'), 'dmNotes/bora')))
+      await assertFails(getDocs(collection(asUser('bora'), 'dmNotes')))
+    })
+
+    it('lets the DM write any DM note, the one about the DM included', async () => {
+      await assertSucceeds(save('dana', 'dmNotes/ayla', { text: 'Kardeşi aslında hayatta.' }))
+      await assertSucceeds(save('dana', 'dmNotes/bora'))
+      await assertSucceeds(save('dana', 'dmNotes/dana'))
+      expect(await readAsAdmin('dmNotes/ayla')).toMatchObject({
+        text: 'Kardeşi aslında hayatta.',
+        updatedBy: 'dana',
+      })
+    })
+
+    it('denies a player writing any DM note', async () => {
+      await assertFails(save('ayla', 'dmNotes/ayla'))
+      await assertFails(save('bora', 'dmNotes/bora'))
+      await assertFails(save('ayla', 'dmNotes/bora'))
+      expect(await readAsAdmin('dmNotes/bora')).toMatchObject(STORED)
+    })
+  })
+
+  describe.each(COLLECTIONS)('the limits and fields of %s', (collectionName) => {
+    const writer = WRITER[collectionName]
+    const path = `${collectionName}/ayla`
+
+    it.each([
+      ['2000 ASCII letters', 'x'.repeat(2000)],
+      ['2000 Turkish letters', 'ğ'.repeat(2000)],
+      ['line breaks', 'Bir.\nİki.\n\nÜç.'],
+      ['an empty text', ''],
+    ])('allows %s', async (_case, text) => {
+      await assertSucceeds(save(writer, path, { text }))
+    })
+
+    it.each([
+      ['2001 characters', { text: 'x'.repeat(2001) }],
+      ['2001 Turkish letters', { text: 'ğ'.repeat(2001) }],
+      ['a text that is not a string', { text: 42 }],
+      ['a forged last editor', { updatedBy: 'bora' }],
+      ['a time that is not the server time', { updatedAt: Timestamp.fromMillis(5000) }],
+      ['an extra field', { extra: true }],
+    ])('denies %s', async (_case, overrides) => {
+      await assertFails(save(writer, path, overrides))
+    })
+
+    it('denies a note without its time', async () => {
+      await assertFails(setDoc(doc(asUser(writer), path), { text: 'x', updatedBy: writer }))
+    })
+
+    it('denies a note about a user who has no profile', async () => {
+      await assertFails(save('dana', `${collectionName}/ghost`))
+      await assertFails(save('ghost', `${collectionName}/ghost`))
+    })
+
+    it('denies deleting a note, even for the DM', async () => {
+      await assertFails(deleteDoc(doc(asUser('dana'), `${collectionName}/bora`)))
+      await assertFails(deleteDoc(doc(asUser('bora'), `${collectionName}/bora`)))
+      expect(await readAsAdmin(`${collectionName}/bora`)).toMatchObject(STORED)
+    })
+
+    it('allows writing the note while a pack is open', async () => {
+      await testEnv.withSecurityRulesDisabled(async (admin) => {
+        await setDoc(doc(firestoreOf(admin), 'table/main'), { openPackId: 'p-open' })
+      })
+      await assertSucceeds(save(writer, path))
+    })
+  })
+})
