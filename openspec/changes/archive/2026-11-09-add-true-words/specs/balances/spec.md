@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The DM changes balances by hand
-The DM SHALL be able to add a positive whole amount to, or subtract one from, any player's LP and the party purse. A single change SHALL be at most 1,000,000. Players SHALL NOT be able to change any balance, not even their own. The exceptions are a player's own LP, which drops by 1 when they pay for a draw, as the card-draws rules allow, by the pack's price when they pay for their own pack, and by the draft's price when they pay for their own True Word draft, and the payments and refunds of packs and True Word drafts, as the pack-shop and true-words rules allow.
+The DM SHALL be able to add a positive whole amount to, or subtract one from, any player's LP and the party purse. A single change SHALL be at most 1,000,000. Players SHALL NOT be able to change any balance, not even their own. The exceptions are a player's own payments from their LP (1 LP for a draw, their own pack's price, their own True Word draft's price) and the payments and refunds of packs and True Word drafts, as the card-draws, pack-shop and true-words rules allow.
 
 #### Scenario: The DM adds LP
 - **WHEN** the DM adds 2 LP to Ayla, who has 5 LP
