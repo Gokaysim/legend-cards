@@ -1,6 +1,7 @@
 import type { LedgerEntry } from '@/features/balances/schema'
 import type { CardDraw, Draw, PackOpening } from '@/features/draws/schema'
 import type { Holding } from '@/features/hands/schema'
+import type { LearnedWord, WordDraft } from '@/features/true-words/schema'
 
 /** A server time, or `null` while it is pending in the local snapshot. */
 export type EventTime = Holding['givenAt']
@@ -8,13 +9,29 @@ export type EventTime = Holding['givenAt']
 /**
  * The records the log is read from, each source newest first and limited to the same `n`: the holdings the DM gave
  * or transferred, by the time they were given; closed holdings, by the time they were closed; draws and pack
- * openings; and the ledger's changes by hand. The holdings and entries of draws and packs are not among them.
+ * openings; the ledger's changes by hand; True Word drafts; the words the DM taught, by the time they were taught;
+ * and the words the DM took back, by the time they were taken back. The holdings and entries of draws, packs and
+ * drafts, and the words learned from drafts, are not among them.
  */
 export type LogRecords = {
   given: readonly Holding[]
   closed: readonly Holding[]
   draws: readonly Draw[]
   entries: readonly LedgerEntry[]
+  drafts: readonly WordDraft[]
+  taught: readonly LearnedWord[]
+  takenBack: readonly LearnedWord[]
+}
+
+/** No records at all. */
+export const EMPTY_LOG_RECORDS: LogRecords = {
+  given: [],
+  closed: [],
+  draws: [],
+  entries: [],
+  drafts: [],
+  taught: [],
+  takenBack: [],
 }
 
 type EventBase = {
@@ -30,7 +47,8 @@ type EventBase = {
  * the old one. When only one side is among the records (a filter or a page boundary cut the other), `from` or
  * `to` is `null`, and `missingHoldingId` names the holding to read for it. A draw is one event for the draw, its
  * holding and its payment. A pack opening is one event for the pack, its holdings, its payment and its refund, at
- * the time it was opened; it changes as the pack goes on.
+ * the time it was opened; it changes as the pack goes on. A True Word draft is likewise one event for the draft, its
+ * learned word, its payment and its refund. A word the DM teaches, and a word the DM takes back, are events too.
  */
 export type LogEvent =
   | (EventBase & { kind: 'given' | 'used' | 'discarded'; holding: Holding })
@@ -46,6 +64,8 @@ export type LogEvent =
   | (EventBase & { kind: 'drawn'; draw: CardDraw })
   | (EventBase & { kind: 'pack'; pack: PackOpening })
   | (EventBase & { kind: 'balance'; entry: LedgerEntry })
+  | (EventBase & { kind: 'wordDraft'; draft: WordDraft })
+  | (EventBase & { kind: 'wordTaught' | 'wordTakenBack'; record: LearnedWord })
 
 type TransferEvent = Extract<LogEvent, { kind: 'transferred' }>
 
@@ -77,7 +97,7 @@ function transferEvent(from: Holding | null, to: Holding | null): TransferEvent 
 }
 
 /**
- * Every event of the records, merged: one per action, a transfer once, a draw once, a pack once. The holdings and
+ * Every event of the records, merged: one per action, a transfer once, a draw once, a pack once, a draft once. The holdings and
  * entries of draws and packs are not among the records (see `logQueries`); a drawn or chosen card's later use,
  * discard or transfer is its own event. Not sorted.
  */
@@ -130,6 +150,33 @@ export function deriveEvents(records: LogRecords): LogEvent[] {
       entry,
     })
   }
+  for (const draft of records.drafts) {
+    events.set(`wordDraft:${draft.id}`, {
+      kind: 'wordDraft',
+      key: `wordDraft:${draft.id}`,
+      at: draft.at,
+      by: draft.by,
+      draft,
+    })
+  }
+  for (const record of records.taught) {
+    events.set(`wordTaught:${record.id}`, {
+      kind: 'wordTaught',
+      key: `wordTaught:${record.id}`,
+      at: record.learnedAt,
+      by: record.learnedBy,
+      record,
+    })
+  }
+  for (const record of records.takenBack) {
+    events.set(`wordTakenBack:${record.id}`, {
+      kind: 'wordTakenBack',
+      key: `wordTakenBack:${record.id}`,
+      at: record.removedAt,
+      by: record.removedBy ?? record.learnedBy,
+      record,
+    })
+  }
   return [...events.values()]
 }
 
@@ -154,6 +201,9 @@ export function newestEvents(
     records.given.length >= limit ||
     records.closed.length >= limit ||
     records.draws.length >= limit ||
-    records.entries.length >= limit
+    records.entries.length >= limit ||
+    records.drafts.length >= limit ||
+    records.taught.length >= limit ||
+    records.takenBack.length >= limit
   return { events: events.slice(0, limit), mayHaveMore }
 }

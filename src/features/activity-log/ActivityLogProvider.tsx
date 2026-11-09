@@ -17,9 +17,12 @@ function useFirestoreLogRecords(uid: string | null, n: number) {
   const closed = useCollection(queries.closed)
   const draws = useCollection(queries.draws)
   const entries = useCollection(queries.entries)
+  const drafts = useCollection(queries.drafts)
+  const taught = useCollection(queries.taught)
+  const takenBack = useCollection(queries.takenBack)
   return useMemo(
-    () => combineSubscriptions({ given, closed, draws, entries }),
-    [given, closed, draws, entries],
+    () => combineSubscriptions({ given, closed, draws, entries, drafts, taught, takenBack }),
+    [given, closed, draws, entries, drafts, taught, takenBack],
   )
 }
 

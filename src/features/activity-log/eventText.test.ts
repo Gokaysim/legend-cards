@@ -5,8 +5,10 @@ import { testCard, testCursedCard } from '@/test/cardFixtures'
 import { testDmDraw, testDraw } from '@/test/drawFixtures'
 import { testHolding } from '@/test/holdingFixtures'
 import { testGpEntry, testLedgerEntry } from '@/test/ledgerFixtures'
+import { testLearnedWord, testTrueWord, testWordDraft } from '@/test/trueWordFixtures'
+import type { WordDraft } from '@/features/true-words/schema'
 
-import { deriveEvents, type LogEvent, type LogRecords } from './events'
+import { deriveEvents, EMPTY_LOG_RECORDS, type LogEvent, type LogRecords } from './events'
 import { describeEvent, sentenceText } from './eventText'
 
 const NAMES: Record<string, string> = { ayla: 'Ayla', bora: 'Bora', cem: 'Cem', dana: 'Dana' }
@@ -16,7 +18,7 @@ const eyes = testCard("Aboleth's Eyes")
 const at = (millis: number) => Timestamp.fromMillis(millis)
 
 function only(records: Partial<LogRecords>): LogEvent {
-  const [event] = deriveEvents({ given: [], closed: [], draws: [], entries: [], ...records })
+  const [event] = deriveEvents({ ...EMPTY_LOG_RECORDS, ...records })
   if (!event) throw new Error('No event')
   return event
 }
@@ -162,6 +164,86 @@ describe('describing draws', () => {
     )
     expect(describeEvent(only({ draws: [testDraw(visions, 'ayla', 1000)] }), nameOf).parts).toEqual(
       ['Cursed kart çekti: ', { card: 'Visions of Death' }, '.'],
+    )
+  })
+})
+
+describe('describeEvent: True Words', () => {
+  const abyss = testTrueWord('Abyss')
+  const draft = (overrides: Partial<WordDraft> = {}) =>
+    testWordDraft('w1', 'ayla', [abyss, testTrueWord('Aid'), testTrueWord('Dragon')], {
+      cost: 3,
+      ...overrides,
+    })
+  const learned = {
+    status: 'learned' as const,
+    closedAt: at(2000),
+    closedBy: 'ayla',
+    learned: { wordId: abyss.id, wordName: 'Abyss', recordId: 'r1' },
+  }
+
+  it("describes a player's open draft, then the word learned from it", () => {
+    expect(text(only({ drafts: [draft()] }))).toBe("True Word draft'ı açıyor (−3 LP).")
+    expect(text(only({ drafts: [draft(learned)] }))).toBe(
+      "True Word draft'ı açtı ve Abyss True Word'ünü öğrendi (−3 LP).",
+    )
+    expect(describeEvent(only({ drafts: [draft(learned)] }), nameOf).parts).toContainEqual({
+      card: 'Abyss',
+    })
+  })
+
+  it('names the player when the DM started the draft, and says when the DM learned for them', () => {
+    expect(text(only({ drafts: [draft({ by: 'dana', ...learned, closedBy: 'dana' })] }))).toBe(
+      "Ayla için True Word draft'ı açtı ve Abyss True Word'ünü öğrendi (seçimi DM yaptı) (−3 LP).",
+    )
+  })
+
+  it('says who skipped a draft, and that a free one was free', () => {
+    const skipped = { status: 'skipped' as const, closedAt: at(2000) }
+    expect(
+      text(
+        only({
+          drafts: [
+            draft({
+              uid: 'bora',
+              by: 'dana',
+              paidWith: 'none',
+              cost: 0,
+              entryId: null,
+              ...skipped,
+              closedBy: 'bora',
+            }),
+          ],
+        }),
+      ),
+    ).toBe("Bora için True Word draft'ı açtı (ücretsiz); Bora pas geçti.")
+    expect(text(only({ drafts: [draft({ ...skipped, closedBy: 'dana' })] }))).toBe(
+      "True Word draft'ı açtı (−3 LP); DM pas geçti.",
+    )
+  })
+
+  it('says that the DM cancelled a draft and refunded it', () => {
+    expect(
+      text(
+        only({
+          drafts: [
+            draft({
+              status: 'cancelled',
+              closedAt: at(2000),
+              closedBy: 'dana',
+              refundEntryId: 'e2',
+            }),
+          ],
+        }),
+      ),
+    ).toBe("True Word draft'ı açtı (−3 LP); DM iptal etti, 3 LP iade edildi.")
+  })
+
+  it('describes a word the DM taught, and one the DM took back', () => {
+    const record = testLearnedWord('r1', abyss, 'bora', { learnedAt: at(1000) })
+    expect(text(only({ taught: [record] }))).toBe("Bora'ya Abyss True Word'ünü öğretti.")
+    expect(text(only({ takenBack: [{ ...record, removedAt: at(3000), removedBy: 'dana' }] }))).toBe(
+      "Bora'dan Abyss True Word'ünü geri aldı.",
     )
   })
 })

@@ -100,7 +100,7 @@ beforeEach(async () => {
   })
 })
 
-/** Runs the four queries as a signed-in player and returns the document IDs of each, in order. */
+/** Runs the four card and balance queries as a signed-in player and returns the document IDs of each, in order. */
 async function ids(uid: string | null, n: number) {
   const db = firestoreOf(testEnv.authenticatedContext('ayla'))
   const queries = logQueries(db, uid, n)
@@ -211,5 +211,114 @@ describe('the log queries and the parts of draws and packs', () => {
       draws: ['p-ayla', 'd-ayla-2', 'd-ayla'],
       entries: ['lp-ayla'],
     })
+  })
+})
+
+describe('the log queries of True Words', () => {
+  /** A learned word as stored: taught by the DM unless `draftId` names its draft, and maybe taken back. */
+  function storedRecord(
+    uid: string,
+    learnedAt: number,
+    {
+      draftId = null,
+      removedAt = null,
+    }: { draftId?: string | null; removedAt?: number | null } = {},
+  ) {
+    return {
+      wordId: 'tw-abyss',
+      wordName: 'Abyss',
+      uid,
+      learnedAt: at(learnedAt),
+      learnedBy: draftId === null ? 'dana' : uid,
+      learnedVia: draftId === null ? 'dm' : 'draft',
+      draftId,
+      active: false,
+      removedAt: removedAt === null ? null : at(removedAt),
+      removedBy: removedAt === null ? null : 'dana',
+    }
+  }
+
+  /** A paid draft for `uid` that ended with a learned word. */
+  function storedDraft(uid: string, millis: number) {
+    return {
+      uid,
+      by: uid,
+      at: at(millis),
+      offered: ['tw-abyss', 'tw-aid', 'tw-dragon'],
+      status: 'learned',
+      paidWith: 'lp',
+      cost: 1,
+      entryId: `pay-${uid}`,
+      closedAt: at(millis + 100),
+      closedBy: uid,
+      learned: { wordId: 'tw-abyss', wordName: 'Abyss', recordId: `r-${uid}-draft` },
+      refundEntryId: null,
+    }
+  }
+
+  beforeEach(async () => {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const db = firestoreOf(admin)
+      await setDoc(doc(db, 'wordDrafts/w-ayla'), storedDraft('ayla', 20000))
+      await setDoc(doc(db, 'wordDrafts/w-bora'), storedDraft('bora', 21000))
+      // Learned from the drafts: part of their events.
+      await setDoc(
+        doc(db, 'userTrueWords/r-ayla-draft'),
+        storedRecord('ayla', 20100, { draftId: 'w-ayla' }),
+      )
+      await setDoc(
+        doc(db, 'userTrueWords/r-bora-draft'),
+        storedRecord('bora', 21100, { draftId: 'w-bora' }),
+      )
+      // Taught by the DM; Ayla's later taken back.
+      await setDoc(
+        doc(db, 'userTrueWords/r-ayla-taught'),
+        storedRecord('ayla', 22000, { removedAt: 24000 }),
+      )
+      await setDoc(doc(db, 'userTrueWords/r-bora-taught'), storedRecord('bora', 23000))
+      // A draft's payment: not a change by hand.
+      await setDoc(doc(db, 'ledger/pay-ayla'), {
+        ...storedEntry('ayla', 20000),
+        delta: -1,
+        source: 'wordDraft',
+        reason: null,
+        drawId: 'w-ayla',
+      })
+    })
+  })
+
+  async function wordIds(uid: string | null, n: number) {
+    const db = firestoreOf(testEnv.authenticatedContext('ayla'))
+    const queries = logQueries(db, uid, n)
+    const idsOf = async <T>(query: Query<T>) =>
+      (await getDocs(query)).docs.map((document) => document.id)
+    return {
+      drafts: await idsOf(queries.drafts),
+      taught: await idsOf(queries.taught),
+      takenBack: await idsOf(queries.takenBack),
+      entries: await idsOf(queries.entries),
+    }
+  }
+
+  it('return the drafts, and the taught and taken-back words, without the words learned in drafts or their payments', async () => {
+    expect(await wordIds(null, 50)).toEqual({
+      drafts: ['w-bora', 'w-ayla'],
+      taught: ['r-bora-taught', 'r-ayla-taught'],
+      takenBack: ['r-ayla-taught'],
+      entries: ['gp', 'lp-bora', 'lp-ayla'],
+    })
+  })
+
+  it("keep only one user's", async () => {
+    expect(await wordIds('ayla', 50)).toEqual({
+      drafts: ['w-ayla'],
+      taught: ['r-ayla-taught'],
+      takenBack: ['r-ayla-taught'],
+      entries: ['lp-ayla'],
+    })
+  })
+
+  it('stop at n', async () => {
+    expect(await wordIds(null, 1)).toMatchObject({ drafts: ['w-bora'], taught: ['r-bora-taught'] })
   })
 })

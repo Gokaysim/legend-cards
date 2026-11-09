@@ -8,10 +8,10 @@ export const CURRENCIES = ['lp', 'gp'] as const
 export type Currency = (typeof CURRENCIES)[number]
 
 /**
- * Where a balance change came from: the DM by hand, a player's payment for a draw, or a pack's payment or refund.
- * Keep in step with `firestore.rules`.
+ * Where a balance change came from: the DM by hand, a player's payment for a draw, a pack's payment or refund, or a
+ * True Word draft's payment or refund. Keep in step with `firestore.rules`.
  */
-export const LEDGER_SOURCES = ['manual', 'draw', 'pack'] as const
+export const LEDGER_SOURCES = ['manual', 'draw', 'pack', 'wordDraft'] as const
 export type LedgerSource = (typeof LEDGER_SOURCES)[number]
 
 /** Limits of one change. Keep in step with `validLedgerEntry` in `firestore.rules`. */
@@ -48,13 +48,13 @@ export const ledgerEntrySchema = z
     balanceAfter: z.number().int().min(0),
     source: z.enum(LEDGER_SOURCES),
     /**
-     * The DM's reason for a change by hand, shown as "Neden". A draw or pack payment and a pack refund have none:
-     * their draw or pack opening explains them.
+     * The DM's reason for a change by hand, shown as "Neden". A draw, pack or draft payment and a pack or draft
+     * refund have none: their draw, pack opening or True Word draft explains them.
      */
     reason: z.string().min(1).max(BALANCE_LIMITS.reason).nullable(),
     /**
-     * For a draw payment, the draw it paid for; for a pack payment or refund, the pack opening. Stored entries from
-     * before draws read as `null`.
+     * For a draw payment, the draw it paid for; for a pack payment or refund, the pack opening; for a True Word
+     * draft's payment or refund, the draft (`wordDrafts/{drawId}`). Stored entries from before draws read as `null`.
      */
     drawId: id.nullable().default(null),
     /** The uid of the user who made the change. */
@@ -77,6 +77,9 @@ export const ledgerEntrySchema = z
     }
     if (entry.source === 'draw' && entry.currency !== 'lp') {
       issue('currency', 'a draw is paid with LP')
+    }
+    if (entry.source === 'wordDraft' && entry.currency !== 'lp') {
+      issue('currency', 'a True Word draft is paid with LP')
     }
   })
 

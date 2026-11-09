@@ -7,6 +7,7 @@ import { setDisplayName, setOrder } from '@/features/cards/sets'
 import { compareLabels } from '@/features/cards/sort'
 import { visibleText } from '@/features/cards/text'
 import { TABLE_BUSY_NOTE } from '@/features/table/errors'
+import type { KnownWordEntry } from '@/features/true-words/trueWordsContext'
 import { useIsTableBusy } from '@/features/table/tableContext'
 import { DmOnly } from '@/features/users/DmOnly'
 import type { UserProfile } from '@/features/users/schema'
@@ -54,14 +55,18 @@ function Stat({
 
 /**
  * Above the hand: a player's Legend Points (the DM changes them here; the DM has none), how many cards the hand
- * holds, how many are active, from how many sets, and how many are Cursed. Lists the active cards with their
- * visible text, and the sets with their card counts.
+ * holds, how many effects are active (cards and True Words), from how many sets the cards come, how many are
+ * Cursed, and how many True Words the player knows. Lists the active cards with their visible text, then the active
+ * True Words marked ✦, and the sets with their card counts. True Words are not cards.
  */
 export function HandSummary({
   entries,
+  words,
   profile,
 }: {
   entries: readonly HandEntry[]
+  /** The player's known True Words, in the order learned. */
+  words: readonly KnownWordEntry[]
   /** Whose hand this is, live. */
   profile: UserProfile
 }) {
@@ -71,6 +76,7 @@ export function HandSummary({
   const isPlayer = profile.role === 'player'
   const playerName = profileName(profile)
   const active = entries.filter((entry) => entry.holding.active)
+  const activeWords = words.filter((entry) => entry.record.active)
   const sets = handSets(entries)
   const cursedCount = entries.filter((entry) => entry.card.kind === 'cursed').length
 
@@ -78,7 +84,10 @@ export function HandSummary({
     <div className="flex flex-col gap-3">
       <dl
         aria-label="El özeti"
-        className={cn('grid grid-cols-2 gap-2', isPlayer ? 'sm:grid-cols-5' : 'sm:grid-cols-4')}
+        className={cn(
+          'grid grid-cols-2 gap-2',
+          isPlayer ? 'sm:grid-cols-3 lg:grid-cols-6' : 'sm:grid-cols-5',
+        )}
       >
         {isPlayer ? (
           <Stat
@@ -102,9 +111,10 @@ export function HandSummary({
           />
         ) : null}
         <Stat label="Eldeki kart" value={entries.length} />
-        <Stat label="Aktif efekt" value={active.length} />
+        <Stat label="Aktif efekt" value={active.length + activeWords.length} />
         <Stat label="Farklı set" value={sets.length} />
         <Stat label="☠ Cursed kart" value={cursedCount} />
+        <Stat label="✦ True Words" value={words.length} />
       </dl>
       <div className="grid gap-3 sm:grid-cols-2">
         <section
@@ -114,7 +124,7 @@ export function HandSummary({
           <h2 id={`${ids}-active`} className="text-sm font-semibold text-ink">
             Aktif efektler
           </h2>
-          {active.length === 0 ? (
+          {active.length === 0 && activeWords.length === 0 ? (
             <p className="text-sm text-ink-muted">Aktif efekt yok.</p>
           ) : (
             <ul className="flex flex-col gap-2">
@@ -137,6 +147,18 @@ export function HandSummary({
                   </p>
                   <p lang="en" className="break-words whitespace-pre-line text-ink-muted">
                     {visibleText(card.text) || 'Efekt metni yok.'}
+                  </p>
+                </li>
+              ))}
+              {activeWords.map(({ record, word }) => (
+                <li key={record.id} className="border-l-2 border-gold pl-2 text-sm">
+                  <p lang="en" className="font-semibold break-words text-ink">
+                    <span aria-hidden="true">✦ </span>
+                    <span className="sr-only">True Word: </span>
+                    {word.name}
+                  </p>
+                  <p lang="en" className="break-words whitespace-pre-line text-ink-muted">
+                    {visibleText(word.text) || 'Efekt metni yok.'}
                   </p>
                 </li>
               ))}

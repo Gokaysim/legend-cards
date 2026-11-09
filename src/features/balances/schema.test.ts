@@ -45,6 +45,16 @@ const lpPackRefund = {
   by: 'dm',
 }
 
+const draftPayment = {
+  ...drawEntry,
+  delta: -3,
+  balanceAfter: 2,
+  source: 'wordDraft',
+  drawId: 'draft-1',
+}
+
+const draftRefund = { ...draftPayment, delta: 3, balanceAfter: 5, by: 'dm' }
+
 const accepts = (entry: object) => ledgerEntrySchema.safeParse(entry).success
 
 describe('ledgerEntrySchema', () => {
@@ -85,6 +95,11 @@ describe('ledgerEntrySchema', () => {
     expect(accepts(lpPackRefund)).toBe(true)
   })
 
+  it('accepts a True Word draft payment and its refund: LP, no reason, and the draft', () => {
+    expect(accepts(draftPayment)).toBe(true)
+    expect(accepts(draftRefund)).toBe(true)
+  })
+
   it.each([
     ['a change by hand without a reason', { ...lpEntry, reason: null }],
     ['a change by hand that names a draw', { ...lpEntry, drawId: 'draw-1' }],
@@ -94,6 +109,9 @@ describe('ledgerEntrySchema', () => {
     ['an empty draw ID', { ...drawEntry, drawId: '' }],
     ['a pack entry with a reason', { ...gpPackPayment, reason: 'Golden Pack' }],
     ['a pack entry without its pack opening', { ...gpPackPayment, drawId: null }],
+    ['a draft payment in GP', { ...draftPayment, currency: 'gp', account: 'party' }],
+    ['a draft payment with a reason', { ...draftPayment, reason: 'True Word draft' }],
+    ['a draft refund without its draft', { ...draftRefund, drawId: null }],
   ])('rejects %s', (_case, entry) => {
     expect(accepts(entry)).toBe(false)
   })

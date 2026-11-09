@@ -2510,3 +2510,725 @@ describe('packs (draws/{drawId} with kind pack, table/main, and their holdings a
     })
   })
 })
+
+describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with their ledger entries and LP)', () => {
+  /** The three words a new draft shows: none of them known by Ayla. */
+  const OFFERED = ['tw-abyss', 'tw-aid', 'tw-dragon']
+  /** Words Ayla knows, through the open records `r-chaos` and `r-hoard`, taught by Dana. */
+  const AYLA_KNOWN = { 'tw-chaos': 'r-chaos', 'tw-hoard': 'r-hoard' }
+  /** Ayla's state: two words known, no open draft. Her draft costs 1 + 2 = 3 LP. */
+  const AYLA_STATE = { known: AYLA_KNOWN, openDraftId: null, recordId: 'r-hoard' }
+
+  const word = (name: string, extra: Record<string, unknown> = {}) => ({
+    name,
+    nameKey: name.toLowerCase(),
+    cost: '1',
+    text: `${name} text.`,
+    retired: false,
+    ...extra,
+  })
+
+  /** An open record as stored: Dana taught it to Ayla long ago. */
+  const seededRecord = (wordId: string, wordName: string, extra: Record<string, unknown> = {}) => ({
+    wordId,
+    wordName,
+    uid: 'ayla',
+    learnedAt: Timestamp.fromMillis(1000),
+    learnedBy: 'dana',
+    learnedVia: 'dm',
+    draftId: null,
+    active: false,
+    removedAt: null,
+    removedBy: null,
+    ...extra,
+  })
+
+  beforeEach(async () => {
+    await seedHoldings()
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const db = firestoreOf(admin)
+      await updateDoc(doc(db, 'users/ayla'), { lp: 5, lpEntryId: 'e-old' })
+      await updateDoc(doc(db, 'users/bora'), { lp: 4, lpEntryId: 'e-old-bora' })
+      for (const name of ['Abyss', 'Aid', 'Dragon', 'Chaos', 'Hoard', 'Mimic']) {
+        await setDoc(doc(db, `trueWords/tw-${name.toLowerCase()}`), word(name))
+      }
+      await setDoc(doc(db, 'trueWords/tw-old'), word('Old', { retired: true }))
+      await setDoc(doc(db, 'userTrueWords/r-chaos'), seededRecord('tw-chaos', 'Chaos'))
+      await setDoc(doc(db, 'userTrueWords/r-hoard'), seededRecord('tw-hoard', 'Hoard'))
+      await setDoc(doc(db, 'playerWords/ayla'), AYLA_STATE)
+    })
+  })
+
+  /** A draft's fields at its start: Ayla's draft for 3 LP, by `by`. */
+  function draftFields(by: string, overrides: Record<string, unknown> = {}) {
+    return {
+      uid: 'ayla',
+      by,
+      at: serverTimestamp(),
+      offered: OFFERED,
+      status: 'open',
+      paidWith: 'lp',
+      cost: 3,
+      entryId: 'e-pay',
+      closedAt: null,
+      closedBy: null,
+      learned: null,
+      refundEntryId: null,
+      ...overrides,
+    }
+  }
+
+  /** A ledger entry of a draft: Ayla's payment of 3 LP (5 -> 2) for `d-new`, as `by` writes it. */
+  function draftEntry(by: string, overrides: Record<string, unknown> = {}) {
+    return {
+      currency: 'lp',
+      account: 'ayla',
+      delta: -3,
+      balanceAfter: 2,
+      source: 'wordDraft',
+      reason: null,
+      drawId: 'd-new',
+      by,
+      at: serverTimestamp(),
+      ...overrides,
+    }
+  }
+
+  type StartSpec = {
+    /** Overrides of the draft's fields. */
+    draft?: Record<string, unknown>
+    /** Overrides of the entry, or `null` to write none. Written only when the draft is paid. */
+    entry?: Record<string, unknown> | null
+    /** The new LP's fields, or `null` to leave it alone. Default: the player's LP minus the cost. */
+    balance?: Record<string, unknown> | null
+    /** The player's new state, or `null` to leave it alone. Default: the state before, with `d-new` open. */
+    state?: Record<string, unknown> | null
+  }
+
+  const LP_BEFORE: Record<string, number> = { ayla: 5, bora: 4 }
+  const STATE_BEFORE: Record<string, Record<string, unknown>> = {
+    ayla: AYLA_STATE,
+    bora: { known: {}, openDraftId: null, recordId: null },
+  }
+
+  /**
+   * One start as the application writes it, in one batch: the draft `d-new`, the player's state pointing at it
+   * and, when paid, the entry `e-pay` and the new LP. Default: Ayla's own draft for 3 LP.
+   */
+  function start(writer: string, spec: StartSpec = {}) {
+    const db = asUser(writer)
+    const fields = draftFields(writer, spec.draft)
+    const uid = String(fields.uid)
+    const cost = Number(fields.cost)
+    const batch = writeBatch(db)
+    batch.set(doc(db, 'wordDrafts/d-new'), fields)
+    if (spec.state !== null) {
+      batch.set(doc(db, `playerWords/${uid}`), {
+        ...STATE_BEFORE[uid],
+        openDraftId: 'd-new',
+        ...spec.state,
+      })
+    }
+    if (fields.paidWith === 'lp' && spec.entry !== null) {
+      batch.set(
+        doc(db, 'ledger/e-pay'),
+        draftEntry(writer, {
+          account: uid,
+          delta: -cost,
+          balanceAfter: (LP_BEFORE[uid] ?? 0) - cost,
+          ...spec.entry,
+        }),
+      )
+    }
+    if (fields.paidWith === 'lp' && spec.balance !== null) {
+      batch.update(doc(db, `users/${uid}`), {
+        lp: (LP_BEFORE[uid] ?? 0) - cost,
+        lpEntryId: 'e-pay',
+        ...spec.balance,
+      })
+    }
+    return batch.commit()
+  }
+
+  /**
+   * Ayla's open draft `d-open`, seeded with the rules disabled: by default paid with 3 LP (her LP already 2),
+   * showing the three words of OFFERED.
+   */
+  async function seedOpenDraft(overrides: Record<string, unknown> = {}) {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const db = firestoreOf(admin)
+      const fields = draftFields('ayla', {
+        at: Timestamp.fromMillis(5000),
+        entryId: 'e-pay-old',
+        ...overrides,
+      })
+      await setDoc(doc(db, 'wordDrafts/d-open'), fields)
+      await setDoc(doc(db, 'playerWords/ayla'), { ...AYLA_STATE, openDraftId: 'd-open' })
+      if (fields.paidWith === 'lp')
+        await updateDoc(doc(db, 'users/ayla'), { lp: 2, lpEntryId: 'e-pay-old' })
+    })
+  }
+
+  type LearnSpec = {
+    /** The learned word. Default: Abyss. */
+    wordId?: string
+    wordName?: string
+    /** Overrides of the draft's update. */
+    draft?: Record<string, unknown> | null
+    /** Overrides of the new record, or `null` to write none. */
+    record?: Record<string, unknown> | null
+    /** The player's new state, or `null` to leave it alone. */
+    state?: Record<string, unknown> | null
+  }
+
+  /** Learning from `d-open` as the application writes it: the draft closed, the record `r-new`, the state. */
+  function learn(writer: string, spec: LearnSpec = {}) {
+    const db = asUser(writer)
+    const wordId = spec.wordId ?? 'tw-abyss'
+    const wordName = spec.wordName ?? 'Abyss'
+    const batch = writeBatch(db)
+    if (spec.draft !== null) {
+      batch.update(doc(db, 'wordDrafts/d-open'), {
+        status: 'learned',
+        closedAt: serverTimestamp(),
+        closedBy: writer,
+        learned: { wordId, wordName, recordId: 'r-new' },
+        ...spec.draft,
+      })
+    }
+    if (spec.record !== null) {
+      batch.set(doc(db, 'userTrueWords/r-new'), {
+        ...seededRecord(wordId, wordName),
+        learnedAt: serverTimestamp(),
+        learnedBy: writer,
+        learnedVia: 'draft',
+        draftId: 'd-open',
+        ...spec.record,
+      })
+    }
+    if (spec.state !== null) {
+      batch.set(doc(db, 'playerWords/ayla'), {
+        known: { ...AYLA_KNOWN, [wordId]: 'r-new' },
+        openDraftId: null,
+        recordId: 'r-new',
+        ...spec.state,
+      })
+    }
+    return batch.commit()
+  }
+
+  /** Skipping `d-open`: the draft closed as skipped and the player's open draft cleared. */
+  function skip(writer: string) {
+    const db = asUser(writer)
+    const batch = writeBatch(db)
+    batch.update(doc(db, 'wordDrafts/d-open'), {
+      status: 'skipped',
+      closedAt: serverTimestamp(),
+      closedBy: writer,
+    })
+    batch.set(doc(db, 'playerWords/ayla'), AYLA_STATE)
+    return batch.commit()
+  }
+
+  /** Cancelling `d-open` with a refund of 3 LP (2 -> 5) as `e-refund`, or without one for a free draft. */
+  function cancel(writer: string, { paid = true } = {}) {
+    const db = asUser(writer)
+    const batch = writeBatch(db)
+    batch.update(doc(db, 'wordDrafts/d-open'), {
+      status: 'cancelled',
+      closedAt: serverTimestamp(),
+      closedBy: writer,
+      refundEntryId: paid ? 'e-refund' : null,
+    })
+    if (paid) {
+      batch.set(
+        doc(db, 'ledger/e-refund'),
+        draftEntry(writer, { delta: 3, balanceAfter: 5, drawId: 'd-open' }),
+      )
+      batch.update(doc(db, 'users/ayla'), { lp: 5, lpEntryId: 'e-refund' })
+    }
+    batch.set(doc(db, 'playerWords/ayla'), AYLA_STATE)
+    return batch.commit()
+  }
+
+  type TeachSpec = {
+    uid?: string
+    wordId?: string
+    wordName?: string
+    record?: Record<string, unknown>
+    state?: Record<string, unknown> | null
+  }
+
+  /** The DM teaching a word as the application writes it: the record `r-new` and the player's state. */
+  function teach(writer: string, spec: TeachSpec = {}) {
+    const db = asUser(writer)
+    const uid = spec.uid ?? 'ayla'
+    const wordId = spec.wordId ?? 'tw-abyss'
+    const before = STATE_BEFORE[uid] ?? { known: {}, openDraftId: null }
+    const batch = writeBatch(db)
+    batch.set(doc(db, 'userTrueWords/r-new'), {
+      ...seededRecord(wordId, spec.wordName ?? 'Abyss'),
+      uid,
+      learnedAt: serverTimestamp(),
+      learnedBy: writer,
+      ...spec.record,
+    })
+    if (spec.state !== null) {
+      batch.set(doc(db, `playerWords/${uid}`), {
+        ...before,
+        known: { ...(before.known as Record<string, string>), [wordId]: 'r-new' },
+        recordId: 'r-new',
+        ...spec.state,
+      })
+    }
+    return batch.commit()
+  }
+
+  /** The DM taking back Ayla's Chaos: the record `r-chaos` closed, and the word gone from her state. */
+  function takeBack(writer: string, { state = true } = {}) {
+    const db = asUser(writer)
+    const batch = writeBatch(db)
+    batch.update(doc(db, 'userTrueWords/r-chaos'), {
+      removedAt: serverTimestamp(),
+      removedBy: writer,
+    })
+    if (state) {
+      batch.set(doc(db, 'playerWords/ayla'), {
+        known: { 'tw-hoard': 'r-hoard' },
+        openDraftId: null,
+        recordId: 'r-chaos',
+      })
+    }
+    return batch.commit()
+  }
+
+  async function setTable(openPackId: string | null) {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(firestoreOf(admin), 'table/main'), { openPackId })
+    })
+  }
+
+  describe('reading', () => {
+    it.each(['ayla', 'bora', 'dana'])(
+      'lets %s read words, states, records and drafts',
+      async (uid) => {
+        await seedOpenDraft()
+        const db = asUser(uid)
+        await assertSucceeds(getDoc(doc(db, 'trueWords/tw-abyss')))
+        await assertSucceeds(getDoc(doc(db, 'playerWords/ayla')))
+        await assertSucceeds(getDoc(doc(db, 'userTrueWords/r-chaos')))
+        await assertSucceeds(getDoc(doc(db, 'wordDrafts/d-open')))
+        await assertSucceeds(getDocs(collection(db, 'userTrueWords')))
+      },
+    )
+
+    it('denies signed-out users', async () => {
+      const db = firestoreOf(testEnv.unauthenticatedContext())
+      await assertFails(getDoc(doc(db, 'trueWords/tw-abyss')))
+      await assertFails(getDoc(doc(db, 'playerWords/ayla')))
+      await assertFails(getDoc(doc(db, 'userTrueWords/r-chaos')))
+      await assertFails(getDocs(collection(db, 'wordDrafts')))
+    })
+  })
+
+  describe('starting a draft', () => {
+    it('lets a player start their own draft for 1 LP plus the words they know', async () => {
+      await assertSucceeds(start('ayla'))
+      expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 2, lpEntryId: 'e-pay' })
+      expect(await readAsAdmin('playerWords/ayla')).toEqual({ ...AYLA_STATE, openDraftId: 'd-new' })
+    })
+
+    it("charges a player's first draft 1 LP, creating their state", async () => {
+      await assertSucceeds(start('bora', { draft: { uid: 'bora', cost: 1 } }))
+      expect(await readAsAdmin('users/bora')).toMatchObject({ lp: 3 })
+      expect(await readAsAdmin('playerWords/bora')).toEqual({
+        known: {},
+        openDraftId: 'd-new',
+        recordId: null,
+      })
+    })
+
+    it('lets the DM start a draft for a player at the price', async () => {
+      await assertSucceeds(start('dana'))
+      expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 2 })
+      expect(await readAsAdmin('wordDrafts/d-new')).toMatchObject({ by: 'dana', uid: 'ayla' })
+    })
+
+    it('lets the DM charge any amount up to the LP', async () => {
+      await assertSucceeds(start('dana', { draft: { cost: 5 } }))
+      expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 0 })
+    })
+
+    it('lets the DM start a free draft without an entry', async () => {
+      await assertSucceeds(start('dana', { draft: { paidWith: 'none', cost: 0, entryId: null } }))
+      expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 5 })
+    })
+
+    it.each<[string, string, StartSpec]>([
+      ['a player paying less than the price', 'ayla', { draft: { cost: 1 } }],
+      ['a player paying more than the price', 'ayla', { draft: { cost: 4 } }],
+      ['a free draft by a player', 'ayla', { draft: { paidWith: 'none', cost: 0, entryId: null } }],
+      ['a player starting a draft for someone else', 'ayla', { draft: { uid: 'bora', cost: 1 } }],
+      ['a draft paid in GP', 'dana', { draft: { paidWith: 'gp' } }],
+      [
+        'a draft showing a word the player knows',
+        'ayla',
+        {
+          draft: { offered: ['tw-abyss', 'tw-aid', 'tw-chaos'] },
+        },
+      ],
+      ['a draft showing 2 words', 'ayla', { draft: { offered: ['tw-abyss', 'tw-aid'] } }],
+      [
+        'a draft showing a word twice',
+        'ayla',
+        {
+          draft: { offered: ['tw-abyss', 'tw-abyss', 'tw-aid'] },
+        },
+      ],
+      ['a draft that starts already ended', 'ayla', { draft: { status: 'skipped' } }],
+      ['a paid draft without its entry', 'ayla', { entry: null }],
+      ['a paid draft without the new LP', 'ayla', { balance: null }],
+      ['a draft that the player state does not name', 'ayla', { state: null }],
+      ['an entry for another amount', 'ayla', { entry: { delta: -1, balanceAfter: 4 } }],
+      ['a DM draft over the limit', 'dana', { draft: { cost: 1000001 } }],
+    ])('denies %s', async (_case, writer, spec) => {
+      await assertFails(start(writer, spec))
+    })
+
+    it('denies a second open draft for the same player, by them or by the DM', async () => {
+      await seedOpenDraft()
+      const state = { openDraftId: 'd-new' }
+      await assertFails(start('ayla', { state }))
+      await assertFails(start('dana', { state }))
+    })
+
+    it("allows another player's draft while one is open", async () => {
+      await seedOpenDraft()
+      await assertSucceeds(start('bora', { draft: { uid: 'bora', cost: 1 } }))
+    })
+  })
+
+  describe('learning', () => {
+    it("lets the draft's player learn one of its words, inactive", async () => {
+      await seedOpenDraft()
+      await assertSucceeds(learn('ayla'))
+      expect(await readAsAdmin('wordDrafts/d-open')).toMatchObject({
+        status: 'learned',
+        closedBy: 'ayla',
+        learned: { wordId: 'tw-abyss', wordName: 'Abyss', recordId: 'r-new' },
+      })
+      expect(await readAsAdmin('userTrueWords/r-new')).toMatchObject({
+        uid: 'ayla',
+        learnedVia: 'draft',
+        draftId: 'd-open',
+        active: false,
+      })
+    })
+
+    it('lets the DM learn for the player', async () => {
+      await seedOpenDraft()
+      await assertSucceeds(learn('dana'))
+      expect(await readAsAdmin('wordDrafts/d-open')).toMatchObject({ closedBy: 'dana' })
+    })
+
+    it('denies another player', async () => {
+      await seedOpenDraft()
+      await assertFails(learn('bora'))
+    })
+
+    it('denies a word the draft does not show', async () => {
+      await seedOpenDraft()
+      await assertFails(learn('ayla', { wordId: 'tw-mimic', wordName: 'Mimic' }))
+    })
+
+    it('denies a shown word that the player came to know meanwhile', async () => {
+      await seedOpenDraft()
+      await testEnv.withSecurityRulesDisabled(async (admin) => {
+        const db = firestoreOf(admin)
+        await setDoc(doc(db, 'userTrueWords/r-abyss'), seededRecord('tw-abyss', 'Abyss'))
+        await setDoc(doc(db, 'playerWords/ayla'), {
+          known: { ...AYLA_KNOWN, 'tw-abyss': 'r-abyss' },
+          openDraftId: 'd-open',
+          recordId: 'r-abyss',
+        })
+      })
+      await assertFails(learn('ayla', { state: { known: { ...AYLA_KNOWN, 'tw-abyss': 'r-new' } } }))
+    })
+
+    it('denies a shown word that an import retired meanwhile', async () => {
+      await seedOpenDraft({ offered: ['tw-old', 'tw-aid', 'tw-dragon'] })
+      await assertFails(learn('ayla', { wordId: 'tw-old', wordName: 'Old' }))
+    })
+
+    it('denies a learned record without ending the draft, and a draft ended without its record', async () => {
+      await seedOpenDraft()
+      await assertFails(learn('ayla', { draft: null }))
+      await assertFails(learn('ayla', { record: null }))
+      await assertFails(learn('ayla', { state: null }))
+    })
+
+    it('denies a record that names another draft or another word', async () => {
+      await seedOpenDraft()
+      await assertFails(learn('ayla', { record: { draftId: 'd-other' } }))
+      await assertFails(learn('ayla', { record: { wordId: 'tw-aid', wordName: 'Aid' } }))
+    })
+  })
+
+  describe('skipping and cancelling', () => {
+    it("lets the draft's player or the DM skip it, keeping the payment", async () => {
+      await seedOpenDraft()
+      await assertSucceeds(skip('ayla'))
+      expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 2 })
+
+      await seedOpenDraft()
+      await assertSucceeds(skip('dana'))
+    })
+
+    it('denies another player skipping', async () => {
+      await seedOpenDraft()
+      await assertFails(skip('bora'))
+    })
+
+    it('lets the DM cancel a paid draft with a refund of its cost', async () => {
+      await seedOpenDraft()
+      await assertSucceeds(cancel('dana'))
+      expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 5, lpEntryId: 'e-refund' })
+      expect(await readAsAdmin('wordDrafts/d-open')).toMatchObject({
+        status: 'cancelled',
+        refundEntryId: 'e-refund',
+      })
+    })
+
+    it('lets the DM cancel a free draft without a refund', async () => {
+      await seedOpenDraft({ by: 'dana', paidWith: 'none', cost: 0, entryId: null })
+      await assertSucceeds(cancel('dana', { paid: false }))
+    })
+
+    it('denies a player cancelling, even their own draft', async () => {
+      await seedOpenDraft()
+      await assertFails(cancel('ayla'))
+    })
+
+    it('denies a cancel of a paid draft without its refund', async () => {
+      await seedOpenDraft()
+      await assertFails(cancel('dana', { paid: false }))
+    })
+  })
+
+  describe('teaching and taking back', () => {
+    it('lets the DM teach any player a word they do not know, for free', async () => {
+      await assertSucceeds(teach('dana'))
+      expect(await readAsAdmin('userTrueWords/r-new')).toMatchObject({ learnedVia: 'dm' })
+      expect(await readAsAdmin('playerWords/ayla')).toEqual({
+        known: { ...AYLA_KNOWN, 'tw-abyss': 'r-new' },
+        openDraftId: null,
+        recordId: 'r-new',
+      })
+      expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 5 })
+    })
+
+    it('lets the DM teach a word to a player who never had a state', async () => {
+      await assertSucceeds(teach('dana', { uid: 'bora', wordId: 'tw-aid', wordName: 'Aid' }))
+      expect(await readAsAdmin('playerWords/bora')).toEqual({
+        known: { 'tw-aid': 'r-new' },
+        openDraftId: null,
+        recordId: 'r-new',
+      })
+    })
+
+    it('keeps an open draft open while the DM teaches', async () => {
+      await seedOpenDraft()
+      await assertSucceeds(
+        teach('dana', { wordId: 'tw-mimic', wordName: 'Mimic', state: { openDraftId: 'd-open' } }),
+      )
+    })
+
+    it.each<[string, string, TeachSpec]>([
+      ['a player teaching themselves', 'ayla', {}],
+      ['teaching a word the player knows', 'dana', { wordId: 'tw-chaos', wordName: 'Chaos' }],
+      ['teaching a retired word', 'dana', { wordId: 'tw-old', wordName: 'Old' }],
+      ['teaching a word that does not exist', 'dana', { wordId: 'tw-none', wordName: 'None' }],
+      ['a record under another name', 'dana', { record: { wordName: 'Renamed' } }],
+      ['a record that starts active', 'dana', { record: { active: true } }],
+      ['a record without the state', 'dana', { state: null }],
+      ['a state that keeps the old record', 'dana', { state: { recordId: 'r-hoard' } }],
+      [
+        'a state that also drops a word',
+        'dana',
+        {
+          state: { known: { 'tw-abyss': 'r-new', 'tw-hoard': 'r-hoard' } },
+        },
+      ],
+    ])('denies %s', async (_case, writer, spec) => {
+      await assertFails(teach(writer, spec))
+    })
+
+    it('lets the DM take back a word, closing its record for good', async () => {
+      await assertSucceeds(takeBack('dana'))
+      expect(await readAsAdmin('userTrueWords/r-chaos')).toMatchObject({ removedBy: 'dana' })
+      expect(await readAsAdmin('playerWords/ayla')).toEqual({
+        known: { 'tw-hoard': 'r-hoard' },
+        openDraftId: null,
+        recordId: 'r-chaos',
+      })
+    })
+
+    it('lets the DM teach a word again after taking it back, with a new record', async () => {
+      await assertSucceeds(takeBack('dana'))
+      await assertSucceeds(
+        teach('dana', {
+          wordId: 'tw-chaos',
+          wordName: 'Chaos',
+          state: { known: { 'tw-hoard': 'r-hoard', 'tw-chaos': 'r-new' } },
+        }),
+      )
+    })
+
+    it('denies a player taking back or forgetting a word', async () => {
+      await assertFails(takeBack('ayla'))
+    })
+
+    it('denies a take-back without the state, or the state without the take-back', async () => {
+      await assertFails(takeBack('dana', { state: false }))
+      await assertFails(
+        setDoc(doc(asUser('dana'), 'playerWords/ayla'), {
+          known: { 'tw-hoard': 'r-hoard' },
+          openDraftId: null,
+          recordId: 'r-chaos',
+        }),
+      )
+    })
+  })
+
+  describe('the active switch', () => {
+    it('lets the DM switch a known word active and back', async () => {
+      await assertSucceeds(
+        updateDoc(doc(asUser('dana'), 'userTrueWords/r-chaos'), { active: true }),
+      )
+      await assertSucceeds(
+        updateDoc(doc(asUser('dana'), 'userTrueWords/r-chaos'), { active: false }),
+      )
+    })
+
+    it('denies a player switching their own word', async () => {
+      await assertFails(updateDoc(doc(asUser('ayla'), 'userTrueWords/r-chaos'), { active: true }))
+    })
+
+    it('denies switching a word that was taken back', async () => {
+      await testEnv.withSecurityRulesDisabled(async (admin) => {
+        await updateDoc(doc(firestoreOf(admin), 'userTrueWords/r-chaos'), {
+          removedAt: Timestamp.fromMillis(2000),
+          removedBy: 'dana',
+        })
+      })
+      await assertFails(updateDoc(doc(asUser('dana'), 'userTrueWords/r-chaos'), { active: true }))
+    })
+
+    it('denies changing anything else with the switch', async () => {
+      await assertFails(
+        updateDoc(doc(asUser('dana'), 'userTrueWords/r-chaos'), { active: true, wordName: 'X' }),
+      )
+    })
+  })
+
+  describe('the table waits for an open pack', () => {
+    /** Nothing to seed. */
+    const nothing = () => Promise.resolve()
+    const STEPS: [string, () => Promise<void>, () => Promise<void>][] = [
+      ['a player starts a draft', nothing, () => start('ayla')],
+      [
+        'the DM starts a free draft',
+        nothing,
+        () => start('dana', { draft: { paidWith: 'none', cost: 0, entryId: null } }),
+      ],
+      ['a player learns from their draft', () => seedOpenDraft(), () => learn('ayla')],
+      ['a player skips their draft', () => seedOpenDraft(), () => skip('ayla')],
+      ['the DM cancels a draft', () => seedOpenDraft(), () => cancel('dana')],
+      ['the DM teaches a word', nothing, () => teach('dana')],
+      ['the DM takes back a word', nothing, () => takeBack('dana')],
+    ]
+
+    it.each(STEPS)(
+      'denies that %s while a pack is open, and allows it after',
+      async (_case, seed, act) => {
+        await seed()
+        await setTable('p-open')
+        await assertFails(act())
+        await setTable(null)
+        await assertSucceeds(act())
+      },
+    )
+
+    it('still lets the DM switch a word active while a pack is open', async () => {
+      await setTable('p-open')
+      await assertSucceeds(
+        updateDoc(doc(asUser('dana'), 'userTrueWords/r-chaos'), { active: true }),
+      )
+    })
+  })
+
+  describe('the heaviest requests', () => {
+    it("allows the DM's paid start: the draft, the state, the entry and the LP", async () => {
+      await setTable(null)
+      await assertSucceeds(start('dana'))
+      expect(await readAsAdmin('ledger/e-pay')).toMatchObject({
+        source: 'wordDraft',
+        drawId: 'd-new',
+      })
+    })
+
+    it("allows the DM's cancel with a refund: the draft, the state, the entry and the LP", async () => {
+      await setTable(null)
+      await seedOpenDraft()
+      await assertSucceeds(cancel('dana'))
+    })
+
+    it('allows the DM learning for the player: the draft, the record, the state and the word', async () => {
+      await setTable(null)
+      await seedOpenDraft()
+      await assertSucceeds(learn('dana'))
+    })
+  })
+
+  describe('ended drafts, closed records and deleting', () => {
+    it('denies changing an ended draft, even for the DM', async () => {
+      await seedOpenDraft()
+      await testEnv.withSecurityRulesDisabled(async (admin) => {
+        await updateDoc(doc(firestoreOf(admin), 'wordDrafts/d-open'), {
+          status: 'skipped',
+          closedAt: Timestamp.fromMillis(6000),
+          closedBy: 'ayla',
+        })
+      })
+      await assertFails(cancel('dana'))
+      await assertFails(updateDoc(doc(asUser('dana'), 'wordDrafts/d-open'), { cost: 0 }))
+    })
+
+    it('denies deleting a word, a state, a record or a draft', async () => {
+      await seedOpenDraft()
+      const db = asUser('dana')
+      await assertFails(deleteDoc(doc(db, 'trueWords/tw-abyss')))
+      await assertFails(deleteDoc(doc(db, 'playerWords/ayla')))
+      await assertFails(deleteDoc(doc(db, 'userTrueWords/r-chaos')))
+      await assertFails(deleteDoc(doc(db, 'wordDrafts/d-open')))
+    })
+
+    it('denies writing a word from the application, even for the DM', async () => {
+      await assertFails(setDoc(doc(asUser('dana'), 'trueWords/tw-new'), word('New')))
+      await assertFails(updateDoc(doc(asUser('dana'), 'trueWords/tw-abyss'), { cost: '2' }))
+    })
+
+    it('denies a player state written alone', async () => {
+      await assertFails(
+        setDoc(doc(asUser('ayla'), 'playerWords/ayla'), { ...AYLA_STATE, openDraftId: 'd-x' }),
+      )
+      await assertFails(
+        setDoc(doc(asUser('dana'), 'playerWords/bora'), {
+          known: { 'tw-abyss': 'r-x' },
+          openDraftId: null,
+          recordId: 'r-x',
+        }),
+      )
+    })
+  })
+})

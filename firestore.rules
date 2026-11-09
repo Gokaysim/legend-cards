@@ -46,6 +46,40 @@ service cloud.firestore {
       return /databases/$(database)/documents/table/main;
     }
 
+    function trueWordPath(wordId) {
+      return /databases/$(database)/documents/trueWords/$(wordId);
+    }
+
+    function learnedWordPath(recordId) {
+      return /databases/$(database)/documents/userTrueWords/$(recordId);
+    }
+
+    function playerWordsPath(uid) {
+      return /databases/$(database)/documents/playerWords/$(uid);
+    }
+
+    function wordDraftPath(draftId) {
+      return /databases/$(database)/documents/wordDrafts/$(draftId);
+    }
+
+    // A player's known True Words ({ wordId: recordId }) and open draft, before and after this request. A player
+    // without a `playerWords` document knows nothing and has no open draft.
+    function knownBefore(uid) {
+      return exists(playerWordsPath(uid)) ? get(playerWordsPath(uid)).data.known : {};
+    }
+
+    function knownAfter(uid) {
+      return existsAfter(playerWordsPath(uid)) ? getAfter(playerWordsPath(uid)).data.known : {};
+    }
+
+    function openDraftBefore(uid) {
+      return exists(playerWordsPath(uid)) ? get(playerWordsPath(uid)).data.openDraftId : null;
+    }
+
+    function openDraftAfter(uid) {
+      return existsAfter(playerWordsPath(uid)) ? getAfter(playerWordsPath(uid)).data.openDraftId : null;
+    }
+
     // The open pack's ID before and after this request: null while no pack is open, or before the table exists.
     function openPackBefore() {
       return exists(tablePath()) ? get(tablePath()).data.openPackId : null;
@@ -113,7 +147,8 @@ service cloud.firestore {
     // User profiles. Everyone signed in reads every profile. A user creates only their own, only as a player,
     // and later changes only its name and picture. Roles are changed by the admin script (Admin SDK), never here.
     // The other writes are a player's Legend Points, each together with the ledger entry that records it: the DM
-    // changes them by hand, a player pays 1 LP for their own draw, and a pack's payment or refund moves them.
+    // changes them by hand, a player pays 1 LP for their own draw, and a pack's or a True Word draft's payment or
+    // refund moves them.
     match /users/{uid} {
       allow read: if isSignedIn();
       allow create: if isSelf(uid)
@@ -131,7 +166,8 @@ service cloud.firestore {
         )
         || (lpSetByEntry('manual') && isDm())
         || (isSelf(uid) && lpSetByEntry('draw'))
-        || (lpSetByEntry('pack') && (isSelf(uid) || isDm()));
+        || (lpSetByEntry('pack') && (isSelf(uid) || isDm()))
+        || (lpSetByEntry('wordDraft') && (isSelf(uid) || isDm()));
       allow delete: if false;
 
       // A player's LP (a whole number, never below 0) set with a new ledger entry from `source`: the DM's change by
@@ -177,7 +213,7 @@ service cloud.firestore {
     match /ledger/{entryId} {
       allow read: if isSignedIn();
       allow create: if validLedgerEntry()
-        && (((manualByDm() || paysForDraw()) && tableFree()) || forPack());
+        && (((manualByDm() || paysForDraw() || forWordDraft()) && tableFree()) || forPack());
       allow update, delete: if false;
 
       // Exactly the stored fields. Limits: keep in step with BALANCE_LIMITS in src/features/balances/schema.ts.
@@ -262,6 +298,44 @@ service cloud.firestore {
           && after.refundEntryId == entryId
           && data.delta == before.cost
           && matchesPackPayment(before);
+      }
+
+      // A True Word draft's payment, created with the draft that names it, or its refund, created with the DM's
+      // cancel that names it. Always the draft's player's LP, without a reason. The draft's rules decide who may pay
+      // or refund what.
+      function forWordDraft() {
+        let data = request.resource.data;
+        return data.source == 'wordDraft'
+          && data.reason == null
+          && data.currency == 'lp'
+          && data.drawId is string
+          && (paysForWordDraft() || refundsWordDraft())
+          && setsLp();
+      }
+
+      // The draft that this same request creates names this entry, which takes exactly its cost from its player.
+      function paysForWordDraft() {
+        let data = request.resource.data;
+        let draft = getAfter(wordDraftPath(data.drawId)).data;
+        return createdNow(wordDraftPath(data.drawId))
+          && draft.paidWith == 'lp'
+          && draft.entryId == entryId
+          && data.account == draft.uid
+          && data.delta == -draft.cost;
+      }
+
+      // The open paid draft that this same request cancels names this entry as its refund, which returns exactly
+      // its cost to its player.
+      function refundsWordDraft() {
+        let data = request.resource.data;
+        let before = get(wordDraftPath(data.drawId)).data;
+        let after = getAfter(wordDraftPath(data.drawId)).data;
+        return before.status == 'open'
+          && before.paidWith == 'lp'
+          && after.status == 'cancelled'
+          && after.refundEntryId == entryId
+          && data.account == before.uid
+          && data.delta == before.cost;
       }
 
       // The entry's currency and account are the ones the pack was paid with: the hand's owner's LP, or the party's GP.
@@ -877,6 +951,316 @@ service cloud.firestore {
       function freedBy(packId) {
         return get(drawPath(packId)).data.status == 'open'
           && getAfter(drawPath(packId)).data.status in ['chosen', 'cancelled'];
+      }
+    }
+
+    // True Word definitions. Everyone signed in reads every word, retired ones included. Only the import script
+    // (Admin SDK, outside these rules) writes them.
+    match /trueWords/{wordId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    // A player's True Word state: the known words with their open records, the open draft, and the record that
+    // last changed `known`. Everyone signed in reads it. It checks only that it agrees with the draft or record that
+    // this same request changes; those documents decide who may act. Every change waits while a pack is open.
+    match /playerWords/{uid} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn()
+        && validPlayerWords()
+        && tableFree()
+        && (opensDraft() || endsDraft() || learnsFromDraft() || teaches() || takesBack());
+      allow delete: if false;
+
+      function knownNow() {
+        return resource == null ? {} : resource.data.known;
+      }
+
+      function openDraftNow() {
+        return resource == null ? null : resource.data.openDraftId;
+      }
+
+      function recordNow() {
+        return resource == null ? null : resource.data.recordId;
+      }
+
+      function validPlayerWords() {
+        let next = request.resource.data;
+        return next.keys().hasOnly(['known', 'openDraftId', 'recordId'])
+          && next.keys().hasAll(['known', 'openDraftId', 'recordId'])
+          && next.known is map
+          && (next.openDraftId == null || next.openDraftId is string)
+          && (next.recordId == null || next.recordId is string);
+      }
+
+      function keepsKnown() {
+        let next = request.resource.data;
+        return next.known == knownNow() && next.recordId == recordNow();
+      }
+
+      // A draft for this player that this same request creates becomes the open draft.
+      function opensDraft() {
+        let next = request.resource.data;
+        return openDraftNow() == null
+          && next.openDraftId is string
+          && createdNow(wordDraftPath(next.openDraftId))
+          && getAfter(wordDraftPath(next.openDraftId)).data.uid == uid
+          && keepsKnown();
+      }
+
+      // The open draft is skipped or cancelled in this same request.
+      function endsDraft() {
+        let next = request.resource.data;
+        let open = openDraftNow();
+        return open != null
+          && next.openDraftId == null
+          && getAfter(wordDraftPath(open)).data.status in ['skipped', 'cancelled']
+          && keepsKnown();
+      }
+
+      // `known` gains exactly the word of the record that this same request creates for this player.
+      function gainsRecord(recordId) {
+        let record = getAfter(learnedWordPath(recordId)).data;
+        let diff = request.resource.data.known.diff(knownNow());
+        return recordId is string
+          && createdNow(learnedWordPath(recordId))
+          && record.uid == uid
+          && diff.addedKeys() == [record.wordId].toSet()
+          && diff.removedKeys().size() == 0
+          && diff.changedKeys().size() == 0
+          && request.resource.data.known[record.wordId] == recordId;
+      }
+
+      // The open draft is learned from in this same request: its word joins `known`, and the draft closes.
+      function learnsFromDraft() {
+        let next = request.resource.data;
+        let open = openDraftNow();
+        return open != null
+          && next.openDraftId == null
+          && getAfter(wordDraftPath(open)).data.status == 'learned'
+          && getAfter(wordDraftPath(open)).data.learned.recordId == next.recordId
+          && gainsRecord(next.recordId);
+      }
+
+      // The DM teaches a word: it joins `known`, and the open draft, if any, stays.
+      function teaches() {
+        let next = request.resource.data;
+        return next.openDraftId == openDraftNow()
+          && getAfter(learnedWordPath(next.recordId)).data.learnedVia == 'dm'
+          && gainsRecord(next.recordId);
+      }
+
+      // The DM takes back a word: its open record closes in this same request, and the word leaves `known`.
+      function takesBack() {
+        let next = request.resource.data;
+        let record = getAfter(learnedWordPath(next.recordId)).data;
+        let diff = next.known.diff(knownNow());
+        return resource != null
+          && next.openDraftId == openDraftNow()
+          && next.recordId is string
+          && get(learnedWordPath(next.recordId)).data.removedBy == null
+          && record.removedBy != null
+          && record.uid == uid
+          && knownNow()[record.wordId] == next.recordId
+          && diff.removedKeys() == [record.wordId].toSet()
+          && diff.addedKeys().size() == 0
+          && diff.changedKeys().size() == 0;
+      }
+    }
+
+    // One word one player learned. Everyone signed in reads every record. A record opens when its player learns
+    // the word from their draft, or when the DM teaches it, while the table is free. Only the DM switches it active,
+    // even during a pack, and takes it back, closing it for good. Records are never deleted.
+    match /userTrueWords/{recordId} {
+      allow read: if isSignedIn();
+      allow create: if validNewRecord() && tableFree() && (learnedFromDraft() || taughtByDm());
+      allow update: if isSignedIn()
+        && resource.data.removedBy == null
+        && ((switchesActive() && isDm()) || (takenBack() && tableFree() && isDm()));
+      allow delete: if false;
+
+      // Exactly the stored fields, for an active word the player did not know before and knows after, with this
+      // record: never the same word twice.
+      function validNewRecord() {
+        let data = request.resource.data;
+        let fields = ['wordId', 'wordName', 'uid', 'learnedAt', 'learnedBy', 'learnedVia', 'draftId',
+          'active', 'removedAt', 'removedBy'];
+        return isSignedIn()
+          && data.keys().hasOnly(fields)
+          && data.keys().hasAll(fields)
+          && data.wordId is string
+          && exists(trueWordPath(data.wordId))
+          && get(trueWordPath(data.wordId)).data.retired == false
+          && data.wordName == get(trueWordPath(data.wordId)).data.name
+          && data.uid is string
+          && data.learnedAt == request.time
+          && data.learnedBy == request.auth.uid
+          && data.active == false
+          && data.removedAt == null
+          && data.removedBy == null
+          && !(data.wordId in knownBefore(data.uid))
+          && knownAfter(data.uid)[data.wordId] == recordId;
+      }
+
+      // Learned from the player's open draft, which this same request closes as learned with this record.
+      function learnedFromDraft() {
+        let data = request.resource.data;
+        let draft = getAfter(wordDraftPath(data.draftId)).data;
+        return data.learnedVia == 'draft'
+          && data.draftId is string
+          && get(wordDraftPath(data.draftId)).data.status == 'open'
+          && draft.status == 'learned'
+          && draft.uid == data.uid
+          && draft.learned.recordId == recordId;
+      }
+
+      // Taught by the DM, without a draft, to a user who has a profile.
+      function taughtByDm() {
+        let data = request.resource.data;
+        return data.learnedVia == 'dm'
+          && data.draftId == null
+          && exists(userPath(data.uid))
+          && isDm();
+      }
+
+      function switchesActive() {
+        return onlyChanges(['active']) && request.resource.data.active is bool;
+      }
+
+      // Closed for good, and the word leaves the player's known words in this same request.
+      function takenBack() {
+        let next = request.resource.data;
+        return onlyChanges(['removedAt', 'removedBy'])
+          && next.removedAt == request.time
+          && next.removedBy == request.auth.uid
+          && !(resource.data.wordId in knownAfter(resource.data.uid));
+      }
+    }
+
+    // True Word drafts. Everyone signed in reads every draft. A draft starts open for a player who has no open
+    // draft, showing 3 words the player does not know: the player starts one for themselves and pays the price in
+    // LP (1 plus the words they know), and the DM starts one for anyone, free or for any LP amount. While it is
+    // open, its player or the DM learns one of its words or skips it, and only the DM cancels it, with a refund.
+    // Every step waits while a pack is open. An ended draft never changes, and drafts are never deleted.
+    match /wordDrafts/{draftId} {
+      allow read: if isSignedIn();
+      allow create: if validWordDraft()
+        && tableFree()
+        && startsDraft()
+        && (draftPaidByPlayer() || draftByDm());
+      allow update: if isSignedIn()
+        && resource.data.status == 'open'
+        && tableFree()
+        && (
+          (learnsWord() && (isDraftOwner() || isDm()))
+          || (skipsDraft() && (isDraftOwner() || isDm()))
+          || (cancelsDraft() && isDm())
+        );
+      allow delete: if false;
+
+      function validWordDraft() {
+        let data = request.resource.data;
+        let fields = ['uid', 'by', 'at', 'offered', 'status', 'paidWith', 'cost', 'entryId', 'closedAt',
+          'closedBy', 'learned', 'refundEntryId'];
+        return isSignedIn()
+          && data.keys().hasOnly(fields)
+          && data.keys().hasAll(fields)
+          && data.uid is string
+          && exists(userPath(data.uid))
+          && data.by == request.auth.uid
+          && data.at == request.time
+          && data.offered is list
+          && data.offered.size() == 3
+          && data.offered[0] is string
+          && data.offered[1] is string
+          && data.offered[2] is string
+          && data.offered.toSet().size() == 3
+          && data.status == 'open'
+          && data.closedAt == null
+          && data.closedBy == null
+          && data.learned == null
+          && data.refundEntryId == null;
+      }
+
+      // The player had no open draft, this one becomes it, and none of the shown words is known.
+      function startsDraft() {
+        let data = request.resource.data;
+        return openDraftBefore(data.uid) == null
+          && openDraftAfter(data.uid) == draftId
+          && !knownBefore(data.uid).keys().hasAny(data.offered);
+      }
+
+      // A ledger entry that this same request creates names this draft. The ledger rules check its amount.
+      function paysDraftWith(entryId) {
+        return entryId is string
+          && createdNow(ledgerPath(entryId))
+          && getAfter(ledgerPath(entryId)).data.drawId == draftId;
+      }
+
+      // A player's own draft, paid with exactly 1 LP plus the number of words they know.
+      function draftPaidByPlayer() {
+        let data = request.resource.data;
+        return data.uid == request.auth.uid
+          && data.paidWith == 'lp'
+          && data.cost == 1 + knownBefore(data.uid).size()
+          && paysDraftWith(data.entryId);
+      }
+
+      // The DM's draft: free, or paid with any whole amount of the player's LP.
+      function draftByDm() {
+        let data = request.resource.data;
+        return ((data.paidWith == 'none' && data.cost == 0 && data.entryId == null)
+            || (data.paidWith == 'lp'
+              && data.cost is int
+              && data.cost >= 1
+              && data.cost <= 1000000
+              && paysDraftWith(data.entryId)))
+          && isDm();
+      }
+
+      function isDraftOwner() {
+        return request.auth.uid == resource.data.uid;
+      }
+
+      // Ends the draft, by the one who acts, and closes it in the player's state in this same request.
+      function endsBy(status) {
+        let after = request.resource.data;
+        return after.status == status
+          && after.closedAt == request.time
+          && after.closedBy == request.auth.uid
+          && openDraftAfter(resource.data.uid) == null;
+      }
+
+      // One of the shown words is learned, with the record that this same request creates for it.
+      function learnsWord() {
+        let learned = request.resource.data.learned;
+        let record = getAfter(learnedWordPath(learned.recordId)).data;
+        return onlyChanges(['status', 'closedAt', 'closedBy', 'learned'])
+          && endsBy('learned')
+          && learned is map
+          && learned.keys().hasOnly(['wordId', 'wordName', 'recordId'])
+          && learned.keys().hasAll(['wordId', 'wordName', 'recordId'])
+          && learned.wordId in resource.data.offered
+          && learned.recordId is string
+          && createdNow(learnedWordPath(learned.recordId))
+          && record.wordId == learned.wordId
+          && record.wordName == learned.wordName
+          && record.draftId == draftId;
+      }
+
+      // Skipped: no word, and the payment stays spent.
+      function skipsDraft() {
+        return onlyChanges(['status', 'closedAt', 'closedBy']) && endsBy('skipped');
+      }
+
+      // Cancelled by the DM: no word, and a paid draft's cost is refunded in this same request.
+      function cancelsDraft() {
+        let after = request.resource.data;
+        return onlyChanges(['status', 'closedAt', 'closedBy', 'refundEntryId'])
+          && endsBy('cancelled')
+          && (resource.data.paidWith == 'none'
+            ? after.refundEntryId == null
+            : paysDraftWith(after.refundEntryId));
       }
     }
 

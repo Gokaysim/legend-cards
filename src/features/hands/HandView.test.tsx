@@ -6,6 +6,7 @@ import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 import { ready, testProfile } from '@/test/fixtures'
 import { testHolding } from '@/test/holdingFixtures'
 import { renderApp } from '@/test/renderApp'
+import { testLearnedWord, testTrueWord } from '@/test/trueWordFixtures'
 
 const ayla = testProfile({ id: 'ayla', displayName: 'Ayla' })
 const bora = testProfile({ id: 'bora', displayName: 'Bora' })
@@ -190,6 +191,48 @@ describe('hand summary', () => {
     expect(sets.getAllByRole('listitem').map((item) => item.textContent)).toEqual([
       'Kesqerian Nights3 kart',
       'Throne of Havenholm1 kart',
+    ])
+  })
+
+  it('counts the True Words and their active ones, lists them after the cards, and never as cards', () => {
+    const abyss = testTrueWord('Abyss', { text: 'Free card.' })
+    const aid = testTrueWord('Aid')
+    const chaos = testTrueWord('Chaos')
+    renderApp({
+      path: '/hands/ayla',
+      users: { profiles },
+      cards: { cards: ready([owl, greedy, letGo, oath, visions]) },
+      holdings: {
+        openHoldings: ready([
+          testHolding(owl, 'ayla', 1000, { active: true }),
+          testHolding(greedy, 'ayla', 2000),
+          testHolding(oath, 'ayla', 3000),
+          testHolding(letGo, 'ayla', 4000),
+          testHolding(visions, 'ayla', 5000, { active: true }),
+        ]),
+      },
+      trueWords: {
+        words: ready([abyss, aid, chaos]),
+        knownWords: ready([
+          testLearnedWord('r1', abyss, 'ayla', { active: true }),
+          testLearnedWord('r2', aid, 'ayla'),
+          testLearnedWord('r3', chaos, 'ayla'),
+          testLearnedWord('r4', chaos, 'bora', { active: true }),
+        ]),
+      },
+    })
+
+    const stats = within(screen.getByLabelText('El özeti'))
+    const stat = (label: string) => stats.getByText(label).nextElementSibling?.textContent
+    expect(stat('Eldeki kart')).toBe('5')
+    expect(stat('Aktif efekt')).toBe('3')
+    expect(stat('✦ True Words')).toBe('3')
+
+    const effects = within(screen.getByRole('region', { name: 'Aktif efektler' }))
+    expect(effects.getAllByRole('listitem').map((item) => item.textContent)).toEqual([
+      'Night OwlNight Owl text.',
+      '☠ Cursed: Visions of DeathHeld: Every hour draw.',
+      '✦ True Word: AbyssFree card.',
     ])
   })
 

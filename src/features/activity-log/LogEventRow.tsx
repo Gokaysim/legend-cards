@@ -1,4 +1,5 @@
 import { useCardsById } from '@/features/cards/cardsContext'
+import { useTrueWords } from '@/features/true-words/trueWordsContext'
 import { RoleTag } from '@/features/users/RoleTag'
 import type { UserProfile } from '@/features/users/schema'
 
@@ -23,17 +24,22 @@ export type LogEventRowProps = {
 /**
  * One event: its time ("şimdi" while the server time is pending), who did it with the DM marked, and the Turkish
  * sentence, card names marked as English. A transfer with one side missing from the records reads that side. A
- * pack also lists the cards it showed.
+ * pack also lists the cards it showed, and a True Word draft the words it showed.
  */
 export function LogEventRow({ event, nameOf, actor }: LogEventRowProps) {
   const other = useHolding(event.kind === 'transferred' ? event.missingHoldingId : null)
   const sentence = describeEvent(event, nameOf, other.status === 'ready' ? other.data : null)
   const at = event.at?.toDate() ?? null
   const cardsById = useCardsById()
+  const words = useTrueWords()
   const shown =
     event.kind === 'pack' && cardsById.status === 'ready'
       ? event.pack.offered.flatMap((cardId) => cardsById.data.get(cardId)?.name ?? [])
-      : []
+      : event.kind === 'wordDraft' && words.status === 'ready'
+        ? event.draft.offered.map(
+            (wordId) => words.data.find((word) => word.id === wordId)?.name ?? wordId,
+          )
+        : []
 
   return (
     <li className="flex gap-3 py-2 text-sm">

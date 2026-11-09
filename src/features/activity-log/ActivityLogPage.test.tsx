@@ -11,10 +11,11 @@ import { ready, testProfile } from '@/test/fixtures'
 import { testHolding } from '@/test/holdingFixtures'
 import { testGpEntry, testLedgerEntry } from '@/test/ledgerFixtures'
 import { testPack } from '@/test/packFixtures'
+import { testLearnedWord, testTrueWord, testWordDraft } from '@/test/trueWordFixtures'
 import { renderApp } from '@/test/renderApp'
 import type { TestActivityLog } from '@/test/TestActivityLogProvider'
 
-import type { LogRecords } from './events'
+import { EMPTY_LOG_RECORDS, type LogRecords } from './events'
 
 const me = testProfile()
 const dana = testProfile({ id: 'dana', displayName: 'Dana', role: 'dm' })
@@ -61,10 +62,7 @@ const newSide = testHolding(eyes, 'bora', 0, {
 })
 
 const records = (parts: Partial<LogRecords> = {}): LogRecords => ({
-  given: [],
-  closed: [],
-  draws: [],
-  entries: [],
+  ...EMPTY_LOG_RECORDS,
   ...parts,
 })
 
@@ -183,6 +181,7 @@ describe('ActivityLogPage', () => {
         asked.push(uid)
         if (uid === null) return ready(all)
         return ready({
+          ...EMPTY_LOG_RECORDS,
           given: all.given.filter((holding) => holding.uid === uid),
           closed: all.closed.filter((holding) => holding.uid === uid),
           draws: all.draws.filter((draw) => draw.uid === uid),
@@ -427,5 +426,78 @@ describe('packs in the İşlem Logu', () => {
 
     expect(rows()).toHaveLength(1)
     expect(rows()[0]).toHaveTextContent("Aboleth's Eyes kartını seçti")
+  })
+})
+
+describe('True Words in the İşlem Logu', () => {
+  const ABYSS = testTrueWord('Abyss')
+  const WORDS = [ABYSS, testTrueWord('Aid'), testTrueWord('Dragon')]
+  const lpForBora = testLedgerEntry(0, {
+    id: 'lp-bora',
+    account: 'bora',
+    by: 'dana',
+    at: on(8, 20),
+  })
+  /** Ayla's draft for 3 LP, started at 8:30, in which she learned Abyss. */
+  const learnedDraft = testWordDraft('w-ayla', 'ayla', WORDS, {
+    at: on(8, 30),
+    cost: 3,
+    status: 'learned',
+    closedAt: on(8, 32),
+    closedBy: 'ayla',
+    learned: { wordId: ABYSS.id, wordName: 'Abyss', recordId: 'r1' },
+  })
+
+  function renderWordLog(logRecords: LogRecords) {
+    return renderApp({
+      path: '/log',
+      users: { profiles: PROFILES },
+      activityLog: { records: ready(logRecords) },
+      trueWords: { words: ready(WORDS) },
+    })
+  }
+
+  it('lists a learned draft as one event, before older events, with the words it showed', () => {
+    renderWordLog(records({ drafts: [learnedDraft], entries: [lpForBora] }))
+
+    const [first, second] = rows()
+    expect(first).toHaveTextContent(
+      "True Word draft'ı açtı ve Abyss True Word'ünü öğrendi (−3 LP).",
+    )
+    expect(within(first!).getByText('Ayla')).toBeInTheDocument()
+    expect(first).toHaveTextContent('Sunulan: Abyss, Aid, Dragon')
+    expect(second).toHaveTextContent('Bora: +2 LP (5 → 7)')
+  })
+
+  it('says that a draft is open, and that the DM cancelled one with a refund', () => {
+    const open = testWordDraft('w-open', 'ayla', WORDS, { at: on(8, 40), cost: 3 })
+    const cancelled = testWordDraft('w-cancel', 'bora', WORDS, {
+      by: 'dana',
+      at: on(8, 30),
+      cost: 2,
+      status: 'cancelled',
+      closedAt: on(8, 35),
+      closedBy: 'dana',
+      refundEntryId: 'e2',
+    })
+    renderWordLog(records({ drafts: [open, cancelled] }))
+
+    expect(rowTexts()[0]).toContain("True Word draft'ı açıyor (−3 LP).")
+    expect(rowTexts()[1]).toContain(
+      "Bora için True Word draft'ı açtı (−2 LP); DM iptal etti, 2 LP iade edildi.",
+    )
+  })
+
+  it('lists the words the DM taught and took back', () => {
+    const record = testLearnedWord('r2', ABYSS, 'bora', { learnedAt: on(8, 10) })
+    renderWordLog(
+      records({
+        taught: [{ ...record, removedAt: on(8, 50), removedBy: 'dana' }],
+        takenBack: [{ ...record, removedAt: on(8, 50), removedBy: 'dana' }],
+      }),
+    )
+
+    expect(rowTexts()[0]).toContain("Bora'dan Abyss True Word'ünü geri aldı.")
+    expect(rowTexts()[1]).toContain("Bora'ya Abyss True Word'ünü öğretti.")
   })
 })

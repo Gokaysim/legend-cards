@@ -8,6 +8,7 @@ import { DrawsProvider } from '@/features/draws/DrawsProvider'
 import { HoldingsProvider } from '@/features/hands/HoldingsProvider'
 import { PacksProvider } from '@/features/packs/PacksProvider'
 import { TableProvider } from '@/features/table/TableProvider'
+import { TrueWordsProvider } from '@/features/true-words/TrueWordsProvider'
 import { UsersProvider } from '@/features/users/UsersProvider'
 
 import { routes } from './routes'
@@ -16,7 +17,7 @@ const router = createBrowserRouter(routes)
 
 /**
  * Composition root: auth session, then the user profiles, the party purse, the cards, the open holdings, the
- * table's lock, the open pack, the log's record source and the draws, then the router.
+ * table's lock, the open pack, the log's record source, the draws and the True Words, then the router.
  */
 export function App() {
   return (
@@ -29,7 +30,9 @@ export function App() {
                 <PacksProvider>
                   <ActivityLogProvider>
                     <DrawsProvider>
-                      <RouterProvider router={router} />
+                      <TrueWordsProvider>
+                        <RouterProvider router={router} />
+                      </TrueWordsProvider>
                     </DrawsProvider>
                   </ActivityLogProvider>
                 </PacksProvider>

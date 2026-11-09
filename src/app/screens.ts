@@ -75,3 +75,21 @@ export function packShopPath(forUid?: string): string {
   const path = shopScreenById('pack-shop').path
   return forUid === undefined ? path : `${path}?for=${encodeURIComponent(forUid)}`
 }
+
+/**
+ * The True Words screen's URL. For the DM, `forUid` names the player to show and start drafts for (the hand's
+ * "✦ True Word Draft" link sets it); a player always sees their own.
+ */
+export function trueWordsPath(forUid?: string): string {
+  const path = screenById('true-words').path
+  return forUid === undefined ? path : `${path}?for=${encodeURIComponent(forUid)}`
+}
+
+/** The search parameter and value of a hand's True Words tab. */
+export const HAND_TAB_PARAM = 'tab'
+export const TRUE_WORDS_TAB = 'true-words'
+
+/** A player's hand, opened on its True Words tab. */
+export function handTrueWordsPath(uid: string): string {
+  return `${handPath(uid)}?${HAND_TAB_PARAM}=${TRUE_WORDS_TAB}`
+}

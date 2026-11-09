@@ -6,8 +6,9 @@ import { testDmDraw, testDraw } from '@/test/drawFixtures'
 import { testHolding } from '@/test/holdingFixtures'
 import { testGpEntry, testLedgerEntry } from '@/test/ledgerFixtures'
 import { testPack } from '@/test/packFixtures'
+import { testLearnedWord, testTrueWord, testWordDraft } from '@/test/trueWordFixtures'
 
-import { deriveEvents, type LogRecords, newestEvents } from './events'
+import { deriveEvents, EMPTY_LOG_RECORDS, type LogRecords, newestEvents } from './events'
 
 const eyes = testCard("Aboleth's Eyes")
 const at = (millis: number) => Timestamp.fromMillis(millis)
@@ -42,13 +43,7 @@ const transferredTo = testHolding(eyes, 'bora', 5000, {
   transferredFrom: 'h-old',
 })
 
-const records = (parts: Partial<LogRecords>): LogRecords => ({
-  given: [],
-  closed: [],
-  draws: [],
-  entries: [],
-  ...parts,
-})
+const records = (parts: Partial<LogRecords>): LogRecords => ({ ...EMPTY_LOG_RECORDS, ...parts })
 
 describe('deriveEvents', () => {
   it('turns a holding given by the DM into a given event', () => {
@@ -248,5 +243,36 @@ describe('packs', () => {
     )
     expect(events.map((event) => event.key)).toEqual(['pack:pack-chosen', 'pack:pack-cancelled'])
     expect(mayHaveMore).toBe(true)
+  })
+})
+
+describe('True Word events', () => {
+  const abyss = testTrueWord('Abyss')
+  const draft = testWordDraft('w1', 'ayla', [abyss, testTrueWord('Aid'), testTrueWord('Dragon')], {
+    at: Timestamp.fromMillis(3000),
+  })
+  const taught = testLearnedWord('r1', abyss, 'bora', { learnedAt: Timestamp.fromMillis(1000) })
+  const takenBack = {
+    ...taught,
+    removedAt: Timestamp.fromMillis(5000),
+    removedBy: 'dana',
+  }
+
+  it('makes one event per draft, per word taught, and per word taken back, at their own times', () => {
+    const events = deriveEvents(
+      records({ drafts: [draft], taught: [takenBack], takenBack: [takenBack] }),
+    )
+    expect(events.map((event) => [event.kind, event.key, event.at?.toMillis(), event.by])).toEqual([
+      ['wordDraft', 'wordDraft:w1', 3000, 'ayla'],
+      ['wordTaught', 'wordTaught:r1', 1000, 'dana'],
+      ['wordTakenBack', 'wordTakenBack:r1', 5000, 'dana'],
+    ])
+  })
+
+  it('may have more when a True Words source is full', () => {
+    expect(newestEvents(records({ drafts: [draft] }), 1).mayHaveMore).toBe(true)
+    expect(newestEvents(records({ taught: [taught] }), 1).mayHaveMore).toBe(true)
+    expect(newestEvents(records({ takenBack: [takenBack] }), 1).mayHaveMore).toBe(true)
+    expect(newestEvents(records({ drafts: [draft] }), 2).mayHaveMore).toBe(false)
   })
 })

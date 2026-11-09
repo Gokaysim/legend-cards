@@ -55,16 +55,17 @@ export type ChangeBalanceInput = {
   by: string
 }
 
-/** A new ledger entry: the DM's change by hand with its reason, or a player's draw payment with its draw. */
+/** A new ledger entry: the DM's change by hand with its reason, or a payment or refund with its draw record. */
 export type NewLedgerEntry = Pick<
   StoredLedgerEntry,
   'currency' | 'account' | 'delta' | 'balanceAfter' | 'by'
 > &
-  ({ source: 'manual'; reason: string } | { source: 'draw' | 'pack'; drawId: string })
+  ({ source: 'manual'; reason: string } | { source: 'draw' | 'pack' | 'wordDraft'; drawId: string })
 
 /**
- * The fields of a ledger entry made now. Only a change by hand has a reason, and only a draw or pack entry names
- * its draw or pack opening. The draws and packs features compose it into their transactions.
+ * The fields of a ledger entry made now. Only a change by hand has a reason, and only a draw, pack or draft entry
+ * names its draw, pack opening or True Word draft. The draws, packs and true-words features compose it into their
+ * transactions.
  */
 export function newLedgerEntry(entry: NewLedgerEntry): WithFieldValue<StoredLedgerEntry> {
   return {

@@ -32,23 +32,24 @@ npm run dev
 
 ## Scripts
 
-| Script                  | What it does                                                                                       |
-| ----------------------- | -------------------------------------------------------------------------------------------------- |
-| `npm run dev`           | Start the Firebase emulators and the Vite dev server together                                      |
-| `npm run dev:web`       | Start only the Vite dev server                                                                     |
-| `npm run emulators`     | Start only the Auth and Firestore emulators, keeping their data between runs                       |
-| `npm run build`         | Type-check and build the production files into `dist/`                                             |
-| `npm run preview`       | Serve the built `dist/` locally                                                                    |
-| `npm run typecheck`     | Run the TypeScript compiler without emitting files                                                 |
-| `npm run lint`          | Run ESLint                                                                                         |
-| `npm run format`        | Format all files with Prettier                                                                     |
-| `npm run format:check`  | Check formatting without changing files                                                            |
-| `npm run test`          | Run the unit tests (no Firebase)                                                                   |
-| `npm run test:watch`    | Run the unit tests in watch mode                                                                   |
-| `npm run test:emulator` | Start the Firebase emulators, run the emulator-backed tests, then stop them                        |
-| `npm run check`         | Type check, lint, format check and unit tests: run this before every commit                        |
-| `npm run set-role`      | Set a user's role (`dm` or `player`); see [Making someone the DM](#making-someone-the-dm)          |
-| `npm run import-cards`  | Load the card definitions from `data/` into Firestore; see [Loading the cards](#loading-the-cards) |
+| Script                      | What it does                                                                                               |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `npm run dev`               | Start the Firebase emulators and the Vite dev server together                                              |
+| `npm run dev:web`           | Start only the Vite dev server                                                                             |
+| `npm run emulators`         | Start only the Auth and Firestore emulators, keeping their data between runs                               |
+| `npm run build`             | Type-check and build the production files into `dist/`                                                     |
+| `npm run preview`           | Serve the built `dist/` locally                                                                            |
+| `npm run typecheck`         | Run the TypeScript compiler without emitting files                                                         |
+| `npm run lint`              | Run ESLint                                                                                                 |
+| `npm run format`            | Format all files with Prettier                                                                             |
+| `npm run format:check`      | Check formatting without changing files                                                                    |
+| `npm run test`              | Run the unit tests (no Firebase)                                                                           |
+| `npm run test:watch`        | Run the unit tests in watch mode                                                                           |
+| `npm run test:emulator`     | Start the Firebase emulators, run the emulator-backed tests, then stop them                                |
+| `npm run check`             | Type check, lint, format check and unit tests: run this before every commit                                |
+| `npm run set-role`          | Set a user's role (`dm` or `player`); see [Making someone the DM](#making-someone-the-dm)                  |
+| `npm run import-cards`      | Load the card definitions from `data/` into Firestore; see [Loading the cards](#loading-the-cards)         |
+| `npm run import-true-words` | Load the True Words from `data/true-words.csv` into Firestore; see [Loading the cards](#loading-the-cards) |
 
 ## Local Firebase emulators
 
@@ -87,18 +88,22 @@ The owner's card data lives in `data/` as CSV files (see [data/README.md](data/R
 ```sh
 npm run dev            # in one terminal: the emulators and the app
 npm run import-cards   # in another: loads 590 Legend cards and 154 Cursed cards
+npm run import-true-words   # then: loads the 53 True Words
 ```
 
-The emulators keep the cards between runs. Run the import again whenever a CSV changes: it adds, updates, and retires cards to match the files, and writes nothing if they are unchanged.
+The emulators keep the cards and the words between runs. Run an import again whenever its CSV changes: it adds, updates, and retires cards or words to match the files, and writes nothing if they are unchanged.
 
 - `--dry-run` shows what the import would do, without writing.
 - `--legend <csv>` or `--cursed <csv>` imports only that deck.
+- `npm run import-true-words -- --file <csv>` imports the True Words from another file.
 
 Against a real project (see below), look first, then import:
 
 ```sh
 npm run import-cards -- --dry-run --project <project-id>
 npm run import-cards -- --project <project-id>
+npm run import-true-words -- --dry-run --project <project-id>
+npm run import-true-words -- --project <project-id>
 ```
 
 ## Making someone the DM

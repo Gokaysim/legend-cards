@@ -1,6 +1,5 @@
-import { parse } from 'csv-parse/sync'
-
 import { isKnownMechanicPack, isKnownSetCode, normalize } from './cardCatalog.ts'
+import { normalizeHeader, readRecords } from './csv.ts'
 
 /** The two card files: Legend cards (normal and Blessed) and Cursed cards. */
 export const DECKS = ['legend', 'cursed'] as const
@@ -71,18 +70,6 @@ const RARITIES: ReadonlyMap<string, Rarity> = new Map([
 
 /** How the data writes "nothing here": an empty cell or a dash. */
 const isBlank = (value: string) => value === '' || /^[—–-]$/.test(value)
-
-/** Header names compared loosely, as the legacy import did: "Mechanic_Pack" and "mechanic pack" are the same. */
-const normalizeHeader = (header: string) =>
-  header.trim().toLowerCase().replace(/[_-]/g, ' ').replace(/\s+/g, ' ')
-
-function readRecords(text: string): string[][] | { error: string } {
-  try {
-    return parse(text, { bom: true, relax_column_count: true, skip_empty_lines: false })
-  } catch (error) {
-    return { error: error instanceof Error ? error.message : String(error) }
-  }
-}
 
 /** Counts how often each value occurs, keeping the first spelling seen. */
 function tally(values: string[]): { value: string; count: number }[] {

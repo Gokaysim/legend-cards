@@ -3,6 +3,7 @@ import type { DrawFilters } from '@/features/cards/pool'
 import type { CardDraw, PackOpening } from '@/features/draws/schema'
 import { packOpeningTitle } from '@/features/packs/catalog'
 import type { Holding } from '@/features/hands/schema'
+import type { WordDraft } from '@/features/true-words/schema'
 import { ablative, dative, genitive } from '@/lib/turkish'
 
 import type { LogEvent } from './events'
@@ -95,6 +96,36 @@ function packSentence(pack: PackOpening, nameOf: NameOf): SentencePart[] {
 }
 
 /**
+ * A True Word draft, as it stands: "True Word draft'ı açıyor (−3 LP).", then "… açtı ve Abyss True Word'ünü öğrendi
+ * (−3 LP).", "… açtı (ücretsiz); Bora pas geçti.", or "… açtı (−3 LP); DM iptal etti, 3 LP iade edildi.". The player
+ * comes first when the starter is not the player ("Bora için …"), and "(seçimi DM yaptı)" when the DM learned for the
+ * player.
+ */
+function draftSentence(draft: WordDraft, nameOf: NameOf): SentencePart[] {
+  const into = draft.by === draft.uid ? '' : `${nameOf(draft.uid)} için `
+  const payment = draft.paidWith === 'none' ? 'ücretsiz' : `${formatDelta(-draft.cost)} LP`
+  const closer = draft.closedBy === null || draft.closedBy === draft.uid ? nameOf(draft.uid) : 'DM'
+  switch (draft.status) {
+    case 'open':
+      return [`${into}True Word draft'ı açıyor (${payment}).`]
+    case 'skipped':
+      return [`${into}True Word draft'ı açtı (${payment}); ${closer} pas geçti.`]
+    case 'cancelled': {
+      const refund = draft.paidWith === 'none' ? '' : `, ${formatAmount(draft.cost)} LP iade edildi`
+      return [`${into}True Word draft'ı açtı (${payment}); DM iptal etti${refund}.`]
+    }
+    case 'learned': {
+      const learnedByDm = draft.closedBy !== null && draft.closedBy !== draft.uid
+      return [
+        `${into}True Word draft'ı açtı ve `,
+        card(draft.learned?.wordName ?? ''),
+        ` True Word'ünü öğrendi${learnedByDm ? ' (seçimi DM yaptı)' : ''} (${payment}).`,
+      ]
+    }
+  }
+}
+
+/**
  * The Turkish sentence of an event. For a transfer with one side missing, `other` is that side once it is read;
  * until then the sentence leaves out the name it cannot know.
  */
@@ -145,6 +176,26 @@ export function describeEvent(
       return { parts: drawnSentence(event.draw, nameOf), reason: null }
     case 'pack':
       return { parts: packSentence(event.pack, nameOf), reason: null }
+    case 'wordDraft':
+      return { parts: draftSentence(event.draft, nameOf), reason: null }
+    case 'wordTaught':
+      return {
+        parts: [
+          `${dative(nameOf(event.record.uid))} `,
+          card(event.record.wordName),
+          " True Word'ünü öğretti.",
+        ],
+        reason: null,
+      }
+    case 'wordTakenBack':
+      return {
+        parts: [
+          `${ablative(nameOf(event.record.uid))} `,
+          card(event.record.wordName),
+          " True Word'ünü geri aldı.",
+        ],
+        reason: null,
+      }
     case 'balance': {
       const { entry } = event
       const owner = entry.currency === 'gp' ? 'Grup kesesi' : nameOf(entry.account)

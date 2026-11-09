@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react'
-import { Link, Navigate, useParams } from 'react-router'
+import { useId, useMemo, useState } from 'react'
+import { Link, Navigate, useParams, useSearchParams } from 'react-router'
 
-import { handPath, packShopPath, screenById } from '@/app/screens'
+import { HAND_TAB_PARAM, handPath, packShopPath, screenById, TRUE_WORDS_TAB } from '@/app/screens'
 import { Button } from '@/components/ui/Button'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Spinner } from '@/components/ui/Spinner'
@@ -11,6 +11,12 @@ import { DrawButtons } from '@/features/draws/DrawButtons'
 import { TABLE_BUSY_NOTE } from '@/features/table/errors'
 import { TableBusyNote } from '@/features/table/TableBusyNote'
 import { useIsTableBusy } from '@/features/table/tableContext'
+import { HandTrueWords } from '@/features/true-words/HandTrueWords'
+import {
+  knownWordEntries,
+  useKnownWords,
+  useTrueWords,
+} from '@/features/true-words/trueWordsContext'
 import { DmOnly } from '@/features/users/DmOnly'
 import type { UserProfile } from '@/features/users/schema'
 import { profileName, useCurrentProfile, useIsDm, useProfiles } from '@/features/users/usersContext'
@@ -122,11 +128,36 @@ function HandScreen({ profile }: { profile: UserProfile }) {
   )
 }
 
-/** The hand of one player, live: the summary, the cards, and the details of the selected card. */
+type HandTab = 'cards' | 'true-words'
+
+/**
+ * The hand of one player, live: the summary, then two tabs, kept in the URL (`?tab=true-words`): the cards with the
+ * details of the selected card, and the player's True Words.
+ */
 function HandContent({ profile }: { profile: UserProfile }) {
+  const ids = useId()
   const holdings = useOpenHoldings()
   const cardsById = useCardsById()
+  const words = useTrueWords()
+  const knownWords = useKnownWords(profile.id)
+  const [params, setParams] = useSearchParams()
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const tab: HandTab = params.get(HAND_TAB_PARAM) === TRUE_WORDS_TAB ? 'true-words' : 'cards'
+
+  const wordEntries = useMemo(
+    () =>
+      words.status === 'ready' && knownWords.status === 'ready'
+        ? knownWordEntries(knownWords.data, new Map(words.data.map((word) => [word.id, word])))
+        : [],
+    [words, knownWords],
+  )
+
+  const chooseTab = (next: HandTab) => {
+    const search = new URLSearchParams(params)
+    if (next === 'cards') search.delete(HAND_TAB_PARAM)
+    else search.set(HAND_TAB_PARAM, TRUE_WORDS_TAB)
+    setParams(search)
+  }
 
   const entries = useMemo(
     () =>
@@ -147,11 +178,45 @@ function HandContent({ profile }: { profile: UserProfile }) {
 
   // A card that left the hand (used, discarded, or given away, here or on another device) closes its details.
   const selected = entries.find((entry) => entry.holding.id === selectedId)
+  const tabs: { id: HandTab; label: string }[] = [
+    { id: 'cards', label: '♠ Kartlar' },
+    { id: 'true-words', label: '✦ True Words' },
+  ]
   return (
     <>
-      <HandSummary entries={entries} profile={profile} />
-      <HandView entries={entries} onSelect={setSelectedId} />
-      {selected ? (
+      <HandSummary entries={entries} words={wordEntries} profile={profile} />
+      <div role="tablist" aria-label="El" className="flex flex-wrap gap-2">
+        {tabs.map(({ id, label }) => (
+          <Button
+            key={id}
+            role="tab"
+            id={`${ids}-tab-${id}`}
+            aria-selected={tab === id}
+            aria-controls={`${ids}-panel`}
+            variant={tab === id ? 'primary' : 'secondary'}
+            onClick={() => chooseTab(id)}
+          >
+            {label}
+          </Button>
+        ))}
+      </div>
+      <div role="tabpanel" id={`${ids}-panel`} aria-labelledby={`${ids}-tab-${tab}`}>
+        {tab === 'cards' ? (
+          <HandView entries={entries} onSelect={setSelectedId} />
+        ) : words.status === 'error' || knownWords.status === 'error' ? (
+          <p
+            role="alert"
+            className="rounded-xl border border-danger-line bg-pane p-4 text-danger-ink"
+          >
+            True Words yüklenemedi.
+          </p>
+        ) : words.status === 'loading' || knownWords.status === 'loading' ? (
+          <Spinner label="True Words yükleniyor…" className="py-12" />
+        ) : (
+          <HandTrueWords profile={profile} words={words.data} entries={wordEntries} />
+        )}
+      </div>
+      {tab === 'cards' && selected ? (
         <HoldingDialog
           key={selected.holding.id}
           entry={selected}

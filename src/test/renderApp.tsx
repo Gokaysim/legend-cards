@@ -13,6 +13,7 @@ import { type TestDraws, TestDrawsProvider } from './TestDrawsProvider'
 import { type TestHoldings, TestHoldingsProvider } from './TestHoldingsProvider'
 import { type TestPacks, TestPacksProvider } from './TestPacksProvider'
 import { type TestTable, TestTableProvider } from './TestTableProvider'
+import { type TestTrueWords, TestTrueWordsProvider } from './TestTrueWordsProvider'
 import { type TestUsers, TestUsersProvider } from './TestUsersProvider'
 
 export type RenderAppOptions = {
@@ -35,6 +36,8 @@ export type RenderAppOptions = {
   table?: TestTable
   /** The open pack and fake pack steps. Defaults to no pack, and steps that succeed. */
   packs?: TestPacks
+  /** The words, known words, open drafts and fake True Word steps. Defaults to none, and steps that succeed. */
+  trueWords?: TestTrueWords
 }
 
 type Data = {
@@ -46,13 +49,14 @@ type Data = {
   draws: TestDraws
   table: TestTable
   packs: TestPacks
+  trueWords: TestTrueWords
 }
 
 /**
  * Renders the real route table at `path`, with a fixed auth state (signed in by default), fixed profiles, cards,
- * open holdings, party purse, table lock, open pack and log records, and fake draws and pack steps.
- * `setUsers`, `setCards`, `setHoldings`, `setBalances`, `setTable`, `setPacks` and `setActivityLog` re-render the
- * same app with other data, as a real-time update would, without remounting.
+ * open holdings, party purse, table lock, open pack, True Words and log records, and fake draws, pack and True Word
+ * steps. `setUsers`, `setCards`, `setHoldings`, `setBalances`, `setTable`, `setPacks`, `setTrueWords` and
+ * `setActivityLog` re-render the same app with other data, as a real-time update would, without remounting.
  */
 export function renderApp({
   path = '/',
@@ -66,9 +70,20 @@ export function renderApp({
   draws = {},
   table = {},
   packs = {},
+  trueWords = {},
 }: RenderAppOptions = {}) {
   const router = createMemoryRouter(routes, { initialEntries: [path] })
-  let current: Data = { users, cards, holdings, balances, activityLog, draws, table, packs }
+  let current: Data = {
+    users,
+    cards,
+    holdings,
+    balances,
+    activityLog,
+    draws,
+    table,
+    packs,
+    trueWords,
+  }
   const tree = (data: Data) => (
     <TestAuthProvider state={state} signOut={signOut}>
       <TestUsersProvider {...data.users}>
@@ -79,7 +94,9 @@ export function renderApp({
                 <TestPacksProvider {...data.packs}>
                   <TestActivityLogProvider {...data.activityLog}>
                     <TestDrawsProvider {...data.draws}>
-                      <RouterProvider router={router} />
+                      <TestTrueWordsProvider {...data.trueWords}>
+                        <RouterProvider router={router} />
+                      </TestTrueWordsProvider>
                     </TestDrawsProvider>
                   </TestActivityLogProvider>
                 </TestPacksProvider>
@@ -105,5 +122,6 @@ export function renderApp({
     setActivityLog: (next: TestActivityLog) => update({ activityLog: next }),
     setTable: (next: TestTable) => update({ table: next }),
     setPacks: (next: TestPacks) => update({ packs: next }),
+    setTrueWords: (next: TestTrueWords) => update({ trueWords: next }),
   }
 }

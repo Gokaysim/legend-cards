@@ -1,5 +1,7 @@
 import type { CardFileError, CardFileWarning, Deck, LimitedField } from './cardRows.ts'
 import type { CardOutcome, DeckPlan } from './importCards.ts'
+import type { WordPlan } from './importTrueWords.ts'
+import type { TrueWordFileError, TrueWordFileWarning, WordLimitedField } from './trueWordRows.ts'
 
 const DECK_LABELS: Readonly<Record<Deck, string>> = {
   legend: 'Legend kartlar',
@@ -83,6 +85,53 @@ function deckReport({ deck, counts, cards }: DeckPlan, dryRun: boolean): string[
   return lines
 }
 
+const WORD_FIELD_LABELS: Readonly<Record<WordLimitedField, string>> = {
+  name: 'True Word adı',
+  cost: 'Cost',
+  text: 'True Word metni',
+}
+
+function trueWordFileError(file: string, error: TrueWordFileError): string {
+  switch (error.kind) {
+    case 'unreadable':
+      return `${file}: CSV okunamadı (${error.detail}).`
+    case 'missing-columns':
+      return `${file}: eksik sütun: ${error.columns.map((column) => COLUMN_LABELS[column] ?? column).join(', ')}. Doğru dosya mı?`
+    case 'empty-name':
+      return `${file}, satır ${error.row}: True Word adı boş.`
+    case 'name-without-letters':
+      return `${file}, satır ${error.row}: "${error.name}" adında harf ya da rakam yok.`
+    case 'empty-cost':
+      return `${file}, satır ${error.row} (${error.name}): Cost boş.`
+    case 'too-long':
+      return `${file}, satır ${error.row} (${error.name}): ${WORD_FIELD_LABELS[error.field]} en fazla ${error.max} karakter olabilir.`
+    case 'duplicate':
+      return `${file}, satır ${error.rows[0]} ve ${error.rows[1]}: "${error.name}" adı iki kez var.`
+  }
+}
+
+function trueWordFileWarning(file: string, warning: TrueWordFileWarning): string {
+  switch (warning.kind) {
+    case 'empty-text':
+      return `${file}, satır ${warning.row}: "${warning.name}" metni boş.`
+  }
+}
+
+function wordReport({ counts, words }: WordPlan, dryRun: boolean): string[] {
+  const tense = dryRun ? 'planned' : 'done'
+  const summary = (Object.keys(OUTCOME_LABELS) as CardOutcome[])
+    .map((outcome) => `${counts[outcome]} ${OUTCOME_LABELS[outcome][tense]}`)
+    .join(', ')
+  const lines = [`True Words: ${summary}.`]
+  for (const outcome of NAMED_OUTCOMES) {
+    const listed = words.filter((word) => word.outcome === outcome).map((word) => word.name)
+    if (listed.length > 0 && listed.length <= MAX_LISTED_NAMES) {
+      lines.push(`  ${OUTCOME_LABELS[outcome][tense]}: ${listed.join(', ')}`)
+    }
+  }
+  return lines
+}
+
 /** Turkish messages printed by the admin scripts. Code and comments stay in English. */
 export const messages = {
   targetEmulator: 'Hedef: yerel emulatorler (demo-legend-cards)',
@@ -122,4 +171,20 @@ export const messages = {
   dryRunWarningsHeader: "Uyarılar (import'u durdurmaz):",
   cardsWritten: (count: number) =>
     count === 0 ? 'Hiçbir kart yazılmadı: her şey zaten güncel.' : `${count} kart yazıldı.`,
+  usageImportTrueWords:
+    'Kullanım: npm run import-true-words -- [--file <csv>] [--dry-run] [--project <proje-kimliği>] [--yes]\n' +
+    'Dosya verilmezse data/true-words.csv kullanılır.',
+  wordFileUnreadable: (file: string, detail: string) =>
+    `"${file}" okunamadı: ${detail}. Hiçbir True Word değişmedi.`,
+  trueWordFileError,
+  trueWordFileWarning,
+  trueWordFileInvalid: (count: number) =>
+    `Dosyada ${count} hata var. Hiçbir True Word değişmedi: önce dosyayı düzelt.`,
+  dryRunWordsHeader:
+    'Deneme (--dry-run): hiçbir True Word yazılmadı. Gerçek bir import şunu yapardı:',
+  wordReport,
+  wordsWritten: (count: number) =>
+    count === 0
+      ? 'Hiçbir True Word yazılmadı: her şey zaten güncel.'
+      : `${count} True Word yazıldı.`,
 } as const

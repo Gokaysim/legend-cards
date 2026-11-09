@@ -49,6 +49,39 @@
         { "fieldPath": "uid", "order": "ASCENDING" },
         { "fieldPath": "at", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "wordDrafts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "uid", "order": "ASCENDING" },
+        { "fieldPath": "at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "userTrueWords",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "learnedVia", "order": "ASCENDING" },
+        { "fieldPath": "learnedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "userTrueWords",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "uid", "order": "ASCENDING" },
+        { "fieldPath": "learnedVia", "order": "ASCENDING" },
+        { "fieldPath": "learnedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "userTrueWords",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "uid", "order": "ASCENDING" },
+        { "fieldPath": "removedAt", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

@@ -4,13 +4,11 @@ import {
   ActivityLogContext,
   type ActivityLogSource,
 } from '@/features/activity-log/activityLogContext'
-import type { LogRecords } from '@/features/activity-log/events'
+import { EMPTY_LOG_RECORDS, type LogRecords } from '@/features/activity-log/events'
 import type { Holding } from '@/features/hands/schema'
 import type { Subscription } from '@/lib/firestore/subscription'
 
 import { ready } from './fixtures'
-
-const NO_RECORDS: LogRecords = { given: [], closed: [], draws: [], entries: [] }
 
 export type TestActivityLog = {
   /**
@@ -33,7 +31,7 @@ export function TestActivityLogProvider({
   const value = useMemo<ActivityLogSource>(
     () => ({
       useLogRecords: (uid, n) =>
-        typeof records === 'function' ? records(uid, n) : (records ?? ready(NO_RECORDS)),
+        typeof records === 'function' ? records(uid, n) : (records ?? ready(EMPTY_LOG_RECORDS)),
       useHolding: (holdingId) => ready(holdingId === null ? null : (holdings?.[holdingId] ?? null)),
     }),
     [records, holdings],
