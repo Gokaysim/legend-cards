@@ -251,7 +251,7 @@ It SHALL deny a step that does not agree with the others.
 - **THEN** the server denies it
 
 ### Requirement: True Words tab on the hand screen
-The hand screen SHALL have two tabs, "♠ Kartlar" and "✦ True Words". The True Words tab SHALL list the player's words in the order learned, live, with each word's name, cost, visible text, and active state. Selecting a word SHALL open its details. The tab SHALL link to the True Words screen for that player. With no word learned, it SHALL say "Henüz True Word öğrenilmedi."
+The hand screen SHALL have a "✦ True Words" tab after "♠ Kartlar". The True Words tab SHALL list the player's words in the order learned, live, with each word's name, cost, visible text, and active state. Selecting a word SHALL open its details. The tab SHALL link to the True Words screen for that player. With no word learned, it SHALL say "Henüz True Word öğrenilmedi."
 
 #### Scenario: Opening the tab
 - **WHEN** a user opens the True Words tab of Ayla's hand, and Ayla learned "Aid" and then "Abyss"
