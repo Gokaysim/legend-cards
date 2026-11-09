@@ -1,6 +1,7 @@
 import { formatAmount, formatDelta } from '@/features/balances/format'
 import type { DrawFilters } from '@/features/cards/pool'
-import type { Draw } from '@/features/draws/schema'
+import type { CardDraw, PackOpening } from '@/features/draws/schema'
+import { packOpeningTitle } from '@/features/packs/catalog'
 import type { Holding } from '@/features/hands/schema'
 import { ablative, dative, genitive } from '@/lib/turkish'
 
@@ -47,7 +48,7 @@ function filtersText(filters: DrawFilters | null): string | null {
  * A draw: "Aboleth's Eyes kartını çekti (−1 LP).", or into another hand (the DM's draw) "Bora'ya Aboleth's Eyes
  * kartını çekti (filtre: Rare · Blood & Battle)." A Cursed draw: "Cursed kart çekti: Visions of Death."
  */
-function drawnSentence(draw: Draw, nameOf: NameOf): SentencePart[] {
+function drawnSentence(draw: CardDraw, nameOf: NameOf): SentencePart[] {
   const into = draw.by === draw.uid ? '' : `${dative(nameOf(draw.uid))} `
   if (draw.kind === 'cursed') return [`${into}Cursed kart çekti: `, card(draw.cardName), '.']
   const details = [
@@ -56,6 +57,41 @@ function drawnSentence(draw: Draw, nameOf: NameOf): SentencePart[] {
   ].filter((part) => part !== null)
   const suffix = details.length === 0 ? '' : ` (${details.join('; ')})`
   return [into, card(draw.cardName), ` kartını çekti${suffix}.`]
+}
+
+/** A pack's payment as the log shows it: "−2 LP", "−7.500 GP", or "ücretsiz". */
+function packPayment(pack: PackOpening): string {
+  if (pack.paidWith === 'none') return 'ücretsiz'
+  return `${formatDelta(-pack.cost)} ${pack.paidWith === 'lp' ? 'LP' : 'GP'}`
+}
+
+/**
+ * A pack opening, as it stands: "Kesqerian Nights Standard Pack açıyor (−2 LP).", then "… açtı ve Aboleth's Eyes
+ * kartını seçti (−2 LP).", with the mandatory Cursed card of a Cursed type, or "… açtı (−2 LP); DM iptal etti,
+ * 2 LP iade edildi.". The hand comes first when the opener is not its owner ("Bora için …"), and "(seçimi DM
+ * yaptı)" when the DM chose for someone else's pack.
+ */
+function packSentence(pack: PackOpening, nameOf: NameOf): SentencePart[] {
+  const into = pack.by === pack.uid ? '' : `${nameOf(pack.uid)} için `
+  const title = packOpeningTitle(pack)
+  const payment = packPayment(pack)
+  if (pack.status === 'open') return [`${into}${title} açıyor (${payment}).`]
+  if (pack.status === 'cancelled') {
+    const refund =
+      pack.paidWith === 'none'
+        ? ''
+        : `, ${formatAmount(pack.cost)} ${pack.paidWith === 'lp' ? 'LP' : 'GP'} iade edildi`
+    return [`${into}${title} açtı (${payment}); DM iptal etti${refund}.`]
+  }
+  const chosenByDm =
+    pack.closedBy !== null && pack.closedBy !== pack.by && pack.closedBy !== pack.uid
+  return [
+    `${into}${title} açtı ve `,
+    card(pack.chosen?.cardName ?? ''),
+    ' kartını seçti',
+    ...(pack.cursed === null ? [] : ['; Cursed kart: ', card(pack.cursed.cardName)]),
+    `${chosenByDm ? ' (seçimi DM yaptı)' : ''} (${payment}).`,
+  ]
 }
 
 /**
@@ -107,6 +143,8 @@ export function describeEvent(
     }
     case 'drawn':
       return { parts: drawnSentence(event.draw, nameOf), reason: null }
+    case 'pack':
+      return { parts: packSentence(event.pack, nameOf), reason: null }
     case 'balance': {
       const { entry } = event
       const owner = entry.currency === 'gp' ? 'Grup kesesi' : nameOf(entry.account)

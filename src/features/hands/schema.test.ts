@@ -62,6 +62,10 @@ describe('holdingSchema', () => {
     ],
     ['a holding whose server times are still pending', { ...open, givenAt: null }],
     ['a drawn holding', { ...open, givenBy: 'ayla', givenVia: 'draw', drawId: 'draw-1' }],
+    [
+      'a holding chosen from a pack',
+      { ...open, givenBy: 'ayla', givenVia: 'pack', drawId: 'pack-1' },
+    ],
   ])('accepts %s', (_case, holding) => {
     expect(holdingSchema.safeParse(holding).success).toBe(true)
   })
@@ -89,6 +93,7 @@ describe('holdingSchema', () => {
     ['a given time that is not a timestamp', { ...open, givenAt: 1000 }],
     ['a drawn holding without its draw', { ...open, givenVia: 'draw' }],
     ['a dm give that names a draw', { ...open, drawId: 'draw-1' }],
+    ['a pack holding without its pack opening', { ...open, givenVia: 'pack' }],
     [
       'a transfer that names a draw',
       { ...open, givenVia: 'transfer', transferredFrom: 'h1', drawId: 'draw-1' },

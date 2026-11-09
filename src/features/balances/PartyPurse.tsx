@@ -1,6 +1,8 @@
 import { useId, useState } from 'react'
 
 import { Button } from '@/components/ui/Button'
+import { TABLE_BUSY_NOTE } from '@/features/table/errors'
+import { useIsTableBusy } from '@/features/table/tableContext'
 import { DmOnly } from '@/features/users/DmOnly'
 
 import { BalanceDialog } from './BalanceDialog'
@@ -9,12 +11,13 @@ import { formatAmount } from './format'
 
 /**
  * The party purse in the navigation area: the group's shared GP, live, for everyone. The DM opens the GP change
- * from here. A purse that does not exist yet holds 0 GP.
+ * from here, except while a pack is open. A purse that does not exist yet holds 0 GP.
  */
 export function PartyPurse() {
   const headingId = useId()
   const purse = usePartyPurse()
   const [isChanging, setIsChanging] = useState(false)
+  const isTableBusy = useIsTableBusy()
   const gp = purse.status === 'ready' ? (purse.data?.gp ?? 0) : null
 
   return (
@@ -43,7 +46,8 @@ export function PartyPurse() {
             variant="ghost"
             className="shrink-0 px-2 py-1"
             aria-label="Grup kesesini değiştir"
-            disabled={gp === null}
+            disabled={gp === null || isTableBusy}
+            title={isTableBusy ? TABLE_BUSY_NOTE : undefined}
             onClick={() => setIsChanging(true)}
           >
             ± GP

@@ -12,6 +12,7 @@ import {
 } from 'firebase/firestore'
 
 import { profileRef, USERS_COLLECTION } from '@/features/users/api'
+import { explainDenial } from '@/features/table/api'
 import { firebaseCode } from '@/lib/firestore/errors'
 import { cleanText } from '@/lib/text'
 
@@ -59,11 +60,11 @@ export type NewLedgerEntry = Pick<
   StoredLedgerEntry,
   'currency' | 'account' | 'delta' | 'balanceAfter' | 'by'
 > &
-  ({ source: 'manual'; reason: string } | { source: 'draw'; drawId: string })
+  ({ source: 'manual'; reason: string } | { source: 'draw' | 'pack'; drawId: string })
 
 /**
- * The fields of a ledger entry made now. Only a change by hand has a reason, and only a draw payment names its
- * draw. The draws feature composes it into its draw transaction.
+ * The fields of a ledger entry made now. Only a change by hand has a reason, and only a draw or pack entry names
+ * its draw or pack opening. The draws and packs features compose it into their transactions.
  */
 export function newLedgerEntry(entry: NewLedgerEntry): WithFieldValue<StoredLedgerEntry> {
   return {
@@ -73,7 +74,7 @@ export function newLedgerEntry(entry: NewLedgerEntry): WithFieldValue<StoredLedg
     balanceAfter: entry.balanceAfter,
     source: entry.source,
     reason: entry.source === 'manual' ? entry.reason : null,
-    drawId: entry.source === 'draw' ? entry.drawId : null,
+    drawId: entry.source === 'manual' ? null : entry.drawId,
     by: entry.by,
     at: serverTimestamp(),
   }
@@ -99,7 +100,8 @@ const MAX_ATTEMPTS = 3
  * When two devices change the same balance at once, the loser's commit reaches the server after the winner's. The
  * rules then deny it, because its change no longer matches the stored balance, before the transaction could retry.
  * So after a denial, the balance is read from the server: if it moved since this attempt read it, the change runs
- * again; if not, the denial was real and is thrown.
+ * again; if not, the denial was real and is thrown. A denial while a pack is open throws `TableBusyError`: the
+ * table waits for the pack.
  */
 export async function changeBalance(db: Firestore, input: ChangeBalanceInput): Promise<string> {
   const reason = cleanText(input.reason, BALANCE_LIMITS.reason)
@@ -110,7 +112,9 @@ export async function changeBalance(db: Firestore, input: ChangeBalanceInput): P
     try {
       return await changeBalanceOnce(db, { ...input, reason }, read)
     } catch (error) {
-      if (attempt >= MAX_ATTEMPTS || firebaseCode(error) !== 'permission-denied') throw error
+      if (firebaseCode(error) !== 'permission-denied') throw error
+      const explained = await explainDenial(db, error)
+      if (explained !== error || attempt >= MAX_ATTEMPTS) throw explained
       if (read.balance === null || (await serverBalance(db, input.account)) === read.balance) {
         throw error
       }
@@ -142,23 +146,35 @@ function changeBalanceOnce(
         by,
       }),
     )
-    if (account.currency === 'lp') {
-      transaction.update(doc(db, USERS_COLLECTION, account.uid), {
-        lp: after,
-        lpEntryId: entryRef.id,
-      })
-    } else {
-      transaction.set(doc(db, PARTY_COLLECTION, PARTY_PURSE_ID), {
-        gp: after,
-        gpEntryId: entryRef.id,
-      })
-    }
+    setBalance(transaction, db, account, after, entryRef.id)
     return entryRef.id
   })
 }
 
-/** The balance inside the transaction. A missing purse holds 0 GP; LP belongs to players only. */
-async function readBalance(
+/**
+ * Writes a balance and the ledger entry that set it, inside a transaction: a player's `lp` and `lpEntryId`, or the
+ * purse's `gp` and `gpEntryId`. The rules accept it only together with that entry. The packs feature composes it
+ * into its transactions.
+ */
+export function setBalance(
+  transaction: Transaction,
+  db: Firestore,
+  account: BalanceAccount,
+  balance: number,
+  entryId: string,
+): void {
+  if (account.currency === 'lp') {
+    transaction.update(doc(db, USERS_COLLECTION, account.uid), { lp: balance, lpEntryId: entryId })
+  } else {
+    transaction.set(doc(db, PARTY_COLLECTION, PARTY_PURSE_ID), { gp: balance, gpEntryId: entryId })
+  }
+}
+
+/**
+ * The balance inside the transaction. A missing purse holds 0 GP; LP belongs to players only, and anyone else's
+ * throws `BalanceError('not-a-player')`.
+ */
+export async function readBalance(
   transaction: Transaction,
   db: Firestore,
   account: BalanceAccount,

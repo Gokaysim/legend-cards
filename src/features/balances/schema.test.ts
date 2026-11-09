@@ -27,6 +27,24 @@ const drawEntry = {
 
 const gpEntry = { ...lpEntry, currency: 'gp', account: 'party', delta: -2500, balanceAfter: 10000 }
 
+const gpPackPayment = {
+  ...gpEntry,
+  delta: -10000,
+  balanceAfter: 2500,
+  source: 'pack',
+  reason: null,
+  drawId: 'pack-1',
+}
+
+const lpPackRefund = {
+  ...drawEntry,
+  delta: 2,
+  balanceAfter: 5,
+  source: 'pack',
+  drawId: 'pack-1',
+  by: 'dm',
+}
+
 const accepts = (entry: object) => ledgerEntrySchema.safeParse(entry).success
 
 describe('ledgerEntrySchema', () => {
@@ -49,7 +67,7 @@ describe('ledgerEntrySchema', () => {
 
   it('rejects an unknown currency or source', () => {
     expect(accepts({ ...lpEntry, currency: 'xp' })).toBe(false)
-    expect(accepts({ ...lpEntry, source: 'pack' })).toBe(false)
+    expect(accepts({ ...lpEntry, source: 'gift' })).toBe(false)
   })
 
   it('reads a stored entry without drawId as a change by hand', () => {
@@ -62,6 +80,11 @@ describe('ledgerEntrySchema', () => {
     expect(accepts(drawEntry)).toBe(true)
   })
 
+  it('accepts a GP pack payment and an LP pack refund', () => {
+    expect(accepts(gpPackPayment)).toBe(true)
+    expect(accepts(lpPackRefund)).toBe(true)
+  })
+
   it.each([
     ['a change by hand without a reason', { ...lpEntry, reason: null }],
     ['a change by hand that names a draw', { ...lpEntry, drawId: 'draw-1' }],
@@ -69,6 +92,8 @@ describe('ledgerEntrySchema', () => {
     ['a draw payment without its draw', { ...drawEntry, drawId: null }],
     ['a draw payment in GP', { ...drawEntry, currency: 'gp', account: 'party' }],
     ['an empty draw ID', { ...drawEntry, drawId: '' }],
+    ['a pack entry with a reason', { ...gpPackPayment, reason: 'Golden Pack' }],
+    ['a pack entry without its pack opening', { ...gpPackPayment, drawId: null }],
   ])('rejects %s', (_case, entry) => {
     expect(accepts(entry)).toBe(false)
   })

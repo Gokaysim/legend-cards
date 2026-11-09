@@ -6,6 +6,8 @@ import { formatAmount } from '@/features/balances/format'
 import { setDisplayName, setOrder } from '@/features/cards/sets'
 import { compareLabels } from '@/features/cards/sort'
 import { visibleText } from '@/features/cards/text'
+import { TABLE_BUSY_NOTE } from '@/features/table/errors'
+import { useIsTableBusy } from '@/features/table/tableContext'
 import { DmOnly } from '@/features/users/DmOnly'
 import type { UserProfile } from '@/features/users/schema'
 import { profileName } from '@/features/users/usersContext'
@@ -65,6 +67,7 @@ export function HandSummary({
 }) {
   const ids = useId()
   const [isChangingLp, setIsChangingLp] = useState(false)
+  const isTableBusy = useIsTableBusy()
   const isPlayer = profile.role === 'player'
   const playerName = profileName(profile)
   const active = entries.filter((entry) => entry.holding.active)
@@ -88,6 +91,8 @@ export function HandSummary({
                   variant="ghost"
                   className="shrink-0 px-2 py-1"
                   aria-label={`${genitive(playerName)} LP'sini değiştir`}
+                  disabled={isTableBusy}
+                  title={isTableBusy ? TABLE_BUSY_NOTE : undefined}
                   onClick={() => setIsChangingLp(true)}
                 >
                   ± LP

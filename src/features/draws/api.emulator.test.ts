@@ -21,7 +21,8 @@ import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 import firestoreRules from '../../../firestore.rules?raw'
 import { drawCard, type DrawCardInput } from './api'
 import { DrawError, toDrawFailure } from './errors'
-import type { RandomSource } from './pick'
+import { TableBusyError } from '@/features/table/errors'
+import type { RandomSource } from '@/lib/random'
 
 let testEnv: RulesTestEnvironment
 
@@ -270,5 +271,20 @@ describe('drawing under the real rules', () => {
     })
     expect(toDrawFailure(await failureOf(aylaDraws([EYES])))).toEqual({ kind: 'nothing-to-draw' })
     expect(await stored('users/ayla')).toMatchObject({ lp: 3 })
+  })
+})
+
+describe('drawing while a pack is open', () => {
+  it('fails as table-busy and changes nothing', async () => {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(firestoreOf(admin), 'table/main'), { openPackId: 'pack-1' })
+    })
+    const failure = await failureOf(aylaDraws([EYES]))
+    expect(failure).toBeInstanceOf(TableBusyError)
+    expect(toDrawFailure(failure)).toEqual({ kind: 'table-busy' })
+    expect(await all('draws')).toEqual([])
+    expect(await all('userCards')).toEqual([])
+    expect(await stored('users/ayla')).toMatchObject({ lp: 3, lpEntryId: 'seed' })
+    expect((await stored(`cards/${EYES.id}`))?.holder).toBeUndefined()
   })
 })

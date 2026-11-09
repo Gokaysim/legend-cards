@@ -1614,3 +1614,899 @@ describe('draws (draws/{drawId} with its holding, card, ledger entry and LP)', (
     })
   })
 })
+
+describe('packs (draws/{drawId} with kind pack, table/main, and their holdings and payments)', () => {
+  const { POOL, HELD, BLESSED, CURSED, RETIRED } = HOLDINGS_SEED
+  /** Five more normal cards in the pool, with the seeded pool card the cards a pack shows. */
+  const PACK_CARDS = ['legend-p1', 'legend-p2', 'legend-p3', 'legend-p4']
+  const OFFERED = [POOL, ...PACK_CARDS]
+  /** A Cursed type shows the Cursed card third. */
+  const CURSED_OFFERED = [POOL, PACK_CARDS[0], CURSED, ...PACK_CARDS.slice(1)]
+  const POOL_CHOICE = { cardId: POOL, cardName: "Aboleth's Eyes", cardKind: 'normal' }
+  const BLESSED_CHOICE = { cardId: BLESSED, cardName: 'Second Wind', cardKind: 'blessed' }
+  const CURSED_CARD = { cardId: CURSED, cardName: 'Visions of Death' }
+  /** A normal pool card that no pack shows. */
+  const OUTSIDE = 'legend-outside'
+
+  beforeEach(async () => {
+    await seedHoldings()
+    // Ayla has 5 LP from an earlier entry; the party purse holds 12,500 GP.
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const db = firestoreOf(admin)
+      await updateDoc(doc(db, 'users/ayla'), { lp: 5, lpEntryId: 'e-old' })
+      await setDoc(doc(db, 'party/main'), { gp: 12500, gpEntryId: 'g-old' })
+      for (const [index, cardId] of PACK_CARDS.entries()) {
+        await setDoc(doc(db, `cards/${cardId}`), seededCardOf('normal', `Pack Card ${index + 1}`))
+      }
+      await setDoc(doc(db, `cards/${OUTSIDE}`), seededCardOf('normal', 'Outside Card'))
+    })
+  })
+
+  type Payment = { paidWith: 'lp' | 'gp' | 'none'; cost: number }
+
+  /** A pack record's fields at opening: Ayla's Kesqerian Nights Standard Pack for 2 LP, by `by`. */
+  function packFields(by: string, overrides: Record<string, unknown> = {}) {
+    return {
+      kind: 'pack',
+      uid: 'ayla',
+      by,
+      at: serverTimestamp(),
+      packType: 'standard',
+      setCode: 'Kesqer',
+      mechanicPack: null,
+      offered: OFFERED,
+      revealed: [],
+      paidWith: 'lp',
+      cost: 2,
+      entryId: 'e-pay',
+      status: 'open',
+      closedAt: null,
+      closedBy: null,
+      chosen: null,
+      cursed: null,
+      refundEntryId: null,
+      ...overrides,
+    }
+  }
+
+  /** A ledger entry of a pack: Ayla's payment of 2 LP (5 -> 3) for `p-new`, as `by` writes it. */
+  function packEntry(by: string, overrides: Record<string, unknown> = {}) {
+    return {
+      currency: 'lp',
+      account: 'ayla',
+      delta: -2,
+      balanceAfter: 3,
+      source: 'pack',
+      reason: null,
+      drawId: 'p-new',
+      by,
+      at: serverTimestamp(),
+      ...overrides,
+    }
+  }
+
+  type OpenSpec = {
+    /** Overrides of the record's fields. */
+    pack?: Record<string, unknown>
+    /** Overrides of the entry, or `null` to write none. Written only when the record is paid. */
+    entry?: Record<string, unknown> | null
+    /** The new balance's fields, or `null` to leave it alone. Default: Ayla's LP 5 -> 3, or the purse -cost. */
+    balance?: Record<string, unknown> | null
+    /** The table's new fields, or `null` to leave it alone. */
+    table?: Record<string, unknown> | null
+  }
+
+  /**
+   * One opening as the application writes it, in one batch: the record `p-new`, the table taken by it and, when
+   * paid, the entry `e-pay` and the new balance. Default: Ayla's Standard Pack for 2 LP.
+   */
+  function open(writer: string, spec: OpenSpec = {}) {
+    const db = asUser(writer)
+    const fields = packFields(writer, spec.pack)
+    const payment = { paidWith: fields.paidWith, cost: fields.cost } as Payment
+    const batch = writeBatch(db)
+    batch.set(doc(db, 'draws/p-new'), fields)
+    if (spec.table !== null)
+      batch.set(doc(db, 'table/main'), { openPackId: 'p-new', ...spec.table })
+    if (payment.paidWith !== 'none' && spec.entry !== null) {
+      const gp = payment.paidWith === 'gp'
+      batch.set(
+        doc(db, 'ledger/e-pay'),
+        packEntry(writer, {
+          currency: payment.paidWith,
+          account: gp ? 'party' : fields.uid,
+          delta: -payment.cost,
+          balanceAfter: (gp ? 12500 : 5) - payment.cost,
+          ...spec.entry,
+        }),
+      )
+    }
+    if (payment.paidWith !== 'none' && spec.balance !== null) {
+      if (payment.paidWith === 'gp') {
+        batch.update(doc(db, 'party/main'), {
+          gp: 12500 - payment.cost,
+          gpEntryId: 'e-pay',
+          ...spec.balance,
+        })
+      } else {
+        batch.update(doc(db, `users/${String(fields.uid)}`), {
+          lp: 5 - payment.cost,
+          lpEntryId: 'e-pay',
+          ...spec.balance,
+        })
+      }
+    }
+    return batch.commit()
+  }
+
+  /**
+   * An open pack `p-open` that holds the table, seeded with the rules disabled: by default Ayla's Standard Pack,
+   * paid with 2 LP (her LP already 3), every card turned.
+   */
+  async function seedOpenPack(overrides: Record<string, unknown> = {}) {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const db = firestoreOf(admin)
+      const fields = packFields('ayla', {
+        at: Timestamp.fromMillis(5000),
+        revealed: [0, 1, 2, 3, 4],
+        entryId: 'e-pay-old',
+        ...overrides,
+      })
+      await setDoc(doc(db, 'draws/p-open'), fields)
+      await setDoc(doc(db, 'table/main'), { openPackId: 'p-open' })
+      if (fields.paidWith === 'lp')
+        await updateDoc(doc(db, 'users/ayla'), { lp: 3, lpEntryId: 'e-pay-old' })
+      if (fields.paidWith === 'gp') {
+        await setDoc(doc(db, 'party/main'), {
+          gp: 12500 - Number(fields.cost),
+          gpEntryId: 'e-pay-old',
+        })
+      }
+    })
+  }
+
+  /** A Cursed Golden Pack that the DM opened for Ayla with 7,500 GP, every card turned. */
+  const CURSED_GOLDEN = {
+    by: 'dana',
+    packType: 'cursedGolden',
+    setCode: null,
+    offered: CURSED_OFFERED,
+    revealed: [0, 1, 2, 3, 4, 5],
+    paidWith: 'gp',
+    cost: 7500,
+  }
+
+  type ChooseSpec = {
+    /** The chosen card. Default: the pool card. */
+    card?: { cardId: string; cardName: string; cardKind: string }
+    /** The mandatory Cursed card, or `null` for none. Default: none. */
+    cursed?: { cardId: string; cardName: string } | null
+    /** Overrides of the record's update. */
+    pack?: Record<string, unknown>
+    /** Overrides of the chosen card's holding, or `null` to write none. */
+    holding?: Record<string, unknown> | null
+    /** Overrides of the Cursed card's holding, or `null` to write none. */
+    cursedHolding?: Record<string, unknown> | null
+    /** Whether the chosen card gets the holding as its holder. Default: for a normal card. */
+    takesCard?: boolean
+    /** The table's new fields, or `null` to leave it alone. */
+    table?: Record<string, unknown> | null
+    /** Whose hand the holdings are for. Default: Ayla's. */
+    uid?: string
+  }
+
+  /**
+   * A choice from `p-open` as the application writes it, in one batch: the record marked chosen, the holding
+   * `h-chosen` (and `h-cursed` for a Cursed card), the normal card's holder, and the freed table.
+   */
+  function choose(writer: string, spec: ChooseSpec = {}) {
+    const db = asUser(writer)
+    const card = spec.card ?? POOL_CHOICE
+    const cursed = spec.cursed ?? null
+    const uid = spec.uid ?? 'ayla'
+    const batch = writeBatch(db)
+    batch.update(doc(db, 'draws/p-open'), {
+      status: 'chosen',
+      closedAt: serverTimestamp(),
+      closedBy: writer,
+      chosen: { ...card, holdingId: 'h-chosen' },
+      cursed: cursed === null ? null : { ...cursed, holdingId: 'h-cursed' },
+      ...spec.pack,
+    })
+    if (spec.holding !== null) {
+      batch.set(
+        doc(db, 'userCards/h-chosen'),
+        newHolding({
+          ...card,
+          uid,
+          givenBy: writer,
+          givenVia: 'pack',
+          drawId: 'p-open',
+          ...spec.holding,
+        }),
+      )
+    }
+    if (cursed !== null && spec.cursedHolding !== null) {
+      batch.set(
+        doc(db, 'userCards/h-cursed'),
+        newHolding({
+          ...cursed,
+          cardKind: 'cursed',
+          uid,
+          givenBy: writer,
+          givenVia: 'pack',
+          drawId: 'p-open',
+          ...spec.cursedHolding,
+        }),
+      )
+    }
+    if (spec.takesCard ?? card.cardKind === 'normal') {
+      batch.update(doc(db, `cards/${card.cardId}`), { holder: { uid, userCardId: 'h-chosen' } })
+    }
+    if (spec.table !== null) batch.set(doc(db, 'table/main'), { openPackId: null, ...spec.table })
+    return batch.commit()
+  }
+
+  type CancelSpec = {
+    /** How the seeded pack was paid. Default: Ayla's 2 LP, her LP now 3. */
+    payment?: Payment
+    /** Overrides of the record's update. */
+    pack?: Record<string, unknown>
+    /** Overrides of the refund entry, or `null` to write none. Written only for a paid pack. */
+    refund?: Record<string, unknown> | null
+    /** Overrides of the refunded balance, or `null` to leave it alone. */
+    balance?: Record<string, unknown> | null
+    /** The table's new fields, or `null` to leave it alone. */
+    table?: Record<string, unknown> | null
+  }
+
+  /**
+   * A cancel of `p-open` as the application writes it, in one batch: the record marked cancelled and, when paid,
+   * the refund entry `e-ref` and the refunded balance, and the freed table.
+   */
+  function cancel(writer: string, spec: CancelSpec = {}) {
+    const db = asUser(writer)
+    const payment = spec.payment ?? { paidWith: 'lp', cost: 2 }
+    const paid = payment.paidWith !== 'none'
+    const gp = payment.paidWith === 'gp'
+    const batch = writeBatch(db)
+    batch.update(doc(db, 'draws/p-open'), {
+      status: 'cancelled',
+      closedAt: serverTimestamp(),
+      closedBy: writer,
+      refundEntryId: paid ? 'e-ref' : null,
+      ...spec.pack,
+    })
+    if (paid && spec.refund !== null) {
+      batch.set(
+        doc(db, 'ledger/e-ref'),
+        packEntry(writer, {
+          currency: payment.paidWith,
+          account: gp ? 'party' : 'ayla',
+          delta: payment.cost,
+          balanceAfter: gp ? 12500 : 3 + payment.cost,
+          drawId: 'p-open',
+          ...spec.refund,
+        }),
+      )
+    }
+    if (paid && spec.balance !== null) {
+      if (gp)
+        batch.update(doc(db, 'party/main'), { gp: 12500, gpEntryId: 'e-ref', ...spec.balance })
+      else
+        batch.update(doc(db, 'users/ayla'), {
+          lp: 3 + payment.cost,
+          lpEntryId: 'e-ref',
+          ...spec.balance,
+        })
+    }
+    if (spec.table !== null) batch.set(doc(db, 'table/main'), { openPackId: null, ...spec.table })
+    return batch.commit()
+  }
+
+  /** Turns cards of `p-open` by writing its new list of turned positions. */
+  const turn = (writer: string, revealed: number[]) =>
+    updateDoc(doc(asUser(writer), 'draws/p-open'), { revealed })
+
+  /** Frees the table with the rules disabled, as if the open pack had ended. */
+  async function freeTable() {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(firestoreOf(admin), 'table/main'), { openPackId: null })
+    })
+  }
+
+  /** Movements and balance changes, each valid on its own, written as the application writes them. */
+  const MOVEMENTS: [string, () => Promise<void>][] = [
+    [
+      'the DM gives a card',
+      () =>
+        setDoc(
+          doc(asUser('dana'), 'userCards/h-give'),
+          newHolding({ ...CURSED_CARD, cardKind: 'cursed', uid: 'bora' }),
+        ),
+    ],
+    [
+      'the DM transfers a card',
+      () => {
+        const db = asUser('dana')
+        const batch = writeBatch(db)
+        batch.update(doc(db, 'userCards/h-bora'), {
+          returnedAt: serverTimestamp(),
+          returnedBy: 'dana',
+          returnReason: 'transferred',
+          transferredTo: 'h-moved',
+        })
+        batch.set(
+          doc(db, 'userCards/h-moved'),
+          newHolding({
+            cardId: HELD,
+            cardName: 'Greedy Hands',
+            givenVia: 'transfer',
+            transferredFrom: 'h-bora',
+          }),
+        )
+        batch.update(doc(db, `cards/${HELD}`), { holder: { uid: 'ayla', userCardId: 'h-moved' } })
+        return batch.commit()
+      },
+    ],
+    [
+      "a player's paid draw",
+      () => {
+        const db = asUser('ayla')
+        const batch = writeBatch(db)
+        batch.set(doc(db, 'draws/d-wait'), {
+          kind: 'random',
+          uid: 'ayla',
+          by: 'ayla',
+          at: serverTimestamp(),
+          ...POOL_CHOICE,
+          holdingId: 'h-drawn',
+          filters: null,
+          paidWith: 'lp',
+          cost: 1,
+          entryId: 'e-drawn',
+        })
+        batch.set(
+          doc(db, 'userCards/h-drawn'),
+          newHolding({ ...POOL_CHOICE, givenBy: 'ayla', givenVia: 'draw', drawId: 'd-wait' }),
+        )
+        batch.update(doc(db, `cards/${POOL}`), { holder: { uid: 'ayla', userCardId: 'h-drawn' } })
+        batch.set(
+          doc(db, 'ledger/e-drawn'),
+          packEntry('ayla', { delta: -1, balanceAfter: 2, source: 'draw', drawId: 'd-wait' }),
+        )
+        batch.update(doc(db, 'users/ayla'), { lp: 2, lpEntryId: 'e-drawn' })
+        return batch.commit()
+      },
+    ],
+    [
+      "the DM's Cursed draw",
+      () => {
+        const db = asUser('dana')
+        const batch = writeBatch(db)
+        batch.set(doc(db, 'draws/d-wait'), {
+          kind: 'cursed',
+          uid: 'ayla',
+          by: 'dana',
+          at: serverTimestamp(),
+          ...CURSED_CARD,
+          cardKind: 'cursed',
+          holdingId: 'h-drawn',
+          filters: null,
+          paidWith: 'none',
+          cost: 0,
+          entryId: null,
+        })
+        batch.set(
+          doc(db, 'userCards/h-drawn'),
+          newHolding({ ...CURSED_CARD, cardKind: 'cursed', givenVia: 'draw', drawId: 'd-wait' }),
+        )
+        return batch.commit()
+      },
+    ],
+    [
+      'a player uses a card',
+      () =>
+        updateDoc(doc(asUser('ayla'), 'userCards/h-ayla-cursed'), {
+          returnedAt: serverTimestamp(),
+          returnedBy: 'ayla',
+          returnReason: 'used',
+          usedOn: null,
+        }),
+    ],
+    [
+      'the DM discards a card',
+      () => {
+        const db = asUser('dana')
+        const batch = writeBatch(db)
+        batch.update(doc(db, 'userCards/h-bora'), {
+          returnedAt: serverTimestamp(),
+          returnedBy: 'dana',
+          returnReason: 'discarded',
+          usedOn: null,
+        })
+        batch.update(doc(db, `cards/${HELD}`), { holder: null })
+        return batch.commit()
+      },
+    ],
+    [
+      "the DM changes a player's LP",
+      () => {
+        const db = asUser('dana')
+        const batch = writeBatch(db)
+        batch.set(
+          doc(db, 'ledger/e-hand'),
+          packEntry('dana', {
+            delta: 2,
+            balanceAfter: 5,
+            source: 'manual',
+            reason: "Boss'u yendi",
+            drawId: null,
+          }),
+        )
+        batch.update(doc(db, 'users/ayla'), { lp: 5, lpEntryId: 'e-hand' })
+        return batch.commit()
+      },
+    ],
+    [
+      "the DM changes the party's GP",
+      () => {
+        const db = asUser('dana')
+        const batch = writeBatch(db)
+        batch.set(
+          doc(db, 'ledger/g-hand'),
+          packEntry('dana', {
+            currency: 'gp',
+            account: 'party',
+            delta: -2500,
+            balanceAfter: 10000,
+            source: 'manual',
+            reason: 'Kiralık kılıç',
+            drawId: null,
+          }),
+        )
+        batch.update(doc(db, 'party/main'), { gp: 10000, gpEntryId: 'g-hand' })
+        return batch.commit()
+      },
+    ],
+  ]
+
+  describe('the table waits for an open pack', () => {
+    it.each(MOVEMENTS)(
+      'denies that %s while a pack is open, and allows it after',
+      async (_case, act) => {
+        await seedOpenPack()
+        await assertFails(act())
+        await freeTable()
+        await assertSucceeds(act())
+      },
+    )
+
+    it('still allows notes, switching active, and cost overrides while a pack is open', async () => {
+      await seedOpenPack()
+      await assertSucceeds(
+        updateDoc(doc(asUser('ayla'), 'userCards/h-ayla-cursed'), { note: 'Sonra' }),
+      )
+      await assertSucceeds(updateDoc(doc(asUser('dana'), 'userCards/h-bora'), { active: true }))
+      await assertSucceeds(
+        updateDoc(doc(asUser('dana'), 'userCards/h-bora'), { costOverride: 'd6' }),
+      )
+    })
+  })
+
+  describe('the heaviest requests', () => {
+    // Eight documents, each checking the others: it must stay within the rules' lookup limits.
+    it("allows the DM's choice from a Cursed Golden Pack: the pack, the table, two holdings and the card", async () => {
+      await seedOpenPack(CURSED_GOLDEN)
+      await assertSucceeds(choose('dana', { cursed: CURSED_CARD }))
+      expect(await readAsAdmin('draws/p-open')).toMatchObject({
+        status: 'chosen',
+        closedBy: 'dana',
+        chosen: { cardId: POOL, holdingId: 'h-chosen' },
+        cursed: { cardId: CURSED, holdingId: 'h-cursed' },
+      })
+      expect(await readAsAdmin('userCards/h-cursed')).toMatchObject({
+        givenVia: 'pack',
+        drawId: 'p-open',
+      })
+      expect(await readAsAdmin(`cards/${POOL}`)).toMatchObject({
+        holder: { uid: 'ayla', userCardId: 'h-chosen' },
+      })
+      expect(await readAsAdmin('table/main')).toEqual({ openPackId: null })
+    })
+
+    it("allows the DM's GP-paid opening for a player: the pack, the table, the entry and the purse", async () => {
+      await assertSucceeds(
+        open('dana', {
+          pack: { packType: 'golden', setCode: null, paidWith: 'gp', cost: 10000 },
+        }),
+      )
+      expect(await readAsAdmin('party/main')).toEqual({ gp: 2500, gpEntryId: 'e-pay' })
+      expect(await readAsAdmin('table/main')).toEqual({ openPackId: 'p-new' })
+    })
+  })
+
+  describe('reading', () => {
+    it.each(['ayla', 'bora', 'dana'])('lets %s read a pack and the table', async (uid) => {
+      await seedOpenPack()
+      await assertSucceeds(getDoc(doc(asUser(uid), 'draws/p-open')))
+      await assertSucceeds(getDoc(doc(asUser(uid), 'table/main')))
+    })
+
+    it('denies signed-out reads', async () => {
+      await seedOpenPack()
+      const db = firestoreOf(testEnv.unauthenticatedContext())
+      await assertFails(getDoc(doc(db, 'draws/p-open')))
+      await assertFails(getDoc(doc(db, 'table/main')))
+    })
+  })
+
+  describe('opening', () => {
+    it("allows a player's opening into their own hand at the pack's LP price", async () => {
+      await assertSucceeds(open('ayla'))
+      expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 3, lpEntryId: 'e-pay' })
+      expect(await readAsAdmin('table/main')).toEqual({ openPackId: 'p-new' })
+    })
+
+    it('allows a Mechanic Pack and a Cursed Pack at their prices', async () => {
+      await assertSucceeds(
+        open('ayla', {
+          pack: { packType: 'mechanic', setCode: null, mechanicPack: 'Arcanus Divine', cost: 4 },
+        }),
+      )
+      await freeTable()
+      await testEnv.withSecurityRulesDisabled(async (admin) => {
+        await updateDoc(doc(firestoreOf(admin), 'users/ayla'), { lp: 5, lpEntryId: 'e-old' })
+        await deleteDoc(doc(firestoreOf(admin), 'draws/p-new'))
+        await deleteDoc(doc(firestoreOf(admin), 'ledger/e-pay'))
+      })
+      await assertSucceeds(
+        open('ayla', { pack: { packType: 'cursed', offered: CURSED_OFFERED, cost: 1 } }),
+      )
+    })
+
+    it("allows the DM's LP opening of any amount", async () => {
+      await assertSucceeds(open('dana', { pack: { cost: 1 } }))
+      expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 4 })
+    })
+
+    it("allows the DM's free opening", async () => {
+      await assertSucceeds(open('dana', { pack: { paidWith: 'none', cost: 0, entryId: null } }))
+      expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 5, lpEntryId: 'e-old' })
+    })
+
+    it("allows the DM's opening into the DM's own hand, free or with GP", async () => {
+      await assertSucceeds(
+        open('dana', { pack: { uid: 'dana', paidWith: 'none', cost: 0, entryId: null } }),
+      )
+      await freeTable()
+      await testEnv.withSecurityRulesDisabled(async (admin) => {
+        await deleteDoc(doc(firestoreOf(admin), 'draws/p-new'))
+      })
+      await assertSucceeds(open('dana', { pack: { uid: 'dana', paidWith: 'gp', cost: 5000 } }))
+    })
+
+    it('denies an opening while a pack is open, and taking or freeing the table alone', async () => {
+      await seedOpenPack()
+      await assertFails(
+        open('dana', { pack: { uid: 'bora', paidWith: 'none', cost: 0, entryId: null } }),
+      )
+      await assertFails(setDoc(doc(asUser('dana'), 'table/main'), { openPackId: null }))
+      await freeTable()
+      await assertFails(setDoc(doc(asUser('dana'), 'table/main'), { openPackId: 'p-open' }))
+      await assertFails(setDoc(doc(asUser('ayla'), 'table/main'), { openPackId: 'p-new' }))
+    })
+
+    it('denies an opening without taking the table, or naming another pack in it', async () => {
+      await assertFails(open('ayla', { table: null }))
+      await assertFails(open('ayla', { table: { openPackId: 'p-other' } }))
+    })
+
+    it('denies a player opening for someone else', async () => {
+      await testEnv.withSecurityRulesDisabled(async (admin) => {
+        await updateDoc(doc(firestoreOf(admin), 'users/bora'), { lp: 5, lpEntryId: 'e-old' })
+      })
+      await assertFails(open('ayla', { pack: { uid: 'bora' } }))
+    })
+
+    it('denies a player paying another amount, paying with GP, or opening for free', async () => {
+      await assertFails(
+        open('ayla', {
+          pack: { cost: 1 },
+          entry: { delta: -1, balanceAfter: 4 },
+          balance: { lp: 4 },
+        }),
+      )
+      await assertFails(open('ayla', { pack: { paidWith: 'gp', cost: 5000 } }))
+      await assertFails(open('ayla', { pack: { paidWith: 'none', cost: 0, entryId: null } }))
+    })
+
+    it('denies a payment that would bring LP below 0', async () => {
+      await testEnv.withSecurityRulesDisabled(async (admin) => {
+        await updateDoc(doc(firestoreOf(admin), 'users/ayla'), { lp: 1, lpEntryId: 'e-old' })
+      })
+      await assertFails(open('ayla', { entry: { balanceAfter: -1 }, balance: { lp: -1 } }))
+    })
+
+    it('denies the DM charging LP to someone who is not a player', async () => {
+      await assertFails(open('dana', { pack: { uid: 'dana', paidWith: 'lp', cost: 2 } }))
+    })
+
+    it('denies a payment that disagrees with the pack, or a pack without its payment', async () => {
+      await assertFails(
+        open('dana', {
+          pack: { cost: 3 },
+          entry: { delta: -2, balanceAfter: 3 },
+          balance: { lp: 3 },
+        }),
+      )
+      await assertFails(open('ayla', { entry: { drawId: 'p-other' } }))
+      await assertFails(open('ayla', { entry: null }))
+      await assertFails(open('ayla', { balance: null }))
+      await assertFails(
+        open('dana', {
+          pack: { paidWith: 'gp', cost: 5000 },
+          entry: { currency: 'lp', account: 'ayla' },
+        }),
+      )
+      await assertFails(open('dana', { pack: { cost: 1_000_001 } }))
+    })
+
+    it('denies a pack with the wrong number of cards, or a repeated card', async () => {
+      await assertFails(open('ayla', { pack: { offered: OFFERED.slice(0, 4) } }))
+      await assertFails(open('ayla', { pack: { offered: [...OFFERED, CURSED] } }))
+      await assertFails(
+        open('ayla', { pack: { packType: 'cursed', offered: [...CURSED_OFFERED, HELD], cost: 1 } }),
+      )
+      await assertFails(open('ayla', { pack: { packType: 'cursed', cost: 1 } }))
+      await assertFails(
+        open('ayla', { pack: { offered: [POOL, POOL, ...PACK_CARDS.slice(0, 3)] } }),
+      )
+      await assertFails(open('ayla', { pack: { offered: [POOL, 7, ...PACK_CARDS.slice(0, 3)] } }))
+    })
+
+    it('denies a pack whose set or mechanic pack does not fit its type', async () => {
+      await assertFails(open('ayla', { pack: { setCode: null } }))
+      await assertFails(open('ayla', { pack: { mechanicPack: 'Arcanus Divine' } }))
+      await assertFails(open('ayla', { pack: { packType: 'golden', cost: 4 } }))
+      await assertFails(open('ayla', { pack: { packType: 'mechanic', setCode: null, cost: 4 } }))
+      await assertFails(open('ayla', { pack: { packType: 'rare', cost: 3 } }))
+    })
+
+    it('denies an opening that is not new and open', async () => {
+      await assertFails(open('ayla', { pack: { revealed: [0] } }))
+      await assertFails(open('ayla', { pack: { status: 'chosen' } }))
+      await assertFails(open('ayla', { pack: { chosen: { ...POOL_CHOICE, holdingId: 'h-x' } } }))
+      await assertFails(open('ayla', { pack: { by: 'dana' } }))
+      await assertFails(open('ayla', { pack: { at: Timestamp.fromMillis(5) } }))
+      await assertFails(open('ayla', { pack: { extra: true } }))
+    })
+  })
+
+  describe('turning cards over', () => {
+    beforeEach(() => seedOpenPack({ revealed: [] }))
+
+    it('lets the owner and the DM turn cards, one at a time', async () => {
+      await assertSucceeds(turn('ayla', [2]))
+      await assertSucceeds(turn('dana', [2, 0]))
+      expect(await readAsAdmin('draws/p-open')).toMatchObject({ revealed: [2, 0] })
+    })
+
+    it('denies another player turning a card', async () => {
+      await assertFails(turn('bora', [0]))
+    })
+
+    it('denies a position that was not shown, one turned twice, two at once, or a reordering', async () => {
+      await assertFails(turn('ayla', [5]))
+      await assertFails(turn('ayla', [-1]))
+      await assertFails(turn('ayla', [0, 1]))
+      await assertSucceeds(turn('ayla', [1]))
+      await assertFails(turn('ayla', [1, 1]))
+      await assertFails(turn('ayla', [0, 1]))
+      await assertFails(turn('ayla', [2]))
+    })
+
+    it('denies turning a card of a pack that has ended', async () => {
+      await assertSucceeds(cancel('dana'))
+      await assertFails(turn('ayla', [0]))
+    })
+  })
+
+  describe('choosing', () => {
+    it("allows the owner's choice of a normal card: the hand, the pool and the table", async () => {
+      await seedOpenPack()
+      await assertSucceeds(choose('ayla'))
+      expect(await readAsAdmin('userCards/h-chosen')).toMatchObject({
+        uid: 'ayla',
+        givenBy: 'ayla',
+        givenVia: 'pack',
+        drawId: 'p-open',
+      })
+      expect(await readAsAdmin('table/main')).toEqual({ openPackId: null })
+    })
+
+    it('allows choosing a Blessed card, which keeps no holder', async () => {
+      await seedOpenPack({ offered: [BLESSED, ...PACK_CARDS] })
+      await assertSucceeds(choose('ayla', { card: BLESSED_CHOICE }))
+    })
+
+    it("allows a Cursed Pack's choice by its owner, with both holdings", async () => {
+      await seedOpenPack({
+        packType: 'cursed',
+        offered: CURSED_OFFERED,
+        revealed: [0, 1, 2, 3, 4, 5],
+        cost: 1,
+      })
+      await assertSucceeds(choose('ayla', { cursed: CURSED_CARD }))
+    })
+
+    it('denies a choice before every card is turned', async () => {
+      await seedOpenPack({ revealed: [0, 1] })
+      await assertFails(choose('ayla'))
+    })
+
+    it('denies choosing a card that was not shown, a held card, or a retired card', async () => {
+      await seedOpenPack()
+      await assertFails(
+        choose('ayla', { card: { cardId: OUTSIDE, cardName: 'Outside Card', cardKind: 'normal' } }),
+      )
+      await seedOpenPack({ offered: [HELD, ...PACK_CARDS] })
+      await assertFails(
+        choose('ayla', { card: { cardId: HELD, cardName: 'Greedy Hands', cardKind: 'normal' } }),
+      )
+      await seedOpenPack({ offered: [RETIRED, ...PACK_CARDS] })
+      await assertFails(
+        choose('ayla', { card: { cardId: RETIRED, cardName: 'Old Card', cardKind: 'normal' } }),
+      )
+    })
+
+    it("denies choosing the Cursed card, or a Cursed Pack's choice without its Cursed card", async () => {
+      await seedOpenPack({
+        packType: 'cursed',
+        offered: CURSED_OFFERED,
+        revealed: [0, 1, 2, 3, 4, 5],
+        cost: 1,
+      })
+      await assertFails(
+        choose('ayla', { card: { ...CURSED_CARD, cardKind: 'cursed' }, takesCard: false }),
+      )
+      await assertFails(choose('ayla'))
+      await assertFails(choose('ayla', { cursed: CURSED_CARD, cursedHolding: null }))
+      await assertFails(
+        choose('ayla', {
+          cursed: CURSED_CARD,
+          cursedHolding: { cardId: POOL, cardKind: 'normal' },
+        }),
+      )
+    })
+
+    it("denies a Standard Pack's choice with a Cursed card", async () => {
+      await seedOpenPack()
+      await assertFails(choose('ayla', { cursed: CURSED_CARD }))
+    })
+
+    it('denies a choice without its holding, its holder, or freeing the table', async () => {
+      await seedOpenPack()
+      await assertFails(choose('ayla', { holding: null }))
+      await assertFails(choose('ayla', { takesCard: false }))
+      await assertFails(choose('ayla', { table: null }))
+      await assertFails(choose('ayla', { holding: { uid: 'bora' }, uid: 'bora' }))
+    })
+
+    it('denies a holding given by pack without the choice', async () => {
+      await seedOpenPack()
+      const db = asUser('ayla')
+      const batch = writeBatch(db)
+      batch.set(
+        doc(db, 'userCards/h-chosen'),
+        newHolding({ ...POOL_CHOICE, givenBy: 'ayla', givenVia: 'pack', drawId: 'p-open' }),
+      )
+      batch.update(doc(db, `cards/${POOL}`), { holder: { uid: 'ayla', userCardId: 'h-chosen' } })
+      await assertFails(batch.commit())
+    })
+
+    it("denies another player's choice", async () => {
+      await seedOpenPack()
+      await assertFails(choose('bora'))
+    })
+  })
+
+  describe('cancelling', () => {
+    it("allows the DM's cancel of an LP-paid pack, refunding the player", async () => {
+      await seedOpenPack()
+      await assertSucceeds(cancel('dana'))
+      expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 5, lpEntryId: 'e-ref' })
+      expect(await readAsAdmin('draws/p-open')).toMatchObject({
+        status: 'cancelled',
+        refundEntryId: 'e-ref',
+      })
+      expect(await readAsAdmin('table/main')).toEqual({ openPackId: null })
+    })
+
+    it("allows the DM's cancel of a GP-paid pack, refunding the purse", async () => {
+      await seedOpenPack({ by: 'dana', paidWith: 'gp', cost: 7500 })
+      await assertSucceeds(cancel('dana', { payment: { paidWith: 'gp', cost: 7500 } }))
+      expect(await readAsAdmin('party/main')).toEqual({ gp: 12500, gpEntryId: 'e-ref' })
+    })
+
+    it("allows the DM's cancel of a free pack, without an entry", async () => {
+      await seedOpenPack({ by: 'dana', paidWith: 'none', cost: 0, entryId: null })
+      await assertSucceeds(cancel('dana', { payment: { paidWith: 'none', cost: 0 } }))
+    })
+
+    it('denies a cancel by a player, even the owner', async () => {
+      await seedOpenPack()
+      await assertFails(cancel('ayla'))
+    })
+
+    it('denies a cancel without its refund, or without freeing the table', async () => {
+      await seedOpenPack()
+      await assertFails(cancel('dana', { refund: null, balance: null }))
+      await assertFails(
+        cancel('dana', { pack: { refundEntryId: null }, refund: null, balance: null }),
+      )
+      await assertFails(cancel('dana', { table: null }))
+    })
+
+    it('denies a refund of another amount, or to another account', async () => {
+      await seedOpenPack()
+      await assertFails(
+        cancel('dana', { refund: { delta: 3, balanceAfter: 6 }, balance: { lp: 6 } }),
+      )
+      const db = asUser('dana')
+      const batch = writeBatch(db)
+      batch.update(doc(db, 'draws/p-open'), {
+        status: 'cancelled',
+        closedAt: serverTimestamp(),
+        closedBy: 'dana',
+        refundEntryId: 'e-ref',
+      })
+      batch.set(
+        doc(db, 'ledger/e-ref'),
+        packEntry('dana', {
+          currency: 'gp',
+          account: 'party',
+          delta: 2,
+          balanceAfter: 12502,
+          drawId: 'p-open',
+        }),
+      )
+      batch.update(doc(db, 'party/main'), { gp: 12502, gpEntryId: 'e-ref' })
+      batch.set(doc(db, 'table/main'), { openPackId: null })
+      await assertFails(batch.commit())
+    })
+
+    it('denies a refund without the cancel', async () => {
+      await seedOpenPack()
+      const db = asUser('dana')
+      const batch = writeBatch(db)
+      batch.set(
+        doc(db, 'ledger/e-ref'),
+        packEntry('dana', { delta: 2, balanceAfter: 5, drawId: 'p-open' }),
+      )
+      batch.update(doc(db, 'users/ayla'), { lp: 5, lpEntryId: 'e-ref' })
+      await assertFails(batch.commit())
+    })
+  })
+
+  describe('ended packs and deleting', () => {
+    it('denies changing an ended pack, and deleting a pack or the table, even by the DM', async () => {
+      await seedOpenPack()
+      await assertSucceeds(choose('ayla'))
+      await assertFails(
+        updateDoc(doc(asUser('dana'), 'draws/p-open'), { revealed: [0, 1, 2, 3, 4, 0] }),
+      )
+      await assertFails(
+        updateDoc(doc(asUser('dana'), 'draws/p-open'), {
+          status: 'cancelled',
+          closedAt: serverTimestamp(),
+          closedBy: 'dana',
+          refundEntryId: null,
+          chosen: null,
+        }),
+      )
+      await assertFails(deleteDoc(doc(asUser('dana'), 'draws/p-open')))
+      await assertFails(deleteDoc(doc(asUser('dana'), 'table/main')))
+    })
+  })
+})

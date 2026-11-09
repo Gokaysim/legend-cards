@@ -15,6 +15,8 @@ import {
   setHoldingNote,
   transferHolding,
 } from './api'
+import { TableBusyError } from '@/features/table/errors'
+
 import { HoldingError, toHoldingFailure } from './errors'
 
 let testEnv: RulesTestEnvironment
@@ -286,5 +288,17 @@ describe('transferring holdings under the real rules', () => {
     await setHoldingCost(as('dana'), id, '   ')
 
     expect(await stored(`userCards/${id}`)).toMatchObject({ costOverride: null })
+  })
+})
+
+describe('card movements while a pack is open', () => {
+  it('fails a give as table-busy and changes nothing', async () => {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(firestoreOf(admin), 'table/main'), { openPackId: 'pack-1' })
+    })
+    const failure = await failureOf(giveCard(as('dana'), { cardId: POOL, uid: 'ayla', by: 'dana' }))
+    expect(failure).toBeInstanceOf(TableBusyError)
+    expect(toHoldingFailure(failure)).toEqual({ kind: 'table-busy' })
+    expect((await stored(`cards/${POOL}`))?.holder).toBeUndefined()
   })
 })

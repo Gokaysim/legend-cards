@@ -1,3 +1,4 @@
+import { TABLE_BUSY_MESSAGE, TableBusyError } from '@/features/table/errors'
 import { firebaseCode } from '@/lib/firestore/errors'
 import { genitive } from '@/lib/turkish'
 
@@ -28,6 +29,8 @@ export type BalanceFailure =
   | { kind: 'not-a-player' }
   /** An amount that is not a whole number in range, or a blank reason. */
   | { kind: 'invalid' }
+  /** A pack is open: the table waits for it, and no balance changes until it ends. */
+  | { kind: 'table-busy' }
   /** No connection: balance changes are transactions, and transactions need the server. */
   | { kind: 'offline' }
   | { kind: 'permission-denied' }
@@ -40,6 +43,7 @@ export function toBalanceFailure(error: unknown): BalanceFailure {
       ? { kind: 'insufficient', balance: error.balance ?? 0 }
       : { kind: error.kind }
   }
+  if (error instanceof TableBusyError) return { kind: 'table-busy' }
   switch (firebaseCode(error)) {
     case 'permission-denied':
       return { kind: 'permission-denied' }
@@ -66,6 +70,8 @@ export function balanceFailureMessage(
         : `Grup kesesinde ${formatAmount(failure.balance)} GP var; ${formatAmount(amount)} GP düşülemez.`
     case 'not-a-player':
       return "Bu kişinin LP'si yok."
+    case 'table-busy':
+      return TABLE_BUSY_MESSAGE
     case 'invalid':
       return `Miktar 1 ile ${formatAmount(BALANCE_LIMITS.amount)} arasında bir tam sayı olmalı, neden de boş olmamalı.`
     case 'offline':

@@ -34,6 +34,8 @@ describe('Shops hub', () => {
 
     expect(router.state.location.pathname).toBe('/shops/packs')
     expect(screen.getByRole('heading', { level: 1, name: 'Pack Shop' })).toBeInTheDocument()
+    expect(screen.queryByText('Bu ekran henüz hazır değil.')).not.toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Set Packs' })).toBeInTheDocument()
     expect(currentMenuLinks()).toEqual([within(mainMenu()).getByRole('link', { name: 'Shops' })])
   })
 

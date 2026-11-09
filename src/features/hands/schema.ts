@@ -4,9 +4,12 @@ import { z } from 'zod'
 import { CARD_KINDS, CARD_LIMITS } from '@/features/cards/schema'
 import { createConverter } from '@/lib/firestore/converter'
 
-/** How a card reached the hand. The Pack Shop adds `pack`. Keep in step with `firestore.rules`. */
-export const GIVEN_VIA = ['dm', 'transfer', 'draw'] as const
+/** How a card reached the hand. Keep in step with `firestore.rules`. */
+export const GIVEN_VIA = ['dm', 'transfer', 'draw', 'pack'] as const
 export type GivenVia = (typeof GIVEN_VIA)[number]
+
+/** The ways of giving that name their draw or pack opening in `drawId`. */
+const NAMES_A_DRAW: readonly GivenVia[] = ['draw', 'pack']
 
 /** Why a card left the hand. Keep in step with `firestore.rules`. */
 export const RETURN_REASONS = ['used', 'discarded', 'transferred'] as const
@@ -43,7 +46,10 @@ export const holdingSchema = z
     givenVia: z.enum(GIVEN_VIA),
     /** For a transfer: the closed holding this one continues. */
     transferredFrom: id.nullable(),
-    /** For a drawn card: the draw that opened this holding. Stored holdings from before draws read as `null`. */
+    /**
+     * For a drawn card, the draw that opened this holding; for a card chosen from a pack, the pack opening. Stored
+     * holdings from before draws read as `null`.
+     */
     drawId: id.nullable().default(null),
     active: z.boolean(),
     note: z.string().max(HOLDING_LIMITS.note),
@@ -65,8 +71,8 @@ export const holdingSchema = z
     if ((holding.givenVia === 'transfer') !== (holding.transferredFrom !== null)) {
       issue('transferredFrom', 'only a transfer continues another holding, and it always does')
     }
-    if ((holding.givenVia === 'draw') !== (holding.drawId !== null)) {
-      issue('drawId', 'only a drawn holding names a draw, and it always does')
+    if (NAMES_A_DRAW.includes(holding.givenVia) !== (holding.drawId !== null)) {
+      issue('drawId', 'only a drawn or pack holding names its draw, and it always does')
     }
     if ((holding.returnReason === null) !== (holding.returnedBy === null)) {
       issue('returnReason', 'a closed holding has both a reason and the user who closed it')

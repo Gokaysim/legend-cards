@@ -1,3 +1,4 @@
+import { TABLE_BUSY_MESSAGE, TableBusyError } from '@/features/table/errors'
 import { firebaseCode } from '@/lib/firestore/errors'
 
 /** A card movement that the current data does not allow, found inside a transaction before anything is written. */
@@ -23,6 +24,8 @@ export type HoldingFailure =
   /** The holding was closed meanwhile, for example used on another device. */
   | { kind: 'closed' }
   | { kind: 'card-missing' }
+  /** A pack is open: the table waits for it, and no card moves until it ends. */
+  | { kind: 'table-busy' }
   /** No connection: card movements are transactions, and transactions need the server. */
   | { kind: 'offline' }
   | { kind: 'permission-denied' }
@@ -35,6 +38,7 @@ export function toHoldingFailure(error: unknown): HoldingFailure {
       ? { kind: 'taken', holderUid: error.holderUid }
       : { kind: error.kind }
   }
+  if (error instanceof TableBusyError) return { kind: 'table-busy' }
   switch (firebaseCode(error)) {
     case 'permission-denied':
       return { kind: 'permission-denied' }
@@ -56,6 +60,8 @@ export function holdingFailureMessage(failure: HoldingFailure, takenBy?: string)
       return 'Bu kart artık bu elde değil: başka bir cihazda kullanılmış ya da verilmiş olabilir.'
     case 'card-missing':
       return 'Kart bulunamadı.'
+    case 'table-busy':
+      return TABLE_BUSY_MESSAGE
     case 'offline':
       return 'Bağlantı yok: kart hareketleri için internet bağlantısı gerekiyor.'
     case 'permission-denied':

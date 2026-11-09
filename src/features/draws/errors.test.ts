@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
+import { TableBusyError } from '@/features/table/errors'
+
 import { DrawError, type DrawFailure, drawFailureMessage, toDrawFailure } from './errors'
 
 const firebaseError = (code: string) => Object.assign(new Error(code), { code })
@@ -11,6 +13,10 @@ describe('toDrawFailure', () => {
     expect(toDrawFailure(new DrawError('retries-exhausted'))).toEqual({
       kind: 'retries-exhausted',
     })
+  })
+
+  it('maps a denial while a pack is open', () => {
+    expect(toDrawFailure(new TableBusyError('pack-1'))).toEqual({ kind: 'table-busy' })
   })
 
   it('maps Firebase errors by their code', () => {
@@ -30,6 +36,10 @@ describe('drawFailureMessage', () => {
     [
       { kind: 'retries-exhausted' },
       'Kart çekilemedi: kartlar o sırada başka ellere geçti. Tekrar dene.',
+    ],
+    [
+      { kind: 'table-busy' },
+      'Şu anda açık bir Pack var: seçim yapılana kadar kart ve bakiye işlemleri bekler.',
     ],
     [{ kind: 'offline' }, 'Bağlantı yok: kart çekmek için internet bağlantısı gerekiyor.'],
     [{ kind: 'permission-denied' }, 'Bu işlem için yetkin yok.'],

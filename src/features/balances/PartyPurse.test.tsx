@@ -61,6 +61,17 @@ describe('PartyPurse', () => {
     expect(purse().queryByRole('button')).not.toBeInTheDocument()
   })
 
+  it("disables the DM's GP change while a pack is open", () => {
+    renderApp({
+      path: '/library',
+      users: { currentProfile: ready(dm), profiles: ready([dm]) },
+      balances: { partyPurse: ready(testPartyPurse(7500)) },
+      table: { openPackId: 'pack-1' },
+    })
+
+    expect(purse().getByRole('button', { name: 'Grup kesesini değiştir' })).toBeDisabled()
+  })
+
   it('lets the DM change the purse from here', async () => {
     const user = userEvent.setup()
     const changeBalance = vi.fn<BalanceActions['changeBalance']>(() => Promise.resolve('e1'))

@@ -14,6 +14,8 @@ const ayla = testProfile({ id: 'ayla', displayName: 'Ayla' })
 const bora = testProfile({ id: 'bora', displayName: 'Bora' })
 const dmProfile = testProfile({ role: 'dm' })
 
+const BUSY = 'Bir Pack açık: seçim bekleniyor.'
+
 const heading = () => screen.getByRole('heading', { level: 1 })
 /** The screen itself, without the sidebar (its "Oyuncular" list has its own loading and error states). */
 const main = () => within(screen.getByRole('main'))
@@ -167,6 +169,34 @@ describe('Legend Points on the hand', () => {
   })
 })
 
+describe('the "🎁 Pack Shop" link', () => {
+  it('opens the Pack Shop from a hand', async () => {
+    const user = userEvent.setup()
+    const { router } = renderApp({
+      path: `/hands/${testUser.uid}`,
+      users: { profiles: ready([me]) },
+    })
+
+    await user.click(main().getByRole('link', { name: '🎁 Pack Shop' }))
+
+    expect(router.state.location.pathname).toBe('/shops/packs')
+    expect(router.state.location.search).toBe('')
+    expect(heading()).toHaveTextContent('Pack Shop')
+  })
+
+  it("opens the DM's Pack Shop for the hand being viewed", async () => {
+    const user = userEvent.setup()
+    const { router } = renderApp({
+      path: '/hands/bora',
+      users: { currentProfile: ready(dmProfile), profiles: ready([bora, dmProfile]) },
+    })
+
+    await user.click(main().getByRole('link', { name: '🎁 Pack Shop' }))
+
+    expect(router.state.location.search).toBe('?for=bora')
+  })
+})
+
 describe('drawing on the hand', () => {
   const eyes = testCard("Aboleth's Eyes")
   const rite = testCard('Blood Rite')
@@ -216,6 +246,33 @@ describe('drawing on the hand', () => {
 
     expect(main().getByRole('button', { name: '☠ Cursed Kart Çek' })).toBeDisabled()
     expect(main().getByRole('button', { name: '🎲 Kart Çek' })).toBeEnabled()
+  })
+
+  it('disables both draws and "+ Kart ver" while a pack is open, and says why', () => {
+    renderApp({
+      path: '/hands/bora',
+      users: { currentProfile: ready(dmProfile), profiles: ready([bora, dmProfile]) },
+      cards: { cards: ready([eyes, visions]) },
+      table: { openPackId: 'pack-1' },
+    })
+
+    for (const button of drawButtons()) expect(button).toBeDisabled()
+    expect(main().getByRole('button', { name: '+ Kart ver' })).toBeDisabled()
+    expect(main().getByRole('button', { name: "Bora'nın LP'sini değiştir" })).toBeDisabled()
+    expect(main().getByText(BUSY)).toBeInTheDocument()
+  })
+
+  it('enables them again when the pack ends', () => {
+    const { setTable } = renderApp({
+      path: `/hands/${testUser.uid}`,
+      users: { profiles: ready([meWithLp]) },
+      cards: { cards: ready([eyes, visions]) },
+      table: { openPackId: 'pack-1' },
+    })
+    setTable({ openPackId: null })
+
+    for (const button of drawButtons()) expect(button).toBeEnabled()
+    expect(main().queryByText(BUSY)).not.toBeInTheDocument()
   })
 
   it('shows a drawn card at the end of the hand once the holding arrives', async () => {

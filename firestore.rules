@@ -42,6 +42,25 @@ service cloud.firestore {
       return /databases/$(database)/documents/draws/$(drawId);
     }
 
+    function tablePath() {
+      return /databases/$(database)/documents/table/main;
+    }
+
+    // The open pack's ID before and after this request: null while no pack is open, or before the table exists.
+    function openPackBefore() {
+      return exists(tablePath()) ? get(tablePath()).data.openPackId : null;
+    }
+
+    function openPackAfter() {
+      return existsAfter(tablePath()) ? getAfter(tablePath()).data.openPackId : null;
+    }
+
+    // No pack is open, before or after this request. While a pack is open, the whole table waits for it: every card
+    // movement, draw and balance change other than the pack's own steps requires this.
+    function tableFree() {
+      return openPackBefore() == null && openPackAfter() == null;
+    }
+
     // A document that this same request creates: it did not exist before, and it does after.
     function createdNow(path) {
       return !exists(path) && existsAfter(path);
@@ -94,7 +113,7 @@ service cloud.firestore {
     // User profiles. Everyone signed in reads every profile. A user creates only their own, only as a player,
     // and later changes only its name and picture. Roles are changed by the admin script (Admin SDK), never here.
     // The other writes are a player's Legend Points, each together with the ledger entry that records it: the DM
-    // changes them by hand, and a player pays 1 LP for their own draw.
+    // changes them by hand, a player pays 1 LP for their own draw, and a pack's payment or refund moves them.
     match /users/{uid} {
       allow read: if isSignedIn();
       allow create: if isSelf(uid)
@@ -111,11 +130,13 @@ service cloud.firestore {
           && validPhoto(request.resource.data.photoURL)
         )
         || (lpSetByEntry('manual') && isDm())
-        || (isSelf(uid) && lpSetByEntry('draw'));
+        || (isSelf(uid) && lpSetByEntry('draw'))
+        || (lpSetByEntry('pack') && (isSelf(uid) || isDm()));
       allow delete: if false;
 
       // A player's LP (a whole number, never below 0) set with a new ledger entry from `source`: the DM's change by
-      // hand, or the player's draw payment, whose amount the ledger rules fix at 1. A missing `lp` is 0.
+      // hand, the player's draw payment, whose amount the ledger rules fix at 1, or a pack's payment or refund, which
+      // the ledger rules tie to the pack. A missing `lp` is 0.
       function lpSetByEntry(source) {
         let next = request.resource.data;
         return isSignedIn()
@@ -129,7 +150,8 @@ service cloud.firestore {
     }
 
     // The party purse: the group's shared GP. Everyone signed in reads it. Only the DM writes it, and only together
-    // with the ledger entry that records the change. A missing purse holds 0 GP.
+    // with the ledger entry that records the change: by hand, or a pack's GP payment or refund. A missing purse holds
+    // 0 GP.
     match /party/main {
       allow read: if isSignedIn();
       allow create: if gpSetByEntry(0);
@@ -149,10 +171,13 @@ service cloud.firestore {
     }
 
     // The ledger: one entry per balance change, created together with the balance it sets, and never changed or
-    // deleted. Everyone signed in reads it. The DM makes changes by hand; a player pays for their own draw.
+    // deleted. Everyone signed in reads it. The DM makes changes by hand; a player pays for their own draw; a pack's
+    // opening pays for it and the DM's cancel refunds it. Only a pack's own steps may change a balance while the
+    // pack is open.
     match /ledger/{entryId} {
       allow read: if isSignedIn();
-      allow create: if validLedgerEntry() && (manualByDm() || paysForDraw());
+      allow create: if validLedgerEntry()
+        && (((manualByDm() || paysForDraw()) && tableFree()) || forPack());
       allow update, delete: if false;
 
       // Exactly the stored fields. Limits: keep in step with BALANCE_LIMITS in src/features/balances/schema.ts.
@@ -200,6 +225,50 @@ service cloud.firestore {
           && createdNow(drawPath(data.drawId))
           && getAfter(drawPath(data.drawId)).data.entryId == entryId
           && setsLp();
+      }
+
+      // A pack's payment, created with the opening that names it, or its refund, created with the DM's cancel that
+      // names it. Neither has a reason: the pack explains it. The pack's rules decide who may pay or refund what.
+      function forPack() {
+        let data = request.resource.data;
+        return data.source == 'pack'
+          && data.reason == null
+          && data.drawId is string
+          && (paysForPackOpening() || refundsPack())
+          && (setsLp() || setsGp());
+      }
+
+      // The opening that this same request creates names this entry, and the entry takes exactly its cost from the
+      // account it was paid from.
+      function paysForPackOpening() {
+        let data = request.resource.data;
+        let pack = getAfter(drawPath(data.drawId)).data;
+        return createdNow(drawPath(data.drawId))
+          && pack.kind == 'pack'
+          && pack.entryId == entryId
+          && data.delta == -pack.cost
+          && matchesPackPayment(pack);
+      }
+
+      // The open pack that this same request cancels names this entry as its refund, and the entry returns exactly
+      // its cost to the account it was paid from.
+      function refundsPack() {
+        let data = request.resource.data;
+        let before = get(drawPath(data.drawId)).data;
+        let after = getAfter(drawPath(data.drawId)).data;
+        return before.kind == 'pack'
+          && before.status == 'open'
+          && after.status == 'cancelled'
+          && after.refundEntryId == entryId
+          && data.delta == before.cost
+          && matchesPackPayment(before);
+      }
+
+      // The entry's currency and account are the ones the pack was paid with: the hand's owner's LP, or the party's GP.
+      function matchesPackPayment(pack) {
+        let data = request.resource.data;
+        return (pack.paidWith == 'lp' && data.currency == 'lp' && data.account == pack.uid)
+          || (pack.paidWith == 'gp' && data.currency == 'gp' && data.account == 'party');
       }
 
       // A player's LP: the profile now points at this entry and holds its balance, which follows from the balance
@@ -288,7 +357,8 @@ service cloud.firestore {
     }
 
     // Card holdings: one card's stay with one player. Everyone signed in reads every holding, open or closed.
-    // Only the DM gives and transfers cards. A player opens a holding only for their own draw (see draws below).
+    // Only the DM gives and transfers cards. A player opens a holding only for their own draw or a choice from their
+    // own open pack (see draws below). While a pack is open, no card is given, used, discarded or transferred.
     // A holding is closed, never deleted, and a closed holding never changes again. Every movement keeps a normal
     // card's `holder` in step with its holdings, checked with getAfter.
     match /userCards/{holdingId} {
@@ -301,10 +371,10 @@ service cloud.firestore {
           || (onlyChanges(['active']) && request.resource.data.active is bool && isDm())
           || (onlyChanges(['costOverride']) && validCost(request.resource.data.costOverride) && isDm())
           || (closesAs('used') && validUsedOn(request.resource.data.usedOn)
-              && (isDm() || isHolder()) && releasesCard())
+              && (isDm() || isHolder()) && releasesCard() && tableFree())
           || (closesAs('discarded') && request.resource.data.usedOn == null
-              && isDm() && releasesCard())
-          || (closesAsTransferred() && isDm() && movesCard())
+              && isDm() && releasesCard() && tableFree())
+          || (closesAsTransferred() && isDm() && movesCard() && tableFree())
         );
       allow delete: if false;
 
@@ -326,7 +396,7 @@ service cloud.firestore {
       }
 
       // A new, open holding with exactly the stored fields, given now by the signed-in user to someone with a
-      // profile, for an existing card of the same kind: a DM give, a DM transfer, or a draw.
+      // profile, for an existing card of the same kind: a DM give, a DM transfer, a draw, or a pack's choice.
       function validNewHolding() {
         let data = request.resource.data;
         let fields = ['cardId', 'cardName', 'cardKind', 'uid', 'givenAt', 'givenBy', 'givenVia',
@@ -352,11 +422,13 @@ service cloud.firestore {
           && get(cardPath(data.cardId)).data.kind == data.cardKind
           && (
             (data.givenVia == 'dm' && data.transferredFrom == null && data.drawId == null
-              && givenByDm() && isDm())
+              && givenByDm() && isDm() && tableFree())
             || (data.givenVia == 'transfer' && data.transferredFrom is string && data.drawId == null
-              && continuesTransfer() && isDm())
+              && continuesTransfer() && isDm() && tableFree())
             || (data.givenVia == 'draw' && data.transferredFrom == null && data.drawId is string
-              && drawnInto())
+              && drawnInto() && tableFree())
+            || (data.givenVia == 'pack' && data.transferredFrom == null && data.drawId is string
+              && chosenFromPack())
           );
       }
 
@@ -401,6 +473,36 @@ service cloud.firestore {
           && draw.cardId == cardId
           && draw.cardName == data.cardName
           && draw.cardKind == data.cardKind
+          && data.active == false
+          && data.note == ''
+          && data.costOverride == null
+          && get(cardPath(cardId)).data.retired == false
+          && (data.cardKind != 'normal'
+            || (holderBefore(cardId) == null
+              && holderAfter(cardId) == {'uid': data.uid, 'userCardId': holdingId}));
+      }
+
+      // An open pack that this same request marks as chosen names this holding: as its chosen card, or as its
+      // mandatory Cursed card. The pack's own rule checks who chooses. A chosen card starts inactive, without a note
+      // or a cost, and is never retired. A normal card comes from the pool and gets this holding as its holder.
+      function chosenFromPack() {
+        let data = request.resource.data;
+        let before = get(drawPath(data.drawId)).data;
+        let after = getAfter(drawPath(data.drawId)).data;
+        let cardId = data.cardId;
+        return before.kind == 'pack'
+          && before.status == 'open'
+          && after.status == 'chosen'
+          && after.uid == data.uid
+          && ((after.chosen.holdingId == holdingId
+              && after.chosen.cardId == cardId
+              && after.chosen.cardName == data.cardName
+              && after.chosen.cardKind == data.cardKind)
+            || (after.cursed != null
+              && after.cursed.holdingId == holdingId
+              && after.cursed.cardId == cardId
+              && after.cursed.cardName == data.cardName
+              && data.cardKind == 'cursed'))
           && data.active == false
           && data.note == ''
           && data.costOverride == null
@@ -455,16 +557,34 @@ service cloud.firestore {
       }
     }
 
-    // Draws: one card drawn into a hand, kept as a permanent record. Everyone signed in reads every draw. A draw is
-    // created only together with the holding it opens and, when paid, the ledger entry and the new LP; it is
-    // never changed or deleted. A player draws only into their own hand: a random draw for 1 LP, without filters,
-    // or a free Cursed draw. The DM draws into any hand for free, and may record filters on a random draw.
+    // Draws: one card drawn into a hand, or one pack opened into a hand, kept as a permanent record. Everyone signed
+    // in reads every record.
+    //
+    // A card draw is created only together with the holding it opens and, when paid, the ledger entry and the new
+    // LP; it is never changed or deleted. A player draws only into their own hand: a random draw for 1 LP, without
+    // filters, or a free Cursed draw. The DM draws into any hand for free, and may record filters on a random draw.
+    //
+    // A pack opening is created open, together with taking the table and, when paid, its ledger entry and the new
+    // balance. A player opens a pack only into their own hand, for its LP price; the DM opens one into any hand, paid
+    // with any amount of the player's LP or the party's GP, or free. While it is open, the hand's owner or the DM
+    // turns its cards one at a time, and then chooses one card, which ends it; only the DM cancels it, with a refund
+    // of its payment. Both ends free the table. An ended pack never changes again.
     match /draws/{drawId} {
       allow read: if isSignedIn();
-      allow create: if validDraw()
-        && opensItsHolding()
-        && (paidByPlayer() || cursedForSelf() || (isFree() && isDm()));
-      allow update, delete: if false;
+      allow create: if (validDraw()
+          && opensItsHolding()
+          && tableFree()
+          && (paidByPlayer() || cursedForSelf() || (isFree() && isDm())))
+        || (validPackOpening() && takesTable() && (packPaidByPlayer() || packByDm()));
+      allow update: if isSignedIn()
+        && resource.data.kind == 'pack'
+        && resource.data.status == 'open'
+        && (
+          (turnsCard() && (isPackOwner() || isDm()))
+          || (choosesCard() && (isPackOwner() || isDm()))
+          || (cancelsPack() && isDm())
+        );
+      allow delete: if false;
 
       // A filter value: a string within `max` characters, or null.
       function validFilterText(value, max) {
@@ -535,6 +655,228 @@ service cloud.firestore {
         return request.resource.data.kind == 'cursed'
           && request.resource.data.uid == request.auth.uid
           && isFree();
+      }
+
+      // The LP price of each pack type. Keep in step with PACK_PRICES in src/features/packs/catalog.ts.
+      function packPrice(type) {
+        return {
+          'standard': 2,
+          'premium': 3,
+          'cursed': 1,
+          'pandemonium': 3,
+          'pandemoniumCursed': 3,
+          'mechanic': 4,
+          'golden': 4,
+          'cursedGolden': 3
+        }[type];
+      }
+
+      // The pack types that also show one mandatory Cursed card. Keep in step with CURSED_PACK_TYPES.
+      function isCursedPack(type) {
+        return type in ['cursed', 'pandemoniumCursed', 'cursedGolden'];
+      }
+
+      function validScope(value) {
+        return value is string && value.size() >= 1 && value.size() <= 100;
+      }
+
+      // The pack types of one set name their set, a Mechanic Pack its mechanic pack, and the Golden types neither.
+      function validPackScope(data) {
+        return data.packType in ['standard', 'premium', 'cursed', 'pandemonium', 'pandemoniumCursed']
+          ? validScope(data.setCode) && data.mechanicPack == null
+          : data.packType == 'mechanic'
+            ? data.setCode == null && validScope(data.mechanicPack)
+            : data.packType in ['golden', 'cursedGolden'] && data.setCode == null && data.mechanicPack == null;
+      }
+
+      function validCardId(value) {
+        return value is string && value.size() >= 1 && value.size() <= 300;
+      }
+
+      // The shown cards: 5 distinct card IDs, and a sixth for a Cursed type.
+      function validOffered(offered, size) {
+        return offered is list
+          && offered.size() == size
+          && offered.toSet().size() == size
+          && validCardId(offered[0])
+          && validCardId(offered[1])
+          && validCardId(offered[2])
+          && validCardId(offered[3])
+          && validCardId(offered[4])
+          && (size == 5 || validCardId(offered[5]));
+      }
+
+      // A new, open pack with exactly the stored fields, opened now by the signed-in user into the hand of someone
+      // with a profile, with no card turned or chosen yet.
+      function validPackOpening() {
+        let data = request.resource.data;
+        let fields = ['kind', 'uid', 'by', 'at', 'packType', 'setCode', 'mechanicPack', 'offered', 'revealed',
+          'paidWith', 'cost', 'entryId', 'status', 'closedAt', 'closedBy', 'chosen', 'cursed', 'refundEntryId'];
+        return isSignedIn()
+          && data.keys().hasOnly(fields)
+          && data.keys().hasAll(fields)
+          && data.kind == 'pack'
+          && data.uid is string
+          && data.by == request.auth.uid
+          && data.at == request.time
+          && validPackScope(data)
+          && validOffered(data.offered, isCursedPack(data.packType) ? 6 : 5)
+          && data.revealed == []
+          && data.status == 'open'
+          && data.closedAt == null
+          && data.closedBy == null
+          && data.chosen == null
+          && data.cursed == null
+          && data.refundEntryId == null
+          && exists(userPath(data.uid));
+      }
+
+      // This pack takes the free table.
+      function takesTable() {
+        return openPackBefore() == null && openPackAfter() == drawId;
+      }
+
+      // This pack ends and frees the table it held.
+      function releasesTable() {
+        return openPackBefore() == drawId && openPackAfter() == null;
+      }
+
+      // A ledger entry that this same request creates names this pack. The ledger rules check its amount and account.
+      function paysWith(entryId) {
+        return entryId is string
+          && createdNow(ledgerPath(entryId))
+          && getAfter(ledgerPath(entryId)).data.drawId == drawId;
+      }
+
+      // A player's pack, into their own hand, paid with exactly its LP price.
+      function packPaidByPlayer() {
+        let data = request.resource.data;
+        return data.uid == request.auth.uid
+          && data.paidWith == 'lp'
+          && data.cost == packPrice(data.packType)
+          && paysWith(data.entryId);
+      }
+
+      // The DM's pack: free, or paid with any whole amount of the player's LP or the party's GP.
+      function packByDm() {
+        let data = request.resource.data;
+        return ((data.paidWith == 'none' && data.cost == 0 && data.entryId == null)
+            || (data.paidWith in ['lp', 'gp']
+              && data.cost is int
+              && data.cost >= 1
+              && data.cost <= 1000000
+              && paysWith(data.entryId)))
+          && isDm();
+      }
+
+      function isPackOwner() {
+        return request.auth.uid == resource.data.uid;
+      }
+
+      // Turns one more card face up: the next position is added at the end, once, and it is one of the shown cards.
+      function turnsCard() {
+        let before = resource.data.revealed;
+        let after = request.resource.data.revealed;
+        let n = before.size();
+        return onlyChanges(['revealed'])
+          && after is list
+          && after.size() == n + 1
+          && after[n] is int
+          && after[n] >= 0
+          && after[n] < resource.data.offered.size()
+          && !(after[n] in before)
+          && after == before.concat([after[n]]);
+      }
+
+      // A holding that this same request creates names this pack.
+      function opensPackHolding(holdingId) {
+        return holdingId is string
+          && createdNow(holdingPath(holdingId))
+          && getAfter(holdingPath(holdingId)).data.drawId == drawId;
+      }
+
+      function validChosenName(value) {
+        return value is string && value.size() >= 1 && value.size() <= 200;
+      }
+
+      // Ends the pack with a choice, now, by the signed-in user, after every card was turned: one shown normal or
+      // Blessed card, and for a Cursed type also the shown Cursed card, each into a holding created in this same
+      // request. The holdings' own rule checks the cards and the hand.
+      function choosesCard() {
+        let before = resource.data;
+        let after = request.resource.data;
+        let chosen = after.chosen;
+        let cursed = after.cursed;
+        return onlyChanges(['status', 'closedAt', 'closedBy', 'chosen', 'cursed'])
+          && after.status == 'chosen'
+          && after.closedAt == request.time
+          && after.closedBy == request.auth.uid
+          && before.revealed.size() == before.offered.size()
+          && chosen is map
+          && chosen.keys().hasOnly(['cardId', 'cardName', 'cardKind', 'holdingId'])
+          && chosen.keys().hasAll(['cardId', 'cardName', 'cardKind', 'holdingId'])
+          && chosen.cardId in before.offered
+          && chosen.cardKind in ['normal', 'blessed']
+          && validChosenName(chosen.cardName)
+          && opensPackHolding(chosen.holdingId)
+          && (isCursedPack(before.packType)
+            ? cursed is map
+              && cursed.keys().hasOnly(['cardId', 'cardName', 'holdingId'])
+              && cursed.keys().hasAll(['cardId', 'cardName', 'holdingId'])
+              && cursed.cardId in before.offered
+              && cursed.cardId != chosen.cardId
+              && cursed.holdingId != chosen.holdingId
+              && validChosenName(cursed.cardName)
+              && opensPackHolding(cursed.holdingId)
+            : cursed == null)
+          && releasesTable();
+      }
+
+      // Ends the pack without a card, now, by the signed-in user. A paid pack names its refund, which this same
+      // request creates; the ledger rules check that it returns the payment.
+      function cancelsPack() {
+        let after = request.resource.data;
+        return onlyChanges(['status', 'closedAt', 'closedBy', 'refundEntryId'])
+          && after.status == 'cancelled'
+          && after.closedAt == request.time
+          && after.closedBy == request.auth.uid
+          && (resource.data.paidWith == 'none'
+            ? after.refundEntryId == null
+            : paysWith(after.refundEntryId))
+          && releasesTable();
+      }
+    }
+
+    // The table: which pack is open, at `table/main`. Everyone signed in reads it. It changes only together with a
+    // pack: taken by the opening that this same request creates, and freed by the choice or cancel that ends the
+    // pack in this same request. The pack's rules decide who may do either. A missing table holds no pack.
+    match /table/main {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.keys().hasOnly(['openPackId'])
+        && request.resource.data.keys().hasAll(['openPackId'])
+        && takenBy(request.resource.data.openPackId);
+      allow update: if isSignedIn()
+        && request.resource.data.keys().hasOnly(['openPackId'])
+        && request.resource.data.keys().hasAll(['openPackId'])
+        && ((resource.data.openPackId == null && takenBy(request.resource.data.openPackId))
+          || (resource.data.openPackId is string
+            && request.resource.data.openPackId == null
+            && freedBy(resource.data.openPackId)));
+      allow delete: if false;
+
+      // A pack that this same request creates, open.
+      function takenBy(packId) {
+        return packId is string
+          && createdNow(drawPath(packId))
+          && getAfter(drawPath(packId)).data.kind == 'pack'
+          && getAfter(drawPath(packId)).data.status == 'open';
+      }
+
+      // The open pack ends in this same request.
+      function freedBy(packId) {
+        return get(drawPath(packId)).data.status == 'open'
+          && getAfter(drawPath(packId)).data.status in ['chosen', 'cancelled'];
       }
     }
 

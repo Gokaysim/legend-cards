@@ -5,6 +5,9 @@ import { Dialog } from '@/components/ui/Dialog'
 import { useAuth } from '@/features/auth/authContext'
 import { CardFace } from '@/features/cards/CardFace'
 import { NO_VALUE } from '@/features/cards/display'
+import { TABLE_BUSY_NOTE } from '@/features/table/errors'
+import { TableBusyNote } from '@/features/table/TableBusyNote'
+import { useIsTableBusy } from '@/features/table/tableContext'
 import { profileName, useIsDm, useProfiles } from '@/features/users/usersContext'
 import { genitive } from '@/lib/turkish'
 import { useOnlineStatus } from '@/lib/useOnlineStatus'
@@ -62,7 +65,8 @@ export type HoldingDialogProps = {
  * The details of a held card: its face, its note, its cost in this hand, and the actions the signed-in user may
  * take. The holder and the DM edit the note and use the card; only the DM switches it active, sets its cost,
  * discards it, or gives it to another player. Controls the user may not use are not shown; the rules decide.
- * Every confirmation is a step inside the dialog.
+ * Every confirmation is a step inside the dialog. While a pack is open, the card cannot leave the hand: using,
+ * discarding and giving it away wait, and the note, the active switch and the cost stay available.
  */
 export function HoldingDialog({ entry, holderName, onClose }: HoldingDialogProps) {
   const { holding, card, cost, isExtraCopy } = entry
@@ -75,6 +79,8 @@ export function HoldingDialog({ entry, holderName, onClose }: HoldingDialogProps
   const actions = useHoldingActions()
   const isOnline = useOnlineStatus()
   const profiles = useProfiles()
+  const isTableBusy = useIsTableBusy()
+  const busyTitle = isTableBusy ? TABLE_BUSY_NOTE : undefined
 
   const [step, setStep] = useState<Step>('idle')
   const [usedOn, setUsedOn] = useState('')
@@ -185,23 +191,38 @@ export function HoldingDialog({ entry, holderName, onClose }: HoldingDialogProps
       </div>
 
       {step === 'idle' && (canUse || isDm) ? (
-        <div className="flex flex-wrap gap-2">
-          {canUse ? (
-            <Button variant="primary" onClick={() => goTo('use')}>
-              Kullan
-            </Button>
-          ) : null}
-          {isDm ? (
-            <>
-              <Button variant={holding.active ? 'primary' : 'secondary'} onClick={toggleActive}>
-                {holding.active ? '✓ Aktifliği kaldır' : '● Aktif et'}
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-wrap gap-2">
+            {canUse ? (
+              <Button
+                variant="primary"
+                disabled={isTableBusy}
+                title={busyTitle}
+                onClick={() => goTo('use')}
+              >
+                Kullan
               </Button>
-              <Button onClick={() => goTo('transfer')}>Başkasına ver</Button>
-              <Button variant="danger" onClick={() => goTo('discard')}>
-                At
-              </Button>
-            </>
-          ) : null}
+            ) : null}
+            {isDm ? (
+              <>
+                <Button variant={holding.active ? 'primary' : 'secondary'} onClick={toggleActive}>
+                  {holding.active ? '✓ Aktifliği kaldır' : '● Aktif et'}
+                </Button>
+                <Button disabled={isTableBusy} title={busyTitle} onClick={() => goTo('transfer')}>
+                  Başkasına ver
+                </Button>
+                <Button
+                  variant="danger"
+                  disabled={isTableBusy}
+                  title={busyTitle}
+                  onClick={() => goTo('discard')}
+                >
+                  At
+                </Button>
+              </>
+            ) : null}
+          </div>
+          <TableBusyNote />
         </div>
       ) : null}
 
@@ -220,7 +241,8 @@ export function HoldingDialog({ entry, holderName, onClose }: HoldingDialogProps
           <div className="flex flex-wrap gap-2">
             <Button
               variant="primary"
-              disabled={isBusy}
+              disabled={isBusy || isTableBusy}
+              title={busyTitle}
               onClick={() =>
                 void move((by) =>
                   actions.closeHolding({ holdingId: holding.id, by, reason: 'used', usedOn }),
@@ -245,7 +267,8 @@ export function HoldingDialog({ entry, holderName, onClose }: HoldingDialogProps
           <div className="flex flex-wrap gap-2">
             <Button
               variant="danger"
-              disabled={isBusy}
+              disabled={isBusy || isTableBusy}
+              title={busyTitle}
               onClick={() =>
                 void move((by) =>
                   actions.closeHolding({ holdingId: holding.id, by, reason: 'discarded' }),
@@ -285,7 +308,8 @@ export function HoldingDialog({ entry, holderName, onClose }: HoldingDialogProps
           <div className="flex flex-wrap gap-2">
             <Button
               variant="primary"
-              disabled={isBusy || receiver === ''}
+              disabled={isBusy || isTableBusy || receiver === ''}
+              title={busyTitle}
               onClick={() =>
                 void move((by) =>
                   actions.transferHolding({ holdingId: holding.id, toUid: receiver, by }),

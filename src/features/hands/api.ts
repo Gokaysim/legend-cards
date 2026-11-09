@@ -17,6 +17,7 @@ import {
 
 import { cardRef } from '@/features/cards/api'
 import type { Card } from '@/features/cards/schema'
+import { explainDenial } from '@/features/table/api'
 import { firebaseCode } from '@/lib/firestore/errors'
 import { cleanText } from '@/lib/text'
 
@@ -129,7 +130,7 @@ export async function giveCard(db: Firestore, input: GiveCardInput): Promise<str
         throw new HoldingError('taken', card.holder.uid)
       }
     }
-    throw error
+    throw await explainDenial(db, error)
   }
 }
 
@@ -175,12 +176,21 @@ export type CloseHoldingInput = {
 /**
  * Uses or discards a held card, in one transaction that re-reads the holding and the card. A normal card whose
  * holder is this holding returns to the pool; an extra copy, a Blessed or a Cursed card leaves the card alone.
- * Fails with `HoldingError('closed')` when the holding was closed meanwhile.
+ * Fails with `HoldingError('closed')` when the holding was closed meanwhile, and with `TableBusyError` while a
+ * pack is open.
  */
 export async function closeHolding(db: Firestore, input: CloseHoldingInput): Promise<void> {
+  try {
+    await closeHoldingOnce(db, input)
+  } catch (error) {
+    throw await explainDenial(db, error)
+  }
+}
+
+function closeHoldingOnce(db: Firestore, input: CloseHoldingInput): Promise<void> {
   const { holdingId, by, reason } = input
   const ref = holdingRef(db, holdingId)
-  await runTransaction(db, async (transaction) => {
+  return runTransaction(db, async (transaction) => {
     const holding = await readOpenHolding(transaction, ref)
     const card = cardRef(db, holding.cardId)
     const current = holding.cardKind === 'normal' ? await readCard(transaction, card) : null
@@ -205,9 +215,18 @@ export type TransferHoldingInput = {
 /**
  * Moves a held card to another player's hand, in one transaction: the old holding closes as transferred, and a
  * new holding opens at the end of the receiver's hand with the same note, cost override and active state. A
- * normal card's holder moves with it when it pointed at the old holding. Returns the new holding's ID.
+ * normal card's holder moves with it when it pointed at the old holding. Returns the new holding's ID. Fails with
+ * `TableBusyError` while a pack is open.
  */
-export async function transferHolding(
+export async function transferHolding(db: Firestore, input: TransferHoldingInput): Promise<string> {
+  try {
+    return await transferHoldingOnce(db, input)
+  } catch (error) {
+    throw await explainDenial(db, error)
+  }
+}
+
+function transferHoldingOnce(
   db: Firestore,
   { holdingId, toUid, by }: TransferHoldingInput,
 ): Promise<string> {

@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { testBlessedCard, testCard } from '@/test/cardFixtures'
 
@@ -44,5 +44,48 @@ describe('FaceDownCard', () => {
     const back = screen.getByRole('button', { name: 'Kart 1: çevir' })
     expect(back).toHaveClass('border-cursed')
     expect(back).toHaveTextContent('☠')
+  })
+})
+
+describe('FaceDownCard, controlled', () => {
+  it('asks to turn instead of turning on its own, and turns when told', async () => {
+    const user = userEvent.setup()
+    const onReveal = vi.fn()
+    const { rerender } = render(
+      <FaceDownCard
+        card={eyes}
+        position={1}
+        tone="random"
+        isRevealed={false}
+        onReveal={onReveal}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Kart 1: çevir' }))
+    expect(onReveal).toHaveBeenCalledOnce()
+    expect(screen.queryByRole('article')).not.toBeInTheDocument()
+
+    rerender(<FaceDownCard card={eyes} position={1} tone="random" isRevealed onReveal={onReveal} />)
+    expect(screen.getByRole('article', { name: "Aboleth's Eyes" })).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'Kart 1' })).toHaveFocus()
+  })
+
+  it('does not take the focus for a card turned on another device', () => {
+    const { rerender } = render(
+      <FaceDownCard card={eyes} position={1} tone="random" isRevealed={false} onReveal={vi.fn()} />,
+    )
+    rerender(<FaceDownCard card={eyes} position={1} tone="random" isRevealed onReveal={vi.fn()} />)
+
+    expect(screen.getByRole('group', { name: 'Kart 1' })).not.toHaveFocus()
+  })
+
+  it('shows a watcher the back without a control', () => {
+    render(
+      <FaceDownCard card={eyes} position={3} tone="random" isRevealed={false} canTurn={false} />,
+    )
+
+    expect(screen.queryByRole('button')).not.toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'Kart 3: kapalı' })).toBeInTheDocument()
+    expect(screen.queryByText('Çevir')).not.toBeInTheDocument()
   })
 })

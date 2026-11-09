@@ -10,6 +10,8 @@ export type DialogProps = {
   onClose: () => void
   children: ReactNode
   className?: string
+  /** The close button's text. Defaults to "✕ Kapat". */
+  closeLabel?: string
 }
 
 /**
@@ -18,13 +20,21 @@ export type DialogProps = {
  * the page behind it. Removing it from the page closes it. Mark the field that should get the focus first with
  * `data-autofocus`; otherwise the close button gets it.
  */
-export function Dialog({ title, onClose, children, className }: DialogProps) {
+export function Dialog({
+  title,
+  onClose,
+  children,
+  className,
+  closeLabel = '✕ Kapat',
+}: DialogProps) {
   const ref = useRef<HTMLDialogElement>(null)
   const titleId = useId()
 
   useEffect(() => {
     const dialog = ref.current
-    if (!dialog || dialog.open) return
+    // Outside the document there is nothing to show, and the browser throws. That happens when a page takes the
+    // app's root out of the document while the app keeps running: a pack that opens meanwhile would crash it.
+    if (!dialog || dialog.open || !dialog.isConnected) return
     dialog.showModal()
     // The browser focuses the first focusable element (the close button); a field marked `data-autofocus` wins.
     dialog.querySelector<HTMLElement>('[data-autofocus]')?.focus()
@@ -46,7 +56,7 @@ export function Dialog({ title, onClose, children, className }: DialogProps) {
             {title}
           </h2>
           <Button variant="ghost" onClick={onClose} className="shrink-0">
-            ✕ Kapat
+            {closeLabel}
           </Button>
         </header>
         {children}

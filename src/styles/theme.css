@@ -43,4 +43,38 @@
 
   /* Type */
   --font-sans: Inter, 'Segoe UI', Arial, sans-serif;
+
+  /* Motion */
+  /* An opening pack (docs/domain.md, Packs): the pack swells in three pulses of growing strength, then bursts. */
+  --animate-pack-burst: pack-burst 1.6s ease-in-out forwards;
+
+  @keyframes pack-burst {
+    0% {
+      transform: scale(1);
+      opacity: 1;
+    }
+    15% {
+      transform: scale(1.06);
+    }
+    25% {
+      transform: scale(1);
+    }
+    40% {
+      transform: scale(1.12);
+    }
+    50% {
+      transform: scale(1);
+    }
+    68% {
+      transform: scale(1.2);
+    }
+    78% {
+      transform: scale(1);
+      opacity: 1;
+    }
+    100% {
+      transform: scale(1.9);
+      opacity: 0;
+    }
+  }
 }

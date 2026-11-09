@@ -1,0 +1,66 @@
+# Spec Delta
+
+## MODIFIED Requirements
+
+### Requirement: One list of what happened
+The İşlem Logu screen SHALL list, newest first and live, every card given, drawn, used, discarded, and transferred, every pack opened, and every LP and GP change. The list SHALL be read from the card holdings, the draw and pack records, and the ledger, so it never disagrees with them. Switching a card active, notes, and cost overrides SHALL NOT be listed.
+
+#### Scenario: Events from both sources
+- **WHEN** the DM gives Ayla a card and then adds 2 LP to Bora
+- **THEN** the log shows the LP change first and the card given below it
+
+#### Scenario: A draw among the events
+- **WHEN** the DM adds 2 LP to Bora, and then Ayla draws a card
+- **THEN** the log shows the draw first and the LP change below it
+
+#### Scenario: A pack among the events
+- **WHEN** the DM adds 2 LP to Bora, and then Ayla opens a pack
+- **THEN** the log shows the pack first and the LP change below it
+
+#### Scenario: Live update
+- **WHEN** Ayla uses a card while Bora has the log open
+- **THEN** the event appears at the top of Bora's log without a reload
+
+#### Scenario: State changes are not events
+- **WHEN** the DM makes a card in Ayla's hand active
+- **THEN** the log shows no new event
+
+### Requirement: Player filter
+The log SHALL offer a filter for one user. With a user chosen, it SHALL list only the cards that user received, including the cards drawn into their hand and the packs opened for them, the cards that left their hand, and the changes of their LP. Party purse changes SHALL be listed only without a filter.
+
+#### Scenario: Filtering by a player
+- **WHEN** a user chooses Ayla in the filter
+- **THEN** only the card events of Ayla's hand and Ayla's LP changes are listed
+
+#### Scenario: Draws in the filter
+- **WHEN** a user chooses Ayla in the filter after the DM drew a card into Ayla's hand and Bora drew one into his own
+- **THEN** the draw into Ayla's hand is listed, and Bora's draw is not
+
+#### Scenario: Packs in the filter
+- **WHEN** a user chooses Ayla in the filter after the DM opened a pack for Ayla
+- **THEN** that pack is listed
+
+#### Scenario: A transfer between two players
+- **WHEN** a user chooses Bora in the filter after the DM transferred a card from Ayla to Bora
+- **THEN** the transfer is listed
+
+## ADDED Requirements
+
+### Requirement: A pack opening is one event
+A pack opening SHALL appear as one event, at the time it was opened. It names who opened it, the hand it is for, the pack, the payment or "ücretsiz", the cards it showed, and how it ended: the chosen card with the mandatory Cursed card, or a cancel with its refund. While the pack is open, the event says so, and it SHALL update live. Its holdings, payment and refund SHALL NOT appear as separate events.
+
+#### Scenario: A chosen pack
+- **WHEN** Ayla opens a Kesqerian Nights Standard Pack for 2 LP and chooses "Aboleth's Eyes"
+- **THEN** the log shows one event naming Ayla, the pack, −2 LP and "Aboleth's Eyes", and no separate event for the card given or for the LP change
+
+#### Scenario: A Cursed Pack
+- **WHEN** Ayla chooses "Aboleth's Eyes" from a Cursed Pack that showed "Visions of Death"
+- **THEN** the event names both "Aboleth's Eyes" and the Cursed card "Visions of Death"
+
+#### Scenario: A cancelled pack
+- **WHEN** the DM cancels a pack that Bora paid 3 LP for
+- **THEN** the pack's event says that the DM cancelled it and refunded 3 LP, and there is no separate event for the refund
+
+#### Scenario: An open pack
+- **WHEN** Ayla has opened a pack and has not chosen yet
+- **THEN** the event says that Ayla is opening the pack, and it changes to her choice as soon as she chooses

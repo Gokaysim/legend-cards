@@ -66,3 +66,12 @@ export function shopScreenById(id: ShopScreenId): ShopScreen {
   if (!screen) throw new Error(`Unknown shop screen: ${id}`)
   return screen
 }
+
+/**
+ * The Pack Shop's URL. For the DM, `forUid` names the hand to open packs into (the hand screen's "🎁 Pack Shop"
+ * link sets it); a player always opens into their own hand.
+ */
+export function packShopPath(forUid?: string): string {
+  const path = shopScreenById('pack-shop').path
+  return forUid === undefined ? path : `${path}?for=${encodeURIComponent(forUid)}`
+}

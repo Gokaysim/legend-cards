@@ -142,3 +142,74 @@ describe('the log queries', () => {
     })
   })
 })
+
+describe('the log queries and the parts of draws and packs', () => {
+  beforeEach(async () => {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const db = firestoreOf(admin)
+      await setDoc(doc(db, 'userCards/a-drawn'), {
+        ...storedHolding('ayla', 13000),
+        givenVia: 'draw',
+        drawId: 'd-ayla-2',
+      })
+      await setDoc(doc(db, 'userCards/a-pack'), {
+        ...storedHolding('ayla', 14000),
+        givenVia: 'pack',
+        drawId: 'p-ayla',
+      })
+      await setDoc(doc(db, 'ledger/draw-paid'), {
+        ...storedEntry('ayla', 13000),
+        delta: -1,
+        source: 'draw',
+        reason: null,
+        drawId: 'd-ayla-2',
+      })
+      await setDoc(doc(db, 'ledger/pack-paid'), {
+        ...storedEntry('party', 14000),
+        delta: -5000,
+        balanceAfter: 0,
+        source: 'pack',
+        reason: null,
+        drawId: 'p-ayla',
+      })
+      await setDoc(doc(db, 'draws/p-ayla'), {
+        kind: 'pack',
+        uid: 'ayla',
+        by: 'dana',
+        at: at(13500),
+        packType: 'golden',
+        setCode: null,
+        mechanicPack: null,
+        offered: ['a', 'b', 'c', 'd', 'e'],
+        revealed: [0, 1, 2, 3, 4],
+        paidWith: 'gp',
+        cost: 5000,
+        entryId: 'pack-paid',
+        status: 'chosen',
+        closedAt: at(14000),
+        closedBy: 'dana',
+        chosen: { cardId: 'a', cardName: 'A', cardKind: 'normal', holdingId: 'a-pack' },
+        cursed: null,
+        refundEntryId: null,
+      })
+    })
+  })
+
+  it('leave out the holdings and entries of draws and packs, and return the packs among the draws', async () => {
+    expect(await ids(null, 50)).toEqual({
+      given: ['b-used', 'b-open', 'a-used', 'a-open'],
+      closed: ['a-used', 'b-used'],
+      draws: ['p-ayla', 'd-ayla-2', 'd-bora', 'd-ayla'],
+      entries: ['gp', 'lp-bora', 'lp-ayla'],
+    })
+  })
+
+  it("leave them out of one user's records too", async () => {
+    expect(await ids('ayla', 50)).toEqual({
+      given: ['a-used', 'a-open'],
+      closed: ['a-used'],
+      draws: ['p-ayla', 'd-ayla-2', 'd-ayla'],
+      entries: ['lp-ayla'],
+    })
+  })
+})

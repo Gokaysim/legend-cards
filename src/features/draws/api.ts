@@ -15,16 +15,17 @@ import type { DrawFilters } from '@/features/cards/pool'
 import type { Card } from '@/features/cards/schema'
 import { HOLDINGS_COLLECTION, openHolding } from '@/features/hands/api'
 import { profileRef, USERS_COLLECTION } from '@/features/users/api'
+import { explainDenial } from '@/features/table/api'
 import { firebaseCode } from '@/lib/firestore/errors'
 
 import { DrawError } from './errors'
-import { pickRandom, type RandomSource } from './pick'
-import { DRAW_PRICE, type Draw, drawConverter, type DrawKind, type StoredDraw } from './schema'
+import { pickRandom, type RandomSource } from '@/lib/random'
+import { DRAW_PRICE, type Draw, drawConverter, type DrawKind, type StoredCardDraw } from './schema'
 
 /** Keep in step with `firestore.rules`. */
 export const DRAWS_COLLECTION = 'draws'
 
-/** Every draw, validated and with the document ID as `id`. */
+/** Every draw and pack opening, validated and with the document ID as `id`. */
 export function drawsRef(db: Firestore): CollectionReference<Draw> {
   return collection(db, DRAWS_COLLECTION).withConverter(drawConverter)
 }
@@ -75,7 +76,8 @@ class TakenError extends Error {
  * real denial and is thrown.
  *
  * Throws `DrawError`: `nothing-to-draw` when no candidate is left, `insufficient` when a paid draw finds less
- * than 1 LP, and `retries-exhausted` after five tries.
+ * than 1 LP, and `retries-exhausted` after five tries. Throws `TableBusyError` when the rules denied the draw
+ * because a pack is open.
  */
 export async function drawCard(db: Firestore, input: DrawCardInput): Promise<DrawResult> {
   const tried = new Set<string>()
@@ -96,6 +98,8 @@ export async function drawCard(db: Firestore, input: DrawCardInput): Promise<Dra
         continue
       }
       if (firebaseCode(error) !== 'permission-denied') throw error
+      const explained = await explainDenial(db, error)
+      if (explained !== error) throw explained
       if (await isTakenOnServer(db, card.id)) {
         tried.add(card.id)
         card = null
@@ -141,7 +145,7 @@ function drawOnce(
       lpAfter = lp - DRAW_PRICE
     }
 
-    const draw: WithFieldValue<StoredDraw> = {
+    const draw: WithFieldValue<StoredCardDraw> = {
       kind,
       uid,
       by,

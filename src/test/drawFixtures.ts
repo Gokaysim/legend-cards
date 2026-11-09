@@ -1,7 +1,7 @@
 import { Timestamp } from 'firebase/firestore'
 
 import type { Card } from '@/features/cards/schema'
-import type { Draw } from '@/features/draws/schema'
+import type { CardDraw } from '@/features/draws/schema'
 
 /**
  * A draw of `card` into `uid`'s hand at `atMillis`, by `uid` itself: a paid random draw of a normal or Blessed
@@ -12,8 +12,8 @@ export function testDraw(
   card: Pick<Card, 'id' | 'name' | 'kind'>,
   uid: string,
   atMillis: number,
-  overrides: Partial<Draw> = {},
-): Draw {
+  overrides: Partial<CardDraw> = {},
+): CardDraw {
   const suffix = `${uid}-${atMillis}`
   const isCursed = card.kind === 'cursed'
   return {
@@ -39,8 +39,8 @@ export function testDmDraw(
   card: Pick<Card, 'id' | 'name' | 'kind'>,
   uid: string,
   atMillis: number,
-  overrides: Partial<Draw> = {},
-): Draw {
+  overrides: Partial<CardDraw> = {},
+): CardDraw {
   return testDraw(card, uid, atMillis, {
     by: 'dm-1',
     paidWith: 'none',

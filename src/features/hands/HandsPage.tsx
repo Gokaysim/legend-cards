@@ -1,16 +1,19 @@
 import { useMemo, useState } from 'react'
-import { Navigate, useParams } from 'react-router'
+import { Link, Navigate, useParams } from 'react-router'
 
-import { handPath, screenById } from '@/app/screens'
+import { handPath, packShopPath, screenById } from '@/app/screens'
 import { Button } from '@/components/ui/Button'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Spinner } from '@/components/ui/Spinner'
 import { useAuth } from '@/features/auth/authContext'
 import { useCardsById } from '@/features/cards/cardsContext'
 import { DrawButtons } from '@/features/draws/DrawButtons'
+import { TABLE_BUSY_NOTE } from '@/features/table/errors'
+import { TableBusyNote } from '@/features/table/TableBusyNote'
+import { useIsTableBusy } from '@/features/table/tableContext'
 import { DmOnly } from '@/features/users/DmOnly'
 import type { UserProfile } from '@/features/users/schema'
-import { profileName, useCurrentProfile, useProfiles } from '@/features/users/usersContext'
+import { profileName, useCurrentProfile, useIsDm, useProfiles } from '@/features/users/usersContext'
 
 import { handEntries } from './handEntries'
 import { GiveCardDialog } from './GiveCardDialog'
@@ -84,15 +87,29 @@ export function PlayerHandPage() {
 
 function HandScreen({ profile }: { profile: UserProfile }) {
   const [isGiving, setIsGiving] = useState(false)
+  const isTableBusy = useIsTableBusy()
+  const isDm = useIsDm()
   return (
     <section className="flex flex-col gap-6">
       <PageHeader
         title={`${profileName(profile)} — Kart Eli`}
         actions={
           <>
+            <TableBusyNote />
             <DrawButtons owner={profile} />
+            <Link
+              to={packShopPath(isDm ? profile.id : undefined)}
+              className="rounded-lg border border-control-line bg-control px-3 py-2 text-sm font-medium text-ink hover:bg-pane-raised"
+            >
+              🎁 Pack Shop
+            </Link>
             <DmOnly>
-              <Button variant="primary" onClick={() => setIsGiving(true)}>
+              <Button
+                variant="primary"
+                disabled={isTableBusy}
+                title={isTableBusy ? TABLE_BUSY_NOTE : undefined}
+                onClick={() => setIsGiving(true)}
+              >
                 + Kart ver
               </Button>
             </DmOnly>

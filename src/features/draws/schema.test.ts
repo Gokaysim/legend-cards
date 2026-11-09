@@ -1,7 +1,7 @@
 import { Timestamp } from 'firebase/firestore'
 import { describe, expect, it } from 'vitest'
 
-import { DRAW_LIMITS, drawSchema } from './schema'
+import { DRAW_LIMITS, drawSchema, isCardDraw, isPackOpening } from './schema'
 
 const paid = {
   kind: 'random',
@@ -50,7 +50,7 @@ describe('drawSchema', () => {
   })
 
   it.each([
-    ['an unknown kind', { ...paid, kind: 'pack' }],
+    ['an unknown kind', { ...paid, kind: 'gift' }],
     ['a random draw of a Cursed card', { ...paid, cardKind: 'cursed' }],
     ['a Cursed draw of a normal card', { ...cursed, cardKind: 'normal' }],
     ['a Cursed draw of a Blessed card', { ...cursed, cardKind: 'blessed' }],
@@ -72,5 +72,150 @@ describe('drawSchema', () => {
     ['a missing holding', { ...paid, holdingId: undefined }],
   ])('rejects %s', (_case, draw) => {
     expect(accepts(draw)).toBe(false)
+  })
+})
+
+const offered = ['legend-a', 'legend-b', 'legend-c', 'legend-d', 'legend-e']
+
+const openPack = {
+  kind: 'pack',
+  uid: 'ayla',
+  by: 'ayla',
+  at: Timestamp.fromMillis(1000),
+  packType: 'standard',
+  setCode: 'Kesqer',
+  mechanicPack: null,
+  offered,
+  revealed: [],
+  paidWith: 'lp',
+  cost: 2,
+  entryId: 'e1',
+  status: 'open',
+  closedAt: null,
+  closedBy: null,
+  chosen: null,
+  cursed: null,
+  refundEntryId: null,
+}
+
+const chosenPack = {
+  ...openPack,
+  revealed: [2, 0, 1, 4, 3],
+  status: 'chosen',
+  closedAt: Timestamp.fromMillis(2000),
+  closedBy: 'ayla',
+  chosen: { cardId: 'legend-c', cardName: 'C', cardKind: 'normal', holdingId: 'h1' },
+}
+
+const cursedOffered = ['legend-a', 'legend-b', 'cursed-x', 'legend-c', 'legend-d', 'legend-e']
+
+const chosenCursedPack = {
+  ...chosenPack,
+  packType: 'cursed',
+  cost: 1,
+  offered: cursedOffered,
+  revealed: [0, 1, 2, 3, 4, 5],
+  cursed: { cardId: 'cursed-x', cardName: 'Visions of Death', holdingId: 'h2' },
+}
+
+const cancelledPack = {
+  ...openPack,
+  revealed: [1],
+  status: 'cancelled',
+  closedAt: Timestamp.fromMillis(2000),
+  closedBy: 'dm',
+  refundEntryId: 'e2',
+}
+
+const goldenPack = {
+  ...openPack,
+  by: 'dm',
+  packType: 'golden',
+  setCode: null,
+  paidWith: 'gp',
+  cost: 10000,
+}
+
+describe('drawSchema: pack openings', () => {
+  it.each([
+    ['an open pack paid with LP', openPack],
+    ['an open pack with turned cards', { ...openPack, revealed: [4, 0] }],
+    ['a free pack', { ...openPack, by: 'dm', paidWith: 'none', cost: 0, entryId: null }],
+    ['a Golden Pack paid with GP', goldenPack],
+    [
+      'a Mechanic Pack',
+      { ...openPack, packType: 'mechanic', setCode: null, mechanicPack: 'Blood & Battle' },
+    ],
+    ['a chosen pack', chosenPack],
+    ['a chosen pack whose end time is pending', { ...chosenPack, closedAt: null }],
+    [
+      'a chosen Blessed card',
+      { ...chosenPack, chosen: { ...chosenPack.chosen, cardKind: 'blessed' } },
+    ],
+    ["a Cursed Pack's choice with its Cursed card", chosenCursedPack],
+    ['a cancelled paid pack with its refund', cancelledPack],
+    [
+      'a cancelled free pack without a refund',
+      { ...cancelledPack, paidWith: 'none', cost: 0, entryId: null, refundEntryId: null },
+    ],
+  ])('accepts %s', (_case, draw) => {
+    expect(accepts(draw)).toBe(true)
+  })
+
+  it.each([
+    ['an unknown pack type', { ...openPack, packType: 'rare' }],
+    ['a paid pack that costs 0', { ...openPack, cost: 0 }],
+    ['a paid pack without its entry', { ...openPack, entryId: null }],
+    ['a free pack that costs something', { ...openPack, paidWith: 'none', entryId: null }],
+    ['a cost over the limit', { ...openPack, cost: 1_000_001 }],
+    ['a fractional cost', { ...openPack, cost: 1.5 }],
+    ['a set pack without its set', { ...openPack, setCode: null }],
+    ['a Golden Pack with a set', { ...goldenPack, setCode: 'Kesqer' }],
+    [
+      'a Mechanic Pack without its mechanic pack',
+      { ...openPack, packType: 'mechanic', setCode: null },
+    ],
+    ['a set pack with a mechanic pack', { ...openPack, mechanicPack: 'Blood & Battle' }],
+    ['4 shown cards', { ...openPack, offered: offered.slice(0, 4) }],
+    ['6 shown cards in a Standard Pack', { ...openPack, offered: cursedOffered }],
+    ['5 shown cards in a Cursed Pack', { ...openPack, packType: 'cursed', cost: 1 }],
+    ['a repeated shown card', { ...openPack, offered: [...offered.slice(0, 4), 'legend-a'] }],
+    ['a position turned twice', { ...openPack, revealed: [1, 1] }],
+    ['a turned position that was not shown', { ...openPack, revealed: [5] }],
+    ['an open pack that names who ended it', { ...openPack, closedBy: 'ayla' }],
+    ['an open pack with a chosen card', { ...openPack, chosen: chosenPack.chosen }],
+    ['an ended pack without who ended it', { ...chosenPack, closedBy: null }],
+    ['a chosen pack without its card', { ...chosenPack, chosen: null }],
+    ['a choice before every card is turned', { ...chosenPack, revealed: [0, 1] }],
+    [
+      'a chosen card that was not shown',
+      { ...chosenPack, chosen: { ...chosenPack.chosen, cardId: 'legend-z' } },
+    ],
+    [
+      'a chosen Cursed card',
+      { ...chosenPack, chosen: { ...chosenPack.chosen, cardKind: 'cursed' } },
+    ],
+    ["a Cursed Pack's choice without its Cursed card", { ...chosenCursedPack, cursed: null }],
+    [
+      "a Standard Pack's choice with a Cursed card",
+      { ...chosenPack, cursed: chosenCursedPack.cursed },
+    ],
+    [
+      'the Cursed card as the chosen card too',
+      { ...chosenCursedPack, cursed: { ...chosenCursedPack.cursed, cardId: 'legend-c' } },
+    ],
+    ['a cancelled paid pack without its refund', { ...cancelledPack, refundEntryId: null }],
+    ['an open pack with a refund', { ...openPack, refundEntryId: 'e2' }],
+    ['a cancelled pack with a chosen card', { ...cancelledPack, chosen: chosenPack.chosen }],
+  ])('rejects %s', (_case, draw) => {
+    expect(accepts(draw)).toBe(false)
+  })
+
+  it('tells card draws and pack openings apart', () => {
+    const pack = drawSchema.parse(openPack)
+    const draw = drawSchema.parse(paid)
+    expect(isPackOpening({ ...pack, id: 'p1' })).toBe(true)
+    expect(isCardDraw({ ...draw, id: 'd1' })).toBe(true)
+    expect(isCardDraw({ ...pack, id: 'p1' })).toBe(false)
   })
 })

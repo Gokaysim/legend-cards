@@ -20,7 +20,7 @@ src/
   main.tsx              entry: config check -> App (or ConfigErrorScreen)
   app/                  composition root
     App.tsx             AuthProvider + UsersProvider + BalancesProvider + CardsProvider + HoldingsProvider
-                        + ActivityLogProvider + DrawsProvider + router
+                        + TableProvider + PacksProvider + ActivityLogProvider + DrawsProvider + router
     screens.ts          the single lists of screens (main menu and Shops sub-screens)
     routes.tsx          route table: sign-in, RequireAuth, AppShell, one route per screen, not-found
     layout/             AppShell, SidebarContent, MobileNav, UserBadge, OfflineBanner
@@ -35,13 +35,18 @@ src/
                         useOpenHoldings, and the "Oyuncu elleri" screen (HandsPage, the hand, its dialogs)
     balances/           LP and the party's GP: schema, api (changeBalance), errors, BalancesProvider,
                         usePartyPurse, useBalanceActions, the amount format, BalanceDialog, PartyPurse
-    draws/              drawing cards into a hand: schema, api (drawCard, one transaction per card), the random
-                        pick (pick), errors, DrawsProvider, useDrawActions, and the hand's draw buttons and
-                        dialog (DrawButtons, DrawDialog, FaceDownCard)
+    draws/              drawing cards into a hand: schema (card draws and pack openings), api (drawCard, one
+                        transaction per card), errors, DrawsProvider, useDrawActions, and the hand's draw buttons
+                        and dialog (DrawButtons, DrawDialog, FaceDownCard)
+    table/              the table's lock (`table/main`): schema, api (tableRef, explainDenial), errors
+                        (TableBusyError), TableProvider, useOpenPackId, useIsTableBusy, TableBusyNote
+    packs/              the Pack Shop: the packs, prices and thresholds (catalog), the shown cards (contents),
+                        api (openPack, turnPackCard, choosePackCard, cancelPack), errors, PacksProvider,
+                        useOpenPack, usePackActions, and the shop and open-pack views
     library/ cursed-deck/
                         the two card screens, each a <Name>Page.tsx around the shared card browser
     activity-log/       the İşlem Logu: the log queries (api), ActivityLogProvider (useLogRecords, useHolding),
-                        events derived from holdings, draws and the ledger (events, eventText),
+                        events derived from holdings, draws and packs, and the ledger (events, eventText),
                         ActivityLogPage
     shops/ true-words/ custom-draft/ rules/ settings/
                         each with its <Name>Page.tsx (placeholders for now)
@@ -52,12 +57,13 @@ src/
     cn.ts               class-name merge helper
     useOnlineStatus.ts  browser network status
     turkish.ts          Turkish grammar helpers, such as the genitive of a name ("Ayla'nın")
+    random.ts           cryptographic random picks: randomIndex, pickRandom, sample, shuffle
     text.ts             cleanText: trims typed text and cuts it to a limit
   styles/
     index.css           Tailwind entry and base styles
     theme.css           design tokens
   test/                 test setup and shared test helpers (test providers for profiles, balances, cards,
-                        holdings, the log's records and draws, fixtures)
+                        holdings, the table, packs, the log's records and draws, fixtures)
 scripts/                admin scripts on Node with the Admin SDK (see Scripts)
 data/                   the owner's CSV data that the scripts import (see data/README.md)
 tests/                  emulator tests that need no app code: access rules, admin scripts
@@ -93,19 +99,19 @@ Rules:
 
 Use the glossary in [domain.md](domain.md) for names. The data model will decide the final field names. Until then, these are the agreed spellings:
 
-| Domain term                      | In code                                                                                          |
-| -------------------------------- | ------------------------------------------------------------------------------------------------ |
-| Legend Points (LP)               | `legendPoints`                                                                                   |
-| Gold pieces (GP)                 | `goldPieces`                                                                                     |
-| Set code / official set name     | `setCode` / `setDisplayName`                                                                     |
-| Mechanic Pack                    | `mechanicPack`                                                                                   |
-| Rarity                           | `rarity`                                                                                         |
-| Cursed card, Blessed card        | `cursed`, `blessed` as kinds; `isCursed`, `isBlessed` as flags                                   |
-| Pool, Hand, Library, Cursed Deck | `pool`, `hand`, `library`, `cursedDeck`                                                          |
-| Pack type                        | `packType`: `standard`, `premium`, `cursed`, `mechanic`, `pandemonium`, `golden`, `cursedGolden` |
-| True Word                        | `trueWord`                                                                                       |
-| Active effect                    | `isActive`, `activeEffects`                                                                      |
-| Cardmaker (the mascot)           | `cardmaker`                                                                                      |
+| Domain term                      | In code                                                                                                               |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Legend Points (LP)               | `legendPoints`                                                                                                        |
+| Gold pieces (GP)                 | `goldPieces`                                                                                                          |
+| Set code / official set name     | `setCode` / `setDisplayName`                                                                                          |
+| Mechanic Pack                    | `mechanicPack`                                                                                                        |
+| Rarity                           | `rarity`                                                                                                              |
+| Cursed card, Blessed card        | `cursed`, `blessed` as kinds; `isCursed`, `isBlessed` as flags                                                        |
+| Pool, Hand, Library, Cursed Deck | `pool`, `hand`, `library`, `cursedDeck`                                                                               |
+| Pack type                        | `packType`: `standard`, `premium`, `cursed`, `pandemonium`, `pandemoniumCursed`, `mechanic`, `golden`, `cursedGolden` |
+| True Word                        | `trueWord`                                                                                                            |
+| Active effect                    | `isActive`, `activeEffects`                                                                                           |
+| Cardmaker (the mascot)           | `cardmaker`                                                                                                           |
 
 Never invent a set name. Set codes come from the card data. For example, the code is `Kesqer` and the official name is "Kesqerian Nights". There is no "Kesqeria".
 
@@ -145,7 +151,7 @@ Styling uses Tailwind CSS utility classes, written directly in JSX.
   - `useIsDm()`, which is `true` only for a loaded DM profile; loading or missing profiles count as a player
 - **DM-only controls go inside `<DmOnly>`.** Hiding is only a convenience. `firestore.rules` is the real check, so every DM-only write needs its own rule and rules test.
 - **Roles change only through the admin script** (`npm run set-role`, see [Scripts](#scripts)). Never add a client write that touches `role`.
-- **Tests** render components inside `TestAuthProvider` and `TestUsersProvider` (`src/test/`) with fixed states, instead of talking to Firebase. `renderApp` takes `users`, `balances`, `cards`, `holdings`, `activityLog` and `draws` options, and returns `setUsers`, `setBalances`, `setCards`, `setHoldings` and `setActivityLog` to simulate a real-time change. The `draws` option takes fake draws; by default a draw gives its first candidate.
+- **Tests** render components inside `TestAuthProvider` and `TestUsersProvider` (`src/test/`) with fixed states, instead of talking to Firebase. `renderApp` takes `users`, `balances`, `cards`, `holdings`, `table`, `packs`, `activityLog` and `draws` options, and returns `setUsers`, `setBalances`, `setCards`, `setHoldings`, `setTable`, `setPacks` and `setActivityLog` to simulate a real-time change. The `draws` option takes fake draws; by default a draw gives its first candidate. The `table` option takes an `openPackId`; by default no pack is open. The `packs` option takes the open `pack` and fake pack steps, which succeed by default.
 
 ## Data access
 
@@ -162,15 +168,20 @@ All stored data lives in Firestore and is read in real time.
   - Profiles: `useCurrentProfile()`, `useProfiles()`, `useIsDm()` (`UsersProvider`).
   - Cards: `useCards()` for every active card, and `useDeckCards('legend' | 'cursed')` for one deck. Retired cards are never in them. `useCardsById()` maps every card by its ID, retired ones included, so a hand can still show a held card that was retired (`CardsProvider`, one subscription to every card).
   - Balances: a player's LP is `lp` on their profile. `usePartyPurse()` gives the party's GP (`null` before the first change, which counts as 0), and `useBalanceActions()` the DM's changes (`BalancesProvider`).
+  - The table: `useOpenPackId()` gives the open pack's ID, or `null`, and `useIsTableBusy()` whether a pack is open (`TableProvider`, one subscription to `table/main`). A loading or unreadable table counts as free: the rules are the real check.
+  - Packs: `useOpenPack()` gives the pack the table waits for, live, and after it ends that ended pack until another opens, so every device can show how it ended; `usePackActions()` gives the pack steps (`PacksProvider`, inside `TableProvider`, one subscription to the pack the lock names).
   - Draws: `useDrawActions()` gives `drawCard` (`DrawsProvider`). It subscribes to nothing: a drawn card arrives in the hand through `useOpenHoldings()`, and the new LP through the profiles.
   - Holdings: `useOpenHoldings()` for every card in every hand (`HoldingsProvider`). Derive views with the pure helpers next to it: `holdingsOf(holdings, uid)` for one hand in the order the cards were received, and `holdersOf(holdings, cardId)` for who holds a copy of a card.
   - The pool: derive it from the cards with the pure helpers in `cards/pool.ts`. A normal card's `holder` is the source of truth for whether it is in the pool, so `isDrawable`, `drawablePool`, `cursedPool`, the draw filters (`matchesFilters`, `drawFilterOptions`) and `poolDistribution` need only `useCards()`. The library's Durum also names who holds each card, so it comes from the holdings instead (`useDeckStatus` in `hands/cardStatus.ts`).
-- **Data for one screen.** A screen that alone needs some data subscribes while it is shown, through hooks that a provider injects, so its test provider can answer instead of Firebase. The İşlem Logu reads `useLogRecords(uid, n)` and `useHolding(id)` from `ActivityLogProvider`. Its events are derived from its three sources, the holdings, the draws and the ledger (`events.ts`), never written separately. A draw is one event: its holding and its payment make none of their own.
+- **Data for one screen.** A screen that alone needs some data subscribes while it is shown, through hooks that a provider injects, so its test provider can answer instead of Firebase. The İşlem Logu reads `useLogRecords(uid, n)` and `useHolding(id)` from `ActivityLogProvider`. Its events are derived from its three sources, the holdings, the draws (with the pack openings) and the ledger (`events.ts`), never written separately. A draw is one event, and so is a pack opening, at the time it was opened. Their holdings, payments and refunds make no events of their own: the log queries leave them out (`givenVia` `dm` or `transfer`, and `source` `manual`), so every record a query returns is exactly one event and paging stays exact.
 - **Composite indexes.** A query that filters on one field and orders by another needs a composite index in `firestore.indexes.json`, such as the log's filtered queries. The emulator does not check indexes, so a missing one only fails on a real project: add the index in the same change as the query, and deploy it with the rules.
 - **Staleness hints.** When `ready`, `fromCache: true` means the data has not been confirmed by the server (for example while offline), and `hasPendingWrites: true` means local changes are still waiting to sync. Show a subtle hint where it matters, for example next to an LP balance.
 - **Writing.** Write with the SDK (`setDoc`, `updateDoc`, `addDoc`, `runTransaction`, …) inside the feature's `api.ts`. Writes made offline are queued and sent when the connection returns. Do not wait for a write's promise before updating the UI: the subscription already shows the change as a pending write.
 - **Transactions.** A write that must see the current server state, such as a card movement or a balance change, runs in `runTransaction` in the feature's `api.ts`. Transactions need a connection: they fail offline instead of being queued, so the interface says so (see `src/features/hands/errors.ts` and `src/features/balances/errors.ts`).
   - When two devices race, the rules can deny the loser's commit (`permission-denied`) before the SDK retries it, because they evaluate it against the winner's state. Re-read from the server to tell a race from a real denial: `giveCard` then reports who took the card, and `changeBalance` runs again when the balance moved.
+- **The table waits for an open pack.** While a pack is open, the rules refuse every card movement, draw and balance change other than the pack's own steps (`tableFree()` in `firestore.rules`).
+  - Every api function that moves a card, draws or changes a balance throws `await explainDenial(db, error)` on a denial. It reads `table/main` from the server and turns the denial into a `TableBusyError` when a pack is open. Each feature's failure mapper reports it as `{ kind: 'table-busy' }`.
+  - Controls that start such an action are disabled while `useIsTableBusy()` is true, with `TABLE_BUSY_NOTE` as their `title` and `<TableBusyNote />` next to them. Notes, switching a card active and cost overrides are not actions of this kind: they stay enabled.
 - **Errors from Firebase.** Recognize Firebase errors by their `code` (`firebaseCode(error)` from `src/lib/firestore/errors.ts`), not with `instanceof`. Firebase's error classes reset their prototype, so `instanceof FirestoreError` is false even for real Firestore errors.
 
 ## Adding a new screen

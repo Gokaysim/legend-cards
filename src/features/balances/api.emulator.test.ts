@@ -17,6 +17,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import firestoreRules from '../../../firestore.rules?raw'
 import { changeBalance } from './api'
 import { BalanceError, toBalanceFailure } from './errors'
+import { TableBusyError } from '@/features/table/errors'
 
 let testEnv: RulesTestEnvironment
 
@@ -202,5 +203,20 @@ describe('changing balances under the real rules', () => {
       .map((entry) => entry.balanceAfter)
       .sort((a, b) => Number(a) - Number(b))
     expect(balances).toEqual([6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
+  })
+})
+
+describe('balance changes while a pack is open', () => {
+  it("fails the DM's LP change as table-busy and changes nothing", async () => {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(firestoreOf(admin), 'table/main'), { openPackId: 'pack-1' })
+    })
+    const failure = await failureOf(
+      changeBalance(as('dana'), { account: lp('ayla'), delta: 2, reason: 'Ödül', by: 'dana' }),
+    )
+    expect(failure).toBeInstanceOf(TableBusyError)
+    expect(toBalanceFailure(failure)).toEqual({ kind: 'table-busy' })
+    expect(await stored('users/ayla')).toMatchObject({ lp: 5, lpEntryId: 'seed' })
+    expect(await ledger()).toEqual([])
   })
 })

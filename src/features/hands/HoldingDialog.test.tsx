@@ -45,12 +45,15 @@ async function openDetails({
   holding = {},
   card = owl,
   actions = fakeActions(),
+  openPackId = null,
 }: {
   viewer?: typeof me
   handOf?: typeof me
   holding?: Partial<Holding>
   card?: Card
   actions?: ReturnType<typeof fakeActions>
+  /** An open pack, which makes the table wait. */
+  openPackId?: string | null
 } = {}) {
   const user = userEvent.setup()
   const held = testHolding(card, handOf.id, 1000, { id: 'h1', ...holding })
@@ -64,6 +67,7 @@ async function openDetails({
     },
     cards: { cards: ready([cardWithHolder]) },
     holdings: { openHoldings: ready([held]), actions },
+    table: { openPackId },
   })
   await user.click(screen.getByRole('button', { name: `${card.name}: ayrıntılar` }))
   return { user, actions, held, ...view }
@@ -136,6 +140,25 @@ describe('HoldingDialog controls', () => {
     setHoldings({ openHoldings: ready([]) })
 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+})
+
+describe('HoldingDialog while a pack is open', () => {
+  it('disables using, giving away and discarding, and says why', async () => {
+    await openDetails({ viewer: dm, handOf: ayla, openPackId: 'pack-1' })
+
+    for (const name of ['Kullan', 'Başkasına ver', 'At']) expect(button(name)).toBeDisabled()
+    expect(details().getByText('Bir Pack açık: seçim bekleniyor.')).toBeInTheDocument()
+  })
+
+  it('keeps the active switch, the note and the cost', async () => {
+    const actions = fakeActions()
+    const { user } = await openDetails({ viewer: dm, handOf: ayla, actions, openPackId: 'pack-1' })
+
+    await user.click(details().getByRole('button', { name: '● Aktif et' }))
+    expect(actions.setActive).toHaveBeenCalledExactlyOnceWith('h1', true)
+    expect(details().getByRole('textbox', { name: 'Kart notu' })).toBeEnabled()
+    expect(details().getByRole('textbox', { name: /Bu eldeki cost/ })).toBeEnabled()
   })
 })
 

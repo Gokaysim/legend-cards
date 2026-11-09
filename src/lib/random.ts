@@ -29,3 +29,28 @@ export function pickRandom<T>(items: readonly T[], random: RandomSource = crypto
   if (items.length === 0) return null
   return items[randomIndex(items.length, random)] ?? null
 }
+
+/**
+ * `n` distinct items of the list, each with the same chance, in random order (a partial Fisher-Yates shuffle).
+ * Returns every item, shuffled, when `n` is the list's length or more.
+ */
+export function sample<T>(
+  items: readonly T[],
+  n: number,
+  random: RandomSource = cryptoRandom,
+): T[] {
+  const pool = [...items]
+  const count = Math.min(Math.max(n, 0), pool.length)
+  for (let index = 0; index < count; index += 1) {
+    const swap = index + randomIndex(pool.length - index, random)
+    const item = pool[swap] as T
+    pool[swap] = pool[index] as T
+    pool[index] = item
+  }
+  return pool.slice(0, count)
+}
+
+/** The items in random order, each order equally likely. */
+export function shuffle<T>(items: readonly T[], random: RandomSource = cryptoRandom): T[] {
+  return sample(items, items.length, random)
+}

@@ -5,6 +5,7 @@ import { testCard, testCursedCard } from '@/test/cardFixtures'
 import { testDmDraw, testDraw } from '@/test/drawFixtures'
 import { testHolding } from '@/test/holdingFixtures'
 import { testGpEntry, testLedgerEntry } from '@/test/ledgerFixtures'
+import { testPack } from '@/test/packFixtures'
 
 import { deriveEvents, type LogRecords, newestEvents } from './events'
 
@@ -174,25 +175,12 @@ describe('draws', () => {
     givenVia: 'draw',
     drawId: draw.id,
   })
-  const payment = testLedgerEntry(9000, {
-    id: draw.entryId ?? '',
-    account: 'ayla',
-    delta: -1,
-    balanceAfter: 2,
-    source: 'draw',
-    reason: null,
-    drawId: draw.id,
-    by: 'ayla',
-  })
 
-  it('makes one event of a draw, its holding and its payment', () => {
-    expect(
-      deriveEvents(records({ given: [drawnHolding], draws: [draw], entries: [payment] })),
-    ).toEqual([{ kind: 'drawn', key: `drawn:${draw.id}`, at: at(9000), by: 'ayla', draw }])
-  })
-
-  it('makes no given or balance event for the parts of a draw on their own', () => {
-    expect(deriveEvents(records({ given: [drawnHolding], entries: [payment] }))).toEqual([])
+  // The queries never return a draw's holding or payment (see `logQueries`): the draw is their event.
+  it('makes one event of a draw', () => {
+    expect(deriveEvents(records({ draws: [draw] }))).toEqual([
+      { kind: 'drawn', key: `drawn:${draw.id}`, at: at(9000), by: 'ayla', draw },
+    ])
   })
 
   it("keeps the DM's draw and a Cursed draw as draw events, by whoever drew", () => {
@@ -213,36 +201,52 @@ describe('draws', () => {
       returnedBy: 'ayla',
       returnReason: 'used' as const,
     }
-    const { events } = newestEvents(
-      records({ given: [usedLater], closed: [usedLater], draws: [draw] }),
-      50,
-    )
+    const { events } = newestEvents(records({ closed: [usedLater], draws: [draw] }), 50)
     expect(events.map((event) => event.key)).toEqual([
       `used:${drawnHolding.id}`,
       `drawn:${draw.id}`,
     ])
   })
 
-  it('keeps the page exact when the drawn holdings fill a source', () => {
-    // Each source holds its 2 newest records. The two drawn holdings push the DM's give out of `given`, and the
-    // two draws are newer than it, so the 2 newest events are exactly the two draws.
-    const second = testDraw(rite, 'ayla', 8000)
-    const secondHolding = {
-      ...drawnHolding,
-      id: second.holdingId,
-      givenAt: at(8000),
-      drawId: second.id,
-    }
-    const { events, mayHaveMore } = newestEvents(
-      records({ given: [drawnHolding, secondHolding], draws: [draw, second] }),
-      2,
-    )
-    expect(events.map((event) => event.key)).toEqual([`drawn:${draw.id}`, `drawn:${second.id}`])
-    expect(mayHaveMore).toBe(true)
-  })
-
   it('counts the draws for whether older events may exist', () => {
     expect(newestEvents(records({ draws: [draw] }), 1).mayHaveMore).toBe(true)
     expect(newestEvents(records({ draws: [draw] }), 2).mayHaveMore).toBe(false)
+  })
+})
+
+describe('packs', () => {
+  const chosen = testPack('ayla', {
+    id: 'pack-chosen',
+    at: at(9000),
+    revealed: [0, 1, 2, 3, 4],
+    status: 'chosen',
+    closedAt: at(9500),
+    closedBy: 'ayla',
+    chosen: { cardId: 'legend-a', cardName: 'A', cardKind: 'normal', holdingId: 'h-a' },
+  })
+
+  it('makes one event of a pack opening, at the time it was opened', () => {
+    expect(deriveEvents(records({ draws: [chosen] }))).toEqual([
+      { kind: 'pack', key: 'pack:pack-chosen', at: at(9000), by: 'ayla', pack: chosen },
+    ])
+  })
+
+  it('keeps the page exact with packs whose holdings and refunds came later', () => {
+    // A pack's holdings, payment and refund are not among the records, however late they were written, and a
+    // Cursed Pack's two holdings never count twice. The DM's give at 1000 is older than both packs.
+    const cancelled = testPack('bora', {
+      id: 'pack-cancelled',
+      at: at(8000),
+      status: 'cancelled',
+      closedAt: at(8800),
+      closedBy: 'dana',
+      refundEntryId: 'e-refund',
+    })
+    const { events, mayHaveMore } = newestEvents(
+      records({ given: [given], draws: [chosen, cancelled] }),
+      2,
+    )
+    expect(events.map((event) => event.key)).toEqual(['pack:pack-chosen', 'pack:pack-cancelled'])
+    expect(mayHaveMore).toBe(true)
   })
 })

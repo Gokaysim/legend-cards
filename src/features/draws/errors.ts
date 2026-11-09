@@ -1,4 +1,5 @@
 import { formatAmount } from '@/features/balances/format'
+import { TABLE_BUSY_MESSAGE, TableBusyError } from '@/features/table/errors'
 import { firebaseCode } from '@/lib/firestore/errors'
 import { genitive } from '@/lib/turkish'
 
@@ -26,6 +27,8 @@ export type DrawFailure =
   | { kind: 'insufficient'; lp: number }
   /** Every picked card went to another hand meanwhile, five times in a row. */
   | { kind: 'retries-exhausted' }
+  /** A pack is open: the table waits for it, and nobody draws until it ends. */
+  | { kind: 'table-busy' }
   /** No connection: a draw is a transaction, and transactions need the server. */
   | { kind: 'offline' }
   | { kind: 'permission-denied' }
@@ -38,6 +41,7 @@ export function toDrawFailure(error: unknown): DrawFailure {
       ? { kind: 'insufficient', lp: error.lp ?? 0 }
       : { kind: error.kind }
   }
+  if (error instanceof TableBusyError) return { kind: 'table-busy' }
   switch (firebaseCode(error)) {
     case 'permission-denied':
       return { kind: 'permission-denied' }
@@ -57,6 +61,8 @@ export function drawFailureMessage(failure: DrawFailure, name: string): string {
       return `Kart çekmek için 1 LP gerekiyor; ${genitive(name)} ${formatAmount(failure.lp)} LP'si var.`
     case 'retries-exhausted':
       return 'Kart çekilemedi: kartlar o sırada başka ellere geçti. Tekrar dene.'
+    case 'table-busy':
+      return TABLE_BUSY_MESSAGE
     case 'offline':
       return 'Bağlantı yok: kart çekmek için internet bağlantısı gerekiyor.'
     case 'permission-denied':
