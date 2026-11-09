@@ -56,6 +56,11 @@ describe('theme tokens', () => {
     expect(contrastRatio(token('gold'), token('sidebar'))).toBeGreaterThanOrEqual(4.5)
   })
 
+  // The Kurallar screen's section titles and bold runs sit on the canvas.
+  it('gold text on the canvas has at least 4.5:1 contrast', () => {
+    expect(contrastRatio(token('gold'), token('canvas'))).toBeGreaterThanOrEqual(4.5)
+  })
+
   it('danger text on the sidebar has at least 4.5:1 contrast', () => {
     expect(contrastRatio(token('danger-ink'), token('sidebar'))).toBeGreaterThanOrEqual(4.5)
   })

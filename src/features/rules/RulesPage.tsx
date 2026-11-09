@@ -1,8 +1,15 @@
 import { screenById } from '@/app/screens'
-import { Placeholder } from '@/components/ui/Placeholder'
+import { PageHeader } from '@/components/ui/PageHeader'
 
-/** Placeholder until the rules text is reviewed by the DM and built as a feature. */
+import { RulesContent } from './RulesContent'
+
+/** Kurallar: the table rules as the Cardmaker tells them. Static text, the same for everyone, with no controls. */
 export function RulesPage() {
   const screen = screenById('rules')
-  return <Placeholder title={screen.label} mascot={screen.mascot} />
+  return (
+    <section className="flex flex-col gap-6">
+      <PageHeader title={screen.label} mascot={screen.mascot} />
+      <RulesContent />
+    </section>
+  )
 }

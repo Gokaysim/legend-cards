@@ -56,7 +56,9 @@ src/
     activity-log/       the İşlem Logu: the log queries (api), ActivityLogProvider (useLogRecords, useHolding),
                         events derived from holdings, draws and packs, and the ledger (events, eventText),
                         ActivityLogPage
-    shops/ true-words/ custom-draft/ rules/ settings/
+    rules/              the Kurallar screen: RulesPage around RulesContent, the static rules text as JSX
+    shops/              the Shops hub (ShopsPage), and the Elixir Shop placeholder
+    custom-draft/ settings/
                         each with its <Name>Page.tsx (placeholders for now)
   components/ui/        shared primitives: Avatar, Button, PageHeader, Placeholder, Spinner, FullScreenSpinner
   lib/

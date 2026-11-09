@@ -67,6 +67,10 @@ const BUILT_SCREENS: Record<string, () => void> = {
   '/log': () => {
     expect(screen.getByText('Henüz kayıtlı işlem yok.')).toBeInTheDocument()
   },
+  // The rules, starting with the Legend Point section.
+  '/rules': () => {
+    expect(screen.getByRole('region', { name: 'Legend Point Kart Sistemi' })).toBeInTheDocument()
+  },
 }
 
 describe('routes and navigation', () => {
