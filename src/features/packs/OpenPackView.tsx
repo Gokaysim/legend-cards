@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { type AnimationEvent, useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/Button'
 import { Dialog } from '@/components/ui/Dialog'
+import { useArt } from '@/features/art/artContext'
 import { useBlessedShock } from '@/features/art/useBlessedShock'
+import { usePicture } from '@/features/art/usePicture'
 import { useAuth } from '@/features/auth/authContext'
 import { formatAmount } from '@/features/balances/format'
 import { useCardsById } from '@/features/cards/cardsContext'
@@ -16,7 +18,7 @@ import { dative, genitive } from '@/lib/turkish'
 import { useOnlineStatus } from '@/lib/useOnlineStatus'
 import { useReducedMotion } from '@/lib/useReducedMotion'
 
-import { packOpeningTitle, spreadBackOf } from './catalog'
+import { burstArtUrl, packOpeningTitle, spreadBackOf } from './catalog'
 import { type PackFailure, packFailureMessage, toPackFailure } from './errors'
 import { OpenPackBanner } from './OpenPackBanner'
 import { useOpenPack, usePackActions } from './packsContext'
@@ -25,7 +27,7 @@ import { useOpenPack, usePackActions } from './packsContext'
  * How long the burst runs: `--animate-pack-burst` in `theme.css`, plus a margin. The cards appear when the animation
  * ends, or after this at the latest, in case the browser never reports its end (a hidden tab).
  */
-const BURST_FALLBACK_MS = 1800
+const BURST_FALLBACK_MS = 3100
 
 /** Which pack this device shows, and whether it is expanded or shrunk to the banner. */
 type ViewState = { packId: string; isExpanded: boolean }
@@ -125,6 +127,11 @@ function PackDialog({
   const canAct = isOpen && uid !== null && (uid === pack.uid || isDm)
   const isCursedType = isCursedPackType(pack.packType)
   const back = spreadBackOf(pack.packType, pack.setCode)
+  const burstPicture = usePicture(burstArtUrl(useArt(), pack))
+  // Only the pack's own animation ends the burst: the halo's and the backdrop's end on their own elements.
+  const endBurst = (event: AnimationEvent) => {
+    if (event.target === event.currentTarget) setIsBursting(false)
+  }
   const allTurned = new Set(pack.revealed).size === pack.offered.length
   const cards = cardsById.status === 'ready' ? cardsById.data : null
   const cardOf = (cardId: string): Card | undefined => cards?.get(cardId)
@@ -204,20 +211,47 @@ function PackDialog({
       <PackResult pack={pack} nameOf={nameOf} ownerName={ownerName} />
 
       {isBursting ? (
-        <div className="flex min-h-64 items-center justify-center" aria-hidden="true">
+        <>
+          {/* Keeps the dialog's size while the cards are not shown yet. */}
+          <div className="min-h-64" />
+          {/* Full screen, inside the dialog, so it lies above it in the top layer (design D8). */}
           <div
             data-testid="pack-burst"
-            onAnimationEnd={() => setIsBursting(false)}
-            className={cn(
-              'flex h-56 w-40 animate-pack-burst items-center justify-center rounded-xl border-2 bg-linear-to-br text-5xl motion-reduce:animate-none',
-              isCursedType
-                ? 'border-cursed from-control via-pane-raised to-cursed/40 text-cursed'
-                : 'border-gold from-control via-pane-raised to-primary text-gold',
-            )}
+            aria-hidden="true"
+            className="fixed inset-0 z-50 grid animate-burst-backdrop place-items-center overflow-hidden motion-reduce:animate-none"
           >
-            {isCursedType ? '☠' : '✦'}
+            <div className="relative grid aspect-[563/788] w-[min(400px,76vw,45vh)] place-items-center drop-shadow-lift">
+              <div
+                data-burst-halo=""
+                className="absolute inset-[3%] animate-burst-halo rounded-xl motion-reduce:animate-none"
+              />
+              {burstPicture.src === null ? (
+                <div
+                  data-burst-pack=""
+                  onAnimationEnd={endBurst}
+                  className={cn(
+                    'relative flex size-full animate-pack-burst items-center justify-center rounded-xl border-2 bg-linear-to-br text-7xl motion-reduce:animate-none',
+                    isCursedType
+                      ? 'border-cursed from-control via-pane-raised to-cursed/40 text-cursed'
+                      : 'border-gold from-control via-pane-raised to-primary text-gold',
+                  )}
+                >
+                  {isCursedType ? '☠' : '✦'}
+                </div>
+              ) : (
+                <img
+                  data-burst-pack=""
+                  src={burstPicture.src}
+                  alt=""
+                  draggable={false}
+                  onError={burstPicture.onError}
+                  onAnimationEnd={endBurst}
+                  className="relative block size-full animate-pack-burst rounded-[10px] object-contain motion-reduce:animate-none"
+                />
+              )}
+            </div>
           </div>
-        </div>
+        </>
       ) : (
         <ul
           aria-label="Pack kartları"
@@ -229,14 +263,19 @@ function PackDialog({
             const isMandatory = card?.kind === 'cursed'
             const isChosen =
               pack.chosen?.cardId === cardId || (pack.cursed?.cardId === cardId && isMandatory)
+            const isPicked = selected === cardId || isChosen
+            // Once every card is face up, a card that can be selected glows gold under the pointer, on the card or on
+            // its "Seç" button (design D4).
+            const canPick = isOpen && canAct && allTurned && !isMandatory
             return (
-              <li key={cardId} className="flex flex-col gap-2">
+              <li key={cardId} className="group/pick flex flex-col gap-2">
                 {card ? (
                   <div
+                    data-glow={isPicked ? 'selected' : undefined}
                     className={cn(
-                      'rounded-xl',
-                      (selected === cardId || isChosen) &&
-                        'ring-2 ring-gold ring-offset-2 ring-offset-pane',
+                      'rounded-xl transition-[filter] duration-200 motion-reduce:transition-none',
+                      isPicked && 'drop-shadow-glow-selected',
+                      canPick && 'group-hover/pick:drop-shadow-glow-selected',
                     )}
                   >
                     <FaceDownCard

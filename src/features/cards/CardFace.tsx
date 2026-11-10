@@ -7,16 +7,44 @@ import { cn } from '@/lib/cn'
 
 import { CardZoomDialog } from './CardZoomDialog'
 import { CostBadge } from './CostBadge'
-import { type CardFrame, cardFrame, costChange, NO_VALUE, rarityLabel, setLabel } from './display'
+import {
+  type CardFrame,
+  cardFrame,
+  costChange,
+  type FaceGlow,
+  faceGlow,
+  NO_VALUE,
+  rarityLabel,
+  setLabel,
+} from './display'
 import type { Card } from './schema'
 import { visibleText } from './text'
+import { useCardTilt } from './useCardTilt'
 
+/** The kind's frame: drawn around a face without a picture, and around its "● Aktif" mark. */
 const FRAME_CLASSES: Record<CardFrame, string> = {
   common: 'border-common',
   rare: 'border-gold',
   blessed: 'border-blessed',
   cursed: 'border-cursed',
 }
+
+/**
+ * The glow around a face (design D4). The glow box is outside the box that tilts, so their filters never clash. A
+ * revealed card's lift shadow is on the box around the face (`FaceDownCard`): a revealed Common card has only that.
+ */
+const GLOW_CLASSES: Record<FaceGlow, string> = {
+  active: 'drop-shadow-glow-active',
+  'active-cursed': 'drop-shadow-glow-cursed',
+  'active-blessed': 'drop-shadow-glow-blessed',
+  'reveal-common': '',
+  'reveal-rare': 'drop-shadow-reveal-rare',
+  'reveal-cursed': 'drop-shadow-reveal-cursed',
+  'reveal-blessed': 'drop-shadow-reveal-blessed',
+  held: 'drop-shadow-glow-held',
+}
+
+const GLOW_BOX_CLASSES = 'transition-[filter] duration-150 motion-reduce:transition-none'
 
 /**
  * The magnifier and the note icon in the face's corners (design D3): shown while the pointer rests on the face or the
@@ -58,6 +86,13 @@ export type CardFaceProps = {
   isExtraCopy?: boolean
   /** In the library: the names of the players holding it, for a held normal card or a Cursed card in hands. */
   heldBy?: readonly string[]
+  /** In a draw or an open pack: the card has been turned face up. It glows in its kind's color. */
+  isRevealed?: boolean
+  /**
+   * In the card views of the hand, the library and the Cursed Deck: the face tilts toward a mouse pointer, with a
+   * soft light (design D5). Faces inside dialogs stay still.
+   */
+  isTiltable?: boolean
   /** `false` leaves out the magnifier, for the face inside the zoom view. */
   isZoomable?: boolean
   /**
@@ -70,13 +105,17 @@ export type CardFaceProps = {
 }
 
 /**
- * One card shown as a card face, in its kind's frame color. With the card's picture (design D6), the picture carries
- * the cost, name and text, which stay in the DOM for screen readers and search; a hand cost that differs from the
- * card's own cost is a badge on the picture's cost corner. Nothing is written under the picture: the set, rarity and
- * mechanic pack show in a note while the pointer rests on the picture's set symbol, or after a tap on it. Without a
- * picture, or when it fails to load, the face draws the cost, name and visible text itself, with the set, rarity and
- * mechanic pack below. Cursed cards have none of those three. A card in a hand shows its marks, and its note as an
- * icon in the bottom-left corner; a held card in the library shows who holds it.
+ * One card shown as a card face. With the card's picture (design D6), the picture alone is the face: its printed
+ * frame shows the kind (spec: visual-effects). The picture carries the cost, name and text, which stay in the DOM for
+ * screen readers and search; a hand cost that differs from the card's own cost is a badge on the picture's cost
+ * corner. Nothing is written under the picture: the set, rarity and mechanic pack show in a note while the pointer
+ * rests on the picture's set symbol, or after a tap on it. Without a picture, or when it fails to load, the face draws
+ * its kind's frame color, the cost, name and visible text, with the set, rarity and mechanic pack below. Cursed cards
+ * have none of those three. A card in a hand shows its marks, and its note as an icon in the bottom-left corner; a
+ * held card in the library shows who holds it.
+ *
+ * The face glows (design D4): an active card in a hand, a revealed card in a draw or a pack, and a held card in the
+ * library, each in its own color.
  *
  * The magnifier in the top-right corner opens the card's zoom view (spec: card-zoom). The magnifier and the note icon
  * show on hover or keyboard focus, and at all times on a device without hover.
@@ -88,6 +127,8 @@ export function CardFace({
   hasNote = false,
   isExtraCopy = false,
   heldBy,
+  isRevealed = false,
+  isTiltable = false,
   isZoomable = true,
   onOpen,
   openLabel,
@@ -106,6 +147,13 @@ export function CardFace({
   const text = visibleText(card.text)
   const hasMarks = isActive || isExtraCopy || heldBy !== undefined
   const look = picture.src !== null ? 'picture' : 'css'
+  const glow = faceGlow(frame, {
+    isActive,
+    isRevealed,
+    isHeld: heldBy !== undefined && heldBy.length > 0,
+  })
+  const glowClasses = cn(GLOW_BOX_CLASSES, glow && GLOW_CLASSES[glow])
+  const { ref: tiltRef, handlers: tiltHandlers } = useCardTilt(isTiltable)
 
   // The browser gives the focus back after Escape, but not when the zoom view is unmounted by "✕ Kapat": the focus
   // returns to the magnifier either way (design D6).
@@ -166,14 +214,19 @@ export function CardFace({
         </div>
       </dl>
     )
-  // First in the Tab order. Above the picture (z-1), below the set symbol (z-10) and the corner icons (z-20), so they
-  // stay selectable on top of it.
+  // First in the Tab order. On the CSS face it lies above the content (z-1) and below the set symbol (z-10) and the
+  // corner icons (z-20). On a picture face, the picture's box lies above it (z-2) and lets the pointer through, except
+  // on its controls: the glow and the tilt make that box a stacking context, which would otherwise sink the controls
+  // below this button. A tint on hover suits only the CSS face's rectangle; a picture tilts instead.
   const openButton = onOpen ? (
     <button
       type="button"
       onClick={onOpen}
       aria-label={openLabel}
-      className="absolute -inset-0.5 z-1 rounded-xl hover:bg-ink/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold"
+      className={cn(
+        'absolute -inset-0.5 z-1 rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold',
+        look === 'css' && 'hover:bg-ink/5',
+      )}
     />
   ) : null
   const magnifier = isZoomable ? (
@@ -182,7 +235,11 @@ export function CardFace({
       type="button"
       aria-label={`${card.name}: büyüt`}
       onClick={() => setIsZoomOpen(true)}
-      className={cn(CORNER_ICON_CLASSES, 'cursor-zoom-in', MAGNIFIER_POSITION[look])}
+      className={cn(
+        CORNER_ICON_CLASSES,
+        'pointer-events-auto cursor-zoom-in',
+        MAGNIFIER_POSITION[look],
+      )}
     >
       <span aria-hidden="true">🔍</span>
     </button>
@@ -205,53 +262,58 @@ export function CardFace({
   ) : null
 
   if (picture.src !== null) {
+    // No frame of its own: the picture's printed frame shows the kind (design D3). The glow box holds the picture's
+    // box, which tilts.
     return (
       <article
         aria-label={card.name}
         data-frame={frame}
-        className={cn(
-          'group relative flex h-full flex-col gap-2 rounded-xl border-2 bg-pane-raised p-1.5',
-          FRAME_CLASSES[frame],
-        )}
+        className="group relative flex h-full flex-col gap-2"
+        {...tiltHandlers}
       >
         {openButton}
-        <div className="relative">
-          <CardPicture src={picture.src} alt={card.name} onError={picture.onError} />
-          {/* Over the picture's own cost (its top-left d20) only when the hand changes it. */}
-          {change ? (
-            costBadge(
-              'absolute top-[7.4%] left-[10.7%] -translate-x-1/2 -translate-y-1/2 border-2 shadow-md',
-            )
-          ) : (
-            <span className="sr-only">{costBadge('')}</span>
-          )}
-          {details ? (
-            <>
-              {/* Over the picture's set symbol, in its bottom-right corner. */}
-              <button
-                type="button"
-                aria-label="Set, rarity ve mechanic pack"
-                aria-describedby={infoId}
-                onClick={() => setIsInfoShown((shown) => !shown)}
-                onBlur={() => setIsInfoShown(false)}
-                className="peer absolute right-[3%] bottom-[2%] z-10 h-[11%] w-[14%] cursor-help rounded-full focus-visible:outline-2 focus-visible:outline-gold"
-              />
-              {/* Transparent, not hidden, while it is not shown: screen readers and search keep it. It stays inside
-                  the picture, so it never widens the page. */}
-              <div
-                id={infoId}
-                data-shown={isInfoShown || undefined}
-                className={cn(
-                  'pointer-events-none absolute right-[3%] bottom-[14%] z-30 max-w-[94%] rounded-lg border border-line bg-canvas px-2 py-1.5 opacity-0 shadow-lg transition-opacity peer-hover:opacity-100 peer-focus-visible:opacity-100 motion-reduce:transition-none',
-                  isInfoShown && 'opacity-100',
-                )}
-              >
-                {details}
-              </div>
-            </>
-          ) : null}
-          {magnifier}
-          {note}
+        <div
+          data-glow={glow ?? undefined}
+          className={cn('relative z-2', onOpen && 'pointer-events-none', glowClasses)}
+        >
+          <div ref={tiltRef} className={cn('relative rounded-lg', isTiltable && 'card-tilt')}>
+            <CardPicture src={picture.src} alt={card.name} onError={picture.onError} />
+            {/* Over the picture's own cost (its top-left d20) only when the hand changes it. */}
+            {change ? (
+              costBadge(
+                'absolute top-[7.4%] left-[10.7%] -translate-x-1/2 -translate-y-1/2 border-2 shadow-md',
+              )
+            ) : (
+              <span className="sr-only">{costBadge('')}</span>
+            )}
+            {details ? (
+              <>
+                {/* Over the picture's set symbol, in its bottom-right corner. */}
+                <button
+                  type="button"
+                  aria-label="Set, rarity ve mechanic pack"
+                  aria-describedby={infoId}
+                  onClick={() => setIsInfoShown((shown) => !shown)}
+                  onBlur={() => setIsInfoShown(false)}
+                  className="peer pointer-events-auto absolute right-[3%] bottom-[2%] z-10 h-[11%] w-[14%] cursor-help rounded-full focus-visible:outline-2 focus-visible:outline-gold"
+                />
+                {/* Transparent, not hidden, while it is not shown: screen readers and search keep it. It stays
+                    inside the picture, so it never widens the page. */}
+                <div
+                  id={infoId}
+                  data-shown={isInfoShown || undefined}
+                  className={cn(
+                    'pointer-events-none absolute right-[3%] bottom-[14%] z-30 max-w-[94%] rounded-lg border border-line bg-canvas px-2 py-1.5 opacity-0 shadow-lg transition-opacity peer-hover:opacity-100 peer-focus-visible:opacity-100 motion-reduce:transition-none',
+                    isInfoShown && 'opacity-100',
+                  )}
+                >
+                  {details}
+                </div>
+              </>
+            ) : null}
+            {magnifier}
+            {note}
+          </div>
         </div>
         {name('sr-only')}
         {body('sr-only')}
@@ -261,30 +323,36 @@ export function CardFace({
     )
   }
 
+  // The glow box is always there, so switching a glow never remounts the face (and an open zoom view with it).
   return (
-    <article
-      aria-label={card.name}
-      data-frame={frame}
-      className={cn(
-        'group relative flex h-full flex-col gap-2 rounded-xl border-2 bg-pane-raised p-3',
-        // Room for the note icon, so it never covers the text or the details.
-        hasNote && 'pb-10',
-        FRAME_CLASSES[frame],
-      )}
-    >
-      {openButton}
-      {/* The cost sits above the name, so the name gets the face's full width and long names do not break. The
-          magnifier takes the right end of the cost's row. */}
-      <header className="flex flex-col items-start gap-1.5">
-        {costBadge('')}
-        {name()}
-      </header>
-      {marks}
-      {body()}
-      {details}
-      {magnifier}
-      {note}
-      {zoom}
-    </article>
+    <div data-glow={glow ?? undefined} className={cn('h-full', glowClasses)}>
+      <article
+        ref={tiltRef}
+        aria-label={card.name}
+        data-frame={frame}
+        className={cn(
+          'group relative flex h-full flex-col gap-2 rounded-xl border-2 bg-pane-raised p-3',
+          // Room for the note icon, so it never covers the text or the details.
+          hasNote && 'pb-10',
+          FRAME_CLASSES[frame],
+          isTiltable && 'card-tilt',
+        )}
+        {...tiltHandlers}
+      >
+        {openButton}
+        {/* The cost sits above the name, so the name gets the face's full width and long names do not break. The
+            magnifier takes the right end of the cost's row. */}
+        <header className="flex flex-col items-start gap-1.5">
+          {costBadge('')}
+          {name()}
+        </header>
+        {marks}
+        {body()}
+        {details}
+        {magnifier}
+        {note}
+        {zoom}
+      </article>
+    </div>
   )
 }

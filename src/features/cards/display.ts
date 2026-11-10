@@ -34,6 +34,32 @@ export function cardFrame(card: Card): CardFrame {
   return card.kind === 'normal' ? card.rarity : card.kind
 }
 
+/**
+ * How a card face glows (spec: visual-effects): an active card in a hand by its kind, a revealed card in a draw or a
+ * pack by its kind, a card someone holds in the library soft gold, or not at all.
+ */
+export type FaceGlow =
+  | 'active'
+  | 'active-cursed'
+  | 'active-blessed'
+  | 'reveal-common'
+  | 'reveal-rare'
+  | 'reveal-cursed'
+  | 'reveal-blessed'
+  | 'held'
+
+/** The face's glow, in this order: its active state, its reveal, its holders (design D4). */
+export function faceGlow(
+  frame: CardFrame,
+  state: { isActive: boolean; isRevealed: boolean; isHeld: boolean },
+): FaceGlow | null {
+  if (state.isActive) {
+    return frame === 'cursed' ? 'active-cursed' : frame === 'blessed' ? 'active-blessed' : 'active'
+  }
+  if (state.isRevealed) return `reveal-${frame}`
+  return state.isHeld ? 'held' : null
+}
+
 /** The kind word shown and searched for Blessed and Cursed cards. Normal cards have none. */
 export function kindLabel(card: Pick<Card, 'kind'>): string | null {
   return card.kind === 'blessed' ? 'Blessed' : card.kind === 'cursed' ? 'Cursed' : null

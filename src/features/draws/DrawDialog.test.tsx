@@ -101,6 +101,13 @@ describe("a player's draw", () => {
     })
     expect(backs().map((back) => back.getAttribute('aria-label'))).toEqual(['Kart 1: çevir'])
     expect(screen.queryByText("Aboleth's Eyes")).not.toBeInTheDocument()
+    // The spread: an overlapping row whose card lifts under the pointer or the focus, unless motion is reduced.
+    expect(backs()[0]?.closest('li')).toHaveClass(
+      '-mr-3',
+      'motion-safe:hover:-translate-y-2.5',
+      'motion-safe:focus-within:-translate-y-2.5',
+      'hover:z-50',
+    )
 
     setOwner({ ...me, lp: 2 })
     expect(screen.getByText(/Bakiye:/)).toHaveTextContent('Bakiye: 2 LP')

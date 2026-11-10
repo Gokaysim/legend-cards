@@ -30,9 +30,11 @@ export function TrueWordTile({ word, isKnown, isActive, children, className }: T
   return (
     <article
       aria-label={word.name}
+      data-glow={isActive ? 'word' : undefined}
       className={cn(
         'flex h-full flex-col gap-2 rounded-2xl border bg-pane p-3',
-        isActive ? 'border-gold' : 'border-line',
+        // An active word glows purple (spec: visual-effects).
+        isActive ? 'border-true-word-line glow-word' : 'border-line',
         className,
       )}
     >

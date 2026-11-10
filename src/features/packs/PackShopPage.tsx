@@ -35,7 +35,7 @@ const FOR_PARAM = 'for'
 const GOLDEN_GROUP = 'golden'
 
 const groupTileClasses =
-  'flex min-h-32 flex-col items-center justify-center gap-2 rounded-2xl border border-line bg-pane p-4 text-center transition-colors hover:border-gold hover:bg-pane-raised'
+  'flex min-h-32 flex-col items-center justify-center gap-2 rounded-2xl border border-line bg-pane p-4 text-center transition hover:border-gold hover:bg-pane-raised hover:brightness-110 motion-safe:hover:-translate-y-0.75 motion-safe:focus-visible:-translate-y-0.75'
 
 /**
  * The Pack Shop: Set Packs in groups per set, and Mechanic Packs with the Golden Packs group last

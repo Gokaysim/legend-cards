@@ -115,6 +115,17 @@ describe('CardBrowser for the Legend deck', () => {
     ])
   })
 
+  it('lays the card view out as a deck of tilting faces, every few at a slight angle', () => {
+    render(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
+
+    const list = screen.getByRole('list', { name: 'Kartlar' })
+    expect(list).toHaveAttribute('data-deck', 'library')
+    const items = within(list).getAllByRole('listitem')
+    expect(items).toHaveLength(8)
+    for (const item of items) expect(item.querySelector('.card-tilt')).not.toBeNull()
+    expect(items[1]).toHaveClass('motion-safe:nth-[7n+2]:rotate-[-0.3deg]')
+  })
+
   it('needs every comma-separated term to match, and counts the matches', async () => {
     const user = userEvent.setup()
     render(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
@@ -374,6 +385,12 @@ describe('CardBrowser pool status', () => {
 
     expect(screen.getByRole('article', { name: greedy })).toHaveTextContent('Elde: Ayla')
     expect(screen.getByRole('article', { name: 'Let Go' })).not.toHaveTextContent('Elde')
+    // A held card glows soft gold; a card in the pool does not glow.
+    expect(screen.getByRole('article', { name: greedy }).closest('[data-glow]')).toHaveAttribute(
+      'data-glow',
+      'held',
+    )
+    expect(screen.getByRole('article', { name: 'Let Go' }).closest('[data-glow]')).toBeNull()
 
     await legendList(user)
     expect(durum(greedy)).toHaveTextContent('Elde: Ayla')

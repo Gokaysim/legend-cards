@@ -84,7 +84,11 @@ export function HandTrueWords({ profile, words, entries }: HandTrueWordsProps) {
           className="grid grid-cols-[repeat(auto-fill,minmax(14rem,1fr))] gap-3"
         >
           {entries.map(({ record, word }) => (
-            <li key={record.id} className="relative">
+            // The tile opens the word's details, so it lifts under the pointer or the focus (design D10).
+            <li
+              key={record.id}
+              className="relative transition hover:z-3 has-focus-visible:z-3 motion-safe:hover:-translate-y-1.25 motion-safe:hover:scale-[1.02] motion-safe:has-focus-visible:-translate-y-1.25"
+            >
               <TrueWordTile word={word} isActive={record.active} />
               {/* The whole tile opens the details; the tile itself stays readable as an article. */}
               <button

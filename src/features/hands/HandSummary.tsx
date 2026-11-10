@@ -152,7 +152,8 @@ export function HandSummary({
               ))}
               {activeWords.map(({ record, word }) => (
                 <li key={record.id} className="border-l-2 border-gold pl-2 text-sm">
-                  <p lang="en" className="font-semibold break-words text-ink">
+                  {/* An active True Word's name glows purple (spec: visual-effects). */}
+                  <p lang="en" className="font-semibold break-words text-ink text-shadow-glow-word">
                     <span aria-hidden="true">✦ </span>
                     <span className="sr-only">True Word: </span>
                     {word.name}

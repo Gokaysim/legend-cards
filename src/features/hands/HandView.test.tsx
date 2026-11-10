@@ -56,6 +56,26 @@ describe('hand contents', () => {
     expect(screen.getByText('3 kart · alınış sırası')).toBeInTheDocument()
   })
 
+  it('lays the cards out as a deck: tilting faces, every few at a slight angle, and an active card glowing', () => {
+    renderHand([
+      testHolding(owl, 'ayla', 1000, { active: true }),
+      testHolding(letGo, 'ayla', 2000),
+      testHolding(oath, 'ayla', 3000),
+    ])
+
+    const list = screen.getByRole('list', { name: 'Eldeki kartlar' })
+    expect(list).toHaveAttribute('data-deck', 'hand')
+    const items = within(list).getAllByRole('listitem')
+    for (const item of items) {
+      expect(item).toHaveClass('w-(--deck-card-width)', 'hover:z-30', 'focus-within:z-30')
+      expect(item.querySelector('.card-tilt')).not.toBeNull()
+    }
+    expect(items[1]).toHaveClass('motion-safe:nth-[5n+2]:rotate-[-0.35deg]')
+    const nightOwl = within(list).getByRole('article', { name: 'Night Owl' })
+    expect(nightOwl.closest('[data-glow]')).toHaveAttribute('data-glow', 'active')
+    expect(within(nightOwl).getByText('● Aktif')).toBeInTheDocument()
+  })
+
   it('marks active cards, notes, extra copies and the cost in the hand on the faces', () => {
     const copy = testHolding(greedy, 'ayla', 1000, { note: 'Boss savaşında kullan' })
     renderHand(
@@ -270,6 +290,9 @@ describe('hand summary', () => {
       '☠ Cursed: Visions of DeathHeld: Every hour draw.',
       '✦ True Word: AbyssFree card.',
     ])
+    // The active True Word's name glows purple; the cards' names do not.
+    expect(effects.getByText('Abyss')).toHaveClass('text-shadow-glow-word')
+    expect(effects.getByText('Night Owl')).not.toHaveClass('text-shadow-glow-word')
   })
 
   it('does not count Blessed cards as a set', () => {

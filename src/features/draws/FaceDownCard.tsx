@@ -39,8 +39,9 @@ export type FaceDownCardProps = {
 
 /**
  * A drawn card, face down until it is selected. The back is the spread's cardback picture, or the CSS back without
- * one, and tells nothing about the card: the face is not rendered before the turn. Selecting it turns it over to its
- * face, which then stays revealed; under `prefers-reduced-motion` it switches without the turn.
+ * one, and tells nothing about the card: the face is not rendered before the turn, and the back never glows. Selecting
+ * it turns it over to its face, which then stays revealed and glows in its kind's color; under
+ * `prefers-reduced-motion` it switches without the turn.
  */
 export function FaceDownCard({
   card,
@@ -79,11 +80,12 @@ export function FaceDownCard({
       </span>
     ) : null
 
+  // The back without a picture has a card's shape, as the picture does, at any width of the spread.
   const backClasses = cn(
     'col-start-1 row-start-1 rounded-xl border-2 backface-hidden',
     picture.src === null
       ? cn(
-          'flex min-h-48 flex-col items-center justify-center gap-3 bg-linear-to-br p-3',
+          'flex aspect-[563/788] flex-col items-center justify-center gap-3 bg-linear-to-br p-3',
           BACK_CLASSES[tone],
         )
       : 'relative block overflow-hidden border-transparent',
@@ -115,7 +117,7 @@ export function FaceDownCard({
     <div className="perspective-distant">
       <div
         className={cn(
-          'grid transition-transform duration-500 transform-3d motion-reduce:transition-none',
+          'grid transition-transform duration-680 ease-card-flip transform-3d motion-reduce:transition-none',
           isRevealed && 'rotate-y-180',
         )}
       >
@@ -146,9 +148,10 @@ export function FaceDownCard({
             tabIndex={-1}
             aria-label={`Kart ${position}`}
             role="group"
-            className="col-start-1 row-start-1 rotate-y-180 rounded-xl backface-hidden"
+            // The lift shadow under the face; the face glows in its kind's color inside it (design D2).
+            className="col-start-1 row-start-1 rotate-y-180 rounded-xl drop-shadow-lift backface-hidden"
           >
-            <CardFace card={card} />
+            <CardFace card={card} isRevealed />
           </div>
         ) : null}
       </div>

@@ -24,7 +24,7 @@ export function Mascot({ stem, className }: MascotProps) {
       decoding="async"
       draggable={false}
       onError={picture.onError}
-      className={cn('block h-auto w-auto shrink-0 object-contain', className)}
+      className={cn('block h-auto w-auto shrink-0 object-contain drop-shadow-lift', className)}
     />
   )
 }

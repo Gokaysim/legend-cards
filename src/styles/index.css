@@ -1,5 +1,6 @@
 @import 'tailwindcss';
 @import './theme.css';
+@import './effects.css';
 
 /* A device without hover, such as a phone: what shows on hover elsewhere shows at all times there. */
 @custom-variant no-hover (@media (hover: none));

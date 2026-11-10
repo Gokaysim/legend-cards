@@ -1,0 +1,185 @@
+/*
+ * Visual effects that need a pseudo-element, a long transform with CSS variables, or several layers of light
+ * (spec: visual-effects, design D1). Each is an `@utility`, written in plain CSS against the tokens in `theme.css`.
+ * Simple effects (lifts, angles, glows) stay utilities in the JSX.
+ *
+ * Every moving effect here stops under `prefers-reduced-motion`. Glows and frames stay, because they do not move.
+ */
+
+/*
+ * A card that tilts toward a mouse pointer, with a soft light that follows it (design D5). `useCardTilt` writes the
+ * variables and `data-tilt`. The glint lies below the face's set symbol (z-10) and corner icons (z-20), and never takes
+ * the pointer.
+ */
+@utility card-tilt {
+  position: relative;
+  isolation: isolate;
+
+  @media (prefers-reduced-motion: no-preference) {
+    transform: perspective(850px) rotateX(0deg) rotateY(0deg);
+    transition:
+      transform 230ms cubic-bezier(0.22, 0.7, 0.3, 1),
+      filter 230ms ease;
+
+    &::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      z-index: 3;
+      border-radius: inherit;
+      pointer-events: none;
+      opacity: 0;
+      background: radial-gradient(
+        ellipse 68% 48% at var(--glint-x, 50%) var(--glint-y, 50%),
+        color-mix(in oklab, var(--color-glint) 26%, transparent) 0%,
+        color-mix(in oklab, var(--color-glint) 10%, transparent) 45%,
+        transparent 83%
+      );
+      mix-blend-mode: screen;
+      transition: opacity 230ms ease;
+    }
+
+    &[data-tilt] {
+      transform: perspective(850px) translate3d(var(--push-x, 0px), var(--push-y, 0px), 0)
+        rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg)) scale(1.014);
+      filter: brightness(1.045);
+      transition:
+        transform 95ms ease-out,
+        filter 180ms ease;
+      will-change: transform;
+    }
+
+    &[data-tilt]::after {
+      opacity: 0.7;
+    }
+  }
+}
+
+/*
+ * The Pack Shop's ridged frames (design D9), around a pack tile's picture: gold with a "✦" corner and a slow shimmer
+ * for a set's Premium Pack, red with a "☠" corner for the Cursed, Cursed Golden and Pandemonium Cursed Packs. The
+ * corner glyph has an empty alternative text, so screen readers skip it: the tile's name says what the pack is.
+ */
+@utility pack-frame-premium {
+  position: relative;
+  isolation: isolate;
+  border: 4px ridge var(--color-premium-frame);
+  border-radius: 10px;
+  background: linear-gradient(145deg, var(--color-premium-frame-dark), var(--color-canvas));
+  box-shadow:
+    0 0 0 2px var(--color-premium-frame-dark),
+    0 0 0 4px var(--color-premium-frame-light),
+    0 0 20px 5px color-mix(in oklab, var(--color-glow-rare) 68%, transparent),
+    inset 0 0 20px 3px color-mix(in oklab, var(--color-premium-frame-light) 50%, transparent);
+
+  &::before {
+    content: '✦';
+    content: '✦' / '';
+    position: absolute;
+    inset: 6px;
+    z-index: 4;
+    pointer-events: none;
+    padding: 2px 6px;
+    border: 3px double color-mix(in oklab, var(--color-premium-frame-light) 94%, transparent);
+    border-radius: 6px;
+    color: var(--color-premium-frame-light);
+    font-size: 22px;
+    line-height: 1;
+    text-align: right;
+    text-shadow: 0 0 9px var(--color-glow-rare);
+    box-shadow:
+      inset 0 0 18px color-mix(in oklab, var(--color-premium-frame) 56%, transparent),
+      0 0 13px color-mix(in oklab, var(--color-premium-frame-light) 55%, transparent);
+  }
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    pointer-events: none;
+    border-radius: 6px;
+    background:
+      linear-gradient(
+        115deg,
+        transparent 15%,
+        color-mix(in oklab, var(--color-premium-frame-light) 27%, transparent) 33%,
+        color-mix(in oklab, var(--color-premium-frame) 48%, transparent) 40%,
+        transparent 57%
+      ),
+      linear-gradient(
+        180deg,
+        color-mix(in oklab, var(--color-premium-frame-light) 27%, transparent),
+        transparent 40%,
+        color-mix(in oklab, var(--color-premium-frame-dark) 22%, transparent)
+      );
+    box-shadow:
+      inset 0 0 0 4px color-mix(in oklab, var(--color-premium-frame-light) 60%, transparent),
+      inset 0 0 18px 6px color-mix(in oklab, var(--color-premium-frame) 66%, transparent);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    &::after {
+      animation: var(--animate-pack-shimmer);
+    }
+  }
+}
+
+@utility pack-frame-cursed {
+  position: relative;
+  isolation: isolate;
+  border: 4px ridge color-mix(in oklab, var(--color-cursed) 60%, var(--color-cursed-frame-dark));
+  border-radius: 10px;
+  background: linear-gradient(145deg, var(--color-cursed-frame-dark), var(--color-canvas));
+  box-shadow:
+    0 0 0 2px var(--color-cursed-frame-dark),
+    0 0 0 4px var(--color-cursed-frame-light),
+    0 0 18px 5px color-mix(in oklab, var(--color-glow-cursed) 67%, transparent),
+    inset 0 0 20px color-mix(in oklab, var(--color-cursed-frame-light) 68%, transparent);
+
+  &::before {
+    content: '☠';
+    content: '☠' / '';
+    position: absolute;
+    inset: 6px;
+    z-index: 4;
+    pointer-events: none;
+    padding: 3px 6px;
+    border: 3px double color-mix(in oklab, var(--color-cursed-frame-light) 85%, transparent);
+    border-radius: 6px;
+    color: var(--color-cursed-soft);
+    font-size: 20px;
+    line-height: 1;
+    text-align: right;
+    text-shadow: 0 0 12px var(--color-glow-cursed);
+    box-shadow: inset 0 0 20px color-mix(in oklab, var(--color-cursed) 60%, transparent);
+  }
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    pointer-events: none;
+    border-radius: 6px;
+    background: linear-gradient(
+      128deg,
+      color-mix(in oklab, var(--color-cursed) 21%, transparent),
+      transparent 35%,
+      color-mix(in oklab, var(--color-glow-cursed) 18%, transparent) 65%,
+      color-mix(in oklab, var(--color-cursed) 17%, transparent)
+    );
+    box-shadow:
+      inset 0 0 0 3px color-mix(in oklab, var(--color-cursed-frame-light) 50%, transparent),
+      inset 0 0 20px color-mix(in oklab, var(--color-glow-cursed) 53%, transparent);
+  }
+}
+
+/*
+ * An active True Word's purple glow (design D10), in two rings. A `drop-shadow-*` token holds only one layer (see
+ * theme.css), so the two rings are written here.
+ */
+@utility glow-word {
+  filter: drop-shadow(0 0 9px var(--color-glow-word))
+    drop-shadow(0 0 19px var(--color-glow-word-deep));
+}

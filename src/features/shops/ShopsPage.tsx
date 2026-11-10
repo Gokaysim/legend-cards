@@ -15,7 +15,7 @@ export function ShopsPage() {
               to={shop.path}
               aria-labelledby={`shop-${shop.id}-label`}
               aria-describedby={`shop-${shop.id}-summary`}
-              className="flex h-full min-h-52 flex-col items-center justify-center gap-3 rounded-2xl border border-line bg-pane p-6 text-center transition-colors hover:border-gold hover:bg-pane-raised"
+              className="flex h-full min-h-52 flex-col items-center justify-center gap-3 rounded-2xl border border-line bg-pane p-6 text-center transition hover:border-gold hover:bg-pane-raised hover:shadow-xl motion-safe:hover:-translate-y-1.25 motion-safe:focus-visible:-translate-y-1.25"
             >
               <span aria-hidden="true" className="text-6xl leading-none">
                 {shop.icon}

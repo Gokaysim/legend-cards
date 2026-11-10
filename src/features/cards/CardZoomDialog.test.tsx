@@ -96,7 +96,8 @@ describe('CardZoomDialog', () => {
     expect(dialog).toHaveTextContent('Kesqerian Nights · Cost 2 · Rare')
     expect(within(dialog).queryByRole('img')).not.toBeInTheDocument()
     const face = within(dialog).getByRole('article', { name: 'Night Owl' })
-    expect(face.parentElement).toHaveClass('w-80')
+    // The CSS face sits in its glow box, inside the zoom view's wider box.
+    expect(face.parentElement?.parentElement).toHaveClass('w-80')
     expect(within(face).getByRole('heading', { name: 'Night Owl' })).not.toHaveClass('sr-only')
     expect(face).toHaveTextContent('Gain 1 LP at night.')
     expect(face).toHaveTextContent('Rare')

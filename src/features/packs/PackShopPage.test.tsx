@@ -142,6 +142,62 @@ describe('pack pictures', () => {
   })
 })
 
+describe('pack frames', () => {
+  const ART = testArt({
+    packs: {
+      'mechanic:Blood & Battle': '/art/packs/mechanic-blood-battle.0123456789.webp',
+      golden: '/art/packs/golden.0123456789.webp',
+      cursedGolden: '/art/packs/cursedgolden.0123456789.webp',
+    },
+    cardbacks: {
+      Kesqer: '/art/backs/kesqer.0123456789.webp',
+      Pandemonium: '/art/backs/pandemonium.0123456789.webp',
+    },
+  })
+  const frameOf = (title: string) =>
+    packButton(title).querySelector('img')?.parentElement?.getAttribute('data-pack-frame') ?? null
+
+  it("frames a set's Premium Pack in gold and its Cursed Pack in red, and its Standard Pack not", () => {
+    renderShop({ path: '/shops/packs?group=Kesqer', art: ART })
+
+    expect(frameOf('Kesqerian Nights Premium Pack')).toBe('premium')
+    expect(
+      packButton('Kesqerian Nights Premium Pack').querySelector('[data-pack-frame]'),
+    ).toHaveClass('pack-frame-premium')
+    expect(frameOf('Kesqerian Nights Cursed Pack')).toBe('cursed')
+    expect(
+      packButton('Kesqerian Nights Cursed Pack').querySelector('[data-pack-frame]'),
+    ).toHaveClass('pack-frame-cursed')
+    expect(frameOf('Kesqerian Nights Standard Pack')).toBeNull()
+  })
+
+  it('frames the Pandemonium Cursed and Cursed Golden Packs in red, and not the others', () => {
+    const { unmount } = renderShop({ path: '/shops/packs?group=Pandemonium', art: ART })
+    expect(frameOf('Pandemonium Cursed Pack')).toBe('cursed')
+    expect(frameOf('Pandemonium Pack')).toBeNull()
+    unmount()
+
+    renderShop({ path: '/shops/packs?group=golden', art: ART })
+    expect(frameOf('Cursed Golden Pack')).toBe('cursed')
+    expect(frameOf('Golden Pack')).toBeNull()
+  })
+
+  it('leaves a Mechanic Pack without a frame', () => {
+    renderShop({ art: ART })
+    expect(frameOf('Blood & Battle Mechanic Pack')).toBeNull()
+  })
+
+  it('lifts a pack that can be opened, and greys out one that cannot, which still says why', () => {
+    renderShop({ path: '/shops/packs?group=Ulagal' })
+
+    const standard = packButton('Ballad of Ulagal Standard Pack')
+    expect(standard).toBeDisabled()
+    expect(standard).toHaveClass('disabled:grayscale-45', 'disabled:opacity-60')
+    expect(standard).toHaveClass('motion-safe:enabled:hover:-translate-y-0.75')
+    expect(standard).toHaveAccessibleDescription(/Havuzda yeterli kart yok/)
+  })
+})
+
 describe("the groups' Cardmakers", () => {
   const ART = testArt({
     mascots: {

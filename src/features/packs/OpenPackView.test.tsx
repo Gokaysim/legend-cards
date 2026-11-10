@@ -1,4 +1,4 @@
-import { act, screen, within } from '@testing-library/react'
+import { act, fireEvent, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -360,6 +360,13 @@ describe('the DM cancels a pack', () => {
   })
 })
 
+/**
+ * Ends an element's CSS animation. jsdom has no `AnimationEvent`, so React listens for the prefixed
+ * `webkitAnimationEnd` there; a browser sends `animationend`.
+ */
+const endAnimation = (element: Element) =>
+  fireEvent(element, new Event('webkitAnimationEnd', { bubbles: true }))
+
 describe('the opening animation', () => {
   const stubMotion = (reduce: boolean) =>
     vi.stubGlobal('matchMedia', () => ({
@@ -376,10 +383,47 @@ describe('the opening animation', () => {
     expect(screen.getByTestId('pack-burst')).toBeInTheDocument()
     expect(screen.queryByRole('img', { name: /: kapalı$/ })).not.toBeInTheDocument()
     act(() => {
-      vi.advanceTimersByTime(2000)
+      vi.advanceTimersByTime(3200)
     })
     expect(screen.queryByTestId('pack-burst')).not.toBeInTheDocument()
     expect(packDialog().getAllByRole('img', { name: /: kapalı$/ })).toHaveLength(5)
+  })
+
+  it("bursts the set's cardback, and only the pack's own animation ends the burst", () => {
+    stubMotion(false)
+    watch({
+      pack: testPack('ayla', { offered: CARDS.map((card) => card.id), packType: 'premium' }),
+      art: testArt({ cardbacks: { Kesqer: '/art/backs/kesqer.0123456789.webp' } }),
+    })
+
+    const burst = screen.getByTestId('pack-burst')
+    expect(burst).toHaveAttribute('aria-hidden', 'true')
+    expect(burst).toHaveClass('fixed', 'inset-0', 'animate-burst-backdrop')
+    const picture = burst.querySelector('img')
+    expect(picture).toHaveAttribute('src', '/art/backs/kesqer.0123456789.webp')
+    expect(picture).toHaveClass('animate-pack-burst')
+
+    endAnimation(burst.querySelector('[data-burst-halo]') as Element)
+    endAnimation(burst)
+    expect(screen.getByTestId('pack-burst')).toBeInTheDocument()
+
+    endAnimation(picture as Element)
+    expect(screen.queryByTestId('pack-burst')).not.toBeInTheDocument()
+    expect(packDialog().getAllByRole('img', { name: /: kapalı$/ })).toHaveLength(5)
+  })
+
+  it('bursts the pack drawn without a picture when it has none', () => {
+    stubMotion(false)
+    watch({ pack: testPack('ayla', { offered: CARDS.map((card) => card.id) }) })
+
+    const burst = screen.getByTestId('pack-burst')
+    expect(burst.querySelector('img')).toBeNull()
+    const pack = burst.querySelector('[data-burst-pack]')
+    expect(pack).toHaveTextContent('✦')
+    expect(pack).toHaveClass('animate-pack-burst')
+
+    endAnimation(pack as Element)
+    expect(screen.queryByTestId('pack-burst')).not.toBeInTheDocument()
   })
 
   it('shows the cards at once with reduced motion', () => {
@@ -431,5 +475,32 @@ describe('zooming a card of the pack', () => {
     expect(screen.getByRole('dialog', { name: 'A' })).toBeInTheDocument()
     expect(actions.turnPackCard).not.toHaveBeenCalled()
     expect(actions.choosePackCard).not.toHaveBeenCalled()
+  })
+})
+
+describe('the glows of an open pack', () => {
+  const wrapperOf = (name: string) =>
+    within(screen.getByRole('dialog'))
+      .getByRole('button', { name: `${name}: seç` })
+      .closest('li')
+      ?.querySelector(':scope > div')
+
+  it('makes a selectable card glow gold under the pointer only once every card is face up', () => {
+    watch({ viewer: asAyla, pack: aylasPack({ revealed: [0, 1, 2, 3] }) })
+
+    expect(wrapperOf('B')).not.toHaveClass('group-hover/pick:drop-shadow-glow-selected')
+  })
+
+  it('makes the selected card glow gold', async () => {
+    const { user } = watch({ viewer: asAyla, pack: aylasPack({ revealed: ALL_TURNED }) })
+
+    expect(wrapperOf('B')).toHaveClass('group-hover/pick:drop-shadow-glow-selected')
+    expect(wrapperOf('B')).not.toHaveAttribute('data-glow')
+
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'B: seç' }))
+
+    expect(wrapperOf('B')).toHaveAttribute('data-glow', 'selected')
+    expect(wrapperOf('B')).toHaveClass('drop-shadow-glow-selected')
+    expect(wrapperOf('C')).not.toHaveAttribute('data-glow')
   })
 })

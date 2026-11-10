@@ -1,3 +1,4 @@
+import type { ArtLookup } from '@/features/art/artContext'
 import { CURSED_BACK, NEUTRAL_BACK, type SpreadBack } from '@/features/art/spreadBack'
 import { formatAmount } from '@/features/balances/format'
 import { cursedPool, isDrawable } from '@/features/cards/pool'
@@ -164,6 +165,21 @@ export function spreadBackOf(packType: PackType, setCode: string | null): Spread
     case 'golden':
       return NEUTRAL_BACK
   }
+}
+
+/**
+ * The picture that swells and bursts when a pack opens (spec: pack-shop, design D8): a set's cardback for the packs of
+ * one set, Cursed and Pandemonium ones included, or else the pack's own picture, as in v2.2.8. `null` draws the pack
+ * without a picture.
+ */
+export function burstArtUrl(
+  art: ArtLookup,
+  pack: { packType: PackType; setCode: string | null; mechanicPack: string | null },
+): string | null {
+  const packUrl = art.packUrl(
+    packDefOf({ type: pack.packType, setCode: pack.setCode, mechanicPack: pack.mechanicPack }).key,
+  )
+  return pack.setCode === null ? packUrl : (art.backUrl(pack.setCode) ?? packUrl)
 }
 
 /** The pack a record or a link names, rebuilt from its type and scope. */

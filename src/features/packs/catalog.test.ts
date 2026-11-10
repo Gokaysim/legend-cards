@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
+import { artLookup } from '@/features/art/artContext'
 import type { Card } from '@/features/cards/schema'
+import { testArt } from '@/test/artFixtures'
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 
 import {
+  burstArtUrl,
   PACK_PRICES,
   type PackDef,
   packCatalog,
@@ -248,5 +251,50 @@ describe('spreadBackOf', () => {
     ['golden', null, { kind: 'neutral' }],
   ] as const)('gives a %s pack the back of its spread', (packType, setCode, back) => {
     expect(spreadBackOf(packType, setCode)).toEqual(back)
+  })
+})
+
+describe('burstArtUrl', () => {
+  const ART = artLookup(
+    testArt({
+      cardbacks: {
+        Kesqer: '/art/backs/kesqer.0123456789.webp',
+        Pandemonium: '/art/backs/pandemonium.0123456789.webp',
+      },
+      packs: {
+        'mechanic:Blood & Battle': '/art/packs/mechanic-blood-battle.0123456789.webp',
+        golden: '/art/packs/golden.0123456789.webp',
+        'standard:Havenholm': '/art/packs/standard-havenholm.0123456789.webp',
+      },
+    }),
+  )
+  const burst = (packType: PackDef['type'], setCode: string | null, mechanicPack: string | null) =>
+    burstArtUrl(ART, { packType, setCode, mechanicPack })
+
+  it("bursts a set's cardback for its packs, Cursed and Pandemonium ones included", () => {
+    expect(burst('premium', 'Kesqer', null)).toBe('/art/backs/kesqer.0123456789.webp')
+    expect(burst('cursed', 'Kesqer', null)).toBe('/art/backs/kesqer.0123456789.webp')
+    expect(burst('pandemoniumCursed', 'Pandemonium', null)).toBe(
+      '/art/backs/pandemonium.0123456789.webp',
+    )
+  })
+
+  it("bursts a set's own pack picture when its cardback has none", () => {
+    expect(burst('standard', 'Havenholm', null)).toBe(
+      '/art/packs/standard-havenholm.0123456789.webp',
+    )
+  })
+
+  it('bursts the pack picture of a Mechanic or Golden Pack', () => {
+    expect(burst('mechanic', null, 'Blood & Battle')).toBe(
+      '/art/packs/mechanic-blood-battle.0123456789.webp',
+    )
+    expect(burst('golden', null, null)).toBe('/art/packs/golden.0123456789.webp')
+  })
+
+  it('has no picture without one', () => {
+    expect(burst('cursedGolden', null, null)).toBeNull()
+    expect(burst('mechanic', null, 'Permamancy')).toBeNull()
+    expect(burst('premium', 'Havenholm', null)).toBeNull()
   })
 })

@@ -144,6 +144,8 @@ Styling uses Tailwind CSS utility classes, written directly in JSX.
 - **New tokens need a reason in the design.** Text tokens must keep at least 4.5:1 contrast on every surface they are used on. `src/styles/theme.test.ts` checks this; add new pairs there.
 - **Conditional classes go through `cn()`** from `@/lib/cn`. It joins classes and lets a later Tailwind class override a conflicting earlier one, so components can accept a `className` prop.
 - **Repeated class clusters become a component** in `components/ui/` (or in the feature, if only one feature uses it). Do not use `@apply` to build component classes. `@apply` and plain CSS are fine in the `base` layer of `index.css`.
+- **Visual effects.** A visual effect that needs a pseudo-element or CSS variables, such as the card tilt's glint or a pack tile's ridged frame, is an `@utility` in `src/styles/effects.css`, written in plain CSS with tokens. Everything else, such as a lift, an angle or a glow, is a utility in the JSX. Glow colors and shadows are tokens in `theme.css` (`drop-shadow-glow-*`, `drop-shadow-reveal-*`).
+- **Reduced motion.** Every moving effect stops when the device asks for reduced motion: through `motion-reduce:` on a utility, a `@media (prefers-reduced-motion: no-preference)` block in `effects.css`, or `useReducedMotion()` (`src/lib/`) for motion that JavaScript times. Glows and frames stay, because they do not move.
 - **Class order is automatic.** Prettier (`prettier-plugin-tailwindcss`) sorts classes, including inside `cn(...)`. Do not sort them by hand.
 - **Interface text in components is Turkish**, as in the legacy design.
 

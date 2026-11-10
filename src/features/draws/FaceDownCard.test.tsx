@@ -44,12 +44,26 @@ describe('FaceDownCard', () => {
     expect(screen.getByRole('button', { hidden: true, name: 'Kart 2: çevir' })).toBeDisabled()
   })
 
+  it('shows no glow on the back, and the kind glow on the face after the turn', async () => {
+    const user = userEvent.setup()
+    const { container } = render(<FaceDownCard card={wind} position={1} back={NEUTRAL_BACK} />)
+    expect(container.querySelector('[data-glow]')).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: 'Kart 1: çevir' }))
+
+    const face = screen.getByRole('article', { name: 'Second Wind' })
+    expect(face.closest('[data-glow]')).toHaveAttribute('data-glow', 'reveal-blessed')
+    expect(screen.getByRole('group', { name: 'Kart 1' })).toHaveClass('drop-shadow-lift')
+  })
+
   it('marks a Cursed draw with the cursed back', () => {
     render(<FaceDownCard card={eyes} position={1} back={CURSED_BACK} />)
 
     const back = screen.getByRole('button', { name: 'Kart 1: çevir' })
     expect(back).toHaveClass('border-cursed')
     expect(back).toHaveTextContent('☠')
+    // A card's shape at any width of the spread, as the picture has.
+    expect(back).toHaveClass('aspect-[563/788]')
   })
 })
 

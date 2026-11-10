@@ -5,6 +5,7 @@ import { Spinner } from '@/components/ui/Spinner'
 import type { SubscriptionError } from '@/lib/firestore/errors'
 import type { Subscription } from '@/lib/firestore/subscription'
 
+import { CardDeck } from './CardDeck'
 import { CardFace } from './CardFace'
 import type { Deck } from './cardsContext'
 import { CardTable } from './CardTable'
@@ -247,26 +248,25 @@ function LoadedCardBrowser({
       {shown.length === 0 ? (
         <p className="rounded-xl border border-line bg-pane p-6 text-ink-muted">Kart bulunamadı.</p>
       ) : view === 'cards' ? (
-        <ul
-          aria-label="Kartlar"
-          className="grid grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] gap-3"
-        >
-          {shown.map((card) => {
+        <CardDeck
+          as="ul"
+          label="Kartlar"
+          deck="library"
+          items={shown}
+          itemKey={(card) => card.id}
+          renderItem={(card) => {
             const cardStatus = status?.byCard.get(card.id)
             return (
-              <li key={card.id}>
-                <CardFace
-                  card={card}
-                  heldBy={
-                    cardStatus && isMarkedHeld(card, cardStatus)
-                      ? cardStatus.holderNames
-                      : undefined
-                  }
-                />
-              </li>
+              <CardFace
+                card={card}
+                isTiltable
+                heldBy={
+                  cardStatus && isMarkedHeld(card, cardStatus) ? cardStatus.holderNames : undefined
+                }
+              />
             )
-          })}
-        </ul>
+          }}
+        />
       ) : (
         <CardTable
           deck={deck}

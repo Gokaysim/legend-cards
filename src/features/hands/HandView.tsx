@@ -1,6 +1,7 @@
 import { useState } from 'react'
 
 import { Button } from '@/components/ui/Button'
+import { CardDeck } from '@/features/cards/CardDeck'
 import { CardFace } from '@/features/cards/CardFace'
 
 import type { HandEntry } from './handEntries'
@@ -46,25 +47,26 @@ export function HandView({ entries, onSelect }: HandViewProps) {
           Bu elde henüz kart yok.
         </p>
       ) : view === 'cards' ? (
-        <ol
-          aria-label="Eldeki kartlar"
-          className="grid grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] gap-3"
-        >
-          {entries.map(({ holding, card, cost, isExtraCopy }) => (
-            <li key={holding.id}>
-              {/* The face opens the details; its magnifier opens the zoom view instead. */}
-              <CardFace
-                card={card}
-                handCost={cost}
-                isActive={holding.active}
-                hasNote={holding.note !== ''}
-                isExtraCopy={isExtraCopy}
-                onOpen={() => onSelect(holding.id)}
-                openLabel={`${card.name}: ayrıntılar`}
-              />
-            </li>
-          ))}
-        </ol>
+        <CardDeck
+          as="ol"
+          label="Eldeki kartlar"
+          deck="hand"
+          items={entries}
+          itemKey={(entry) => entry.holding.id}
+          renderItem={({ holding, card, cost, isExtraCopy }) => (
+            // The face opens the details; its magnifier opens the zoom view instead.
+            <CardFace
+              card={card}
+              handCost={cost}
+              isTiltable
+              isActive={holding.active}
+              hasNote={holding.note !== ''}
+              isExtraCopy={isExtraCopy}
+              onOpen={() => onSelect(holding.id)}
+              openLabel={`${card.name}: ayrıntılar`}
+            />
+          )}
+        />
       ) : (
         <HandTable entries={entries} onSelect={onSelect} />
       )}

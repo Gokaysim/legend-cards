@@ -327,7 +327,7 @@ const renderWithArt = (ui: ReactNode) =>
   render(<TestArtProvider manifest={ART}>{ui}</TestArtProvider>)
 
 describe('CardFace with a picture', () => {
-  it("shows the picture in the kind's frame, with no text under it", () => {
+  it('shows the picture without a frame of its own, with no text under it', () => {
     renderWithArt(<CardFace card={ABOLETH} />)
 
     const card = face("Aboleth's Eyes")
@@ -335,7 +335,9 @@ describe('CardFace with a picture', () => {
     expect(picture).toHaveAttribute('src', ABOLETH_URL)
     expect(picture).toHaveAttribute('loading', 'lazy')
     expect(card).toHaveAttribute('data-frame', 'common')
-    expect(card).toHaveClass('border-common')
+    // The picture's printed frame shows the kind: no CSS frame around it.
+    expect(card.className).not.toMatch(/\bborder-/)
+    expect(card).not.toHaveClass('bg-pane-raised')
     // Only the picture and its overlays take room: the details sit inside the picture's box.
     const details = within(card).getByText('Set').closest('dl')
     expect(picture.parentElement).toContainElement(details)
@@ -469,6 +471,87 @@ describe('CardFace with a picture', () => {
     expect(within(card).getByText(/^Cost:/).parentElement).toHaveAttribute(
       'data-cost-change',
       'lower',
+    )
+  })
+})
+
+/** The face's glow, from its glow box: around a CSS face, or around a picture inside the face. */
+const glowOf = (card: HTMLElement) =>
+  (card.closest('[data-glow]') ?? card.querySelector('[data-glow]'))?.getAttribute('data-glow') ??
+  null
+
+describe('CardFace glow', () => {
+  it.each([
+    ['a Common card', testCard('C', { rarity: 'common' }), 'active'],
+    ['a Rare card', testCard('R', { rarity: 'rare' }), 'active'],
+    ['a Cursed card', testCursedCard('X'), 'active-cursed'],
+    ['a Blessed card', testBlessedCard('B'), 'active-blessed'],
+  ])('makes an active %s glow by its kind', (_case, card, glow) => {
+    render(<CardFace card={card} handCost={card.cost} isActive />)
+    expect(glowOf(face(card.name))).toBe(glow)
+  })
+
+  it('gives an inactive hand card no glow', () => {
+    render(<CardFace card={testCard('Owl')} handCost="1" />)
+    expect(glowOf(face('Owl'))).toBeNull()
+  })
+
+  it.each([
+    ['a Common card', testCard('C', { rarity: 'common' }), 'reveal-common'],
+    ['a Rare card', testCard('R', { rarity: 'rare' }), 'reveal-rare'],
+    ['a Cursed card', testCursedCard('X'), 'reveal-cursed'],
+    ['a Blessed card', testBlessedCard('B'), 'reveal-blessed'],
+  ])('makes a revealed %s glow by its kind', (_case, card, glow) => {
+    render(<CardFace card={card} isRevealed />)
+    expect(glowOf(face(card.name))).toBe(glow)
+  })
+
+  it('makes a held library card glow, and a card in the pool not', () => {
+    render(
+      <>
+        <CardFace card={testCard('Held')} heldBy={['Ayla']} />
+        <CardFace card={testCard('Free')} />
+      </>,
+    )
+    expect(glowOf(face('Held'))).toBe('held')
+    expect(face('Held')).toHaveTextContent('Elde: Ayla')
+    expect(glowOf(face('Free'))).toBeNull()
+  })
+
+  it("lets an active card's state win over its kind", () => {
+    render(<CardFace card={testCard('R', { rarity: 'rare' })} handCost="1" isActive isRevealed />)
+    expect(glowOf(face('R'))).toBe('active')
+  })
+
+  it('glows around the picture, and keeps the face mounted when the glow changes', () => {
+    const { rerender } = renderWithArt(<CardFace card={ABOLETH} handCost="3" />)
+    const picture = within(face("Aboleth's Eyes")).getByRole('img')
+    expect(glowOf(face("Aboleth's Eyes"))).toBeNull()
+
+    rerender(
+      <TestArtProvider manifest={ART}>
+        <CardFace card={ABOLETH} handCost="3" isActive />
+      </TestArtProvider>,
+    )
+
+    const box = face("Aboleth's Eyes").querySelector('[data-glow]')
+    expect(box).toHaveAttribute('data-glow', 'active')
+    expect(box).toHaveClass('drop-shadow-glow-active')
+    expect(box).toContainElement(picture)
+    expect(within(face("Aboleth's Eyes")).getByRole('img')).toBe(picture)
+  })
+
+  it("lifts a picture's box above the whole-face control, letting the pointer through but not on its controls", () => {
+    renderWithArt(<CardFace card={ABOLETH} handCost="3" isActive onOpen={() => undefined} />)
+
+    const card = face("Aboleth's Eyes")
+    const box = card.querySelector('[data-glow]')
+    expect(box).toHaveClass('z-2', 'pointer-events-none')
+    expect(within(card).getByRole('button', { name: "Aboleth's Eyes: büyüt" })).toHaveClass(
+      'pointer-events-auto',
+    )
+    expect(within(card).getByRole('button', { name: 'Set, rarity ve mechanic pack' })).toHaveClass(
+      'pointer-events-auto',
     )
   })
 })

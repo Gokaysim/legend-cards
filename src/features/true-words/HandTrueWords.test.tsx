@@ -102,6 +102,22 @@ describe('the True Words tab', () => {
     expect(within(list.getByRole('article', { name: 'Abyss' })).queryByText('● Aktif')).toBeNull()
   })
 
+  it('makes an active word glow purple, and lifts the tiles that open their details', () => {
+    renderTab()
+
+    const list = within(main().getByRole('list', { name: 'Bilinen True Words' }))
+    const aid = list.getByRole('article', { name: 'Aid' })
+    const abyss = list.getByRole('article', { name: 'Abyss' })
+    expect(aid).toHaveAttribute('data-glow', 'word')
+    expect(aid).toHaveClass('glow-word')
+    expect(abyss).not.toHaveAttribute('data-glow')
+    expect(abyss).not.toHaveClass('glow-word')
+    expect(aid.closest('li')).toHaveClass(
+      'motion-safe:hover:-translate-y-1.25',
+      'motion-safe:has-focus-visible:-translate-y-1.25',
+    )
+  })
+
   it('says so when the player knows no word', () => {
     renderTab({ trueWords: { knownWords: ready([]) } })
     expect(main().getByText('Henüz True Word öğrenilmedi.')).toBeVisible()

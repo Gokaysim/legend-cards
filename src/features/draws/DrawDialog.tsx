@@ -129,7 +129,8 @@ export function DrawDialog({ mode, owner, onClose }: DrawDialogProps) {
     mode === 'cursed' ? '☠ Cursed Kart Çek' : paid ? '🎲 Kart Çek (1 LP)' : '🎲 Kart Çek'
 
   return (
-    <Dialog title={`${TITLES[mode]} · ${ownerName}`} onClose={onClose}>
+    // Wide enough for three or four drawn cards in a row on a desktop (design D7).
+    <Dialog title={`${TITLES[mode]} · ${ownerName}`} onClose={onClose} className="sm:max-w-5xl">
       {paid ? (
         <p className="text-sm text-ink-muted">
           Bakiye:{' '}
@@ -269,9 +270,14 @@ export function DrawDialog({ mode, owner, onClose }: DrawDialogProps) {
           <p role="status" className="sr-only">
             {`${drawn.length} kart çekildi ve ${genitive(ownerName)} eline eklendi.`}
           </p>
-          <ol className="grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-3">
+          {/* The spread (design D7): larger cards than the hand's, overlapping a little. The card under the pointer or
+              the focus lifts and comes to the front. The list's right padding makes up for the last card's overlap. */}
+          <ol className="flex flex-wrap justify-center gap-y-3 pt-3 pr-3 pb-1 sm:pr-3.75">
             {drawn.map((result, index) => (
-              <li key={result.drawId}>
+              <li
+                key={result.drawId}
+                className="relative z-1 -mr-3 w-[clamp(202.5px,51vw,277.5px)] max-w-[calc(100vw-84px)] transition duration-200 focus-within:z-50 hover:z-50 motion-safe:focus-within:-translate-y-2.5 motion-safe:focus-within:scale-[1.035] motion-safe:hover:-translate-y-2.5 motion-safe:hover:scale-[1.035] sm:-mr-3.75 sm:w-[clamp(225px,31.5vw,352.5px)]"
+              >
                 <FaceDownCard
                   card={result.card}
                   position={index + 1}

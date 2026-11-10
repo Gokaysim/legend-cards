@@ -41,40 +41,163 @@
   --color-true-word: #c7b5ff;
   --color-true-word-line: #9a87d1;
 
+  /*
+   * Glows and decorative frames (spec: visual-effects). Light, not text: none of these is ever a text color, so they
+   * need no contrast pair. The values are v2.2.8's.
+   */
+  /* An active card in the hand. */
+  --color-glow-active: #43ff9f;
+  /* An active or revealed Cursed card: brighter than `cursed`, which is tuned for text. */
+  --color-glow-cursed: #ff3c5b;
+  /* An active or revealed Blessed card: pearl white. */
+  --color-glow-blessed: #fff6d3;
+  /* A revealed Rare card. */
+  --color-glow-rare: #ffae41;
+  /* The warm light that follows the pointer across a tilted card. */
+  --color-glint: #fffbe3;
+  /* An active True Word, in two rings: the inner one and the deeper outer one. */
+  --color-glow-word: #a67bff;
+  --color-glow-word-deep: #8f67f7;
+  /* The Premium Pack tile's ridged gold frame: the ridge, the dark ring and the light ring. */
+  --color-premium-frame: #e9b94c;
+  --color-premium-frame-dark: #8d5a17;
+  --color-premium-frame-light: #f9d777;
+  /* The Cursed packs' ridged frame, around a `cursed` ridge: the dark ring and the light ring. */
+  --color-cursed-frame-dark: #4c101c;
+  --color-cursed-frame-light: #e54c60;
+
   /* Type */
   --font-sans: Inter, 'Segoe UI', Arial, sans-serif;
 
+  /*
+   * Glow shadows (design D2). Each is a `drop-shadow-*` utility of exactly one layer: Tailwind wraps the whole value
+   * in one `drop-shadow()`, so a value with two layers would be invalid. A glow of two layers nests two elements, each
+   * with one, or is an `@utility` in `effects.css`. A drop shadow follows the picture's own outline, so a card picture
+   * glows along its rounded corners.
+   */
+  /* The lift shadow under a revealed card, on the box around its face (the face's own box glows by kind). */
+  --drop-shadow-lift: 0 8px 13px color-mix(in oklab, var(--color-canvas) 60%, transparent);
+  /* A revealed card, by its kind. A Common card has only the lift shadow. */
+  --drop-shadow-reveal-rare: 0 0 13px var(--color-glow-rare);
+  --drop-shadow-reveal-cursed: 0 0 13px var(--color-glow-cursed);
+  --drop-shadow-reveal-blessed: 0 0 13px var(--color-glow-blessed);
+  /* An active card in the hand, by its kind. */
+  --drop-shadow-glow-active: 0 0 13px color-mix(in oklab, var(--color-glow-active) 87%, transparent);
+  --drop-shadow-glow-cursed: 0 0 14px color-mix(in oklab, var(--color-glow-cursed) 95%, transparent);
+  --drop-shadow-glow-blessed: 0 0 15px
+    color-mix(in oklab, var(--color-glow-blessed) 95%, transparent);
+  /* A card someone holds, in the library. */
+  --drop-shadow-glow-held: 0 0 5px color-mix(in oklab, var(--color-gold) 52%, transparent);
+  /* The selected or chosen card of an open pack. */
+  --drop-shadow-glow-selected: 0 0 9px color-mix(in oklab, var(--color-gold) 85%, transparent);
+  /* An active True Word has two rings: the `glow-word` utility in `effects.css`. */
+  /* The name of an active True Word in the hand summary. */
+  --text-shadow-glow-word: 0 0 8px color-mix(in oklab, var(--color-glow-word) 47%, transparent);
+
+  /* The card flip's soft turn (v2.2.8): fast at first, settling slowly. */
+  --ease-card-flip: cubic-bezier(0.18, 0.72, 0.16, 1);
+
   /* Motion */
-  /* An opening pack (docs/domain.md, Packs): the pack swells in three pulses of growing strength, then bursts. */
-  --animate-pack-burst: pack-burst 1.6s ease-in-out forwards;
+  /*
+   * An opening pack (spec: pack-shop, design D8), all three parts over the same 2.85 s, as in v2.2.8. The pack's
+   * picture swells in three pulses that grow larger and brighter, then bursts in a flare. A halo of light grows around
+   * it, and the screen behind flashes warm white as it bursts. `BURST_FALLBACK_MS` (OpenPackView.tsx) follows.
+   */
+  --animate-pack-burst: pack-burst 2.85s cubic-bezier(0.2, 0.85, 0.22, 1) both;
+  --animate-burst-halo: burst-halo 2.85s ease both;
+  --animate-burst-backdrop: burst-backdrop 2.85s ease forwards;
 
   @keyframes pack-burst {
-    0% {
+    0%,
+    12% {
       transform: scale(1);
-      opacity: 1;
+      filter: brightness(1);
     }
-    15% {
-      transform: scale(1.06);
+    21% {
+      transform: scale(1.085, 1.13);
+      filter: brightness(1.16);
     }
-    25% {
+    31% {
       transform: scale(1);
+      filter: brightness(1);
     }
-    40% {
-      transform: scale(1.12);
+    43% {
+      transform: scale(1.19, 1.27);
+      filter: brightness(1.25);
     }
-    50% {
-      transform: scale(1);
+    53% {
+      transform: scale(1.02);
+      filter: brightness(1);
     }
-    68% {
-      transform: scale(1.2);
+    70% {
+      transform: scale(1.36, 1.48);
+      filter: brightness(1.55);
     }
-    78% {
-      transform: scale(1);
+    80% {
+      transform: scale(1.04);
+      filter: brightness(1.15);
+    }
+    89% {
+      transform: scale(1.69);
+      filter: brightness(2.2);
+    }
+    94% {
+      transform: scale(1.85);
+      filter: brightness(3);
       opacity: 1;
     }
     100% {
-      transform: scale(1.9);
+      transform: scale(2.7);
+      filter: brightness(7);
       opacity: 0;
+    }
+  }
+
+  @keyframes burst-halo {
+    0%,
+    60% {
+      box-shadow: 0 0 0 0 transparent;
+    }
+    70% {
+      box-shadow: 0 0 45px 15px color-mix(in oklab, var(--color-gold) 33%, transparent);
+    }
+    88% {
+      box-shadow: 0 0 75px 45px
+        color-mix(in oklab, var(--color-premium-frame-light) 53%, transparent);
+    }
+    96% {
+      box-shadow: 0 0 160px 90px color-mix(in oklab, var(--color-glow-blessed) 60%, transparent);
+    }
+    100% {
+      box-shadow: 0 0 190px 120px transparent;
+      opacity: 0;
+    }
+  }
+
+  @keyframes burst-backdrop {
+    0%,
+    85% {
+      background-color: color-mix(in oklab, var(--color-canvas) 97%, transparent);
+    }
+    97% {
+      background-color: color-mix(in oklab, var(--color-glow-blessed) 60%, transparent);
+    }
+    100% {
+      background-color: transparent;
+    }
+  }
+
+  /* The slow shimmer over a Premium Pack tile's gold frame (design D9), used by `pack-frame-premium` in effects.css. */
+  --animate-pack-shimmer: pack-shimmer 5.2s ease-in-out infinite alternate;
+
+  @keyframes pack-shimmer {
+    from {
+      opacity: 0.65;
+      filter: brightness(0.88);
+    }
+    to {
+      opacity: 1;
+      filter: brightness(1.28);
     }
   }
 
