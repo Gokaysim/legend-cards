@@ -97,11 +97,15 @@ The application SHALL learn from the manifest which pictures exist, and SHALL as
 - **THEN** "Scorched Earth" has its CSS face, and the others show their pictures
 
 ### Requirement: Card faces with pictures
-A card face with a picture SHALL show the picture, with the card's name as its alternative text, inside its kind's frame color, and SHALL write nothing about the card under it. The face SHALL keep its marks. The cost, name and text SHALL stay readable to screen readers. This SHALL hold in the library, the Cursed Deck, the hand, the card details, and the revealed cards of draws and packs.
+A card face with a picture SHALL show the picture, with the card's name as its alternative text, without a frame of its own: the picture's printed frame shows the card's kind. It SHALL write nothing about the card under it. The face SHALL keep its marks. The cost, name and text SHALL stay readable to screen readers. This SHALL hold in the library, the Cursed Deck, the hand, the card details, and the revealed cards of draws and packs.
 
 #### Scenario: A card in the library
 - **WHEN** a user looks at "Aboleth's Eyes" in the library's card view
-- **THEN** its face shows its picture in a purple frame, with no text under it
+- **THEN** its face shows its picture, with its printed purple frame, without a frame around it and with no text under it
+
+#### Scenario: A card with a picture next to one without
+- **WHEN** the Cursed Deck shows "Scorched Earth", which has no picture, next to "Visions of Death", which has one
+- **THEN** "Scorched Earth" has its CSS face in a red frame, and "Visions of Death" shows only its picture
 
 ### Requirement: Set, rarity and mechanic pack on the set symbol
 On a card face with a picture, the set, rarity and mechanic pack SHALL show in a note only while the pointer rests on the picture's set symbol in its bottom-right corner, or after the symbol is tapped until it loses the focus. A Cursed card SHALL have no note. The note SHALL stay inside the picture, and stay readable to screen readers while hidden.
