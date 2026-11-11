@@ -65,6 +65,8 @@ export function handPath(uid: string): string {
 /**
  * The sub-screens of the Shops screen, in the order the Shops hub shows them. They are not menu
  * entries: their paths sit below `/shops`, so the menu keeps "Shops" marked while one is open.
+ * `summary` and `speech` are v2.2.8's words: what the shop offers, and the Cardmaker's line about it in her speech
+ * bubble (spec: cardmaker-speech).
  */
 export const SHOP_SCREENS = [
   {
@@ -74,6 +76,7 @@ export const SHOP_SCREENS = [
     icon: '🎴',
     mascot: 'cardmaker_shop',
     summary: 'Spesifik bir set veya mekanikten 5 kart gör, birini seç.',
+    speech: 'Yavrum benim kartlar ne ara böyle karaborsaya düşmüş? Ben el koydum dükkana artık.',
   },
   {
     id: 'elixir-shop',
@@ -82,6 +85,7 @@ export const SHOP_SCREENS = [
     icon: '⚗',
     mascot: 'cardmaker_zaddir',
     summary: 'Kartların kendilerini değiştirmeyi sağlayan etkiler.',
+    speech: 'Siz benim kartlara ne bulaştırdınız öyle? Şunlara bir de ben bakayım.',
   },
 ] as const
 

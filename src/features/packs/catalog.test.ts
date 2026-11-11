@@ -3,10 +3,14 @@ import { describe, expect, it } from 'vitest'
 import { artLookup } from '@/features/art/artContext'
 import type { Card } from '@/features/cards/schema'
 import { testArt } from '@/test/artFixtures'
+import { PACK_TYPES } from '@/features/draws/schema'
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 
 import {
   burstArtUrl,
+  GOLDEN_PACKS,
+  groupArtUrl,
+  hasNameOnTile,
   PACK_PRICES,
   type PackDef,
   packCatalog,
@@ -135,6 +139,23 @@ describe('prices', () => {
   })
 })
 
+describe('hasNameOnTile', () => {
+  it("names the Mechanic, Golden and Pandemonium packs, and not a set's three packs", () => {
+    const named = PACK_TYPES.filter(hasNameOnTile)
+
+    expect(named).toEqual([
+      'pandemonium',
+      'pandemoniumCursed',
+      'mechanic',
+      'golden',
+      'cursedGolden',
+    ])
+    expect(hasNameOnTile('standard')).toBe(false)
+    expect(hasNameOnTile('premium')).toBe(false)
+    expect(hasNameOnTile('cursed')).toBe(false)
+  })
+})
+
 describe('packStatus', () => {
   it('opens a Standard Pack at 9 cards of its set, and not at 8', () => {
     expect(packStatus(kesqer('standard'), cardsOf('K', 9)).canOpen).toBe(true)
@@ -251,6 +272,33 @@ describe('spreadBackOf', () => {
     ['golden', null, { kind: 'neutral' }],
   ] as const)('gives a %s pack the back of its spread', (packType, setCode, back) => {
     expect(spreadBackOf(packType, setCode)).toEqual(back)
+  })
+})
+
+describe('groupArtUrl', () => {
+  const art = artLookup(
+    testArt({
+      packs: { golden: '/art/packs/golden.0123456789.webp', 'standard:Havenholm': '/art/h.webp' },
+      cardbacks: { Kesqer: '/art/backs/kesqer.0123456789.webp' },
+    }),
+  )
+  const group = (setCode: string) => ({
+    packs: [{ key: `standard:${setCode}`, type: 'standard' as const, setCode, mechanicPack: null }],
+  })
+
+  it("gives a set's group its first pack's own picture, or else the set's cardback", () => {
+    expect(groupArtUrl(art, group('Havenholm'))).toBe('/art/h.webp')
+    expect(groupArtUrl(art, group('Kesqer'))).toBe('/art/backs/kesqer.0123456789.webp')
+    expect(groupArtUrl(art, group('Ulagal'))).toBeNull()
+  })
+
+  it('gives the Golden Packs the Golden Pack picture', () => {
+    expect(groupArtUrl(art, { packs: GOLDEN_PACKS })).toBe('/art/packs/golden.0123456789.webp')
+    expect(groupArtUrl(artLookup(testArt({})), { packs: GOLDEN_PACKS })).toBeNull()
+  })
+
+  it('gives an empty group no picture', () => {
+    expect(groupArtUrl(art, { packs: [] })).toBeNull()
   })
 })
 

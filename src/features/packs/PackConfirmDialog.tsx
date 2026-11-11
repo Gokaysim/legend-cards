@@ -15,6 +15,7 @@ import { useOnlineStatus } from '@/lib/useOnlineStatus'
 
 import { PACK_PRICES, type PackDef, packTitle, priceLabel } from './catalog'
 import { type PackCurrency, type PackFailure, packFailureMessage, toPackFailure } from './errors'
+import { packLine } from './packLines'
 import { usePackActions } from './packsContext'
 
 const fieldClasses =
@@ -26,6 +27,10 @@ export type PackConfirmDialogProps = {
   def: PackDef
   /** The hand the pack is for, live. */
   owner: UserProfile
+  /** The hands the DM can choose from in the dialog (design D12). A player's list is empty. */
+  choices: readonly UserProfile[]
+  /** Called with the uid of the hand the DM picks. */
+  onOwnerChange: (uid: string) => void
   /** The live cards the pack is built from. */
   cards: readonly Card[]
   /** The name of the hand's owner of the pack that is open now, for the busy message. */
@@ -34,7 +39,8 @@ export type PackConfirmDialogProps = {
 }
 
 /**
- * Confirms opening a pack, with its payment. A player pays the pack's LP price from their own LP and cannot open it
+ * Confirms opening a pack, with its payment. A Mechanic Pack and the Golden Pack first say what they hold, in
+ * v2.2.8's words. The DM picks the hand here, which resets the payment to that hand's defaults. A player pays the pack's LP price from their own LP and cannot open it
  * with less. The DM charges the player's LP or the party's GP, starting at the pack's price in that currency, and
  * may change the amount; 0 opens it for free. On success the dialog closes: the open pack then shows on every
  * screen.
@@ -42,6 +48,8 @@ export type PackConfirmDialogProps = {
 export function PackConfirmDialog({
   def,
   owner,
+  choices,
+  onOwnerChange,
   cards,
   openPackOwner,
   onClose,
@@ -57,6 +65,7 @@ export function PackConfirmDialog({
 
   const isPlayer = owner.role === 'player'
   const price = PACK_PRICES[def.type]
+  const description = packLine(def)?.summary ?? null
   const [currency, setCurrency] = useState<PackCurrency>(isPlayer ? 'lp' : 'gp')
   const [amountText, setAmountText] = useState(String(isPlayer ? price.lp : price.gp))
   const [isBusy, setIsBusy] = useState(false)
@@ -73,6 +82,14 @@ export function PackConfirmDialog({
     setCurrency(next)
     setAmountText(String(price[next]))
     setFailure(null)
+  }
+
+  const canChooseOwner = isDm && choices.length > 0
+  const chooseOwner = (uid: string) => {
+    const next = choices.find((profile) => profile.id === uid)
+    if (next === undefined) return
+    onOwnerChange(next.id)
+    chooseCurrency(next.role === 'player' ? 'lp' : 'gp')
   }
 
   const canOpen = uid !== null && !isBusy && !isTableBusy && (isDm || !isShort)
@@ -110,9 +127,40 @@ export function PackConfirmDialog({
 
   return (
     <Dialog title={packTitle(def)} onClose={onClose}>
+      {/* What the pack holds, before paying, on every device (spec: pack-shop, design D10). */}
+      {description === null ? null : (
+        <p data-pack-description className="text-sm text-ink">
+          {description}
+        </p>
+      )}
+      {canChooseOwner ? (
+        <div className="flex flex-col gap-1">
+          <label htmlFor={`${ids}-for`} className="text-sm font-medium text-ink">
+            Kimin için
+          </label>
+          <select
+            id={`${ids}-for`}
+            value={owner.id}
+            disabled={isBusy}
+            onChange={(event) => chooseOwner(event.target.value)}
+            className={fieldClasses}
+          >
+            {choices.map((profile) => (
+              <option key={profile.id} value={profile.id}>
+                {profileName(profile)}
+                {profile.role === 'dm' ? ' (DM)' : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
-        <dt className="text-ink-muted">Kimin için</dt>
-        <dd className="text-ink">{name}</dd>
+        {canChooseOwner ? null : (
+          <>
+            <dt className="text-ink-muted">Kimin için</dt>
+            <dd className="text-ink">{name}</dd>
+          </>
+        )}
         <dt className="text-ink-muted">Fiyat</dt>
         <dd className="text-gold tabular-nums">{priceLabel(def.type)}</dd>
         {isDm ? null : (

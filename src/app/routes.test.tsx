@@ -180,6 +180,8 @@ describe("each screen's Cardmaker", () => {
     screen.getByRole('heading', { level: 1 }).closest('header')?.querySelector('img[data-mascot]')
 
   it.each([
+    // The Shops screen's own `cardmaker_keep` has no picture: the Pack Shop's stands in for it.
+    ['/shops', 'cardmaker_shop'],
     ['/shops/packs', 'cardmaker_shop'],
     ['/library', 'cardmaker_lib'],
     ['/cursed-deck', 'cardmaker_cursed'],
@@ -212,7 +214,6 @@ describe("each screen's Cardmaker", () => {
   })
 
   it.each([
-    ['the Shops screen, whose Cardmaker has no picture', '/shops', 'Shops'],
     ['the Custom Card Draft, whose Cardmaker has no picture', '/custom-draft', 'Custom Card Draft'],
     ['a hand, which has no Cardmaker', `/hands/${testUser.uid}`, 'Gökay — Kart Eli'],
   ])('shows %s without a picture', (_case, path, title) => {

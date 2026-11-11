@@ -68,4 +68,4 @@ A file that matches nothing is listed as unknown and skipped. When two files mat
 
 A row whose Kind or Name matches nothing stops the build with its row number, before anything is written. Three Blessed pictures carry older names, as the owner confirmed: `charmingrogue` is Roguish Charm, `drivendiehard` is Second Wind, and `durabledwarf` is Forgewizard Constitution. For Kyaro's Yielding Faith and Lord Falaraen's Fordmidability, the archive has two misspelled files; the table picks one, and the build lists the other as unknown. Swap the File in the table to use the other.
 
-The archives have no picture for Scorched Earth, `card_info`, `cardmaker_custom` and `cardmaker_keep`. `zallut_shop.png` is for the Elixir Shop and waits for that feature.
+The archives have no picture for Scorched Earth, `card_info`, `cardmaker_custom` and `cardmaker_keep`. The owner added `cardmaker_keep.png` on 2026-11-11 as a loose file in the source folder, next to the archives, so a build from that folder finds it. `zallut_shop.png` is for the Elixir Shop and waits for that feature.

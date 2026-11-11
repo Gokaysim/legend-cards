@@ -58,7 +58,7 @@
 /*
  * The Pack Shop's ridged frames (design D9), around a pack tile's picture: gold with a "✦" corner and a slow shimmer
  * for a set's Premium Pack, red with a "☠" corner for the Cursed, Cursed Golden and Pandemonium Cursed Packs. The
- * corner glyph has an empty alternative text, so screen readers skip it: the tile's name says what the pack is.
+ * corner glyph has an empty alternative text, so screen readers skip it: the tile's label says what the pack is.
  */
 @utility pack-frame-premium {
   position: relative;
@@ -182,4 +182,25 @@
 @utility glow-word {
   filter: drop-shadow(0 0 9px var(--color-glow-word))
     drop-shadow(0 0 19px var(--color-glow-word-deep));
+}
+
+/*
+ * The tail of the Cardmaker's speech bubble (spec: cardmaker-speech, design D5): a rotated square on the bubble's
+ * right edge, pointing at the Cardmaker in the corner, as v2.2.8's `.mechanic-shop-bubble:before`. The bubble itself is
+ * positioned, so the tail sits against it.
+ */
+@utility speech-bubble-tail {
+  &::before {
+    content: '';
+    position: absolute;
+    right: -14px;
+    bottom: 62px;
+    width: 24px;
+    height: 24px;
+    background: var(--color-bubble-deep);
+    border-top: 2px solid var(--color-bubble-line);
+    border-right: 2px solid var(--color-bubble-line);
+    border-radius: 0 5px 0 0;
+    transform: rotate(45deg);
+  }
 }

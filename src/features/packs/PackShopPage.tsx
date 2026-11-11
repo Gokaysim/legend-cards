@@ -5,6 +5,9 @@ import { shopScreenById } from '@/app/screens'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Spinner } from '@/components/ui/Spinner'
 import { useArt } from '@/features/art/artContext'
+import type { SpeechLine } from '@/features/art/cardmakerSpeech'
+import { CardmakerSpeechProvider } from '@/features/art/CardmakerSpeechProvider'
+import { CornerCardmaker } from '@/features/art/CornerCardmaker'
 import { Mascot } from '@/features/art/Mascot'
 import { useAuth } from '@/features/auth/authContext'
 import { useCards } from '@/features/cards/cardsContext'
@@ -13,18 +16,23 @@ import { BackToShopsLink } from '@/features/shops/BackToShopsLink'
 import { useIsTableBusy } from '@/features/table/tableContext'
 import type { UserProfile } from '@/features/users/schema'
 import { profileName, useIsDm, useProfiles } from '@/features/users/usersContext'
+import { useWideHover } from '@/lib/useWideHover'
 
 import {
   GOLDEN_GROUP_MASCOT,
+  groupArtUrl,
   groupMascotStem,
   type PackDef,
   packCatalog,
   packStatus,
+  packTitle,
   PACK_PRICES,
   type SetGroup,
 } from './catalog'
+import { GroupTile } from './GroupTile'
 import { PackConfirmDialog } from './PackConfirmDialog'
-import { PackTile } from './PackTile'
+import { GOLDEN_LINE, type PackLine, packLine } from './packLines'
+import { PackTile, type PackTileVariant } from './PackTile'
 import { useOpenPack } from './packsContext'
 import { formatAmount } from '@/features/balances/format'
 
@@ -33,41 +41,53 @@ const GROUP_PARAM = 'group'
 /** The search parameter of the DM's chosen hand. */
 const FOR_PARAM = 'for'
 const GOLDEN_GROUP = 'golden'
+const GOLDEN_GROUP_TITLE = 'Golden Packs'
 
-const groupTileClasses =
-  'flex min-h-32 flex-col items-center justify-center gap-2 rounded-2xl border border-line bg-pane p-4 text-center transition hover:border-gold hover:bg-pane-raised hover:brightness-110 motion-safe:hover:-translate-y-0.75 motion-safe:focus-visible:-translate-y-0.75'
+/** What the Cardmaker says about a tile: its own name, then v2.2.8's words (design D6). */
+const speechOf = (title: string, line: PackLine | null): SpeechLine | null =>
+  line === null ? null : { title, ...line }
 
 /**
  * The Pack Shop: Set Packs in groups per set, and Mechanic Packs with the Golden Packs group last
  * (docs/domain.md, Packs). A group's packs open on their own view, kept in the URL (`?group=`), so reloading and
- * going back work. A player opens packs into their own hand; the DM picks the hand, prefilled from `?for=`.
+ * going back work. A player opens packs into their own hand; the DM picks the hand in the pack's confirmation,
+ * starting at `?for=`, which keeps the last choice (design D12).
  * Selecting a pack opens its confirmation with the payment. While a pack is open, nothing can be opened. The shop's
- * Cardmaker stands by the title; an open group shows its own instead, by the group's title.
+ * Cardmaker stands by the title; an open group shows its own instead, by the group's title. On a wide window with a
+ * mouse, she stands in the bottom-right corner instead (spec: card-images, design D2).
  */
 export function PackShopPage() {
   const { label: title, mascot } = shopScreenById('pack-shop')
   const cards = useCards()
   const [params] = useSearchParams()
+  const isCorner = useWideHover()
+  const isGroupOpen = params.has(GROUP_PARAM)
+  const art = useArt()
+  // She speaks only where she stands in the corner (spec: cardmaker-speech).
+  const canSpeak = isCorner && art.mascotUrl(mascot) !== null
   return (
-    <section className="flex flex-col gap-6">
-      <PageHeader
-        title={title}
-        actions={<BackToShopsLink />}
-        mascot={params.has(GROUP_PARAM) ? null : mascot}
-      />
-      {cards.status === 'loading' ? (
-        <Spinner label="Kartlar yükleniyor…" className="py-12" />
-      ) : cards.status === 'error' ? (
-        <p
-          role="alert"
-          className="rounded-xl border border-danger-line bg-pane p-4 text-danger-ink"
-        >
-          Kartlar yüklenemedi.
-        </p>
-      ) : (
-        <PackShop cards={cards.data} />
-      )}
-    </section>
+    <CardmakerSpeechProvider isEnabled={canSpeak}>
+      <section className="flex flex-col gap-6">
+        <PageHeader
+          title={title}
+          actions={<BackToShopsLink />}
+          mascot={isGroupOpen || isCorner ? null : mascot}
+        />
+        {isCorner && !isGroupOpen ? <CornerCardmaker stem={mascot} /> : null}
+        {cards.status === 'loading' ? (
+          <Spinner label="Kartlar yükleniyor…" className="py-12" />
+        ) : cards.status === 'error' ? (
+          <p
+            role="alert"
+            className="rounded-xl border border-danger-line bg-pane p-4 text-danger-ink"
+          >
+            Kartlar yüklenemedi.
+          </p>
+        ) : (
+          <PackShop cards={cards.data} />
+        )}
+      </section>
+    </CardmakerSpeechProvider>
   )
 }
 
@@ -82,6 +102,7 @@ function PackShop({ cards }: { cards: readonly Card[] }) {
   const [confirming, setConfirming] = useState<PackDef | null>(null)
   const catalog = useMemo(() => packCatalog(cards), [cards])
   const art = useArt()
+  const isCorner = useWideHover()
 
   const profileList = profiles.status === 'ready' ? profiles.data : []
   const myUid = auth.status === 'signedIn' ? auth.user.uid : null
@@ -124,7 +145,7 @@ function PackShop({ cards }: { cards: readonly Card[] }) {
   const openGroup: SetGroup | null =
     setGroup ??
     (groupKey === GOLDEN_GROUP
-      ? { setCode: GOLDEN_GROUP, title: 'Golden Packs', packs: [...catalog.goldenPacks] }
+      ? { setCode: GOLDEN_GROUP, title: GOLDEN_GROUP_TITLE, packs: [...catalog.goldenPacks] }
       : null)
   // The group's own Cardmaker, or the shop's while the group has none, as in the legacy app.
   const isGolden = openGroup?.setCode === GOLDEN_GROUP
@@ -138,39 +159,23 @@ function PackShop({ cards }: { cards: readonly Card[] }) {
       ? groupStem
       : shopScreenById('pack-shop').mascot
 
-  const tiles = (defs: readonly PackDef[], showPrice: boolean) =>
+  // Inside a group, each pack shows its price. In the main view, the Mechanic Packs' price is in their heading, and
+  // each speaks its line: nothing inside a group speaks, as in v2.2.8.
+  const tiles = (defs: readonly PackDef[], variant: PackTileVariant) =>
     defs.map((def) => (
       <PackTile
         key={def.key}
         def={def}
-        showPrice={showPrice}
+        variant={variant}
+        showPrice={variant === 'group'}
         disabledReason={reasonFor(def)}
         onOpen={setConfirming}
+        speech={variant === 'shop' ? speechOf(packTitle(def), packLine(def)) : null}
       />
     ))
 
   return (
     <>
-      {isDm ? (
-        <div className="flex max-w-sm flex-col gap-1">
-          <label htmlFor={`${ids}-for`} className="text-sm font-medium text-ink">
-            Kimin için
-          </label>
-          <select
-            id={`${ids}-for`}
-            value={owner?.id ?? ''}
-            onChange={(event) => setParams(searchWith({ [FOR_PARAM]: event.target.value }))}
-            className="w-full rounded-lg border border-control-line bg-control px-3 py-2 text-sm text-ink"
-          >
-            {profileList.map((profile) => (
-              <option key={profile.id} value={profile.id}>
-                {profileName(profile)}
-                {profile.role === 'dm' ? ' (DM)' : ''}
-              </option>
-            ))}
-          </select>
-        </div>
-      ) : null}
       {busyNote === null ? null : (
         <p
           role="status"
@@ -194,15 +199,20 @@ function PackShop({ cards }: { cards: readonly Card[] }) {
                 {openGroup.title}
               </h2>
             </div>
-            <Mascot
-              stem={groupMascot}
-              className={
-                isGolden ? 'max-h-32 max-w-1/3 sm:max-h-40' : 'max-h-18 max-w-1/3 sm:max-h-28'
-              }
-            />
+            {isCorner ? null : (
+              <Mascot
+                stem={groupMascot}
+                className={
+                  isGolden ? 'max-h-32 max-w-1/3 sm:max-h-40' : 'max-h-18 max-w-1/3 sm:max-h-28'
+                }
+              />
+            )}
           </div>
+          {isCorner ? (
+            <CornerCardmaker stem={groupMascot} size={isGolden ? 'gold' : 'shop'} />
+          ) : null}
           <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {tiles(openGroup.packs, true)}
+            {tiles(openGroup.packs, 'group')}
           </ul>
         </section>
       ) : (
@@ -213,18 +223,12 @@ function PackShop({ cards }: { cards: readonly Card[] }) {
             </h2>
             <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
               {catalog.setGroups.map((group) => (
-                <li key={group.setCode}>
-                  <Link
-                    to={searchWith({ [GROUP_PARAM]: group.setCode })}
-                    aria-label={`${group.title}: paketleri gör`}
-                    className={groupTileClasses}
-                  >
-                    <span aria-hidden="true" className="text-3xl leading-none">
-                      ♜
-                    </span>
-                    <span className="font-semibold break-words text-ink">{group.title}</span>
-                  </Link>
-                </li>
+                <GroupTile
+                  key={group.setCode}
+                  to={searchWith({ [GROUP_PARAM]: group.setCode })}
+                  title={group.title}
+                  pictureUrl={groupArtUrl(art, group)}
+                />
               ))}
             </ul>
           </section>
@@ -236,19 +240,14 @@ function PackShop({ cards }: { cards: readonly Card[] }) {
               </span>
             </h2>
             <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-              {tiles(catalog.mechanicPacks, false)}
-              <li>
-                <Link
-                  to={searchWith({ [GROUP_PARAM]: GOLDEN_GROUP })}
-                  aria-label="Golden Packs: paketleri gör"
-                  className={`${groupTileClasses} border-gold`}
-                >
-                  <span aria-hidden="true" className="text-3xl leading-none">
-                    ✦
-                  </span>
-                  <span className="font-semibold text-gold">Golden Packs</span>
-                </Link>
-              </li>
+              {tiles(catalog.mechanicPacks, 'shop')}
+              <GroupTile
+                to={searchWith({ [GROUP_PARAM]: GOLDEN_GROUP })}
+                title={GOLDEN_GROUP_TITLE}
+                pictureUrl={groupArtUrl(art, { packs: catalog.goldenPacks })}
+                isGolden
+                speech={speechOf(GOLDEN_GROUP_TITLE, GOLDEN_LINE)}
+              />
             </ul>
           </section>
         </>
@@ -258,6 +257,9 @@ function PackShop({ cards }: { cards: readonly Card[] }) {
         <PackConfirmDialog
           def={confirming}
           owner={owner}
+          choices={isDm ? profileList : []}
+          // Replaced, not pushed: picking a hand in the dialog is no step to go back to.
+          onOwnerChange={(uid) => setParams(searchWith({ [FOR_PARAM]: uid }), { replace: true })}
           cards={cards}
           openPackOwner={openPack?.status === 'open' ? nameOf(openPack.uid) : null}
           onClose={() => setConfirming(null)}

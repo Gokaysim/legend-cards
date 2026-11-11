@@ -81,6 +81,15 @@ describe('theme tokens', () => {
     }
   }
 
+  // The Cardmaker's speech bubble is a gradient from `bubble` to `bubble-deep`: every ink is read on both ends.
+  for (const ink of ['bubble-title', 'bubble-ink', 'bubble-ink-muted']) {
+    for (const surface of ['bubble', 'bubble-deep']) {
+      it(`${ink} on ${surface} has at least 4.5:1 contrast`, () => {
+        expect(contrastRatio(token(ink), token(surface))).toBeGreaterThanOrEqual(4.5)
+      })
+    }
+  }
+
   it('keeps the Common frame purple apart from the True Words purples', () => {
     expect(token('common')).not.toBe(token('true-word'))
     expect(token('common')).not.toBe(token('true-word-line'))

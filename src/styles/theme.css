@@ -66,6 +66,21 @@
   --color-cursed-frame-dark: #4c101c;
   --color-cursed-frame-light: #e54c60;
 
+  /*
+   * The Cardmaker's speech bubble in the shops (spec: cardmaker-speech, design D5): v2.2.8's cream paper, a gradient
+   * from `bubble` to `bubble-deep` inside a `bubble-line` border, with dark brown inks. Each ink keeps at least 4.5:1 on
+   * both surfaces (theme.test.ts).
+   */
+  --color-bubble: #fff5dc;
+  --color-bubble-deep: #f3dfb7;
+  --color-bubble-line: #d6ac68;
+  /* The bubble's title: the name of what the pointer rests on. */
+  --color-bubble-title: #5a2e24;
+  /* What it holds. */
+  --color-bubble-ink: #35231d;
+  /* The Cardmaker's own line. */
+  --color-bubble-ink-muted: #6d594e;
+
   /* Type */
   --font-sans: Inter, 'Segoe UI', Arial, sans-serif;
 
@@ -198,6 +213,20 @@
     to {
       opacity: 1;
       filter: brightness(1.28);
+    }
+  }
+
+  /* The Cardmaker's speech bubble rising into place as it opens (spec: cardmaker-speech, design D5), as in v2.2.8. */
+  --animate-bubble-in: bubble-in 220ms ease both;
+
+  @keyframes bubble-in {
+    from {
+      opacity: 0;
+      transform: translateY(12px) scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
     }
   }
 

@@ -1,12 +1,13 @@
-import { screen, within } from '@testing-library/react'
+import { act, fireEvent, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { testArt } from '@/test/artFixtures'
 import { testCursedCard } from '@/test/cardFixtures'
 import { ready, testProfile, testUser } from '@/test/fixtures'
 import { testPartyPurse } from '@/test/ledgerFixtures'
 import { SHOP_CARDS, testPack } from '@/test/packFixtures'
+import { stubWideHover } from '@/test/media'
 import { renderApp } from '@/test/renderApp'
 
 import { PackError } from './errors'
@@ -14,7 +15,7 @@ import type { PackActions } from './packsContext'
 
 const me = testProfile({ lp: 5 })
 const ayla = testProfile({ id: 'ayla', displayName: 'Ayla', lp: 4 })
-const bora = testProfile({ id: 'bora', displayName: 'Bora' })
+const bora = testProfile({ id: 'bora', displayName: 'Bora', lp: 3 })
 const dm = testProfile({ role: 'dm', displayName: 'Dana', lp: 0 })
 
 const main = () => within(screen.getByRole('main'))
@@ -102,25 +103,44 @@ describe('pack pictures', () => {
     packs: {
       'mechanic:Blood & Battle': '/art/packs/mechanic-blood-battle.0123456789.webp',
       golden: '/art/packs/golden.0123456789.webp',
+      cursedGolden: '/art/packs/cursedgolden.0123456789.webp',
     },
-    cardbacks: { Kesqer: '/art/backs/kesqer.0123456789.webp' },
+    cardbacks: {
+      Kesqer: '/art/backs/kesqer.0123456789.webp',
+      Pandemonium: '/art/backs/pandemonium.0123456789.webp',
+    },
   })
   const pictureOf = (title: string) => packButton(title).querySelector('img')
+  const nameOf = (title: string) => packButton(title).querySelector('[data-pack-name]')
+  const priceOf = (title: string) => packButton(title).querySelector('[data-pack-price]')
+  /** The tile's parts from top to bottom: `price`, `picture`, `glyph` and `name`. */
+  const partsOf = (title: string) =>
+    [...packButton(title).children].map((part) =>
+      part.hasAttribute('data-pack-price')
+        ? 'price'
+        : part.hasAttribute('data-pack-name')
+          ? 'name'
+          : part.querySelector('img')
+            ? 'picture'
+            : 'glyph',
+    )
 
-  it("shows a Mechanic Pack's picture with its name", () => {
+  it("shows a Mechanic Pack's picture with its name under it, and no price", () => {
     renderShop({ art: ART })
 
-    expect(pictureOf('Blood & Battle Mechanic Pack')).toHaveAttribute(
+    const title = 'Blood & Battle Mechanic Pack'
+    expect(pictureOf(title)).toHaveAttribute(
       'src',
       '/art/packs/mechanic-blood-battle.0123456789.webp',
     )
-    expect(pictureOf('Blood & Battle Mechanic Pack')).toHaveAttribute('alt', '')
-    expect(packButton('Blood & Battle Mechanic Pack')).toHaveTextContent(
-      'Blood & Battle Mechanic Pack',
-    )
+    expect(pictureOf(title)).toHaveAttribute('alt', '')
+    expect(pictureOf(title)).not.toHaveClass('max-w-40')
+    expect(partsOf(title)).toEqual(['picture', 'name'])
+    expect(nameOf(title)).toHaveTextContent(title)
+    expect(priceOf(title)).toBeNull()
   })
 
-  it("shows a set's packs on the set's cardback, with their names and prices", () => {
+  it("shows a set's packs with their prices above the set's cardback, and no names", () => {
     renderShop({ path: '/shops/packs?group=Kesqer', art: ART })
 
     for (const [title, price] of [
@@ -129,16 +149,90 @@ describe('pack pictures', () => {
       ['Kesqerian Nights Cursed Pack', '1 LP / 2.500 GP'],
     ] as const) {
       expect(pictureOf(title)).toHaveAttribute('src', '/art/backs/kesqer.0123456789.webp')
-      expect(packButton(title)).toHaveTextContent(title)
-      expect(packButton(title)).toHaveTextContent(price)
+      expect(partsOf(title)).toEqual(['price', 'picture'])
+      expect(priceOf(title)).toHaveTextContent(price)
+      expect(packButton(title)).not.toHaveTextContent(title)
     }
   })
 
-  it('keeps the glyph for a pack without a picture', () => {
+  it('names both Pandemonium packs and both Golden Packs under their pictures', () => {
+    const { unmount } = renderShop({ path: '/shops/packs?group=Pandemonium', art: ART })
+    for (const title of ['Pandemonium Pack', 'Pandemonium Cursed Pack']) {
+      expect(partsOf(title)).toEqual(['price', 'picture', 'name'])
+      expect(priceOf(title)).toHaveTextContent('3 LP / 7.500 GP')
+      expect(nameOf(title)).toHaveTextContent(title)
+    }
+    unmount()
+
+    renderShop({ path: '/shops/packs?group=golden', art: ART })
+    for (const title of ['Golden Pack', 'Cursed Golden Pack']) {
+      expect(partsOf(title)).toEqual(['price', 'picture', 'name'])
+      expect(nameOf(title)).toHaveTextContent(title)
+    }
+  })
+
+  it('keeps the glyph and the name for a pack without a picture', () => {
     renderShop({ path: '/shops/packs?group=Havenholm', art: ART })
 
-    expect(pictureOf('Throne of Havenholm Standard Pack')).toBeNull()
-    expect(packButton('Throne of Havenholm Standard Pack')).toHaveTextContent('🎴')
+    const title = 'Throne of Havenholm Standard Pack'
+    expect(pictureOf(title)).toBeNull()
+    expect(partsOf(title)).toEqual(['price', 'glyph', 'name'])
+    expect(packButton(title)).toHaveTextContent('🎴')
+    expect(nameOf(title)).toHaveTextContent(title)
+  })
+
+  it("keeps the pack's name in the button's label", () => {
+    renderShop({ path: '/shops/packs?group=Kesqer', art: ART })
+
+    expect(packButton('Kesqerian Nights Premium Pack')).toHaveAccessibleName(
+      'Kesqerian Nights Premium Pack aç',
+    )
+  })
+})
+
+describe('group pictures', () => {
+  const ART = testArt({
+    packs: { golden: '/art/packs/golden.0123456789.webp' },
+    cardbacks: { Kesqer: '/art/backs/kesqer.0123456789.webp' },
+  })
+  const groupLink = (title: string) => main().getByRole('link', { name: `${title}: paketleri gör` })
+
+  it("shows a set's cardback on its group, with the group's name under it", () => {
+    renderShop({ art: ART })
+
+    const kesqer = groupLink('Kesqerian Nights Packs')
+    expect(kesqer.querySelector('img')).toHaveAttribute('src', '/art/backs/kesqer.0123456789.webp')
+    expect(kesqer.querySelector('img')).toHaveAttribute('alt', '')
+    expect(kesqer.lastElementChild).toHaveTextContent('Kesqerian Nights Packs')
+    expect(kesqer).not.toHaveTextContent('♜')
+  })
+
+  it('shows the Golden Pack picture on the Golden Packs', () => {
+    renderShop({ art: ART })
+
+    const golden = groupLink('Golden Packs')
+    expect(golden.querySelector('img')).toHaveAttribute('src', '/art/packs/golden.0123456789.webp')
+    expect(golden).toHaveTextContent('Golden Packs')
+    expect(golden).not.toHaveTextContent('✦')
+  })
+
+  it('keeps the glyph and the name for a set without a cardback', () => {
+    renderShop({ art: ART })
+
+    const havenholm = groupLink('Throne of Havenholm Packs')
+    expect(havenholm.querySelector('img')).toBeNull()
+    expect(havenholm).toHaveTextContent('♜')
+    expect(havenholm).toHaveTextContent('Throne of Havenholm Packs')
+  })
+
+  it('shows every glyph with its name where no pictures are built', () => {
+    renderShop()
+
+    for (const title of ['Kesqerian Nights Packs', 'Pandemonium Packs']) {
+      expect(groupLink(title).querySelector('img')).toBeNull()
+      expect(groupLink(title)).toHaveTextContent(`♜${title}`)
+    }
+    expect(groupLink('Golden Packs')).toHaveTextContent('✦Golden Packs')
   })
 })
 
@@ -241,6 +335,131 @@ describe("the groups' Cardmakers", () => {
     renderShop({ path: '/shops/packs?group=Kesqer', art: ART })
     expect(mascots()).toEqual(['cardmaker_shop'])
   })
+
+  describe('on a wide window with a mouse', () => {
+    beforeEach(() => stubWideHover())
+    afterEach(() => vi.unstubAllGlobals())
+
+    const corner = () => document.querySelector('[data-corner-cardmaker]')
+    const titleRow = () => main().getByRole('heading', { level: 1 }).closest('header')
+
+    it("stands the shop's Cardmaker in the corner, and none by the title", () => {
+      renderShop({ art: ART })
+
+      expect(corner()).toHaveAttribute('data-corner-cardmaker', 'cardmaker_shop')
+      expect(corner()).toHaveAttribute('data-size', 'shop')
+      expect(titleRow()?.querySelector('[data-mascot]')).toBeNull()
+      expect(mascots()).toEqual(['cardmaker_shop'])
+    })
+
+    it("stands a set group's own Cardmaker in the corner, and none by the group's title", () => {
+      renderShop({ path: '/shops/packs?group=Ulagal', art: ART })
+
+      expect(corner()).toHaveAttribute('data-corner-cardmaker', 'cardmaker_ulagal')
+      expect(groupRow('Ballad of Ulagal Packs')?.querySelector('img')).toBeNull()
+      expect(mascots()).toEqual(['cardmaker_ulagal'])
+    })
+
+    it("stands the Golden Packs' Cardmaker in the corner, larger", () => {
+      renderShop({ path: '/shops/packs?group=golden', art: ART })
+
+      expect(corner()).toHaveAttribute('data-corner-cardmaker', 'cardmaker_gold')
+      expect(corner()).toHaveAttribute('data-size', 'gold')
+    })
+  })
+})
+
+describe("the Cardmaker's speech", () => {
+  const ART = testArt({
+    mascots: { cardmaker_shop: '/art/mascots/cardmaker_shop.0123456789.webp' },
+  })
+  const bubble = () => document.querySelector('[data-speech-bubble]')
+  const tileOf = (element: HTMLElement) => element.closest('li') as HTMLElement
+  const rest = (element: HTMLElement) => {
+    fireEvent.pointerEnter(tileOf(element), { pointerType: 'mouse' })
+  }
+  const wait = (ms: number) => {
+    act(() => {
+      vi.advanceTimersByTime(ms)
+    })
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    // The corner's fade checks run in an animation frame; nothing here needs them.
+    vi.stubGlobal('requestAnimationFrame', () => 0)
+    vi.stubGlobal('cancelAnimationFrame', () => undefined)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+
+  it("speaks a Mechanic Pack's line after the pointer rests on it for a second", () => {
+    stubWideHover()
+    renderShop({ art: ART })
+
+    rest(packButton('Blood & Battle Mechanic Pack'))
+    wait(999)
+    expect(bubble()).toBeNull()
+
+    wait(1)
+    expect(bubble()).toHaveTextContent('Blood & Battle Mechanic Pack')
+    expect(bubble()).toHaveTextContent(
+      'Combat etkileri, saldırı ve hasar zarlarıyla ilgili kartları içerir.',
+    )
+    expect(bubble()).toHaveTextContent('Aman dikkat et kendine evladım.')
+  })
+
+  it('speaks for a Mechanic Pack that cannot be opened', () => {
+    stubWideHover()
+    renderShop({ art: ART, table: { openPackId: 'pack-1' }, packs: { pack: testPack('ayla') } })
+
+    const button = packButton('Blood & Battle Mechanic Pack')
+    expect(button).toBeDisabled()
+    rest(button)
+    wait(1000)
+    expect(bubble()).toHaveTextContent('Blood & Battle Mechanic Pack')
+  })
+
+  it("speaks the Golden Packs' line for the keyboard focus", () => {
+    stubWideHover()
+    renderShop({ art: ART })
+
+    act(() => main().getByRole('link', { name: 'Golden Packs: paketleri gör' }).focus())
+    wait(1000)
+
+    expect(bubble()).toHaveTextContent('Golden Packs')
+    expect(bubble()).toHaveTextContent('Sadece Rare kartlar ve Blessed kartlar içerir.')
+    expect(bubble()).toHaveTextContent('Yavrum sandığa dikkat yalnız, bazen ısırabilir...')
+  })
+
+  it('says nothing for a set group, or inside a group', () => {
+    stubWideHover()
+    const { unmount } = renderShop({ art: ART })
+    rest(main().getByRole('link', { name: 'Kesqerian Nights Packs: paketleri gör' }))
+    wait(2000)
+    expect(bubble()).toBeNull()
+    unmount()
+
+    renderShop({ path: '/shops/packs?group=Kesqer', art: ART })
+    rest(packButton('Kesqerian Nights Premium Pack'))
+    wait(2000)
+    expect(bubble()).toBeNull()
+
+    act(() => packButton('Kesqerian Nights Premium Pack').focus())
+    wait(2000)
+    expect(bubble()).toBeNull()
+  })
+
+  it('says nothing on a phone or a narrow window', () => {
+    renderShop({ art: ART })
+
+    rest(packButton('Blood & Battle Mechanic Pack'))
+    wait(2000)
+    expect(bubble()).toBeNull()
+  })
 })
 
 describe('when a pack can be opened', () => {
@@ -283,6 +502,44 @@ describe('when a pack can be opened', () => {
   })
 })
 
+describe('what a pack holds, before paying', () => {
+  const descriptionIn = (title: string) =>
+    screen.getByRole('dialog', { name: title }).querySelector('[data-pack-description]')
+
+  it("shows a Mechanic Pack's description first in its confirmation", async () => {
+    const user = userEvent.setup()
+    renderShop()
+
+    await user.click(packButton('Blood & Battle Mechanic Pack'))
+
+    const description = descriptionIn('Blood & Battle Mechanic Pack')
+    expect(description).toHaveTextContent(
+      'Combat etkileri, saldırı ve hasar zarlarıyla ilgili kartları içerir.',
+    )
+    expect(description?.nextElementSibling?.tagName).toBe('DL')
+  })
+
+  it("shows the Golden Pack's description", async () => {
+    const user = userEvent.setup()
+    renderShop({ path: '/shops/packs?group=golden', viewer: dm })
+
+    await user.click(packButton('Golden Pack'))
+
+    expect(descriptionIn('Golden Pack')).toHaveTextContent(
+      'Sadece Rare kartlar ve Blessed kartlar içerir.',
+    )
+  })
+
+  it("shows no description for a set's pack", async () => {
+    const user = userEvent.setup()
+    renderShop({ path: '/shops/packs?group=Kesqer' })
+
+    await user.click(packButton('Kesqerian Nights Standard Pack'))
+
+    expect(descriptionIn('Kesqerian Nights Standard Pack')).toBeNull()
+  })
+})
+
 describe('opening a pack as a player', () => {
   it('opens into their own hand for its LP price, and closes the dialog', async () => {
     const user = userEvent.setup()
@@ -292,6 +549,9 @@ describe('opening a pack as a player', () => {
     await user.click(packButton('Kesqerian Nights Standard Pack'))
     const dialog = within(screen.getByRole('dialog', { name: 'Kesqerian Nights Standard Pack' }))
     expect(dialog.getByText('5 LP')).toBeInTheDocument()
+    expect(dialog.getByText('Kimin için').nextElementSibling).toHaveTextContent('Gökay')
+    expect(dialog.queryByRole('combobox')).toBeNull()
+    expect(main().queryByRole('combobox')).toBeNull()
     await user.click(dialog.getByRole('button', { name: "Pack'i aç (2 LP)" }))
 
     expect(openPack).toHaveBeenCalledOnce()
@@ -345,9 +605,9 @@ describe("the DM's payment", () => {
     const openPack = vi.fn<PackActions['openPack']>(() => Promise.resolve('pack-1'))
     dmShop({ path: '/shops/packs?for=ayla&group=Kesqer', openPack })
 
-    expect(main().getByRole('combobox', { name: 'Kimin için' })).toHaveValue('ayla')
     await user.click(packButton('Kesqerian Nights Standard Pack'))
     const dialog = within(screen.getByRole('dialog'))
+    expect(dialog.getByRole('combobox', { name: 'Kimin için' })).toHaveValue('ayla')
     expect(dialog.getByRole('radio', { name: "Oyuncunun LP'si (4 LP)" })).toBeChecked()
     expect(dialog.getByRole('spinbutton', { name: 'Tutar (LP)' })).toHaveValue(2)
     await user.click(dialog.getByRole('button', { name: "Pack'i aç" }))
@@ -408,8 +668,55 @@ describe("the DM's payment", () => {
     expect(dialog.getByRole('spinbutton', { name: 'Tutar (GP)' })).toHaveValue(5000)
   })
 
-  it('picks the first player who is not the DM without a link', () => {
+  it('picks the first player who is not the DM without a link', async () => {
+    const user = userEvent.setup()
+    dmShop({ path: '/shops/packs?group=Kesqer' })
+
+    await user.click(packButton('Kesqerian Nights Standard Pack'))
+    expect(
+      within(screen.getByRole('dialog')).getByRole('combobox', { name: 'Kimin için' }),
+    ).toHaveValue('ayla')
+  })
+
+  it('has no hand picker on the screen itself', () => {
     dmShop()
-    expect(main().getByRole('combobox', { name: 'Kimin için' })).toHaveValue('ayla')
+    expect(main().queryByRole('combobox', { name: 'Kimin için' })).toBeNull()
+  })
+
+  it('opens into the hand picked in the confirmation, and starts the next pack there', async () => {
+    const user = userEvent.setup()
+    const openPack = vi.fn<PackActions['openPack']>(() => Promise.resolve('pack-1'))
+    const { router } = dmShop({ path: '/shops/packs?for=ayla&group=Kesqer', openPack })
+
+    await user.click(packButton('Kesqerian Nights Standard Pack'))
+    let dialog = within(screen.getByRole('dialog'))
+    await user.selectOptions(dialog.getByRole('combobox', { name: 'Kimin için' }), 'bora')
+    expect(dialog.getByRole('radio', { name: "Oyuncunun LP'si (3 LP)" })).toBeChecked()
+    expect(dialog.getByRole('spinbutton', { name: 'Tutar (LP)' })).toHaveValue(2)
+    expect(router.state.location.search).toBe('?for=bora&group=Kesqer')
+    expect(router.state.historyAction).toBe('REPLACE')
+    await user.click(dialog.getByRole('button', { name: "Pack'i aç" }))
+
+    expect(openPack).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ uid: 'bora', payment: { currency: 'lp', amount: 2 } }),
+    )
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+    await user.click(packButton('Kesqerian Nights Premium Pack'))
+    dialog = within(screen.getByRole('dialog'))
+    expect(dialog.getByRole('combobox', { name: 'Kimin için' })).toHaveValue('bora')
+  })
+
+  it('switches to the purse at the GP price when the DM picks their own hand', async () => {
+    const user = userEvent.setup()
+    dmShop({ path: '/shops/packs?for=ayla&group=Kesqer' })
+
+    await user.click(packButton('Kesqerian Nights Standard Pack'))
+    const dialog = within(screen.getByRole('dialog'))
+    await user.selectOptions(dialog.getByRole('combobox', { name: 'Kimin için' }), testUser.uid)
+
+    expect(dialog.getByRole('radio', { name: /Oyuncunun LP'si/ })).toBeDisabled()
+    expect(dialog.getByRole('radio', { name: /Grup kesesi/ })).toBeChecked()
+    expect(dialog.getByRole('spinbutton', { name: 'Tutar (GP)' })).toHaveValue(5000)
   })
 })

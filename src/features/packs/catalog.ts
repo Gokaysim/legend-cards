@@ -43,6 +43,25 @@ export function priceLabel(type: PackType): string {
   return `${lp} LP / ${formatAmount(gp)} GP`
 }
 
+/**
+ * The pack types whose tile names the pack under its picture (spec: card-images, design D7). v2.2.8 names the Mechanic,
+ * Golden, Cursed Golden and Pandemonium Packs. The owner chose to name the Pandemonium Cursed Pack too, since the two
+ * Pandemonium packs share a picture and a price. A set's Standard, Premium and Cursed Packs are told apart by their
+ * frame and price.
+ */
+const NAMED_ON_TILE: readonly PackType[] = [
+  'mechanic',
+  'golden',
+  'cursedGolden',
+  'pandemonium',
+  'pandemoniumCursed',
+]
+
+/** True when a pack's tile shows its name under its picture. A tile without a picture always shows it. */
+export function hasNameOnTile(type: PackType): boolean {
+  return NAMED_ON_TILE.includes(type)
+}
+
 /** True for the Pandemonium set, which has its own two packs instead of Standard, Premium and Cursed. */
 export function isPandemoniumSet(setCode: string): boolean {
   return officialSet(setCode)?.code === 'Pandemonium'
@@ -180,6 +199,17 @@ export function burstArtUrl(
     packDefOf({ type: pack.packType, setCode: pack.setCode, mechanicPack: pack.mechanicPack }).key,
   )
   return pack.setCode === null ? packUrl : (art.backUrl(pack.setCode) ?? packUrl)
+}
+
+/**
+ * The picture of a group's tile in the shop's main view (spec: card-images, design D8): its first pack's own picture,
+ * or else that pack's set's cardback, as in v2.2.8. For the Golden Packs, that is the Golden Pack's picture. `null`
+ * keeps the group's glyph.
+ */
+export function groupArtUrl(art: ArtLookup, group: { packs: readonly PackDef[] }): string | null {
+  const first = group.packs[0]
+  if (first === undefined) return null
+  return art.packUrl(first.key) ?? (first.setCode === null ? null : art.backUrl(first.setCode))
 }
 
 /** The pack a record or a link names, rebuilt from its type and scope. */

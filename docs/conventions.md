@@ -29,7 +29,10 @@ src/
   features/             one folder per product area
     art/                the built pictures: the manifest schema (EMPTY_ART), ArtProvider (loadArtManifest), useArt,
                         usePicture (the fallback after a load error), CardPicture, the spread backs (SpreadBack,
-                        spreadBackUrl), Mascot, and useBlessedShock (the shocked Cardmaker pair)
+                        spreadBackUrl), Mascot, CornerCardmaker (the shops' Cardmaker fixed in the bottom-right
+                        corner on a wide window with a mouse, with her speech bubble), the speech state
+                        (cardmakerSpeech: SpeechLine, useSpeechTrigger, useSpokenLine; CardmakerSpeechProvider),
+                        and useBlessedShock (the shocked Cardmaker pair)
     auth/               AuthProvider, useAuth, RequireAuth, SignInPage, authErrors
     users/              profiles and roles: schema, api, UsersProvider, useIsDm, DmOnly, PlayerList
     cards/              card definitions: schema, api, CardsProvider, useCards, useDeckCards, useCardsById,
@@ -73,6 +76,9 @@ src/
     firestore/          real-time subscription hooks, converters, errors (including firebaseCode)
     cn.ts               class-name merge helper
     useOnlineStatus.ts  browser network status
+    useReducedMotion.ts whether the device asks for reduced motion, live
+    useWideHover.ts     whether this is a window at least 1024 px wide on a device with hover, live: the shops'
+                        Cardmaker then stands in the corner and speaks
     useSavedField.ts    a text field saved on blur that keeps the user's draft while live changes arrive
                         (the card note, the cost override and the player notes)
     turkish.ts          Turkish grammar helpers, such as the genitive of a name ("Ayla'nın")
