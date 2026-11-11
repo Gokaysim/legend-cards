@@ -17,11 +17,14 @@ import type { Card } from './schema'
 
 const pool = testCard("Aboleth's Eyes")
 const held = testCard('Greedy Hands', { holder: { uid: 'ayla', userCardId: 'h1' } })
-const retired = testCard('Old Card', { retired: true })
+const retired = testCard('Old Card', { status: 'retired' })
 const blessed = testBlessedCard('Second Wind')
-const retiredBlessed = testBlessedCard('Old Blessing', { retired: true })
+const retiredBlessed = testBlessedCard('Old Blessing', { status: 'retired' })
 const cursed = testCursedCard('Visions of Death')
-const retiredCursed = testCursedCard('Old Curse', { retired: true })
+const retiredCursed = testCursedCard('Old Curse', { status: 'retired' })
+const draft = testCard('New Card', { status: 'draft' })
+const draftBlessed = testBlessedCard('New Blessing', { status: 'draft' })
+const draftCursed = testCursedCard('New Curse', { status: 'draft' })
 
 const filtered = (filters: Partial<DrawFilters>) => (card: Card) =>
   matchesFilters(card, { ...NO_FILTERS, ...filters })
@@ -34,7 +37,19 @@ describe('the pool', () => {
     expect(isDrawable(retired)).toBe(false)
     expect(isDrawable(retiredBlessed)).toBe(false)
     expect(isDrawable(cursed)).toBe(false)
-    const all = [pool, held, retired, blessed, retiredBlessed, cursed, retiredCursed]
+    expect(isDrawable(draft)).toBe(false)
+    expect(isDrawable(draftBlessed)).toBe(false)
+    const all = [
+      pool,
+      held,
+      retired,
+      draft,
+      blessed,
+      retiredBlessed,
+      draftBlessed,
+      cursed,
+      retiredCursed,
+    ]
     expect(drawablePool(all)).toEqual([pool, blessed])
   })
 
@@ -44,7 +59,7 @@ describe('the pool', () => {
   })
 
   it('gives the Cursed Deck its active Cursed cards', () => {
-    expect(cursedPool([pool, blessed, cursed, retiredCursed])).toEqual([cursed])
+    expect(cursedPool([pool, blessed, cursed, retiredCursed, draftCursed])).toEqual([cursed])
   })
 })
 

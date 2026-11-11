@@ -1,18 +1,30 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
 
-import { planWordImport, type StoredWord, trueWordId, type WordPlan } from './importTrueWords.ts'
-import type { TrueWordDefinition } from './trueWordRows.ts'
+import {
+  planWordImport,
+  type StoredWord,
+  trueWordId,
+  type WordPlan,
+  type WordRow,
+} from './importTrueWords.ts'
+import type { TrueWordDefinition, WordColumn } from './trueWordRows.ts'
 
 const word = (name: string, nameKey: string, overrides: Partial<TrueWordDefinition> = {}) =>
   ({ name, nameKey, cost: '1', text: 'Text.', ...overrides }) satisfies TrueWordDefinition
+
+/** A file row: complete unless `missing` names empty columns. */
+const row = (definition: TrueWordDefinition, missing: WordColumn[] = []): WordRow => ({
+  word: definition,
+  missing,
+})
 
 const stored = (
   definition: TrueWordDefinition,
   extra: Record<string, unknown> = {},
 ): StoredWord => ({
   id: trueWordId(definition.nameKey),
-  data: { ...definition, retired: false, ...extra },
+  data: { ...definition, status: 'active', ...extra },
 })
 
 const outcomes = (plan: WordPlan) => plan.words.map((planned) => [planned.id, planned.outcome])
@@ -27,60 +39,56 @@ describe('planWordImport', () => {
   const abyss = word('Abyss', 'abyss', { cost: '5' })
   const aid = word('Aid', 'aid')
 
-  it('adds a word that is not stored, writing its definition as active', () => {
-    const plan = planWordImport([], [abyss])
+  it('adds a complete word that is not stored as active', () => {
+    const plan = planWordImport([], [row(abyss)])
     expect(plan.words).toEqual([
-      { id: 'tw-abyss', name: 'Abyss', outcome: 'added', write: { ...abyss, retired: false } },
+      { id: 'tw-abyss', name: 'Abyss', outcome: 'added-active', missing: [], definition: abyss },
     ])
-    expect(plan.counts).toEqual({ added: 1, updated: 0, unchanged: 0, retired: 0, restored: 0 })
+    expect(plan.counts).toEqual({ 'added-active': 1, 'added-draft': 0, existing: 0 })
   })
 
-  it('writes nothing for a word that is the same', () => {
-    const plan = planWordImport([stored(abyss)], [abyss])
-    expect(plan.words).toEqual([
-      { id: 'tw-abyss', name: 'Abyss', outcome: 'unchanged', write: null },
-    ])
+  it('adds a word with an empty cost or text as a draft', () => {
+    const plan = planWordImport(
+      [],
+      [row(word('Echo', 'echo', { cost: null, text: '' }), ['cost', 'text'])],
+    )
+    expect(plan.words[0]).toMatchObject({ outcome: 'added-draft', missing: ['cost', 'text'] })
   })
 
-  it('updates a word whose cost or text changed, keeping its identity', () => {
-    const plan = planWordImport([stored(abyss), stored(aid)], [{ ...abyss, cost: 'X' }, aid])
+  it('leaves a stored word alone, even when its cost changed in the file', () => {
+    const plan = planWordImport(
+      [stored(abyss), stored(aid)],
+      [row({ ...abyss, cost: 'X' }), row(aid)],
+    )
     expect(outcomes(plan)).toEqual([
-      ['tw-abyss', 'updated'],
-      ['tw-aid', 'unchanged'],
+      ['tw-abyss', 'existing'],
+      ['tw-aid', 'existing'],
     ])
-    expect(plan.words[0]?.write).toEqual({ ...abyss, cost: 'X', retired: false })
+    expect(plan.words[0]?.definition).toBeNull()
   })
 
-  it('updates a stored word without the retired flag', () => {
-    const plan = planWordImport([{ id: 'tw-abyss', data: { ...abyss } }], [abyss])
-    expect(outcomes(plan)).toEqual([['tw-abyss', 'updated']])
-  })
-
-  it('retires a stored word that the file no longer has, writing only the flag', () => {
-    const plan = planWordImport([stored(abyss), stored(aid)], [aid])
-    expect(plan.words).toContainEqual({
+  it('never retires a stored word the file no longer has, and leaves a renamed word alone', () => {
+    // A renamed word keeps the ID its first name gave it.
+    const renamed: StoredWord = {
       id: 'tw-abyss',
-      name: 'Abyss',
-      outcome: 'retired',
-      write: { retired: true },
-    })
-    expect(plan.counts.retired).toBe(1)
+      data: { ...abyss, name: 'The Abyss', nameKey: 'theabyss', status: 'retired' },
+    }
+    const plan = planWordImport([renamed, stored(aid)], [row(abyss)])
+    expect(outcomes(plan)).toEqual([['tw-abyss', 'existing']])
   })
 
-  it('leaves an already retired word alone', () => {
-    const plan = planWordImport([stored(abyss, { retired: true }), stored(aid)], [aid])
-    expect(outcomes(plan)).toEqual([['tw-aid', 'unchanged']])
-  })
-
-  it('brings back a retired word that is in the file again', () => {
-    const plan = planWordImport([stored(abyss, { retired: true })], [abyss])
-    expect(plan.words).toEqual([
-      { id: 'tw-abyss', name: 'Abyss', outcome: 'restored', write: { ...abyss, retired: false } },
+  it('gives stored words without a status one, from their old retired flag', () => {
+    const plan = planWordImport(
+      [
+        { id: 'tw-abyss', data: { ...abyss, retired: true } },
+        { id: 'tw-aid', data: { ...aid, retired: false } },
+        stored(word('Bind', 'bind')),
+      ],
+      [],
+    )
+    expect(plan.upgrades).toEqual([
+      { id: 'tw-abyss', status: 'retired' },
+      { id: 'tw-aid', status: 'active' },
     ])
-  })
-
-  it('never writes fields other than the definition and the retired flag', () => {
-    const plan = planWordImport([stored(abyss, { extra: 'kept' })], [{ ...abyss, text: 'New.' }])
-    expect(plan.words[0]?.write).not.toHaveProperty('extra')
   })
 })

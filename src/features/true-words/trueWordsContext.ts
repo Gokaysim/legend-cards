@@ -27,7 +27,10 @@ export type TrueWordActions = {
 }
 
 export type TrueWordsContextValue = {
-  /** Every word, retired ones included. Empty when signed out. */
+  /**
+   * Every word this device reads: for the DM all of them, drafts included; for a player the active and retired ones.
+   * Empty when signed out.
+   */
   words: Subscription<TrueWord[]>
   /** Every record of a word someone knows now. */
   knownWords: Subscription<LearnedWord[]>
@@ -51,7 +54,7 @@ function mapReady<T, U>(subscription: Subscription<T>, map: (data: T) => U): Sub
     : subscription
 }
 
-/** Every word, retired ones included. Must be used inside `<TrueWordsProvider>`. */
+/** Every word this device reads, retired ones included. Must be used inside `<TrueWordsProvider>`. */
 export function useTrueWords(): Subscription<TrueWord[]> {
   return useTrueWordsContext().words
 }
@@ -77,7 +80,9 @@ export function knownWordsOf(records: readonly LearnedWord[], uid: string): Lear
 
 /** The active words, sorted by name for the True Words screen and the teach dialog. */
 export function activeWordsSorted(words: readonly TrueWord[]): TrueWord[] {
-  return words.filter((word) => !word.retired).sort((a, b) => compareLabels(a.name, b.name))
+  return words
+    .filter((word) => word.status === 'active')
+    .sort((a, b) => compareLabels(a.name, b.name))
 }
 
 /** One player's known words, in the order learned. Must be used inside `<TrueWordsProvider>`. */
@@ -119,7 +124,8 @@ export function knownWordEntries(
       nameKey: record.wordId,
       cost: '?',
       text: '',
-      retired: true,
+      status: 'retired',
+      changeId: null,
     },
   }))
 }

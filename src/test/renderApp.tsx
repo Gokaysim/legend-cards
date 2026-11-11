@@ -11,6 +11,7 @@ import { TestArtProvider } from './TestArtProvider'
 import { TestAuthProvider } from './TestAuthProvider'
 import { type TestBalances, TestBalancesProvider } from './TestBalancesProvider'
 import { type TestCards, TestCardsProvider } from './TestCardsProvider'
+import { type TestDefinitions, TestDefinitionsProvider } from './TestDefinitionsProvider'
 import { type TestDraws, TestDrawsProvider } from './TestDrawsProvider'
 import { type TestHoldings, TestHoldingsProvider } from './TestHoldingsProvider'
 import { type TestPacks, TestPacksProvider } from './TestPacksProvider'
@@ -43,6 +44,8 @@ export type RenderAppOptions = {
   trueWords?: TestTrueWords
   /** The player notes and DM notes, and fake saves. Defaults to no notes, and saves that succeed. */
   notes?: TestNotes
+  /** Fake definition steps. Defaults to steps that succeed. */
+  definitions?: TestDefinitions
   /** The built pictures. Defaults to `EMPTY_ART`: every card, back, pack and word keeps its look without pictures. */
   art?: ArtManifest
 }
@@ -58,6 +61,7 @@ type Data = {
   packs: TestPacks
   trueWords: TestTrueWords
   notes: TestNotes
+  definitions: TestDefinitions
   art: ArtManifest | undefined
 }
 
@@ -82,6 +86,7 @@ export function renderApp({
   packs = {},
   trueWords = {},
   notes = {},
+  definitions = {},
   art,
 }: RenderAppOptions = {}) {
   const router = createMemoryRouter(routes, { initialEntries: [path] })
@@ -96,6 +101,7 @@ export function renderApp({
     packs,
     trueWords,
     notes,
+    definitions,
     art,
   }
   const tree = (data: Data) => (
@@ -111,7 +117,9 @@ export function renderApp({
                       <TestDrawsProvider {...data.draws}>
                         <TestTrueWordsProvider {...data.trueWords}>
                           <TestPlayerNotesProvider {...data.notes}>
-                            <RouterProvider router={router} />
+                            <TestDefinitionsProvider {...data.definitions}>
+                              <RouterProvider router={router} />
+                            </TestDefinitionsProvider>
                           </TestPlayerNotesProvider>
                         </TestTrueWordsProvider>
                       </TestDrawsProvider>

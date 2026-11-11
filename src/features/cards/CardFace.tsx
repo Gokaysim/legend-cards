@@ -56,6 +56,11 @@ const CORNER_ICON_CLASSES =
 
 /** Where the corner icons sit: on the picture's frame clear of its d20 and set symbol, or in the CSS face's corners. */
 const MAGNIFIER_POSITION = { picture: 'top-[2%] right-[3%]', css: 'top-2 right-2' } as const
+/** The DM's edit control, left of the magnifier. */
+const EDIT_POSITION = {
+  picture: 'top-[2%] right-[calc(3%+2.25rem)]',
+  css: 'top-2 right-11',
+} as const
 const NOTE_POSITION = { picture: 'bottom-[2%] left-[3%]', css: 'bottom-2 left-2' } as const
 
 /** A small label on the face, for example "Aktif". */
@@ -101,6 +106,10 @@ export type CardFaceProps = {
   isTiltable?: boolean
   /** `false` leaves out the magnifier, for the face inside the zoom view. */
   isZoomable?: boolean
+  /** In the DM's library: the definition status to show as a mark ("Taslak", "Yayında", "Kaldırıldı"). */
+  statusMark?: string
+  /** In the DM's library: opens the card's edit form from a "✎" control beside the magnifier. */
+  onEdit?: () => void
   /**
    * Called when the face is selected anywhere outside its magnifier and set symbol, for example to open a hand
    * card's details. Without it, the face itself does nothing.
@@ -137,6 +146,8 @@ export function CardFace({
   isRevealed = false,
   isTiltable = false,
   isZoomable = true,
+  statusMark,
+  onEdit,
   onOpen,
   openLabel,
 }: CardFaceProps) {
@@ -152,7 +163,7 @@ export function CardFace({
   const cost = (isInHand ? handCost : card.cost) ?? NO_VALUE
   const change = isInHand ? costChange(card.cost, handCost) : null
   const text = visibleText(card.text)
-  const hasMarks = isActive || isExtraCopy || heldBy !== undefined
+  const hasMarks = isActive || isExtraCopy || heldBy !== undefined || statusMark !== undefined
   const look = picture.src !== null ? 'picture' : 'css'
   const glow = faceGlow(frame, {
     isActive,
@@ -201,6 +212,7 @@ export function CardFace({
   )
   const marks = hasMarks ? (
     <div data-marks="" className="flex flex-wrap gap-1">
+      {statusMark ? <Mark className="border-ink-muted">{statusMark}</Mark> : null}
       {isActive ? <Mark className={FRAME_CLASSES[frame]}>● Aktif</Mark> : null}
       {isExtraCopy ? <Mark>Ek kopya</Mark> : null}
       {heldBy ? <Mark className="border-gold">Elde: {heldBy.join(', ')}</Mark> : null}
@@ -251,6 +263,16 @@ export function CardFace({
       )}
     >
       <span aria-hidden="true">🔍</span>
+    </button>
+  ) : null
+  const editButton = onEdit ? (
+    <button
+      type="button"
+      aria-label={`${card.name}: düzenle`}
+      onClick={onEdit}
+      className={cn(CORNER_ICON_CLASSES, 'pointer-events-auto', EDIT_POSITION[look])}
+    >
+      <span aria-hidden="true">✎</span>
     </button>
   ) : null
   // The icon only shows; a click on it reaches the face below. Screen readers read "Not var" at all times.
@@ -321,6 +343,7 @@ export function CardFace({
               </>
             ) : null}
             {magnifier}
+            {editButton}
             {note}
           </div>
         </div>
@@ -359,6 +382,7 @@ export function CardFace({
         {body()}
         {details}
         {magnifier}
+        {editButton}
         {note}
         {zoom}
       </article>

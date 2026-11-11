@@ -2,6 +2,9 @@ import { useCallback, useDeferredValue, useId, useMemo, useState } from 'react'
 
 import { Button } from '@/components/ui/Button'
 import { Spinner } from '@/components/ui/Spinner'
+import { StatusFilter } from '@/features/definitions/StatusFilter'
+import type { StatusFilterValue } from '@/features/definitions/statusFilterOptions'
+import { STATUS_LABELS } from '@/features/definitions/status'
 import type { SubscriptionError } from '@/lib/firestore/errors'
 import type { Subscription } from '@/lib/firestore/subscription'
 
@@ -9,7 +12,7 @@ import { CardDeck } from './CardDeck'
 import { CardFace } from './CardFace'
 import type { Deck } from './cardsContext'
 import { CardTable } from './CardTable'
-import { cardHaystack, cardMatchesQuery, setLabel } from './display'
+import { cardHaystack, cardMatchesQuery, NO_VALUE, setLabel } from './display'
 import type { Card } from './schema'
 import { setOrder } from './sets'
 import {
@@ -59,13 +62,20 @@ function mechanicOptions(cards: readonly Card[]): string[] {
 
 export type CardBrowserProps = {
   deck: Deck
-  /** The deck's active cards (see `useDeckCards`). */
+  /** The deck's cards: the active ones (see `useDeckCards`), or for the DM those the status filter keeps. */
   cards: Subscription<Card[]>
   /**
    * Where the cards are: in the pool or in hands, live. Until it is known, the cards show without a status and
    * the pool-only filter is off.
    */
   status?: DeckStatus
+  /**
+   * For the DM: the status filter (spec: card-library, "The DM's status filter"). Outside "Yayında", each face and row
+   * shows its definition status. With it, the toolbar stays even when the filter keeps no card.
+   */
+  statusFilter?: { value: StatusFilterValue; onChange: (value: StatusFilterValue) => void }
+  /** For the DM: each card's "✎ Düzenle" control. */
+  onEdit?: (card: Card) => void
 }
 
 /**
@@ -73,7 +83,7 @@ export type CardBrowserProps = {
  * sortable list view with each card's status, the pool counts (Legend deck only), and the loading, error and
  * empty states. Shared by the Kart kütüphanesi and the Cursed Deck.
  */
-export function CardBrowser({ deck, cards, status }: CardBrowserProps) {
+export function CardBrowser({ deck, cards, status, statusFilter, onEdit }: CardBrowserProps) {
   if (cards.status === 'loading') {
     return <Spinner label="Kartlar yükleniyor…" className="py-12" />
   }
@@ -84,22 +94,34 @@ export function CardBrowser({ deck, cards, status }: CardBrowserProps) {
       </p>
     )
   }
-  if (cards.data.length === 0) {
+  if (cards.data.length === 0 && statusFilter === undefined) {
     return (
       <p className="rounded-xl border border-line bg-pane p-6 text-ink-muted">Henüz kart yok.</p>
     )
   }
-  return <LoadedCardBrowser deck={deck} cards={cards.data} status={status} />
+  return (
+    <LoadedCardBrowser
+      deck={deck}
+      cards={cards.data}
+      status={status}
+      statusFilter={statusFilter}
+      onEdit={onEdit}
+    />
+  )
 }
 
 function LoadedCardBrowser({
   deck,
   cards,
   status,
+  statusFilter,
+  onEdit,
 }: {
   deck: Deck
   cards: Card[]
   status: DeckStatus | undefined
+  statusFilter: CardBrowserProps['statusFilter']
+  onEdit: CardBrowserProps['onEdit']
 }) {
   const ids = useId()
   const [query, setQuery] = useState('')
@@ -117,12 +139,18 @@ function LoadedCardBrowser({
   const sets = useMemo(() => (deck === 'legend' ? setOptions(cards) : []), [cards, deck])
   const mechanics = useMemo(() => (deck === 'legend' ? mechanicOptions(cards) : []), [cards, deck])
 
+  // Outside "Yayında", the DM sees each card's definition status before where it is.
+  const showsStatus = statusFilter !== undefined && statusFilter.value !== 'active'
   const statusText = useCallback<StatusText>(
     (card) => {
       const cardStatus = status?.byCard.get(card.id)
-      return cardStatus ? statusLabel(card, cardStatus) : null
+      const where = cardStatus ? statusLabel(card, cardStatus) : null
+      if (!showsStatus) return where
+      return [STATUS_LABELS[card.status], where]
+        .filter((part) => part !== null && part !== NO_VALUE)
+        .join(' · ')
     },
-    [status],
+    [status, showsStatus],
   )
 
   const shown = useMemo(() => {
@@ -168,6 +196,9 @@ function LoadedCardBrowser({
           placeholder="İsim / metin ara (örn: discard, draw)"
           className={`${fieldClasses} min-w-0 flex-1 basis-56`}
         />
+        {statusFilter ? (
+          <StatusFilter value={statusFilter.value} onChange={statusFilter.onChange} />
+        ) : null}
         {deck === 'legend' ? (
           <>
             <label htmlFor={`${ids}-set`} className="sr-only">
@@ -263,6 +294,8 @@ function LoadedCardBrowser({
                 heldBy={
                   cardStatus && isMarkedHeld(card, cardStatus) ? cardStatus.holderNames : undefined
                 }
+                statusMark={showsStatus ? STATUS_LABELS[card.status] : undefined}
+                onEdit={onEdit ? () => onEdit(card) : undefined}
               />
             )
           }}
@@ -274,6 +307,7 @@ function LoadedCardBrowser({
           sort={sort}
           onSort={changeSort}
           statusText={statusText}
+          onEdit={onEdit}
         />
       )}
     </div>

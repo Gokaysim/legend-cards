@@ -5,8 +5,10 @@ import {
   draftPrice,
   EMPTY_PLAYER_WORDS,
   isKnown,
+  isWordComplete,
   type LearnedWord,
   learnedWordSchema,
+  missingWordFields,
   playerWordsSchema,
   trueWordSchema,
   wordDraftSchema,
@@ -27,14 +29,15 @@ describe('trueWordSchema', () => {
     nameKey: 'abyss',
     cost: '5',
     text: 'Once per turn, a random card of yours is free to play.',
-    retired: false,
+    status: 'active',
   }
 
   it.each([
     ['a word', abyss],
     ['an X cost', { ...abyss, cost: 'X' }],
-    ['an empty text', { ...abyss, text: '' }],
-    ['a retired word', { ...abyss, retired: true }],
+    ['a retired word', { ...abyss, status: 'retired' }],
+    ['a draft without a cost or a text', { ...abyss, status: 'draft', cost: null, text: '' }],
+    ['a change record', { ...abyss, changeId: 'c1' }],
   ])('accepts %s', (_case, word) => {
     expect(trueWordSchema.safeParse(word).success).toBe(true)
   })
@@ -42,9 +45,22 @@ describe('trueWordSchema', () => {
   it.each([
     ['an empty cost', { ...abyss, cost: '' }],
     ['a cost over 10 characters', { ...abyss, cost: '12345678901' }],
-    ['a missing retired flag', { ...abyss, retired: undefined }],
+    ['an active word without a cost', { ...abyss, cost: null }],
+    ['an active word with an empty text', { ...abyss, text: '' }],
+    ['a retired word without a cost', { ...abyss, status: 'retired', cost: null }],
+    ['a missing status', { ...abyss, status: undefined }],
+    ['the old retired flag in place of a status', { ...abyss, status: undefined, retired: false }],
   ])('rejects %s', (_case, word) => {
     expect(trueWordSchema.safeParse(word).success).toBe(false)
+  })
+})
+
+describe('missingWordFields', () => {
+  it('needs a cost and a text', () => {
+    expect(missingWordFields({ cost: '1', text: 'Text.' })).toEqual([])
+    expect(isWordComplete({ cost: '1', text: 'Text.' })).toBe(true)
+    expect(missingWordFields({ cost: null, text: '' })).toEqual(['cost', 'text'])
+    expect(isWordComplete({ cost: null, text: 'Text.' })).toBe(false)
   })
 })
 

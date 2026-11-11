@@ -8,6 +8,8 @@ import { renderApp } from '@/test/renderApp'
 import type { TestTrueWords } from '@/test/TestTrueWordsProvider'
 import { testLearnedWord, testTrueWord, testWordDraft } from '@/test/trueWordFixtures'
 
+import type { DefinitionActions } from '@/features/definitions/definitionsContext'
+
 import { WordError } from './errors'
 import type { TrueWordActions } from './trueWordsContext'
 
@@ -20,7 +22,7 @@ const AID = testTrueWord('Aid')
 const CHAOS = testTrueWord('Chaos', { cost: '0' })
 const DRAGON = testTrueWord('Dragon', { cost: 'X' })
 const HOARD = testTrueWord('Hoard', { cost: '2' })
-const OLD = testTrueWord('Old', { retired: true })
+const OLD = testTrueWord('Old', { status: 'retired' })
 const WORDS = [HOARD, DRAGON, OLD, CHAOS, AID, ABYSS]
 
 const me = testProfile({ displayName: 'Ayla', lp: 5 })
@@ -228,5 +230,66 @@ describe('starting a draft', () => {
     await user.click(dialog.getByRole('button', { name: "Draft'ı başlat (1 LP)" }))
 
     expect(dialog.getByRole('alert')).toHaveTextContent("Ayla'nın açık bir draft'ı var")
+  })
+})
+
+describe("True Words screen: the DM's definitions", () => {
+  const ECHO = testTrueWord('Echo', { status: 'draft', cost: null, text: '' })
+
+  it('lists only the draft words with "Taslak", each with its "✎ Düzenle" (The DM\'s drafts)', async () => {
+    const { user } = renderScreen({ viewer: dm, trueWords: { words: ready([...WORDS, ECHO]) } })
+
+    expect(tileNames()).toEqual(['Abyss', 'Aid', 'Chaos', 'Dragon', 'Hoard'])
+    await user.selectOptions(main().getByRole('combobox', { name: 'Durum' }), 'draft')
+
+    expect(tileNames()).toEqual(['Echo'])
+    const echo = within(main().getByRole('article', { name: 'Echo' }))
+    expect(echo.getByText('Taslak')).toBeVisible()
+    await user.click(echo.getByRole('button', { name: 'Echo: düzenle' }))
+    expect(screen.getByRole('dialog', { name: 'Düzenle: Echo' })).toBeVisible()
+  })
+
+  it('saves a new word with its cost and text, refusing a name another word has', async () => {
+    const addWord = vi.fn<DefinitionActions['addWord']>(() => Promise.resolve('tw-lull'))
+    const user = userEvent.setup()
+    renderApp({
+      path: '/true-words',
+      users: { currentProfile: ready(dm), profiles: ready([dm, bora]) },
+      trueWords: { words: ready(WORDS) },
+      definitions: { actions: { addWord } },
+    })
+    await user.click(screen.getByRole('button', { name: '+ True Word ekle' }))
+    const form = within(screen.getByRole('dialog', { name: 'Yeni True Word' }))
+
+    await user.type(form.getByLabelText('True Word adı'), 'abyss')
+    expect(form.getByText('Bu adla bir True Word zaten var.')).toBeVisible()
+    await user.clear(form.getByLabelText('True Word adı'))
+    await user.type(form.getByLabelText('True Word adı'), 'Lull')
+    await user.type(form.getByLabelText('Cost'), '2')
+    await user.type(form.getByLabelText('Metin'), 'Quiet.')
+    await user.click(form.getByRole('button', { name: 'Kaydet ve yayınla' }))
+
+    expect(addWord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        publish: true,
+        fields: { name: 'Lull', cost: '2', text: 'Quiet.' },
+      }),
+    )
+  })
+
+  it('adds a word from "+ True Word ekle"', async () => {
+    const { user } = renderScreen({ viewer: dm })
+    await user.click(screen.getByRole('button', { name: '+ True Word ekle' }))
+    const form = within(screen.getByRole('dialog', { name: 'Yeni True Word' }))
+    expect(form.getByLabelText('Cost')).toBeInTheDocument()
+    expect(form.getByRole('button', { name: 'Kaydet ve yayınla' })).toBeDisabled()
+  })
+
+  it('shows a player no status filter, no "+ True Word ekle" and no "✎ Düzenle" (A player\'s controls)', () => {
+    renderScreen({ trueWords: { words: ready([...WORDS, ECHO]) } })
+    expect(main().queryByRole('combobox', { name: 'Durum' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '+ True Word ekle' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /düzenle/ })).toBeNull()
+    expect(tileNames()).not.toContain('Echo')
   })
 })

@@ -99,7 +99,7 @@ export function TrueWordDetails({ entry, holderName, onDone }: TrueWordDetailsPr
       >
         {text === '' ? 'Efekt metni yok.' : text}
       </p>
-      {word.retired ? (
+      {word.status === 'retired' ? (
         <p className="text-sm text-ink-muted">Bu True Word artık listede yok; oyuncuda kalır.</p>
       ) : null}
 

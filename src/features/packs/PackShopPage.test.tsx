@@ -495,7 +495,7 @@ describe('when a pack can be opened', () => {
   it('keeps a retired Cursed card out of the Cursed Deck', () => {
     const cards = [
       ...SHOP_CARDS.filter((card) => card.kind !== 'cursed'),
-      testCursedCard('Old Curse', { retired: true }),
+      testCursedCard('Old Curse', { status: 'retired' }),
     ]
     renderShop({ path: '/shops/packs?group=Kesqer', cards })
     expect(packButton('Kesqerian Nights Cursed Pack')).toBeDisabled()

@@ -1,6 +1,7 @@
 import { Timestamp } from 'firebase/firestore'
 import { z } from 'zod'
 
+import { DEFINITION_STATUSES } from '@/features/definitions/status'
 import { createConverter } from '@/lib/firestore/converter'
 
 /** Field limits. Keep in step with `WORD_LIMITS` in `scripts/lib/trueWordRows.ts`. */
@@ -37,19 +38,58 @@ const wordName = z.string().min(1).max(TRUE_WORD_LIMITS.name)
 /** A server timestamp. `null` only in the local snapshot while the server time is pending. */
 const serverTime = z.instanceof(Timestamp).nullable()
 
+/** The definition fields whose emptiness decides whether a word is complete. */
+export type WordCompletenessFields = { cost: string | null; text: string }
+
+/** The fields a word requires and that are empty here. */
+export type MissingWordField = 'cost' | 'text'
+
 /**
- * One True Word, at `trueWords/{wordId}`. Written only by the import script. A retired word stays with the players
- * who know it, but is never offered or taught again.
+ * The required fields this word leaves empty: a True Word needs a cost and a text (spec: definition-editing,
+ * "Complete definitions"). Keep in step with `completeWord` in `firestore.rules` and `scripts/lib/trueWordRows.ts`.
  */
-export const trueWordSchema = z.object({
-  name: wordName,
-  /** The normalized name the import matches words by. */
-  nameKey: z.string().min(1),
-  /** As written ("1", "0", "X"): the LP paid at the table each time the word is used. The app never charges it. */
-  cost: z.string().min(1).max(TRUE_WORD_LIMITS.cost),
-  text: z.string().max(TRUE_WORD_LIMITS.text),
-  retired: z.boolean(),
-})
+export function missingWordFields(word: WordCompletenessFields): MissingWordField[] {
+  const missing: MissingWordField[] = []
+  if (word.cost === null) missing.push('cost')
+  if (word.text === '') missing.push('text')
+  return missing
+}
+
+/** True when the word has a cost and a text, so it may be active or retired. */
+export function isWordComplete(word: WordCompletenessFields): boolean {
+  return missingWordFields(word).length === 0
+}
+
+/**
+ * One True Word, at `trueWords/{wordId}`. The import script adds words, and the DM adds and changes them through the
+ * definition steps (spec: definition-editing). A draft may lack its cost or text and only the DM reads it. A retired
+ * word stays with the players who know it, but is never offered or taught again; neither is a draft.
+ */
+export const trueWordSchema = z
+  .object({
+    name: wordName,
+    /** The normalized name the import and the DM's form match words by. It follows the name when it is renamed. */
+    nameKey: z.string().min(1),
+    /**
+     * As written ("1", "0", "X"): the LP paid at the table each time the word is used. The app never charges it.
+     * Null only in a draft.
+     */
+    cost: z.string().min(1).max(TRUE_WORD_LIMITS.cost).nullable(),
+    text: z.string().max(TRUE_WORD_LIMITS.text),
+    status: z.enum(DEFINITION_STATUSES),
+    /** The change record of the newest definition step; words from before definition editing have none. */
+    changeId: z.string().min(1).nullable().default(null),
+  })
+  .superRefine((word, ctx) => {
+    if (word.status === 'draft') return
+    for (const field of missingWordFields(word)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [field],
+        message: `An ${word.status} word needs ${field}`,
+      })
+    }
+  })
 
 export type StoredTrueWord = z.infer<typeof trueWordSchema>
 export type TrueWord = StoredTrueWord & { id: string }

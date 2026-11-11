@@ -2,6 +2,8 @@
 
 The owner's card data, as the DM keeps it in their spreadsheets. The files are copied unchanged from the owner's exports. **Do not edit them by hand in this repository:** replace a file with a new export from the owner instead, then run the import again.
 
+These files are the **seed data**. An import only adds the cards and words that are not stored yet: it never changes, retires or deletes a stored one. From the first import on, the stored definitions are the truth, and the DM changes them in the app (Kart kütüphanesi, Cursed Deck, True Words). So a fix made in a file after its first import does not reach the app; make it in the app instead. A file is still useful to add a whole new set at once.
+
 | File                | Holds                                          | Columns                                                       | Used by                     |
 | ------------------- | ---------------------------------------------- | ------------------------------------------------------------- | --------------------------- |
 | `legend-cards.csv`  | the Legend cards: normal and Blessed           | Name, Set, Cost, Rarity, Drawn?, Text, Mechanic Pack, Shuffle | `npm run import-cards`      |
@@ -14,14 +16,16 @@ Unlike the CSV exports, `image-aliases.csv` belongs to this repository: edit it 
 ## How the import reads the card files
 
 - A row whose Set is `Blessed` is a Blessed card. Its Rarity and Cost are `—`.
-- A Legend row with an empty Set is skipped with a warning, as the legacy app hid such cards.
+- **An empty cell and `—` differ.** `—` means "deliberately none", and an empty cell means "not filled in yet". In the Cost column, `—` is a card without a cost. In the other columns, `—` counts as empty.
+- **A card is added as a draft** when a column its kind uses is empty: Set, Cost, Rarity, Mechanic Pack and Text for a normal card; Cost, Mechanic Pack and Text for a Blessed card; Cost and Text for a Cursed card. Only the DM sees a draft, and publishes it in the app once it is complete. Every other card is added as active. In the repository's files, "Hrolf's Hornswaggle" and "The Grand Finale" (empty Cost) and "The Cartographer" (empty Set, Rarity and Mechanic Pack) come in as drafts.
+- An invalid value, such as the Rarity "Epic", stops the import. An empty value never does.
 - The Set column of `cursed-cards.csv` is ignored: every row is a Cursed card.
 - `Drawn?` and `Shuffle` are the owner's own bookkeeping. The import ignores them.
 - Text in `[square brackets]` is hidden metadata. The app does not show it, but search finds it.
 
 ## How the import reads the True Words file
 
-- Each row is one True Word. Name and Cost are required. An empty Text is imported with a warning.
+- Each row is one True Word. Name is required. A word with an empty Cost or Text, or a `—` in either, is added as a draft.
 - Cost is kept as written (`0` to `5`, or `X`): the LP a player pays at the table each time they use the word. The app shows it but never charges it.
 
 See [docs/domain.md](../docs/domain.md) for what these words mean, and the "Scripts" section of [docs/conventions.md](../docs/conventions.md) for the import itself.

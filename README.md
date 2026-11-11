@@ -89,11 +89,13 @@ The owner's card data lives in `data/` as CSV files (see [data/README.md](data/R
 
 ```sh
 npm run dev            # in one terminal: the emulators and the app
-npm run import-cards   # in another: loads 590 Legend cards and 154 Cursed cards
+npm run import-cards   # in another: loads 591 Legend cards (3 of them drafts) and 154 Cursed cards
 npm run import-true-words   # then: loads the 53 True Words
 ```
 
-The emulators keep the cards and the words between runs. Run an import again whenever its CSV changes: it adds, updates, and retires cards or words to match the files, and writes nothing if they are unchanged.
+The emulators keep the cards and the words between runs. An import only adds what is not stored yet: it never changes, retires or deletes a stored card or word, because from then on the DM changes them in the app. A card or word with an empty value is added as a draft, which only the DM sees (see [data/README.md](data/README.md)). Each import that adds something is listed in the İşlem Logu. Running an import again writes nothing new.
+
+Cards and words stored before definitions had a status get one on the next import: run both imports once after updating an older checkout.
 
 - `--dry-run` shows what the import would do, without writing.
 - `--legend <csv>` or `--cursed <csv>` imports only that deck.

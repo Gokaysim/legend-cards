@@ -18,7 +18,7 @@ const POOL = [
   ),
   ...many(20, (i) => testBlessedCard(`Blessed ${i}`)),
   testCard('Held', { holder: { uid: 'ayla', userCardId: 'h1' } }),
-  testCard('Retired', { retired: true }),
+  testCard('Retired', { status: 'retired' }),
   testCursedCard('Visions of Death'),
 ]
 

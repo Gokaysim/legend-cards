@@ -1,40 +1,42 @@
 import type { Firestore } from 'firebase-admin/firestore'
 
-import { BATCH_SIZE, type CardOutcome, OUTCOMES } from './importCards.ts'
-import type { TrueWordDefinition } from './trueWordRows.ts'
+import {
+  type Addition,
+  type CardOutcome,
+  countOutcomes,
+  type StoredDefinition,
+  type Upgrade,
+  upgradeOf,
+  writeImport,
+} from './importCards.ts'
+import type { ParsedTrueWord, TrueWordDefinition, WordColumn } from './trueWordRows.ts'
 
 /** The True Words collection. Keep in step with `src/features/true-words/api.ts` and `firestore.rules`. */
 export const TRUE_WORDS_COLLECTION = 'trueWords'
 
-/** The fields the import owns. Any other stored field is never compared or written. */
-const DEFINITION_FIELDS = [
-  'name',
-  'nameKey',
-  'cost',
-  'text',
-] as const satisfies readonly (keyof TrueWordDefinition)[]
-
 /** A stored word as read from Firestore, unvalidated: the import must cope with anything stored there. */
-export type StoredWord = { id: string; data: Record<string, unknown> }
+export type StoredWord = StoredDefinition
 
-/** The same outcomes as the card import: added, updated, unchanged, retired or restored. */
+/** The same outcomes as the card import: added as active, added as a draft, or already stored. */
 export type WordOutcome = CardOutcome
-export const WORD_OUTCOMES = OUTCOMES
 
-/** What a write sets, merged into the stored document. */
-export type WordWrite = (TrueWordDefinition & { retired: false }) | { retired: true }
+/** A row the import reads: a word and the columns it leaves empty. */
+export type WordRow = Pick<ParsedTrueWord, 'word' | 'missing'>
 
 export type PlannedWord = {
   id: string
   name: string
   outcome: WordOutcome
-  /** `null` when nothing is written. */
-  write: WordWrite | null
+  /** The empty columns that make an added word a draft. */
+  missing: readonly WordColumn[]
+  /** The definition to add; `null` for a word already stored. */
+  definition: TrueWordDefinition | null
 }
 
 export type WordPlan = {
   words: PlannedWord[]
   counts: Record<WordOutcome, number>
+  upgrades: Upgrade[]
 }
 
 /** The document ID of a word: "tw-" plus its normalized name (design D1). */
@@ -42,59 +44,31 @@ export function trueWordId(nameKey: string): string {
   return `tw-${nameKey}`
 }
 
-const storedName = (word: StoredWord) =>
-  typeof word.data.name === 'string' ? word.data.name : word.id
-
-function sameDefinition(stored: Record<string, unknown>, word: TrueWordDefinition): boolean {
-  return DEFINITION_FIELDS.every((field) => stored[field] === word[field])
-}
-
 /**
- * Decides what an import does to each word (spec: admin-scripts, "Re-importing updates True Words by name",
- * "True Words missing from the file are retired"). Pure: the caller reads the stored words and applies the plan.
+ * Decides what an import does to each word (spec: admin-scripts, "The True Words import only adds", "Imported
+ * definitions are active unless a value is missing", "Imports give stored definitions a status"). Pure: the caller
+ * reads the stored words and applies the plan.
  */
 export function planWordImport(
   existing: readonly StoredWord[],
-  rows: readonly TrueWordDefinition[],
+  rows: readonly WordRow[],
 ): WordPlan {
-  const storedById = new Map(existing.map((word) => [word.id, word]))
-  const words: PlannedWord[] = []
-
-  for (const row of rows) {
-    const id = trueWordId(row.nameKey)
-    const stored = storedById.get(id)
-    storedById.delete(id)
-    const write: WordWrite = { ...row, retired: false }
-    if (!stored) {
-      words.push({ id, name: row.name, outcome: 'added', write })
-    } else if (stored.data.retired === true) {
-      words.push({ id, name: row.name, outcome: 'restored', write })
-    } else if (stored.data.retired !== false || !sameDefinition(stored.data, row)) {
-      words.push({ id, name: row.name, outcome: 'updated', write })
-    } else {
-      words.push({ id, name: row.name, outcome: 'unchanged', write: null })
+  const ids = new Set(existing.map((word) => word.id))
+  const nameKeys = new Set(
+    existing.flatMap((word) => (typeof word.data.nameKey === 'string' ? [word.data.nameKey] : [])),
+  )
+  const words = rows.map(({ word, missing }): PlannedWord => {
+    const id = trueWordId(word.nameKey)
+    if (ids.has(id) || nameKeys.has(word.nameKey)) {
+      return { id, name: word.name, outcome: 'existing', missing: [], definition: null }
     }
-  }
-
-  // Stored words that the file no longer has. Already retired ones stay as they are.
-  const missing = [...storedById.values()]
-    .filter((word) => word.data.retired !== true)
+    const outcome = missing.length === 0 ? 'added-active' : 'added-draft'
+    return { id, name: word.name, outcome, missing, definition: word }
+  })
+  const upgrades = existing
+    .flatMap((word) => upgradeOf(word) ?? [])
     .sort((a, b) => a.id.localeCompare(b.id))
-  for (const word of missing) {
-    words.push({
-      id: word.id,
-      name: storedName(word),
-      outcome: 'retired',
-      write: { retired: true },
-    })
-  }
-
-  const counts = Object.fromEntries(WORD_OUTCOMES.map((outcome) => [outcome, 0])) as Record<
-    WordOutcome,
-    number
-  >
-  for (const word of words) counts[word.outcome] += 1
-  return { words, counts }
+  return { words, counts: countOutcomes(words), upgrades }
 }
 
 /** Every stored word, as raw data. */
@@ -103,22 +77,21 @@ export async function readWords(db: Firestore): Promise<StoredWord[]> {
   return snapshot.docs.map((document) => ({ id: document.id, data: document.data() }))
 }
 
-/**
- * Writes the plan in batches of up to 500. Each write is a merge, so fields the import does not own survive.
- * Returns the number of documents written.
- */
+/** Writes the plan as the card import does (`writeImport`). Returns the number of words written. */
 export async function applyWordPlan(db: Firestore, plan: WordPlan): Promise<number> {
-  const writes = plan.words.flatMap((word) =>
-    word.write ? [{ id: word.id, write: word.write }] : [],
+  const additions = plan.words.flatMap(({ id, name, outcome, definition }): Addition[] =>
+    definition === null
+      ? []
+      : [
+          {
+            id,
+            name,
+            status: outcome === 'added-active' ? 'active' : 'draft',
+            fields: { ...definition },
+          },
+        ],
   )
-  for (let start = 0; start < writes.length; start += BATCH_SIZE) {
-    const batch = db.batch()
-    for (const { id, write } of writes.slice(start, start + BATCH_SIZE)) {
-      batch.set(db.collection(TRUE_WORDS_COLLECTION).doc(id), write, { merge: true })
-    }
-    await batch.commit()
-  }
-  return writes.length
+  return writeImport(db, TRUE_WORDS_COLLECTION, 'word', plan.upgrades, additions)
 }
 
 export type WordImportResult = { plan: WordPlan; written: number }
@@ -126,7 +99,7 @@ export type WordImportResult = { plan: WordPlan; written: number }
 /** Runs an import of already validated words: reads the stored words, plans, and writes unless a dry run. */
 export async function runWordImport(
   db: Firestore,
-  rows: readonly TrueWordDefinition[],
+  rows: readonly WordRow[],
   { dryRun }: { dryRun: boolean },
 ): Promise<WordImportResult> {
   const plan = planWordImport(await readWords(db), rows)

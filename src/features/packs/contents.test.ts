@@ -48,7 +48,7 @@ const blessed = [
 const bloodBattle = cardsOf('B', 28, { setCode: 'Havenholm', mechanicPack: 'Blood & Battle' })
 const curses = [testCursedCard('Visions of Death'), testCursedCard('Bad Omen')]
 const heldCard = testCard('Held Card', { holder: { uid: 'bora', userCardId: 'h-1' } })
-const retiredCard = testCard('Retired Card', { retired: true })
+const retiredCard = testCard('Retired Card', { status: 'retired' })
 
 const CARDS: Card[] = [
   ...kesqerCommons,
@@ -82,7 +82,7 @@ describe('buildPack', () => {
       expect(shown).toHaveLength(size)
       expect(new Set(shown).size).toBe(size)
       for (const card of cardsIn(shown)) {
-        expect(card.retired).toBe(false)
+        expect(card.status).toBe('active')
         expect(card.kind === 'normal' ? card.holder : null).toBeNull()
       }
     }

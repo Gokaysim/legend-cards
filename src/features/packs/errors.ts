@@ -54,7 +54,7 @@ export type PackFailure =
   | { kind: 'not-all-turned' }
   /** The card cannot be chosen: it was not shown, or it is the mandatory Cursed card. */
   | { kind: 'invalid-choice' }
-  /** The card was retired or taken meanwhile. */
+  /** The card was retired or taken meanwhile, or is no longer active. */
   | { kind: 'unavailable' }
   /** No connection: pack steps are transactions, and transactions need the server. */
   | { kind: 'offline' }

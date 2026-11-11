@@ -405,7 +405,7 @@ describe('choosing under the real rules', () => {
     await seedOpenPack()
     const chosen = COMMONS[0]?.id ?? ''
     await testEnv.withSecurityRulesDisabled(async (admin) => {
-      await updateDoc(doc(firestoreOf(admin), `cards/${chosen}`), { retired: true })
+      await updateDoc(doc(firestoreOf(admin), `cards/${chosen}`), { status: 'retired' })
     })
 
     const failure = await failureOf(

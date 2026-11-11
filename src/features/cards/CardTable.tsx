@@ -1,3 +1,4 @@
+import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/cn'
 
 import type { Deck } from './cardsContext'
@@ -36,7 +37,7 @@ const COLUMNS: Record<SortKey, Column> = {
   },
 }
 
-/** The columns of each deck's table, as in the legacy app, without its İşlem (edit) column. */
+/** The columns of each deck's table, as in the legacy app. Its İşlem (edit) column shows for the DM only. */
 const DECK_COLUMNS: Record<Deck, readonly SortKey[]> = {
   legend: ['name', 'set', 'cost', 'rarity', 'mechanicPack', 'text', 'status'],
   cursed: ['name', 'cost', 'text', 'status'],
@@ -53,10 +54,19 @@ export type CardTableProps = {
   onSort: (key: SortKey) => void
   /** The Durum text of a card. Without it, the column shows "—". */
   statusText?: StatusText
+  /** For the DM: an İşlem column with each card's "✎ Düzenle". */
+  onEdit?: (card: Card) => void
 }
 
 /** The list view: one row per card. Only the table scrolls sideways at narrow widths, never the page. */
-export function CardTable({ deck, cards, sort, onSort, statusText = () => null }: CardTableProps) {
+export function CardTable({
+  deck,
+  cards,
+  sort,
+  onSort,
+  statusText = () => null,
+  onEdit,
+}: CardTableProps) {
   const columns = DECK_COLUMNS[deck].map((key) => COLUMNS[key])
 
   return (
@@ -100,6 +110,11 @@ export function CardTable({ deck, cards, sort, onSort, statusText = () => null }
                 </th>
               )
             })}
+            {onEdit ? (
+              <th scope="col" className="px-3 py-2 font-semibold whitespace-nowrap">
+                İşlem
+              </th>
+            ) : null}
           </tr>
         </thead>
         <tbody>
@@ -122,6 +137,13 @@ export function CardTable({ deck, cards, sort, onSort, statusText = () => null }
                   </td>
                 ),
               )}
+              {onEdit ? (
+                <td className="px-3 py-1.5 whitespace-nowrap">
+                  <Button aria-label={`${card.name}: düzenle`} onClick={() => onEdit(card)}>
+                    ✎ Düzenle
+                  </Button>
+                </td>
+              ) : null}
             </tr>
           ))}
         </tbody>

@@ -31,7 +31,8 @@ export function costChange(
 export type CardFrame = 'common' | 'rare' | 'blessed' | 'cursed'
 
 export function cardFrame(card: Card): CardFrame {
-  return card.kind === 'normal' ? card.rarity : card.kind
+  // A normal draft may have no rarity yet: it gets the Common frame until it does.
+  return card.kind === 'normal' ? (card.rarity ?? 'common') : card.kind
 }
 
 /**

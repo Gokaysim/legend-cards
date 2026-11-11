@@ -1,4 +1,5 @@
 import type { LedgerEntry } from '@/features/balances/schema'
+import type { DefinitionStepRecord, ImportRecord } from '@/features/definitions/schema'
 import type { CardDraw, Draw, PackOpening } from '@/features/draws/schema'
 import type { Holding } from '@/features/hands/schema'
 import type { LearnedWord, WordDraft } from '@/features/true-words/schema'
@@ -10,8 +11,8 @@ export type EventTime = Holding['givenAt']
  * The records the log is read from, each source newest first and limited to the same `n`: the holdings the DM gave
  * or transferred, by the time they were given; closed holdings, by the time they were closed; draws and pack
  * openings; the ledger's changes by hand; True Word drafts; the words the DM taught, by the time they were taught;
- * and the words the DM took back, by the time they were taken back. The holdings and entries of draws, packs and
- * drafts, and the words learned from drafts, are not among them.
+ * the words the DM took back, by the time they were taken back; and the definition changes this device may read. The
+ * holdings and entries of draws, packs and drafts, and the words learned from drafts, are not among them.
  */
 export type LogRecords = {
   given: readonly Holding[]
@@ -21,6 +22,7 @@ export type LogRecords = {
   drafts: readonly WordDraft[]
   taught: readonly LearnedWord[]
   takenBack: readonly LearnedWord[]
+  changes: readonly (DefinitionStepRecord | ImportRecord)[]
 }
 
 /** No records at all. */
@@ -32,14 +34,15 @@ export const EMPTY_LOG_RECORDS: LogRecords = {
   drafts: [],
   taught: [],
   takenBack: [],
+  changes: [],
 }
 
 type EventBase = {
   /** Unique and stable: React key and tie-breaker. */
   key: string
   at: EventTime
-  /** The uid of the user who did it. */
-  by: string
+  /** The uid of the user who did it, or `null` for an import, which no user made. */
+  by: string | null
 }
 
 /**
@@ -48,7 +51,8 @@ type EventBase = {
  * `to` is `null`, and `missingHoldingId` names the holding to read for it. A draw is one event for the draw, its
  * holding and its payment. A pack opening is one event for the pack, its holdings, its payment and its refund, at
  * the time it was opened; it changes as the pack goes on. A True Word draft is likewise one event for the draft, its
- * learned word, its payment and its refund. A word the DM teaches, and a word the DM takes back, are events too.
+ * learned word, its payment and its refund. A word the DM teaches, and a word the DM takes back, are events too. So is
+ * each definition change record: a DM step on a card or a word, or an import's additions.
  */
 export type LogEvent =
   | (EventBase & { kind: 'given' | 'used' | 'discarded'; holding: Holding })
@@ -66,6 +70,8 @@ export type LogEvent =
   | (EventBase & { kind: 'balance'; entry: LedgerEntry })
   | (EventBase & { kind: 'wordDraft'; draft: WordDraft })
   | (EventBase & { kind: 'wordTaught' | 'wordTakenBack'; record: LearnedWord })
+  | (EventBase & { kind: 'definition'; change: DefinitionStepRecord })
+  | (EventBase & { kind: 'import'; change: ImportRecord })
 
 type TransferEvent = Extract<LogEvent, { kind: 'transferred' }>
 
@@ -177,6 +183,15 @@ export function deriveEvents(records: LogRecords): LogEvent[] {
       record,
     })
   }
+  for (const change of records.changes) {
+    const key = `definition:${change.id}`
+    events.set(
+      key,
+      change.step === 'imported'
+        ? { kind: 'import', key, at: change.at, by: null, change }
+        : { kind: 'definition', key, at: change.at, by: change.by, change },
+    )
+  }
   return [...events.values()]
 }
 
@@ -204,6 +219,7 @@ export function newestEvents(
     records.entries.length >= limit ||
     records.drafts.length >= limit ||
     records.taught.length >= limit ||
-    records.takenBack.length >= limit
+    records.takenBack.length >= limit ||
+    records.changes.length >= limit
   return { events: events.slice(0, limit), mayHaveMore }
 }

@@ -5,8 +5,11 @@ import { normalizeHeader, readRecords } from './csv.ts'
 export type TrueWordDefinition = {
   name: string
   nameKey: string
-  /** As written, for example "1", "0" or "X": the LP a player pays at the table each time they use the word. */
-  cost: string
+  /**
+   * As written, for example "1", "0" or "X": the LP a player pays at the table each time they use the word. `null`
+   * when the file leaves it empty, which makes the word a draft.
+   */
+  cost: string | null
   text: string
 }
 
@@ -27,46 +30,48 @@ export type TrueWordFileError =
   | { kind: 'missing-columns'; columns: string[] }
   | { kind: 'empty-name'; row: number }
   | { kind: 'name-without-letters'; row: number; name: string }
-  | { kind: 'empty-cost'; row: number; name: string }
   | { kind: 'too-long'; row: number; name: string; field: WordLimitedField; max: number }
   | { kind: 'duplicate'; rows: [number, number]; name: string }
 
-/** A finding that does not stop the import. */
-export type TrueWordFileWarning = { kind: 'empty-text'; row: number; name: string }
+/** A column a word uses. Keep in step with `missingWordFields` in `src/features/true-words/schema.ts`. */
+export type WordColumn = 'cost' | 'text'
 
-export type ParsedTrueWord = { row: number; word: TrueWordDefinition }
+/**
+ * One word read from the file, with the columns it leaves empty. A word without any is added as active, and one with
+ * some as a draft.
+ */
+export type ParsedTrueWord = { row: number; word: TrueWordDefinition; missing: WordColumn[] }
 
 export type ParsedTrueWordFile = {
   words: ParsedTrueWord[]
   errors: TrueWordFileError[]
-  warnings: TrueWordFileWarning[]
 }
 
-/** How the data writes "nothing here": an empty cell or a dash. */
+/** An empty cell or a dash: in the True Words file a dash counts as empty, even in the Cost column. */
 const isBlank = (value: string) => value === '' || /^[—–-]$/.test(value)
 
 /**
  * Reads the True Words file and checks every row (spec: admin-scripts, "True Word file is validated before
- * writing"). Returns all words, errors and warnings; the caller writes nothing if there is an error.
+ * writing"). Returns all words with their missing columns, and the errors; the caller writes nothing if there is an
+ * error. An empty cost or text is not an error: it makes the word a draft.
  * Pure: no files, no Firebase.
  */
 export function parseTrueWordFile(text: string): ParsedTrueWordFile {
   const records = readRecords(text)
   if (!Array.isArray(records)) {
-    return { words: [], errors: [{ kind: 'unreadable', detail: records.error }], warnings: [] }
+    return { words: [], errors: [{ kind: 'unreadable', detail: records.error }] }
   }
 
   const [header = [], ...rows] = records
   const headers = header.map(normalizeHeader)
   const missing = WORD_COLUMNS.filter((column) => !headers.includes(column))
   if (missing.length > 0) {
-    return { words: [], errors: [{ kind: 'missing-columns', columns: missing }], warnings: [] }
+    return { words: [], errors: [{ kind: 'missing-columns', columns: missing }] }
   }
   const column = (record: string[], name: string) => (record[headers.indexOf(name)] ?? '').trim()
 
   const words: ParsedTrueWord[] = []
   const errors: TrueWordFileError[] = []
-  const warnings: TrueWordFileWarning[] = []
   const firstRowByKey = new Map<string, number>()
 
   rows.forEach((record, index) => {
@@ -93,10 +98,10 @@ export function parseTrueWordFile(text: string): ParsedTrueWordFile {
     }
 
     limited('name', name)
-    const cost = column(record, 'cost')
-    if (isBlank(cost)) rowErrors.push({ kind: 'empty-cost', row, name })
-    else limited('cost', cost)
-    const wordText = limited('text', column(record, 'text'))
+    const costCell = limited('cost', column(record, 'cost'))
+    const textCell = limited('text', column(record, 'text'))
+    const cost = isBlank(costCell) ? null : costCell
+    const wordText = isBlank(textCell) ? '' : textCell
 
     const firstRow = firstRowByKey.get(nameKey)
     if (firstRow !== undefined) {
@@ -109,9 +114,11 @@ export function parseTrueWordFile(text: string): ParsedTrueWordFile {
       errors.push(...rowErrors)
       return
     }
-    if (wordText === '') warnings.push({ kind: 'empty-text', row, name })
-    words.push({ row, word: { name, nameKey, cost, text: wordText } })
+    const missingColumns: WordColumn[] = []
+    if (cost === null) missingColumns.push('cost')
+    if (wordText === '') missingColumns.push('text')
+    words.push({ row, word: { name, nameKey, cost, text: wordText }, missing: missingColumns })
   })
 
-  return { words, errors, warnings }
+  return { words, errors }
 }

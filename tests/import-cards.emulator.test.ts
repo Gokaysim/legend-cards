@@ -2,8 +2,14 @@ import { readFileSync } from 'node:fs'
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
-import { type CardDefinition, type Deck, parseCardFile } from '../scripts/lib/cardRows.ts'
-import { CARDS_COLLECTION, type ImportPlan, runImport } from '../scripts/lib/importCards.ts'
+import { type Deck, parseCardFile } from '../scripts/lib/cardRows.ts'
+import {
+  CARDS_COLLECTION,
+  CHANGES_COLLECTION,
+  type CardRow,
+  type ImportPlan,
+  runImport,
+} from '../scripts/lib/importCards.ts'
 import { type AdminHandle, DEMO_PROJECT_ID, openAdmin } from '../scripts/lib/target.ts'
 
 // `firebase emulators:exec` sets FIRESTORE_EMULATOR_HOST and FIREBASE_AUTH_EMULATOR_HOST for this run.
@@ -19,20 +25,21 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await admin.db.recursiveDelete(admin.db.collection(CARDS_COLLECTION))
+  await admin.db.recursiveDelete(admin.db.collection(CHANGES_COLLECTION))
 })
 
-/** The cards of a repository data file, parsed and checked as the command does. */
-function repositoryDeck(deck: Deck): CardDefinition[] {
+/** The rows of a repository data file, parsed and checked as the command does. */
+function repositoryDeck(deck: Deck): CardRow[] {
   const file = deck === 'legend' ? 'legend-cards.csv' : 'cursed-cards.csv'
   const result = parseCardFile(
     readFileSync(new URL(`../data/${file}`, import.meta.url), 'utf8'),
     deck,
   )
   expect(result.errors).toEqual([])
-  return result.cards.map(({ card }) => card)
+  return result.cards
 }
 
-const importDecks = (decks: Partial<Record<Deck, CardDefinition[]>>, dryRun = false) =>
+const importDecks = (decks: Partial<Record<Deck, CardRow[]>>, dryRun = false) =>
   runImport(admin.db, decks, { dryRun })
 
 const counts = (plan: ImportPlan) =>
@@ -46,37 +53,70 @@ async function storedCount(where?: { field: string; value: unknown }) {
   return (await query.count().get()).data().count
 }
 
+async function records(): Promise<Record<string, unknown>[]> {
+  const snapshot = await admin.db.collection(CHANGES_COLLECTION).get()
+  return snapshot.docs.map((document) => ({
+    id: document.id,
+    ...(document.data() as Record<string, unknown>),
+  }))
+}
+
 describe('card import against the emulators', () => {
-  it('imports the repository data: 571 normal, 19 Blessed and 154 Cursed cards', async () => {
+  it('imports the repository data: 572 normal (3 of them drafts), 19 Blessed and 154 Cursed cards', async () => {
     const { plan, written } = await importDecks({
       legend: repositoryDeck('legend'),
       cursed: repositoryDeck('cursed'),
     })
 
-    expect(written).toBe(744)
-    expect(plan.map((deck) => [deck.deck, deck.counts.added])).toEqual([
-      ['legend', 590],
-      ['cursed', 154],
-    ])
-    expect(await storedCount({ field: 'kind', value: 'normal' })).toBe(571)
+    expect(written).toBe(745)
+    expect(counts(plan)).toEqual({
+      legend: { 'added-active': 588, 'added-draft': 3, existing: 0 },
+      cursed: { 'added-active': 154, 'added-draft': 0, existing: 0 },
+    })
+    expect(await storedCount({ field: 'kind', value: 'normal' })).toBe(572)
     expect(await storedCount({ field: 'kind', value: 'blessed' })).toBe(19)
     expect(await storedCount({ field: 'kind', value: 'cursed' })).toBe(154)
-    expect(await storedCount({ field: 'retired', value: false })).toBe(744)
+    expect(await storedCount({ field: 'status', value: 'active' })).toBe(742)
+    const drafts = await admin.db.collection(CARDS_COLLECTION).where('status', '==', 'draft').get()
+    expect(drafts.docs.map((document) => document.get('name') as string).sort()).toEqual([
+      "Hrolf's Hornswaggle",
+      'The Cartographer',
+      'The Grand Finale',
+    ])
   })
 
-  it('stores Blessed and Cursed cards in the shapes of the spec', async () => {
-    const legend = repositoryDeck('legend')
-    const cursed = repositoryDeck('cursed')
-    await importDecks({ legend, cursed })
+  it('records the import: one public record of the active cards, one DM-only record of the drafts', async () => {
+    await importDecks({ legend: repositoryDeck('legend'), cursed: repositoryDeck('cursed') })
 
-    const blessed = legend.find((entry) => entry.kind === 'blessed')
+    const written = await records()
+    expect(written).toHaveLength(2)
+    const publicRecord = written.find((record) => record.public === true)
+    const draftRecord = written.find((record) => record.public === false)
+    expect(publicRecord).toMatchObject({ target: 'card', step: 'imported', by: null })
+    expect(publicRecord?.items).toHaveLength(742)
+    expect(draftRecord?.items).toHaveLength(3)
+    expect(draftRecord?.items).toContainEqual({
+      id: 'legend-thecartographer',
+      name: 'The Cartographer',
+      status: 'draft',
+    })
+    expect(await card('legend-thecartographer')).toMatchObject({ changeId: draftRecord?.id })
+    expect(await card('cursed-visionsofdeath')).toMatchObject({ changeId: publicRecord?.id })
+  })
+
+  it('stores Blessed, Cursed and draft cards in the shapes of the spec', async () => {
+    const legend = repositoryDeck('legend')
+    await importDecks({ legend, cursed: repositoryDeck('cursed') })
+
+    const blessed = legend.find(({ card: entry }) => entry.kind === 'blessed')?.card
     expect(blessed).toBeDefined()
     expect(await card(`legend-${blessed?.nameKey}`)).toEqual({
       ...blessed,
       setCode: null,
       rarity: null,
       cost: null,
-      retired: false,
+      status: 'active',
+      changeId: expect.any(String) as string,
     })
     expect(await card('cursed-visionsofdeath')).toEqual({
       kind: 'cursed',
@@ -87,11 +127,20 @@ describe('card import against the emulators', () => {
       rarity: null,
       mechanicPack: null,
       text: 'Held: Every hour draw a cursed card. Discard them at the end of the session.',
-      retired: false,
+      status: 'active',
+      changeId: expect.any(String) as string,
+    })
+    expect(await card('legend-thecartographer')).toMatchObject({
+      kind: 'normal',
+      setCode: null,
+      rarity: null,
+      mechanicPack: null,
+      cost: '1',
+      status: 'draft',
     })
   })
 
-  it('writes nothing when the same files are imported again', async () => {
+  it('writes no card and no record when the same files are imported again', async () => {
     const decks = { legend: repositoryDeck('legend'), cursed: repositoryDeck('cursed') }
     await importDecks(decks)
 
@@ -99,56 +148,99 @@ describe('card import against the emulators', () => {
 
     expect(written).toBe(0)
     expect(counts(plan)).toEqual({
-      legend: { added: 0, updated: 0, unchanged: 590, retired: 0, restored: 0 },
-      cursed: { added: 0, updated: 0, unchanged: 154, retired: 0, restored: 0 },
+      legend: { 'added-active': 0, 'added-draft': 0, existing: 591 },
+      cursed: { 'added-active': 0, 'added-draft': 0, existing: 154 },
     })
+    expect(await records()).toHaveLength(2)
   })
 
-  it('updates a changed text under the same ID', async () => {
+  it('leaves a stored card as it is when the file changes its text', async () => {
     const cursed = repositoryDeck('cursed')
     await importDecks({ cursed })
 
     const changed = cursed.map((entry) =>
-      entry.nameKey === 'visionsofdeath' ? { ...entry, text: 'A new curse.' } : entry,
+      entry.card.nameKey === 'visionsofdeath'
+        ? { ...entry, card: { ...entry.card, text: 'A new curse.' } }
+        : entry,
     )
-    const { plan, written } = await importDecks({ cursed: changed })
+    const { written } = await importDecks({ cursed: changed })
 
-    expect(written).toBe(1)
-    expect(plan[0]?.counts.updated).toBe(1)
+    expect(written).toBe(0)
     expect(await card('cursed-visionsofdeath')).toMatchObject({
-      text: 'A new curse.',
-      retired: false,
+      text: 'Held: Every hour draw a cursed card. Discard them at the end of the session.',
     })
   })
 
-  it('retires a removed row without deleting it, and restores it when it comes back', async () => {
+  it('leaves a card as it is when its row is removed from the file', async () => {
     const cursed = repositoryDeck('cursed')
     await importDecks({ cursed })
 
-    const without = cursed.filter((entry) => entry.nameKey !== 'visionsofdeath')
-    const removed = await importDecks({ cursed: without })
-    expect(removed.plan[0]?.counts.retired).toBe(1)
-    expect(await card('cursed-visionsofdeath')).toMatchObject({
-      name: 'Visions of Death',
-      retired: true,
-    })
-    expect(await storedCount()).toBe(154)
+    const without = cursed.filter(({ card: entry }) => entry.nameKey !== 'visionsofdeath')
+    await importDecks({ cursed: without })
 
-    const restored = await importDecks({ cursed })
-    expect(restored.plan[0]?.counts.restored).toBe(1)
-    expect(await card('cursed-visionsofdeath')).toMatchObject({ retired: false })
+    expect(await card('cursed-visionsofdeath')).toMatchObject({ status: 'active' })
+    expect(await storedCount()).toBe(154)
+  })
+
+  it('does not add a card again that the DM renamed', async () => {
+    const cursed = repositoryDeck('cursed')
+    await importDecks({ cursed })
+    await admin.db
+      .doc(`${CARDS_COLLECTION}/cursed-visionsofdeath`)
+      .update({ name: 'Visions of the End', nameKey: 'visionsoftheend' })
+
+    const { written } = await importDecks({ cursed })
+
+    expect(written).toBe(0)
+    expect(await storedCount()).toBe(154)
+  })
+
+  it('gives cards stored before statuses a status, from their old retired flag', async () => {
+    const legacy = (name: string, retired: boolean) => ({
+      kind: 'cursed',
+      name,
+      nameKey: name.toLowerCase(),
+      setCode: null,
+      cost: '1',
+      rarity: null,
+      mechanicPack: null,
+      text: 'Bad.',
+      retired,
+    })
+    await admin.db.doc(`${CARDS_COLLECTION}/cursed-hex`).set(legacy('Hex', false))
+    await admin.db.doc(`${CARDS_COLLECTION}/cursed-jinx`).set(legacy('Jinx', true))
+
+    const dry = await importDecks({ cursed: [] }, true)
+    expect(dry.plan[0]?.upgrades).toHaveLength(2)
+    expect(await card('cursed-hex')).toMatchObject({ retired: false })
+
+    const { plan, written } = await importDecks({ cursed: [] })
+
+    expect(plan[0]?.upgrades).toEqual([
+      { id: 'cursed-hex', status: 'active' },
+      { id: 'cursed-jinx', status: 'retired' },
+    ])
+    expect(written).toBe(2)
+    expect(await card('cursed-hex')).toEqual({
+      ...legacy('Hex', false),
+      retired: undefined,
+      status: 'active',
+    })
+    expect(await card('cursed-jinx')).not.toHaveProperty('retired')
+    expect(await card('cursed-jinx')).toMatchObject({ status: 'retired' })
+    expect(await records()).toEqual([])
+
+    const again = await importDecks({ cursed: [] })
+    expect(again.plan[0]?.upgrades).toEqual([])
   })
 
   it('imports only the Cursed deck when only that file is given', async () => {
-    await importDecks({ legend: repositoryDeck('legend'), cursed: repositoryDeck('cursed') })
+    await importDecks({ cursed: repositoryDeck('cursed') })
 
-    const { plan } = await importDecks({ cursed: [] })
+    const { plan } = await importDecks({ cursed: repositoryDeck('cursed') })
 
     expect(plan.map((deck) => deck.deck)).toEqual(['cursed'])
-    const retired = await admin.db.collection(CARDS_COLLECTION).where('retired', '==', true).get()
-    expect(retired.size).toBe(154)
-    expect(retired.docs.every((document) => document.id.startsWith('cursed-'))).toBe(true)
-    expect(await storedCount({ field: 'kind', value: 'normal' })).toBe(571)
+    expect(await storedCount({ field: 'kind', value: 'normal' })).toBe(0)
   })
 
   it('writes nothing on a dry run, but reports the same plan', async () => {
@@ -157,21 +249,8 @@ describe('card import against the emulators', () => {
     const { plan, written } = await importDecks(decks, true)
 
     expect(written).toBe(0)
-    expect(plan.map((deck) => deck.counts.added)).toEqual([590, 154])
+    expect(plan.map((deck) => deck.counts['added-active'])).toEqual([588, 154])
     expect(await storedCount()).toBe(0)
-  })
-
-  it('keeps a stored holder through a re-import', async () => {
-    const cursed = repositoryDeck('cursed')
-    await importDecks({ cursed })
-    const holder = { uid: 'player-1', userCardId: 'hold-1' }
-    await admin.db.doc(`${CARDS_COLLECTION}/cursed-visionsofdeath`).update({ holder })
-
-    const changed = cursed.map((entry) =>
-      entry.nameKey === 'visionsofdeath' ? { ...entry, text: 'Changed.' } : entry,
-    )
-    await importDecks({ cursed: changed })
-
-    expect(await card('cursed-visionsofdeath')).toMatchObject({ text: 'Changed.', holder })
+    expect(await records()).toEqual([])
   })
 })

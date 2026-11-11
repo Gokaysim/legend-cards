@@ -41,7 +41,7 @@ const storedCard = (kind: 'normal' | 'cursed', name: string) => ({
   rarity: kind === 'normal' ? 'common' : null,
   mechanicPack: kind === 'normal' ? 'Arcanus Divine' : null,
   text: `${name} text.`,
-  retired: false,
+  status: 'active',
 })
 
 async function stored(path: string): Promise<Record<string, unknown> | undefined> {

@@ -25,7 +25,7 @@ type Step = 'idle' | 'skip' | 'cancel'
 
 /** A shown word that is no longer in the list: drawn by its ID until the data says more. */
 function missingWord(id: string): TrueWord {
-  return { id, name: id, nameKey: id, cost: '?', text: '', retired: true }
+  return { id, name: id, nameKey: id, cost: '?', text: '', status: 'retired', changeId: null }
 }
 
 /**
@@ -98,11 +98,15 @@ export function OpenDraftPanel({ draft, wordsById, ownerName }: OpenDraftPanelPr
                 {canAct ? (
                   <Button
                     variant="primary"
-                    disabled={isBlocked || isKnown || word.retired || step !== 'idle'}
+                    disabled={isBlocked || isKnown || word.status !== 'active' || step !== 'idle'}
                     onClick={() => learn(wordId)}
                     aria-label={`${word.name}: öğren`}
                   >
-                    {isKnown ? 'Zaten biliyor' : word.retired ? 'Artık kullanılmıyor' : 'Öğren'}
+                    {isKnown
+                      ? 'Zaten biliyor'
+                      : word.status !== 'active'
+                        ? 'Artık kullanılmıyor'
+                        : 'Öğren'}
                   </Button>
                 ) : null}
               </TrueWordTile>

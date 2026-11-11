@@ -1,5 +1,6 @@
 import { type ReactNode, useMemo } from 'react'
 
+import { useIsDm } from '@/features/users/usersContext'
 import { db } from '@/lib/firebase/firestore'
 import { useCollection } from '@/lib/firestore/useCollection'
 import { useDocument } from '@/lib/firestore/useDocument'
@@ -12,7 +13,8 @@ import {
 import { logHoldingRef, logQueries } from './api'
 
 function useFirestoreLogRecords(uid: string | null, n: number) {
-  const queries = useMemo(() => logQueries(db, uid, n), [uid, n])
+  const isDm = useIsDm()
+  const queries = useMemo(() => logQueries(db, uid, n, isDm), [uid, n, isDm])
   const given = useCollection(queries.given)
   const closed = useCollection(queries.closed)
   const draws = useCollection(queries.draws)
@@ -20,9 +22,11 @@ function useFirestoreLogRecords(uid: string | null, n: number) {
   const drafts = useCollection(queries.drafts)
   const taught = useCollection(queries.taught)
   const takenBack = useCollection(queries.takenBack)
+  const changes = useCollection(queries.changes)
   return useMemo(
-    () => combineSubscriptions({ given, closed, draws, entries, drafts, taught, takenBack }),
-    [given, closed, draws, entries, drafts, taught, takenBack],
+    () =>
+      combineSubscriptions({ given, closed, draws, entries, drafts, taught, takenBack, changes }),
+    [given, closed, draws, entries, drafts, taught, takenBack, changes],
   )
 }
 

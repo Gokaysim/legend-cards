@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 
-import { type Deck, isInDeck, useCards } from '@/features/cards/cardsContext'
+import { type Deck, isInDeck, useCards, useCardsById } from '@/features/cards/cardsContext'
 import type { Card } from '@/features/cards/schema'
 import type { CardStatus, DeckStatus } from '@/features/cards/status'
 import type { UserProfile } from '@/features/users/schema'
@@ -32,7 +32,9 @@ export function cardStatuses(
       const uids = holdersOf(byCard.get(card.id) ?? [], card.id)
       if (holder && !uids.includes(holder.uid)) uids.unshift(holder.uid)
       const status: CardStatus = {
-        inPool: card.kind === 'blessed' || (card.kind === 'normal' && holder === null),
+        inPool:
+          card.status === 'active' &&
+          (card.kind === 'blessed' || (card.kind === 'normal' && holder === null)),
         holderNames: uids.map((uid) => names.get(uid) ?? 'İsimsiz oyuncu'),
       }
       return [card.id, status]
@@ -40,17 +42,20 @@ export function cardStatuses(
   )
 }
 
-/** The status of every active card, live. `null` while the cards, the holdings or the profiles load or fail. */
+/**
+ * The status of every card this device reads, live: the active ones, the retired ones still in hands, and on the DM's
+ * device the drafts. `null` while the cards, the holdings or the profiles load or fail.
+ */
 export function useCardStatuses(): ReadonlyMap<string, CardStatus> | null {
-  const cards = useCards()
+  const cardsById = useCardsById()
   const holdings = useOpenHoldings()
   const profiles = useProfiles()
   return useMemo(
     () =>
-      cards.status === 'ready' && holdings.status === 'ready' && profiles.status === 'ready'
-        ? cardStatuses(cards.data, holdings.data, profiles.data)
+      cardsById.status === 'ready' && holdings.status === 'ready' && profiles.status === 'ready'
+        ? cardStatuses([...cardsById.data.values()], holdings.data, profiles.data)
         : null,
-    [cards, holdings, profiles],
+    [cardsById, holdings, profiles],
   )
 }
 

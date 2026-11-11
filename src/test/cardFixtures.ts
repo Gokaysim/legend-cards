@@ -22,7 +22,8 @@ export function testCard(
     rarity: 'common',
     mechanicPack: 'Arcanus Divine',
     text: `${name} text.`,
-    retired: false,
+    status: 'active',
+    changeId: null,
     holder: null,
     ...overrides,
   }
@@ -43,7 +44,8 @@ export function testBlessedCard(
     rarity: null,
     mechanicPack: 'Risk & Reward',
     text: `${name} text.`,
-    retired: false,
+    status: 'active',
+    changeId: null,
     holder: null,
     ...overrides,
   }
@@ -64,7 +66,8 @@ export function testCursedCard(
     rarity: null,
     mechanicPack: null,
     text: `${name} text.`,
-    retired: false,
+    status: 'active',
+    changeId: null,
     holder: null,
     ...overrides,
   }

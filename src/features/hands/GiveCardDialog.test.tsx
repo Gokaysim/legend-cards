@@ -27,8 +27,9 @@ const greedy = testCard('Greedy Hands', {
 })
 const halo = testBlessedCard('Halo of Aboleths')
 const visions = testCursedCard('Visions of Death', { text: 'Aboleth dreams.' })
-const retired = testCard('Old Aboleth', { retired: true })
-const CARDS: Card[] = [eyes, gaze, greedy, halo, visions, retired]
+const retired = testCard('Old Aboleth', { status: 'retired' })
+const draft = testCard('Aboleth Draft', { status: 'draft' })
+const CARDS: Card[] = [eyes, gaze, greedy, halo, visions, retired, draft]
 
 function setup({
   viewer = dm,

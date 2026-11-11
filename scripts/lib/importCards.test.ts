@@ -1,8 +1,15 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
 
-import type { CardDefinition } from './cardRows.ts'
-import { cardId, type ImportPlan, planImport, type StoredCard } from './importCards.ts'
+import type { CardColumn, CardDefinition } from './cardRows.ts'
+import {
+  cardId,
+  type CardRow,
+  type ImportPlan,
+  planImport,
+  type StoredCard,
+  upgradeOf,
+} from './importCards.ts'
 
 const normalCard = (name: string, nameKey: string, overrides: Partial<CardDefinition> = {}) =>
   ({
@@ -28,13 +35,16 @@ const cursedCard = (name: string, nameKey: string): CardDefinition => ({
   text: 'Bad.',
 })
 
+/** A file row: complete unless `missing` names empty columns. */
+const row = (card: CardDefinition, missing: CardColumn[] = []): CardRow => ({ card, missing })
+
 const stored = (
   id: string,
   card: CardDefinition,
   extra: Record<string, unknown> = {},
 ): StoredCard => ({
   id,
-  data: { ...card, retired: false, ...extra },
+  data: { ...card, status: 'active', ...extra },
 })
 
 const outcomes = (plan: ImportPlan) =>
@@ -50,103 +60,90 @@ describe('cardId', () => {
 describe('planImport', () => {
   const eyes = normalCard("Aboleth's Eyes", 'abolethseyes')
 
-  it('adds a card that is not stored, writing its definition as active', () => {
-    const [deck] = planImport([], { legend: [eyes] })
+  it('adds a complete card that is not stored as active', () => {
+    const [deck] = planImport([], { legend: [row(eyes)] })
     expect(deck?.cards).toEqual([
       {
         id: 'legend-abolethseyes',
         name: "Aboleth's Eyes",
-        outcome: 'added',
-        write: { ...eyes, retired: false },
+        outcome: 'added-active',
+        missing: [],
+        definition: eyes,
       },
     ])
-    expect(deck?.counts).toEqual({ added: 1, updated: 0, unchanged: 0, retired: 0, restored: 0 })
+    expect(deck?.counts).toEqual({ 'added-active': 1, 'added-draft': 0, existing: 0 })
+    expect(deck?.upgrades).toEqual([])
   })
 
-  it('writes nothing for a card that is the same', () => {
-    const [deck] = planImport([stored('legend-abolethseyes', eyes)], { legend: [eyes] })
+  it('adds a card with an empty column as a draft, naming the column', () => {
+    const finale = normalCard('The Grand Finale', 'thegrandfinale', { cost: null })
+    const [deck] = planImport([], { legend: [row(finale, ['cost'])] })
+    expect(deck?.cards[0]).toMatchObject({ outcome: 'added-draft', missing: ['cost'] })
+  })
+
+  it('leaves a stored card alone, even when the file changed it', () => {
+    const changed = { ...eyes, text: 'New text.' }
+    const [deck] = planImport([stored('legend-abolethseyes', eyes)], { legend: [row(changed)] })
     expect(deck?.cards).toEqual([
-      { id: 'legend-abolethseyes', name: "Aboleth's Eyes", outcome: 'unchanged', write: null },
+      {
+        id: 'legend-abolethseyes',
+        name: "Aboleth's Eyes",
+        outcome: 'existing',
+        missing: [],
+        definition: null,
+      },
     ])
   })
 
-  it('ignores fields the import does not own, such as a holder', () => {
+  it('leaves a stored card alone whatever its status', () => {
     const plan = planImport(
       [
-        stored('legend-abolethseyes', eyes, {
-          holder: { uid: 'u1', userCardId: 'h1' },
-          imageUrl: 'x',
-        }),
+        stored('legend-abolethseyes', eyes, { status: 'retired' }),
+        stored('legend-echo', normalCard('Echo', 'echo'), { status: 'draft' }),
       ],
-      { legend: [eyes] },
+      { legend: [row(eyes), row(normalCard('Echo', 'echo'))] },
     )
-    expect(outcomes(plan)).toEqual([['legend-abolethseyes', 'unchanged']])
-  })
-
-  it('updates a card whose definition differs, never writing other fields', () => {
-    const changed = { ...eyes, text: 'New text.' }
-    const [deck] = planImport([stored('legend-abolethseyes', eyes, { holder: null })], {
-      legend: [changed],
-    })
-    expect(deck?.cards[0]).toEqual({
-      id: 'legend-abolethseyes',
-      name: "Aboleth's Eyes",
-      outcome: 'updated',
-      write: { ...changed, retired: false },
-    })
-  })
-
-  it('updates the same card when the name differs only in punctuation', () => {
-    const renamed = normalCard('Aboleths Eyes', 'abolethseyes')
-    const plan = planImport([stored('legend-abolethseyes', eyes)], { legend: [renamed] })
-    expect(outcomes(plan)).toEqual([['legend-abolethseyes', 'updated']])
-  })
-
-  it('updates a card whose stored document lacks a definition field', () => {
-    const { mechanicPack: _dropped, ...partial } = eyes
-    const plan = planImport([{ id: 'legend-abolethseyes', data: { ...partial, retired: false } }], {
-      legend: [eyes],
-    })
-    expect(outcomes(plan)).toEqual([['legend-abolethseyes', 'updated']])
-  })
-
-  it('updates a card that moves from normal to Blessed, under the same ID', () => {
-    const blessed = { ...eyes, kind: 'blessed' as const, setCode: null, rarity: null, cost: null }
-    const plan = planImport([stored('legend-abolethseyes', eyes)], { legend: [blessed] })
-    expect(outcomes(plan)).toEqual([['legend-abolethseyes', 'updated']])
-  })
-
-  it('retires a stored card of the deck that the file no longer has', () => {
-    const [deck] = planImport([stored('legend-abolethseyes', eyes)], { legend: [] })
-    expect(deck?.cards).toEqual([
-      {
-        id: 'legend-abolethseyes',
-        name: "Aboleth's Eyes",
-        outcome: 'retired',
-        write: { retired: true },
-      },
+    expect(outcomes(plan)).toEqual([
+      ['legend-abolethseyes', 'existing'],
+      ['legend-echo', 'existing'],
     ])
   })
 
-  it('leaves an already retired card alone when it is still missing', () => {
-    const [deck] = planImport([stored('legend-abolethseyes', eyes, { retired: true })], {
-      legend: [],
-    })
+  it('does not add a card again that the DM renamed, nor one stored under another ID with its name', () => {
+    const renamed = { ...eyes, name: 'Eyes of the Aboleth', nameKey: 'eyesoftheaboleth' }
+    const suffixed = normalCard('Bard Song', 'bardsong')
+    const plan = planImport(
+      [stored('legend-abolethseyes', renamed), stored('legend-bardsong-2', suffixed)],
+      { legend: [row(eyes), row(suffixed)] },
+    )
+    expect(outcomes(plan)).toEqual([
+      ['legend-abolethseyes', 'existing'],
+      ['legend-bardsong', 'existing'],
+    ])
+  })
+
+  it('never retires a stored card the file no longer has', () => {
+    const [deck] = planImport([stored('legend-abolethseyes', eyes)], { legend: [] })
     expect(deck?.cards).toEqual([])
   })
 
-  it('restores a retired card that is back in the file, with the definition from the file', () => {
-    const changed = { ...eyes, text: 'Back again.' }
-    const [deck] = planImport([stored('legend-abolethseyes', eyes, { retired: true })], {
-      legend: [changed],
-    })
-    expect(deck?.cards).toEqual([
-      {
-        id: 'legend-abolethseyes',
-        name: "Aboleth's Eyes",
-        outcome: 'restored',
-        write: { ...changed, retired: false },
-      },
+  it('gives stored cards without a status one, from their old retired flag', () => {
+    const hex = cursedCard('Hex', 'hex')
+    const { status: _none, ...old } = stored('legend-abolethseyes', eyes).data
+    const plan = planImport(
+      [
+        { id: 'legend-abolethseyes', data: { ...old, retired: false } },
+        { id: 'legend-gone', data: { ...old, nameKey: 'gone', retired: true } },
+        stored('legend-new', normalCard('New', 'new')),
+        { id: 'cursed-hex', data: { ...hex, retired: true } },
+      ],
+      { legend: [row(eyes)] },
+    )
+    expect(plan.map((deck) => deck.upgrades)).toEqual([
+      [
+        { id: 'legend-abolethseyes', status: 'active' },
+        { id: 'legend-gone', status: 'retired' },
+      ],
     ])
   })
 
@@ -154,42 +151,46 @@ describe('planImport', () => {
     const hex = cursedCard('Hex', 'hex')
     const existing = [stored('legend-abolethseyes', eyes), stored('cursed-hex', hex)]
 
-    const plan = planImport(existing, { cursed: [] })
+    const plan = planImport(existing, { cursed: [row(hex)] })
 
     expect(plan.map((deck) => deck.deck)).toEqual(['cursed'])
-    expect(outcomes(plan)).toEqual([['cursed-hex', 'retired']])
+    expect(outcomes(plan)).toEqual([['cursed-hex', 'existing']])
   })
 
   it('keeps a Legend card and a Cursed card with the same name apart', () => {
-    const plan = planImport([], {
-      legend: [normalCard('Echo', 'echo')],
-      cursed: [cursedCard('Echo', 'echo')],
+    const plan = planImport([stored('legend-echo', normalCard('Echo', 'echo'))], {
+      legend: [row(normalCard('Echo', 'echo'))],
+      cursed: [row(cursedCard('Echo', 'echo'))],
     })
     expect(outcomes(plan)).toEqual([
-      ['legend-echo', 'added'],
-      ['cursed-echo', 'added'],
+      ['legend-echo', 'existing'],
+      ['cursed-echo', 'added-active'],
     ])
   })
 
   it('ignores stored documents whose ID belongs to no deck', () => {
     const plan = planImport([{ id: 'stray', data: { retired: false } }], { legend: [] })
     expect(outcomes(plan)).toEqual([])
+    expect(plan[0]?.upgrades).toEqual([])
   })
 
   it('counts every outcome', () => {
     const kept = normalCard('Kept', 'kept')
-    const changed = normalCard('Changed', 'changed')
-    const gone = normalCard('Gone', 'gone')
-    const back = normalCard('Back', 'back')
-    const [deck] = planImport(
-      [
-        stored('legend-kept', kept),
-        stored('legend-changed', changed),
-        stored('legend-gone', gone),
-        stored('legend-back', back, { retired: true }),
+    const [deck] = planImport([stored('legend-kept', kept)], {
+      legend: [
+        row(kept),
+        row(normalCard('New', 'new')),
+        row(normalCard('Draft', 'draft', { text: '' }), ['text']),
       ],
-      { legend: [kept, { ...changed, cost: '2' }, back, normalCard('New', 'new')] },
-    )
-    expect(deck?.counts).toEqual({ added: 1, updated: 1, unchanged: 1, retired: 1, restored: 1 })
+    })
+    expect(deck?.counts).toEqual({ 'added-active': 1, 'added-draft': 1, existing: 1 })
+  })
+})
+
+describe('upgradeOf', () => {
+  it('upgrades only a definition without a status', () => {
+    expect(upgradeOf({ id: 'a', data: { retired: true } })).toEqual({ id: 'a', status: 'retired' })
+    expect(upgradeOf({ id: 'b', data: {} })).toEqual({ id: 'b', status: 'active' })
+    expect(upgradeOf({ id: 'c', data: { status: 'draft' } })).toBeNull()
   })
 })

@@ -62,6 +62,81 @@ service cloud.firestore {
       return /databases/$(database)/documents/wordDrafts/$(draftId);
     }
 
+    function definitionChangePath(changeId) {
+      return /databases/$(database)/documents/definitionChanges/$(changeId);
+    }
+
+    // Definition statuses (spec: definition-editing). A player reads only active and retired definitions; a draft
+    // reaches the DM only. Keep in step with src/features/definitions/status.ts.
+    function playerVisible(status) {
+      return status in ['active', 'retired'];
+    }
+
+    // The status steps a definition may take in one write (design D5): a draft is edited or published, an active
+    // definition is edited or retired, a retired one is edited or brought back. Nothing ever becomes a draft again.
+    function allowedStatusStep(before, after) {
+      return (before == 'draft' && after in ['draft', 'active'])
+        || (before == 'active' && after in ['active', 'retired'])
+        || (before == 'retired' && after in ['retired', 'active']);
+    }
+
+    // The step a change record names for a status pair (null for none: added or deleted). Which pairs are allowed at
+    // all is the definition's own rule; this only names them. Keep in step with stepFor in the definitions schema.
+    function stepFor(before, after) {
+      return before == null ? 'added'
+        : after == null ? 'deleted'
+        : before == after ? 'edited'
+        : before == 'draft' ? 'published'
+        : after == 'retired' ? 'retired'
+        : 'restored';
+    }
+
+    // A string of 1 to `max` characters.
+    function textOfSize(value, max) {
+      return value is string && value.size() >= 1 && value.size() <= max;
+    }
+
+    // A card's definition with its status, as a change record keeps it (CardSnapshot in the definitions schema).
+    function cardSnapshot(data) {
+      return {
+        'kind': data.kind,
+        'name': data.name,
+        'nameKey': data.nameKey,
+        'setCode': data.setCode,
+        'cost': data.cost,
+        'rarity': data.rarity,
+        'mechanicPack': data.mechanicPack,
+        'text': data.text,
+        'status': data.status
+      };
+    }
+
+    // A True Word's definition with its status, as a change record keeps it (WordSnapshot in the definitions schema).
+    function wordSnapshot(data) {
+      return {
+        'name': data.name,
+        'nameKey': data.nameKey,
+        'cost': data.cost,
+        'text': data.text,
+        'status': data.status
+      };
+    }
+
+    // The change record `changeId` is created in this same request, for this target. The record's own rule checks that
+    // it agrees with the definition before and after (definitionChanges below).
+    function recordedBy(changeId, target, targetId) {
+      return changeId is string
+        && createdNow(definitionChangePath(changeId))
+        && getAfter(definitionChangePath(changeId)).data.target == target
+        && getAfter(definitionChangePath(changeId)).data.targetId == targetId;
+    }
+
+    // The ID of the record that deletes a draft: fixed by the draft's ID and its newest record, so the definition's
+    // rule can find it without a query. Keep in step with deleteRecordId in src/features/definitions/api.ts.
+    function deleteRecordId(targetId, changeId) {
+      return 'del-' + targetId + '-' + changeId;
+    }
+
     // A player's known True Words ({ wordId: recordId }) and open draft, before and after this request. A player
     // without a `playerWords` document knows nothing and has no open draft.
     function knownBefore(uid) {
@@ -371,16 +446,115 @@ service cloud.firestore {
       }
     }
 
-    // Card definitions. Everyone signed in reads every card, retired ones included. Only the import script (Admin
-    // SDK) writes the definitions. The application changes only a normal card's `holder`, and only together with
-    // the holding that explains it (see userCards below): each side checks the other's final state.
+    // Card definitions. Everyone signed in reads the active and retired cards; only the DM reads a draft. The import
+    // script (Admin SDK) adds cards. The DM adds, edits, publishes, retires, brings back and deletes them, each step
+    // together with its change record (definitionChanges below). Otherwise the application changes only a normal
+    // card's `holder`, together with the holding that explains it (see userCards below), and never in the same write
+    // as the definition.
     match /cards/{cardId} {
-      allow read: if isSignedIn();
+      allow read: if isSignedIn() && (playerVisible(resource.data.status) || isDm());
+      allow create: if isSignedIn() && addedByDm();
       allow update: if isSignedIn()
-        && onlyChanges(['holder'])
-        && resource.data.kind == 'normal'
-        && (takenFromPool() || releasedByClosedHolding() || movedByTransfer());
-      allow create, delete: if false;
+        && ((onlyChanges(['holder'])
+            && resource.data.kind == 'normal'
+            && (takenFromPool() || releasedByClosedHolding() || movedByTransfer()))
+          || changedByDm());
+      allow delete: if isSignedIn()
+        && resource.data.status == 'draft'
+        && deletionRecorded()
+        && tableFree()
+        && isDm();
+
+      // The definition fields, and the record that explains their newest change.
+      function definitionKeys() {
+        return ['kind', 'name', 'nameKey', 'setCode', 'cost', 'rarity', 'mechanicPack', 'text', 'status', 'changeId'];
+      }
+
+      // A card's shape: the limits of CARD_LIMITS, a status, and the fields its kind has. A normal draft may still
+      // lack its set, rarity and mechanic pack; completeCard decides when it may be active. Only a normal card has a
+      // holder.
+      function validCard(data) {
+        return textOfSize(data.name, 200)
+          && textOfSize(data.nameKey, 200)
+          && (data.cost == null || textOfSize(data.cost, 10))
+          && data.text is string
+          && data.text.size() <= 2000
+          && data.status in ['draft', 'active', 'retired']
+          && (
+            (data.kind == 'normal'
+              && (data.setCode == null || textOfSize(data.setCode, 100))
+              && (data.rarity == null || data.rarity in ['common', 'rare'])
+              && (data.mechanicPack == null || textOfSize(data.mechanicPack, 100)))
+            || (data.kind == 'blessed'
+              && data.setCode == null
+              && data.rarity == null
+              && (data.mechanicPack == null || textOfSize(data.mechanicPack, 100))
+              && data.get('holder', null) == null)
+            || (data.kind == 'cursed'
+              && data.setCode == null
+              && data.rarity == null
+              && data.mechanicPack == null
+              && data.get('holder', null) == null)
+          );
+      }
+
+      // Every field the card's kind requires has a value (spec: definition-editing, "Complete definitions"): a normal
+      // card a set, a rarity, a mechanic pack and a text; a Blessed card a mechanic pack and a text; a Cursed card a
+      // text. A cost is never required. Keep in step with missingCardFields in the cards schema.
+      function completeCard(data) {
+        return data.text != ''
+          && (data.kind == 'cursed' || data.mechanicPack != null)
+          && (data.kind != 'normal' || (data.setCode != null && data.rarity != null));
+      }
+
+      // The ID's deck matches the kind: `legend-` for normal and Blessed cards, `cursed-` for Cursed cards.
+      function inDeck(kind) {
+        return kind == 'cursed' ? cardId.matches('cursed-.+') : cardId.matches('legend-.+');
+      }
+
+      // The DM adds a card as a draft, or straight to active when it is complete and the table is free. It starts in
+      // the pool, without a holder.
+      function addedByDm() {
+        let data = request.resource.data;
+        return data.keys().hasOnly(definitionKeys().concat(['holder']))
+          && data.keys().hasAll(definitionKeys())
+          && validCard(data)
+          && inDeck(data.kind)
+          && data.get('holder', null) == null
+          && (data.status == 'draft' || (data.status == 'active' && completeCard(data) && tableFree()))
+          && recordedBy(data.changeId, 'card', cardId)
+          && isDm();
+      }
+
+      // The DM's definition step on a stored card (design D5, D6, D8): an allowed status step that leaves an active or
+      // retired card complete, a kind that changes only on a draft (also as it is published) and only between normal
+      // and Blessed, retiring and bringing back
+      // that change nothing but the status, a free table for every status change, and the step's new record. The
+      // holder never changes here.
+      function changedByDm() {
+        let before = resource.data;
+        let after = request.resource.data;
+        return onlyChanges(definitionKeys())
+          && validCard(after)
+          && inDeck(after.kind)
+          && allowedStatusStep(before.status, after.status)
+          && (after.status == 'draft' || completeCard(after))
+          && (after.kind == before.kind
+            || (before.status == 'draft'
+              && before.kind in ['normal', 'blessed'] && after.kind in ['normal', 'blessed']))
+          && (before.status == after.status || before.status == 'draft' || onlyChanges(['status', 'changeId']))
+          && (before.status == after.status || tableFree())
+          && after.changeId != before.get('changeId', null)
+          && recordedBy(after.changeId, 'card', cardId)
+          && isDm();
+      }
+
+      // A draft is deleted together with its record, whose ID the draft's newest record fixes.
+      function deletionRecorded() {
+        let changeId = resource.data.get('changeId', null);
+        return changeId is string
+          && recordedBy(deleteRecordId(cardId, changeId), 'card', cardId);
+      }
 
       function holderNow() {
         return resource.data.get('holder', null);
@@ -506,12 +680,12 @@ service cloud.firestore {
           );
       }
 
-      // A DM give of an active card. A normal card in the pool gets this holding as its holder. A held one is an
-      // extra copy and keeps its holder.
+      // A DM give of an active card, never a draft or a retired one. A normal card in the pool gets this holding as its
+      // holder. A held one is an extra copy and keeps its holder.
       function givenByDm() {
         let cardId = request.resource.data.cardId;
         let before = holderBefore(cardId);
-        return get(cardPath(cardId)).data.retired == false
+        return get(cardPath(cardId)).data.status == 'active'
           && (request.resource.data.cardKind != 'normal'
             || (before == null
               ? holderAfter(cardId) == {'uid': request.resource.data.uid, 'userCardId': holdingId}
@@ -550,7 +724,7 @@ service cloud.firestore {
           && data.active == false
           && data.note == ''
           && data.costOverride == null
-          && get(cardPath(cardId)).data.retired == false
+          && get(cardPath(cardId)).data.status == 'active'
           && (data.cardKind != 'normal'
             || (holderBefore(cardId) == null
               && holderAfter(cardId) == {'uid': data.uid, 'userCardId': holdingId}));
@@ -580,7 +754,7 @@ service cloud.firestore {
           && data.active == false
           && data.note == ''
           && data.costOverride == null
-          && get(cardPath(cardId)).data.retired == false
+          && get(cardPath(cardId)).data.status == 'active'
           && (data.cardKind != 'normal'
             || (holderBefore(cardId) == null
               && holderAfter(cardId) == {'uid': data.uid, 'userCardId': holdingId}));
@@ -954,11 +1128,130 @@ service cloud.firestore {
       }
     }
 
-    // True Word definitions. Everyone signed in reads every word, retired ones included. Only the import script
-    // (Admin SDK, outside these rules) writes them.
+    // True Word definitions. Everyone signed in reads the active and retired words; only the DM reads a draft. The
+    // import script (Admin SDK) adds words. The DM adds, edits, publishes, retires, brings back and deletes them, each
+    // step together with its change record (definitionChanges below).
     match /trueWords/{wordId} {
-      allow read: if isSignedIn();
-      allow write: if false;
+      allow read: if isSignedIn() && (playerVisible(resource.data.status) || isDm());
+      allow create: if isSignedIn() && wordAddedByDm();
+      allow update: if isSignedIn() && wordChangedByDm();
+      allow delete: if isSignedIn()
+        && resource.data.status == 'draft'
+        && wordDeletionRecorded()
+        && tableFree()
+        && isDm();
+
+      function wordKeys() {
+        return ['name', 'nameKey', 'cost', 'text', 'status', 'changeId'];
+      }
+
+      // A word's shape: the limits of TRUE_WORD_LIMITS and a status. A draft may still lack its cost or text.
+      function validWord(data) {
+        return wordId.matches('tw-.+')
+          && textOfSize(data.name, 200)
+          && textOfSize(data.nameKey, 200)
+          && (data.cost == null || textOfSize(data.cost, 10))
+          && data.text is string
+          && data.text.size() <= 2000
+          && data.status in ['draft', 'active', 'retired'];
+      }
+
+      // A word needs a cost and a text (spec: definition-editing, "Complete definitions"). Keep in step with
+      // missingWordFields in the True Words schema.
+      function completeWord(data) {
+        return data.cost != null && data.text != '';
+      }
+
+      function wordAddedByDm() {
+        let data = request.resource.data;
+        return data.keys().hasOnly(wordKeys())
+          && data.keys().hasAll(wordKeys())
+          && validWord(data)
+          && (data.status == 'draft' || (data.status == 'active' && completeWord(data) && tableFree()))
+          && recordedBy(data.changeId, 'word', wordId)
+          && isDm();
+      }
+
+      // As for cards: an allowed status step, complete unless a draft, status-only retire and bring-back, a free table
+      // for every status change, and the step's new record.
+      function wordChangedByDm() {
+        let before = resource.data;
+        let after = request.resource.data;
+        return onlyChanges(wordKeys())
+          && validWord(after)
+          && allowedStatusStep(before.status, after.status)
+          && (after.status == 'draft' || completeWord(after))
+          && (before.status == after.status || before.status == 'draft' || onlyChanges(['status', 'changeId']))
+          && (before.status == after.status || tableFree())
+          && after.changeId != before.get('changeId', null)
+          && recordedBy(after.changeId, 'word', wordId)
+          && isDm();
+      }
+
+      function wordDeletionRecorded() {
+        let changeId = resource.data.get('changeId', null);
+        return changeId is string
+          && recordedBy(deleteRecordId(wordId, changeId), 'word', wordId);
+      }
+    }
+
+    // Definition change records: one per DM step on a card or a True Word, holding the definition before and after
+    // (design D4). Everyone signed in reads the public ones, the steps players can see; only the DM reads draft work.
+    // Only the DM creates them, each together with the change it records; the import script writes its own with the
+    // Admin SDK. A record never changes and is never deleted.
+    match /definitionChanges/{changeId} {
+      allow read: if isSignedIn() && (resource.data.public == true || isDm());
+      allow create: if isSignedIn() && validChangeRecord() && isDm();
+      allow update, delete: if false;
+
+      function recordKeys() {
+        return ['target', 'targetId', 'name', 'step', 'before', 'after', 'public', 'by', 'at'];
+      }
+
+      function targetPath(data) {
+        return data.target == 'card' ? cardPath(data.targetId) : trueWordPath(data.targetId);
+      }
+
+      function snapshotOf(target, data) {
+        return target == 'card' ? cardSnapshot(data) : wordSnapshot(data);
+      }
+
+      function statusOf(snapshot) {
+        return snapshot == null ? null : snapshot.status;
+      }
+
+      // `before` is the stored definition before this request (null when it did not exist), and `after` the stored one
+      // after it (null when it is deleted). A stale `before`, from a form opened before another change, is refused.
+      function agreesWithTarget(data) {
+        let path = targetPath(data);
+        return (data.before == null ? !exists(path) : data.before == snapshotOf(data.target, get(path).data))
+          && (data.after == null ? !existsAfter(path) : data.after == snapshotOf(data.target, getAfter(path).data));
+      }
+
+      // The record belongs to a change in this request: the definition now points at it, or, for a delete, it has the
+      // ID that the deleted draft's newest record fixes. So no record exists without its change.
+      function explainsTarget(data) {
+        let path = targetPath(data);
+        return data.after != null
+          ? getAfter(path).data.changeId == changeId
+          : changeId == deleteRecordId(data.targetId, get(path).data.get('changeId', ''));
+      }
+
+      function validChangeRecord() {
+        let data = request.resource.data;
+        return data.keys().hasOnly(recordKeys())
+          && data.keys().hasAll(recordKeys())
+          && data.target in ['card', 'word']
+          && data.targetId is string
+          && (data.before != null || data.after != null)
+          && agreesWithTarget(data)
+          && explainsTarget(data)
+          && data.step == stepFor(statusOf(data.before), statusOf(data.after))
+          && data.public == (playerVisible(statusOf(data.before)) || playerVisible(statusOf(data.after)))
+          && data.name == (data.after != null ? data.after.name : data.before.name)
+          && data.by == request.auth.uid
+          && data.at == request.time;
+      }
     }
 
     // A player's True Word state: the known words with their open records, the open draft, and the record that
@@ -1090,7 +1383,7 @@ service cloud.firestore {
           && data.keys().hasAll(fields)
           && data.wordId is string
           && exists(trueWordPath(data.wordId))
-          && get(trueWordPath(data.wordId)).data.retired == false
+          && get(trueWordPath(data.wordId)).data.status == 'active'
           && data.wordName == get(trueWordPath(data.wordId)).data.name
           && data.uid is string
           && data.learnedAt == request.time

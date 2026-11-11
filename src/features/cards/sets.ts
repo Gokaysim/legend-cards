@@ -30,6 +30,21 @@ export const OFFICIAL_SETS: readonly OfficialSet[] = [
   { code: 'Pandemonium', name: 'Pandemonium', aliases: [] },
 ]
 
+/**
+ * The eight mechanic packs (docs/domain.md, Mechanic Packs), in Turkish alphabetical order, as the DM's card form
+ * offers them. Keep in step with `scripts/lib/cardCatalog.ts` (the drift test checks it).
+ */
+export const MECHANIC_PACKS: readonly string[] = [
+  'Arcanus Divine',
+  'Blood & Battle',
+  "Dungeoneer's Kit",
+  "Gambler's Gambit",
+  'Horn of Plenty',
+  'Legends of Old',
+  'Permamancy',
+  'Risk & Reward',
+]
+
 const setsByKey = new Map(
   OFFICIAL_SETS.flatMap((set, index) =>
     [set.code, ...set.aliases].map((spelling) => [normalize(spelling), { set, index }] as const),

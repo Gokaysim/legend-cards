@@ -10,6 +10,8 @@ import {
 } from 'firebase/firestore'
 
 import { ledgerRef } from '@/features/balances/api'
+import { definitionChangesRef, publicChangesQuery } from '@/features/definitions/api'
+import type { DefinitionChange } from '@/features/definitions/schema'
 import type { LedgerEntry } from '@/features/balances/schema'
 import { drawsRef } from '@/features/draws/api'
 import type { Draw } from '@/features/draws/schema'
@@ -19,10 +21,11 @@ import { learnedWordsRef, wordDraftsRef } from '@/features/true-words/api'
 import type { LearnedWord, WordDraft } from '@/features/true-words/schema'
 
 /**
- * The seven queries of the İşlem Logu's sources (holdings, draws, the ledger, True Word drafts and learned words),
- * each newest first and limited to `n`. With a user, each keeps only that user's records: their holdings, the draws
- * and packs into their hand, their LP entries, their drafts, and the words taught to them or taken back from them.
- * Party entries never match a user.
+ * The eight queries of the İşlem Logu's sources (holdings, draws, the ledger, True Word drafts and learned words, and
+ * the definition changes), each newest first and limited to `n`. With a user, each keeps only that user's records:
+ * their holdings, the draws and packs into their hand, their LP entries, their drafts, and the words taught to them or
+ * taken back from them. Party entries never match a user, and definition changes are left out (`changes` is `null`).
+ * A player's device asks only for the public changes, which the rules let it read; the DM's for all of them.
  *
  * The holdings a draw or a pack opened, and the entries that paid for or refunded them, are part of their draw's or
  * pack's event, so the queries leave them out: given holdings are only the DM's gives and transfers, and entries
@@ -41,12 +44,18 @@ export type LogQueries = {
   drafts: Query<WordDraft>
   taught: Query<LearnedWord>
   takenBack: Query<LearnedWord>
+  changes: Query<DefinitionChange> | null
 }
 
 /** The ways of giving that are events of their own; drawn and pack holdings belong to their draw or pack. */
 const LOGGED_WAYS: GivenVia[] = ['dm', 'transfer']
 
-export function logQueries(db: Firestore, uid: string | null, n: number): LogQueries {
+export function logQueries(
+  db: Firestore,
+  uid: string | null,
+  n: number,
+  isDm: boolean,
+): LogQueries {
   const byHolder: QueryConstraint[] = uid === null ? [] : [where('uid', '==', uid)]
   const byAccount: QueryConstraint[] = uid === null ? [] : [where('account', '==', uid)]
   return {
@@ -87,6 +96,14 @@ export function logQueries(db: Firestore, uid: string | null, n: number): LogQue
       orderBy('removedAt', 'desc'),
       limit(n),
     ),
+    changes:
+      uid !== null
+        ? null
+        : query(
+            isDm ? definitionChangesRef(db) : publicChangesQuery(db),
+            orderBy('at', 'desc'),
+            limit(n),
+          ),
   }
 }
 

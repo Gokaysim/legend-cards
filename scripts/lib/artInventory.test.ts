@@ -33,9 +33,11 @@ describe('the inventory of the archives', () => {
     expect(aliases.aliases).toHaveLength(17)
   })
 
-  it('gives every card, word, cardback and pack a picture, except Scorched Earth', () => {
+  // The Cartographer, which imports used to skip for its missing set, now comes in as a draft; the archives have no
+  // picture for it.
+  it('gives every card, word, cardback and pack a picture, except Scorched Earth and The Cartographer', () => {
     const { normal, blessed, cursed, word, back, pack } = plan.coverage
-    expect(normal).toEqual({ expected: 571, found: 571, missing: [] })
+    expect(normal).toEqual({ expected: 572, found: 571, missing: ['The Cartographer'] })
     expect(blessed).toEqual({ expected: 19, found: 19, missing: [] })
     expect(cursed).toEqual({ expected: 154, found: 153, missing: ['Scorched Earth'] })
     expect(word).toEqual({ expected: 53, found: 53, missing: [] })

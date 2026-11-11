@@ -50,7 +50,7 @@ export type WordFailure =
   | { kind: 'invalid-choice' }
   /** The player already knows the word. */
   | { kind: 'word-known' }
-  /** The word was retired, or does not exist. */
+  /** The word is not active (a draft, or retired), or does not exist. */
   | { kind: 'unavailable' }
   /** The player does not know the word any more: it was taken back meanwhile. */
   | { kind: 'not-known' }

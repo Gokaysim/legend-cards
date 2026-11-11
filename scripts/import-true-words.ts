@@ -1,7 +1,9 @@
-// Imports the True Words from a CSV file:
+// Adds the True Words from a CSV file that are not stored yet:
 //   npm run import-true-words -- [--file <csv>] [--dry-run] [--project <id>] [--yes]
-// Without --file it imports data/true-words.csv. Targets the local emulators unless --project names a real
-// project (which must then be confirmed). The whole file is checked before anything is written.
+// Without --file it imports data/true-words.csv. A stored word is never changed: the DM edits words in the app. A
+// row with an empty cost or text is added as a draft. Stored words from before statuses get one. Targets the local
+// emulators unless --project names a real project (which must then be confirmed). The whole file is checked before
+// anything is written.
 import { readFile } from 'node:fs/promises'
 import { relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -71,17 +73,10 @@ async function main(): Promise<number> {
   const { admin } = connection
   try {
     // 3. Plan, write unless this is a dry run, and report.
-    const words = parsed.words.map(({ word }) => word)
-    const { plan, written } = await runWordImport(admin.db, words, { dryRun })
+    const { plan, written } = await runWordImport(admin.db, parsed.words, { dryRun })
 
     if (dryRun) console.log(messages.dryRunWordsHeader)
     for (const line of messages.wordReport(plan, dryRun)) console.log(line)
-    if (parsed.warnings.length > 0) {
-      console.log(dryRun ? messages.dryRunWarningsHeader : messages.warningsHeader)
-      for (const warning of parsed.warnings) {
-        console.log(`  ${messages.trueWordFileWarning(shownPath(file), warning)}`)
-      }
-    }
     if (!dryRun) console.log(messages.wordsWritten(written))
     return 0
   } finally {

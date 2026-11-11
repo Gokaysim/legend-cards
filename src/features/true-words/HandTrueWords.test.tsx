@@ -18,7 +18,7 @@ const ABYSS = testTrueWord('Abyss', { cost: '5', text: 'A random card is free.' 
 const AID = testTrueWord('Aid', { text: 'Aid Another as a swift action.' })
 const CHAOS = testTrueWord('Chaos')
 const DRAGON = testTrueWord('Dragon', { cost: 'X', text: 'Breathe fire.' })
-const OLD = testTrueWord('Old', { retired: true })
+const OLD = testTrueWord('Old', { status: 'retired' })
 const WORDS = [ABYSS, AID, CHAOS, DRAGON, OLD]
 
 const me = testProfile({ displayName: 'Gökay' })

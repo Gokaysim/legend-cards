@@ -150,7 +150,7 @@ export function ActivityLogPage() {
                     key={event.key}
                     event={event}
                     nameOf={nameOf}
-                    actor={byId.get(event.by)}
+                    actor={event.by === null ? undefined : byId.get(event.by)}
                   />
                 ))}
               </ol>

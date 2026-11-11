@@ -140,8 +140,8 @@ export function packCatalog(cards: readonly Card[]): PackCatalog {
   const sets = new Set<string>()
   const mechanics = new Set<string>()
   for (const card of cards) {
-    if (card.retired || card.kind === 'cursed') continue
-    if (card.kind === 'normal') sets.add(card.setCode)
+    if (card.status !== 'active' || card.kind === 'cursed') continue
+    if (card.kind === 'normal' && card.setCode !== null) sets.add(card.setCode)
     if (card.mechanicPack !== null) mechanics.add(card.mechanicPack)
   }
   const setGroups = [...sets]

@@ -1,52 +1,52 @@
-import type { Firestore } from 'firebase-admin/firestore'
+import { FieldValue, type Firestore, type WriteBatch } from 'firebase-admin/firestore'
 
-import type { CardDefinition, Deck } from './cardRows.ts'
+import type { CardColumn, CardDefinition, Deck, ParsedCard } from './cardRows.ts'
 
 /** The card collection. Keep in step with `src/features/cards/api.ts` and `firestore.rules`. */
 export const CARDS_COLLECTION = 'cards'
 
+/** The definition change records. Keep in step with `src/features/definitions/api.ts` and `firestore.rules`. */
+export const CHANGES_COLLECTION = 'definitionChanges'
+
 /** Firestore allows at most 500 writes in one batch. */
 export const BATCH_SIZE = 500
 
-/** The fields an import owns. Any other stored field, such as a later `holder`, is never compared or written. */
-const DEFINITION_FIELDS = [
-  'kind',
-  'name',
-  'nameKey',
-  'setCode',
-  'cost',
-  'rarity',
-  'mechanicPack',
-  'text',
-] as const satisfies readonly (keyof CardDefinition)[]
+/** A definition's status. Keep in step with `src/features/definitions/status.ts`. */
+export type DefinitionStatus = 'draft' | 'active' | 'retired'
 
-/** A stored card as read from Firestore, unvalidated: the import must cope with anything stored there. */
-export type StoredCard = { id: string; data: Record<string, unknown> }
+/** A stored document as read from Firestore, unvalidated: the import must cope with anything stored there. */
+export type StoredDefinition = { id: string; data: Record<string, unknown> }
+export type StoredCard = StoredDefinition
 
-export type CardOutcome = 'added' | 'updated' | 'unchanged' | 'retired' | 'restored'
-export const OUTCOMES: readonly CardOutcome[] = [
-  'added',
-  'updated',
-  'unchanged',
-  'retired',
-  'restored',
-]
+/**
+ * What an import does with a row (spec: admin-scripts, "The card import only adds"): it adds the definition as
+ * active, adds it as a draft because a value is missing, or leaves the stored one alone.
+ */
+export type CardOutcome = 'added-active' | 'added-draft' | 'existing'
+export const OUTCOMES: readonly CardOutcome[] = ['added-active', 'added-draft', 'existing']
 
-/** What a write sets, merged into the stored document. */
-export type CardWrite = (CardDefinition & { retired: false }) | { retired: true }
+/** A row the import reads: a definition and the columns its kind uses that the row leaves empty. */
+export type CardRow = Pick<ParsedCard, 'card' | 'missing'>
 
 export type PlannedCard = {
   id: string
   name: string
   outcome: CardOutcome
-  /** `null` when nothing is written. */
-  write: CardWrite | null
+  /** The empty columns that make an added card a draft. */
+  missing: readonly CardColumn[]
+  /** The definition to add; `null` for a card already stored. */
+  definition: CardDefinition | null
 }
+
+/** A stored definition from before statuses, and the status it gets (spec: admin-scripts, "Imports give stored
+ * definitions a status"). */
+export type Upgrade = { id: string; status: 'active' | 'retired' }
 
 export type DeckPlan = {
   deck: Deck
   cards: PlannedCard[]
   counts: Record<CardOutcome, number>
+  upgrades: Upgrade[]
 }
 
 /** One plan per imported deck. A deck that is not imported has no plan and is never touched. */
@@ -60,63 +60,55 @@ export function cardId(deck: Deck, nameKey: string): string {
 const deckOfId = (id: string): Deck | null =>
   id.startsWith('legend-') ? 'legend' : id.startsWith('cursed-') ? 'cursed' : null
 
-const storedName = (card: StoredCard) =>
-  typeof card.data.name === 'string' ? card.data.name : card.id
-
-function sameDefinition(stored: Record<string, unknown>, card: CardDefinition): boolean {
-  return DEFINITION_FIELDS.every((field) => stored[field] === card[field])
+/** The status a stored definition without one gets: retired when it was marked retired, active otherwise. */
+export function upgradeOf(stored: StoredDefinition): Upgrade | null {
+  if (typeof stored.data.status === 'string') return null
+  return { id: stored.id, status: stored.data.retired === true ? 'retired' : 'active' }
 }
 
-function planDeck(deck: Deck, rows: readonly CardDefinition[], existing: readonly StoredCard[]) {
-  const storedById = new Map(
-    existing.filter((card) => deckOfId(card.id) === deck).map((card) => [card.id, card]),
-  )
-  const cards: PlannedCard[] = []
-
-  for (const row of rows) {
-    const id = cardId(deck, row.nameKey)
-    const stored = storedById.get(id)
-    storedById.delete(id)
-    const write: CardWrite = { ...row, retired: false }
-    if (!stored) {
-      cards.push({ id, name: row.name, outcome: 'added', write })
-    } else if (stored.data.retired === true) {
-      cards.push({ id, name: row.name, outcome: 'restored', write })
-    } else if (stored.data.retired !== false || !sameDefinition(stored.data, row)) {
-      cards.push({ id, name: row.name, outcome: 'updated', write })
-    } else {
-      cards.push({ id, name: row.name, outcome: 'unchanged', write: null })
-    }
-  }
-
-  // Stored cards of this deck that the file no longer has. Already retired ones stay as they are.
-  const missing = [...storedById.values()]
-    .filter((card) => card.data.retired !== true)
-    .sort((a, b) => a.id.localeCompare(b.id))
-  for (const card of missing) {
-    cards.push({
-      id: card.id,
-      name: storedName(card),
-      outcome: 'retired',
-      write: { retired: true },
-    })
-  }
-
+/** Counts each outcome, with every outcome present. */
+export function countOutcomes(
+  items: readonly { outcome: CardOutcome }[],
+): Record<CardOutcome, number> {
   const counts = Object.fromEntries(OUTCOMES.map((outcome) => [outcome, 0])) as Record<
     CardOutcome,
     number
   >
-  for (const card of cards) counts[card.outcome] += 1
-  return { deck, cards, counts }
+  for (const item of items) counts[item.outcome] += 1
+  return counts
+}
+
+function planDeck(deck: Deck, rows: readonly CardRow[], existing: readonly StoredCard[]): DeckPlan {
+  const stored = existing.filter((card) => deckOfId(card.id) === deck)
+  // A row is stored already when its deck has a card with the ID its name gives, or with the same name: a renamed
+  // card keeps its first ID, and a card the DM added may have a suffixed one.
+  const ids = new Set(stored.map((card) => card.id))
+  const nameKeys = new Set(
+    stored.flatMap((card) => (typeof card.data.nameKey === 'string' ? [card.data.nameKey] : [])),
+  )
+
+  const cards = rows.map(({ card, missing }): PlannedCard => {
+    const id = cardId(deck, card.nameKey)
+    if (ids.has(id) || nameKeys.has(card.nameKey)) {
+      return { id, name: card.name, outcome: 'existing', missing: [], definition: null }
+    }
+    const outcome = missing.length === 0 ? 'added-active' : 'added-draft'
+    return { id, name: card.name, outcome, missing, definition: card }
+  })
+  const upgrades = stored
+    .flatMap((card) => upgradeOf(card) ?? [])
+    .sort((a, b) => a.id.localeCompare(b.id))
+  return { deck, cards, counts: countOutcomes(cards), upgrades }
 }
 
 /**
- * Decides what an import does to each card (spec: admin-scripts, "Re-importing updates cards by name",
- * "Cards missing from their file are retired"). Pure: the caller reads the stored cards and applies the plan.
+ * Decides what an import does (spec: admin-scripts, "The card import only adds", "Imported definitions are active
+ * unless a value is missing", "Imports give stored definitions a status"). Pure: the caller reads the stored cards and
+ * applies the plan.
  */
 export function planImport(
   existing: readonly StoredCard[],
-  decks: Partial<Record<Deck, readonly CardDefinition[]>>,
+  decks: Partial<Record<Deck, readonly CardRow[]>>,
 ): ImportPlan {
   return (['legend', 'cursed'] as const).flatMap((deck) => {
     const rows = decks[deck]
@@ -130,6 +122,88 @@ export async function readCards(db: Firestore): Promise<StoredCard[]> {
   return snapshot.docs.map((document) => ({ id: document.id, data: document.data() }))
 }
 
+/** One addition, as the import writes it and its record lists it. */
+export type Addition = {
+  id: string
+  name: string
+  status: 'active' | 'draft'
+  fields: Record<string, unknown>
+}
+
+/**
+ * Writes an import (design D7) in batches of up to 500: the upgrades, then the additions, each pointing at its import
+ * record, then up to two records, one public of the active additions and one DM-only of the drafts. An addition is
+ * created, never set, so it can never overwrite a stored definition. Batches are not atomic as a whole: if one fails,
+ * running the same import again completes the work. Returns the number of definitions written.
+ */
+export async function writeImport(
+  db: Firestore,
+  collectionName: string,
+  target: 'card' | 'word',
+  upgrades: readonly Upgrade[],
+  additions: readonly Addition[],
+): Promise<number> {
+  const changes = db.collection(CHANGES_COLLECTION)
+  const records = (['active', 'draft'] as const).flatMap((status) => {
+    const items = additions.filter((addition) => addition.status === status)
+    return items.length === 0 ? [] : [{ status, ref: changes.doc(), items }]
+  })
+  const recordOf = (status: 'active' | 'draft') =>
+    records.find((record) => record.status === status)
+
+  const writes: ((batch: WriteBatch) => void)[] = [
+    ...upgrades.map(({ id, status }) => (batch: WriteBatch) => {
+      batch.update(db.collection(collectionName).doc(id), {
+        status,
+        retired: FieldValue.delete(),
+      })
+    }),
+    ...additions.map(({ id, status, fields }) => (batch: WriteBatch) => {
+      batch.create(db.collection(collectionName).doc(id), {
+        ...fields,
+        status,
+        changeId: recordOf(status)?.ref.id ?? null,
+      })
+    }),
+    ...records.map(({ status, ref, items }) => (batch: WriteBatch) => {
+      batch.set(ref, {
+        target,
+        step: 'imported',
+        items: items.map(({ id, name }) => ({ id, name, status })),
+        public: status === 'active',
+        by: null,
+        at: FieldValue.serverTimestamp(),
+      })
+    }),
+  ]
+  for (let start = 0; start < writes.length; start += BATCH_SIZE) {
+    const batch = db.batch()
+    for (const write of writes.slice(start, start + BATCH_SIZE)) write(batch)
+    await batch.commit()
+  }
+  return upgrades.length + additions.length
+}
+
+/** Writes the plan. Returns the number of cards written. */
+export async function applyPlan(db: Firestore, plan: ImportPlan): Promise<number> {
+  const additions = plan.flatMap((deck) =>
+    deck.cards.flatMap(({ id, name, outcome, definition }): Addition[] =>
+      definition === null
+        ? []
+        : [
+            {
+              id,
+              name,
+              status: outcome === 'added-active' ? 'active' : 'draft',
+              fields: { ...definition },
+            },
+          ],
+    ),
+  )
+  const upgrades = plan.flatMap((deck) => deck.upgrades)
+  return writeImport(db, CARDS_COLLECTION, 'card', upgrades, additions)
+}
+
 export type ImportResult = { plan: ImportPlan; written: number }
 
 /**
@@ -138,29 +212,10 @@ export type ImportResult = { plan: ImportPlan; written: number }
  */
 export async function runImport(
   db: Firestore,
-  decks: Partial<Record<Deck, readonly CardDefinition[]>>,
+  decks: Partial<Record<Deck, readonly CardRow[]>>,
   { dryRun }: { dryRun: boolean },
 ): Promise<ImportResult> {
   const plan = planImport(await readCards(db), decks)
   const written = dryRun ? 0 : await applyPlan(db, plan)
   return { plan, written }
-}
-
-/**
- * Writes the plan in batches of up to 500. Each write is a merge, so fields the import does not own survive.
- * Batches are not atomic as a whole: if one fails, running the same import again completes the work.
- * Returns the number of documents written.
- */
-export async function applyPlan(db: Firestore, plan: ImportPlan): Promise<number> {
-  const writes = plan.flatMap((deck) =>
-    deck.cards.flatMap((card) => (card.write ? [{ id: card.id, write: card.write }] : [])),
-  )
-  for (let start = 0; start < writes.length; start += BATCH_SIZE) {
-    const batch = db.batch()
-    for (const { id, write } of writes.slice(start, start + BATCH_SIZE)) {
-      batch.set(db.collection(CARDS_COLLECTION).doc(id), write, { merge: true })
-    }
-    await batch.commit()
-  }
-  return writes.length
 }

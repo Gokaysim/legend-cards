@@ -3,9 +3,9 @@ import { dative } from '@/lib/turkish'
 
 import type { WordDraft } from './schema'
 
-/** A word's cost as the interface shows it: "1 LP", "X LP". */
-export function costLabel(cost: string): string {
-  return `${cost} LP`
+/** A word's cost as the interface shows it: "1 LP", "X LP", or "—" for a draft without a cost. */
+export function costLabel(cost: string | null): string {
+  return cost === null ? '—' : `${cost} LP`
 }
 
 /** What a draft cost: "3 LP" or "ücretsiz". */

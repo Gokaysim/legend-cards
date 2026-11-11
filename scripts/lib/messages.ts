@@ -1,8 +1,8 @@
 import type { AliasError, AliasKind, ArtFile, ArtGroup, ArtPlan } from './artFiles.ts'
 import type { CardFileError, CardFileWarning, Deck, LimitedField } from './cardRows.ts'
-import type { CardOutcome, DeckPlan } from './importCards.ts'
+import type { CardOutcome, DeckPlan, Upgrade } from './importCards.ts'
 import type { WordPlan } from './importTrueWords.ts'
-import type { TrueWordFileError, TrueWordFileWarning, WordLimitedField } from './trueWordRows.ts'
+import type { TrueWordFileError, WordLimitedField } from './trueWordRows.ts'
 
 const DECK_LABELS: Readonly<Record<Deck, string>> = {
   legend: 'Legend kartlar',
@@ -28,16 +28,40 @@ const FIELD_LABELS: Readonly<Record<LimitedField, string>> = {
 }
 
 const OUTCOME_LABELS: Readonly<Record<CardOutcome, { done: string; planned: string }>> = {
-  added: { done: 'eklendi', planned: 'eklenecek' },
-  updated: { done: 'güncellendi', planned: 'güncellenecek' },
-  unchanged: { done: 'değişmedi', planned: 'değişmeyecek' },
-  retired: { done: 'arşivlendi', planned: 'arşivlenecek' },
-  restored: { done: 'geri geldi', planned: 'geri gelecek' },
+  'added-active': { done: 'yayında eklendi', planned: 'yayında eklenecek' },
+  'added-draft': { done: 'taslak eklendi', planned: 'taslak eklenecek' },
+  existing: { done: 'zaten kayıtlıydı (dokunulmadı)', planned: 'zaten kayıtlı (dokunulmayacak)' },
 }
 
-/** Names are listed for these outcomes when there are only a few of them. */
-const NAMED_OUTCOMES: readonly CardOutcome[] = ['updated', 'retired', 'restored']
-export const MAX_LISTED_NAMES = 25
+const UPGRADE_LABELS = { done: 'eski kayda durum verildi', planned: 'eski kayda durum verilecek' }
+const DRAFT_LIST_LABELS = { done: 'Taslak eklenenler', planned: 'Taslak eklenecekler' }
+
+/** What an import did, or would do: the outcome counts, the upgrades, and every draft with its empty columns. */
+function additionReport(
+  title: string,
+  counts: Record<CardOutcome, number>,
+  upgrades: readonly Upgrade[],
+  items: readonly { name: string; outcome: CardOutcome; missing: readonly string[] }[],
+  dryRun: boolean,
+): string[] {
+  const tense = dryRun ? 'planned' : 'done'
+  const summary = [
+    ...(Object.keys(OUTCOME_LABELS) as CardOutcome[]).map(
+      (outcome) => `${counts[outcome]} ${OUTCOME_LABELS[outcome][tense]}`,
+    ),
+    `${upgrades.length} ${UPGRADE_LABELS[tense]}`,
+  ].join(', ')
+  const drafts = items
+    .filter((item) => item.outcome === 'added-draft')
+    .map((item) => {
+      const empty = item.missing.map((column) => COLUMN_LABELS[column] ?? column).join(', ')
+      return `${item.name} (${empty} boş)`
+    })
+  return [
+    `${title}: ${summary}.`,
+    ...(drafts.length > 0 ? [`  ${DRAFT_LIST_LABELS[tense]}: ${drafts.join('; ')}`] : []),
+  ]
+}
 
 function cardFileError(file: string, error: CardFileError): string {
   switch (error.kind) {
@@ -62,8 +86,6 @@ function cardFileError(file: string, error: CardFileError): string {
 
 function cardFileWarning(file: string, warning: CardFileWarning): string {
   switch (warning.kind) {
-    case 'skipped-without-set':
-      return `${file}, satır ${warning.row}: "${warning.name}" atlandı, seti yok.`
     case 'unknown-set':
       return `${file}: "${warning.setCode}" set kodunun resmi adı bilinmiyor (${warning.count} kart). Uygulama kodu olduğu gibi gösterir.`
     case 'unknown-mechanic-pack':
@@ -71,19 +93,8 @@ function cardFileWarning(file: string, warning: CardFileWarning): string {
   }
 }
 
-function deckReport({ deck, counts, cards }: DeckPlan, dryRun: boolean): string[] {
-  const tense = dryRun ? 'planned' : 'done'
-  const summary = (Object.keys(OUTCOME_LABELS) as CardOutcome[])
-    .map((outcome) => `${counts[outcome]} ${OUTCOME_LABELS[outcome][tense]}`)
-    .join(', ')
-  const lines = [`${DECK_LABELS[deck]}: ${summary}.`]
-  for (const outcome of NAMED_OUTCOMES) {
-    const listed = cards.filter((card) => card.outcome === outcome).map((card) => card.name)
-    if (listed.length > 0 && listed.length <= MAX_LISTED_NAMES) {
-      lines.push(`  ${OUTCOME_LABELS[outcome][tense]}: ${listed.join(', ')}`)
-    }
-  }
-  return lines
+function deckReport({ deck, counts, cards, upgrades }: DeckPlan, dryRun: boolean): string[] {
+  return additionReport(DECK_LABELS[deck], counts, upgrades, cards, dryRun)
 }
 
 const WORD_FIELD_LABELS: Readonly<Record<WordLimitedField, string>> = {
@@ -102,8 +113,6 @@ function trueWordFileError(file: string, error: TrueWordFileError): string {
       return `${file}, satır ${error.row}: True Word adı boş.`
     case 'name-without-letters':
       return `${file}, satır ${error.row}: "${error.name}" adında harf ya da rakam yok.`
-    case 'empty-cost':
-      return `${file}, satır ${error.row} (${error.name}): Cost boş.`
     case 'too-long':
       return `${file}, satır ${error.row} (${error.name}): ${WORD_FIELD_LABELS[error.field]} en fazla ${error.max} karakter olabilir.`
     case 'duplicate':
@@ -111,26 +120,8 @@ function trueWordFileError(file: string, error: TrueWordFileError): string {
   }
 }
 
-function trueWordFileWarning(file: string, warning: TrueWordFileWarning): string {
-  switch (warning.kind) {
-    case 'empty-text':
-      return `${file}, satır ${warning.row}: "${warning.name}" metni boş.`
-  }
-}
-
-function wordReport({ counts, words }: WordPlan, dryRun: boolean): string[] {
-  const tense = dryRun ? 'planned' : 'done'
-  const summary = (Object.keys(OUTCOME_LABELS) as CardOutcome[])
-    .map((outcome) => `${counts[outcome]} ${OUTCOME_LABELS[outcome][tense]}`)
-    .join(', ')
-  const lines = [`True Words: ${summary}.`]
-  for (const outcome of NAMED_OUTCOMES) {
-    const listed = words.filter((word) => word.outcome === outcome).map((word) => word.name)
-    if (listed.length > 0 && listed.length <= MAX_LISTED_NAMES) {
-      lines.push(`  ${OUTCOME_LABELS[outcome][tense]}: ${listed.join(', ')}`)
-    }
-  }
-  return lines
+function wordReport({ counts, words, upgrades }: WordPlan, dryRun: boolean): string[] {
+  return additionReport('True Words', counts, upgrades, words, dryRun)
 }
 
 const ALIAS_KIND_LABELS: Readonly<Record<AliasKind, string>> = {
@@ -241,14 +232,15 @@ export const messages = {
   warningsHeader: 'Uyarılar (import yine de yapıldı):',
   dryRunWarningsHeader: "Uyarılar (import'u durdurmaz):",
   cardsWritten: (count: number) =>
-    count === 0 ? 'Hiçbir kart yazılmadı: her şey zaten güncel.' : `${count} kart yazıldı.`,
+    count === 0
+      ? 'Hiçbir kart yazılmadı: dosyadaki her kart zaten kayıtlı.'
+      : `${count} kart yazıldı.`,
   usageImportTrueWords:
     'Kullanım: npm run import-true-words -- [--file <csv>] [--dry-run] [--project <proje-kimliği>] [--yes]\n' +
     'Dosya verilmezse data/true-words.csv kullanılır.',
   wordFileUnreadable: (file: string, detail: string) =>
     `"${file}" okunamadı: ${detail}. Hiçbir True Word değişmedi.`,
   trueWordFileError,
-  trueWordFileWarning,
   trueWordFileInvalid: (count: number) =>
     `Dosyada ${count} hata var. Hiçbir True Word değişmedi: önce dosyayı düzelt.`,
   dryRunWordsHeader:
@@ -256,7 +248,7 @@ export const messages = {
   wordReport,
   wordsWritten: (count: number) =>
     count === 0
-      ? 'Hiçbir True Word yazılmadı: her şey zaten güncel.'
+      ? 'Hiçbir True Word yazılmadı: dosyadaki her True Word zaten kayıtlı.'
       : `${count} True Word yazıldı.`,
   usageBuildArt:
     'Kullanım: npm run build-art -- --source <klasör> [--dry-run]\n' +

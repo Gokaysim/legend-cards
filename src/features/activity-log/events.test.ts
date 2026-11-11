@@ -2,6 +2,7 @@ import { Timestamp } from 'firebase/firestore'
 import { describe, expect, it } from 'vitest'
 
 import { testCard, testCursedCard } from '@/test/cardFixtures'
+import { testCardChange, testCardSnapshot, testImportRecord } from '@/test/definitionFixtures'
 import { testDmDraw, testDraw } from '@/test/drawFixtures'
 import { testHolding } from '@/test/holdingFixtures'
 import { testGpEntry, testLedgerEntry } from '@/test/ledgerFixtures'
@@ -274,5 +275,30 @@ describe('True Word events', () => {
     expect(newestEvents(records({ taught: [taught] }), 1).mayHaveMore).toBe(true)
     expect(newestEvents(records({ takenBack: [takenBack] }), 1).mayHaveMore).toBe(true)
     expect(newestEvents(records({ drafts: [draft] }), 2).mayHaveMore).toBe(false)
+  })
+})
+
+describe('definition changes', () => {
+  const eyes = testCardSnapshot("Aboleth's Eyes")
+
+  it('makes one event of each change record, by the DM, and of an import, by no user', () => {
+    const edit = testCardChange(
+      'c1',
+      eyes,
+      { ...eyes, cost: '3' },
+      { at: Timestamp.fromMillis(3000) },
+    )
+    const imported = testImportRecord('i1', 742, { at: Timestamp.fromMillis(2000) })
+    const events = deriveEvents(records({ changes: [edit, imported] }))
+    expect(events.map((event) => [event.kind, event.key, event.by])).toEqual([
+      ['definition', 'definition:c1', 'dana'],
+      ['import', 'definition:i1', null],
+    ])
+  })
+
+  it('counts the changes when deciding whether older events may exist', () => {
+    const changes = [testCardChange('c1', eyes, eyes), testCardChange('c2', eyes, eyes)]
+    expect(newestEvents(records({ changes }), 2).mayHaveMore).toBe(true)
+    expect(newestEvents(records({ changes }), 3).mayHaveMore).toBe(false)
   })
 })

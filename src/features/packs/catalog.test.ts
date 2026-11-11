@@ -65,7 +65,16 @@ describe('packCatalog', () => {
     testCard('Pandemonium Card', { setCode: 'Pandemonium', rarity: 'rare' }),
     testCard('Kesqer Card', { setCode: 'Kesqer', mechanicPack: 'Blood & Battle' }),
     testCard('Nigh Card', { setCode: 'The End is Nigh', mechanicPack: "Dungeoneer's Kit" }),
-    testCard('Retired Card', { setCode: 'Pentagon', retired: true, mechanicPack: 'Permamancy' }),
+    testCard('Retired Card', {
+      setCode: 'Pentagon',
+      status: 'retired',
+      mechanicPack: 'Permamancy',
+    }),
+    testCard('Draft Card', {
+      setCode: 'Rhodelen',
+      status: 'draft',
+      mechanicPack: 'Horn of Plenty',
+    }),
     testBlessedCard('Second Wind', { mechanicPack: 'Arcanus Divine' }),
     ...CURSED_DECK,
   ]
@@ -93,7 +102,7 @@ describe('packCatalog', () => {
     ])
   })
 
-  it('lists the mechanic packs of normal and Blessed cards in Turkish order, without retired cards', () => {
+  it('lists the mechanic packs of normal and Blessed cards in Turkish order, without retired or draft cards', () => {
     expect(packCatalog(cards).mechanicPacks.map(packTitle)).toEqual([
       'Arcanus Divine Mechanic Pack',
       'Blood & Battle Mechanic Pack',
@@ -179,11 +188,12 @@ describe('packStatus', () => {
     })
   })
 
-  it('does not count held or retired cards', () => {
+  it('does not count held, retired or draft cards', () => {
     const cards = [
       ...cardsOf('K', 8),
       testCard('Held', held),
-      testCard('Retired', { retired: true }),
+      testCard('Retired', { status: 'retired' }),
+      testCard('Draft', { status: 'draft' }),
     ]
     expect(packStatus(kesqer('standard'), cards).canOpen).toBe(false)
   })
@@ -216,7 +226,7 @@ describe('packStatus', () => {
     expect(packStatus(pandemonium('pandemoniumCursed'), rares)).toEqual(reason)
     expect(packStatus(cursedGolden, rares)).toEqual(reason)
     expect(
-      packStatus(cursedGolden, [...rares, testCursedCard('Retired Curse', { retired: true })]),
+      packStatus(cursedGolden, [...rares, testCursedCard('Retired Curse', { status: 'retired' })]),
     ).toEqual(reason)
   })
 

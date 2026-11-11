@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
+import type { Card } from '@/features/cards/schema'
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 import { ready, testProfile } from '@/test/fixtures'
 import { testHolding } from '@/test/holdingFixtures'
@@ -195,7 +196,7 @@ describe('hand contents', () => {
 
   it('keeps a retired card in the hand, while the library no longer lists it', async () => {
     const user = userEvent.setup()
-    const retired = { ...owl, retired: true }
+    const retired: Card = { ...owl, status: 'retired' }
     renderHand([testHolding(owl, 'ayla', 1000)], [retired, letGo])
 
     expect(handFaces()).toEqual(['Night Owl'])

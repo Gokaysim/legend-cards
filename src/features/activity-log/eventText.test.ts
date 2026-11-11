@@ -2,6 +2,13 @@ import { Timestamp } from 'firebase/firestore'
 import { describe, expect, it } from 'vitest'
 
 import { testCard, testCursedCard } from '@/test/cardFixtures'
+import {
+  testCardChange,
+  testCardSnapshot,
+  testImportRecord,
+  testWordChange,
+  testWordSnapshot,
+} from '@/test/definitionFixtures'
 import { testDmDraw, testDraw } from '@/test/drawFixtures'
 import { testHolding } from '@/test/holdingFixtures'
 import { testGpEntry, testLedgerEntry } from '@/test/ledgerFixtures'
@@ -245,5 +252,83 @@ describe('describeEvent: True Words', () => {
     expect(text(only({ takenBack: [{ ...record, removedAt: at(3000), removedBy: 'dana' }] }))).toBe(
       "Bora'dan Abyss True Word'ünü geri aldı.",
     )
+  })
+})
+
+describe('describing definition changes', () => {
+  const eyesBefore = testCardSnapshot("Aboleth's Eyes")
+  const describe_ = (change: LogRecords['changes']) =>
+    describeEvent(only({ changes: change }), nameOf)
+
+  it('lists each changed field of an edit, "eski → yeni", with official set names', () => {
+    const sentence = describe_([
+      testCardChange('c1', eyesBefore, { ...eyesBefore, cost: '3', setCode: 'Havenholm' }),
+    ])
+    expect(sentenceText(sentence)).toBe("Aboleth's Eyes kartını düzenledi.")
+    expect(sentence.lines).toEqual(['Set: Kesqerian Nights → Throne of Havenholm', 'Cost: 2 → 3'])
+  })
+
+  it('shows a text by its visible part, and says when only the hidden part changed', () => {
+    const uno = testCardSnapshot("Hrolf's Hornswaggle", { text: '[Uno] Add +10.' })
+    expect(
+      describe_([testCardChange('c1', uno, { ...uno, text: '[Duo] Add +10.' })]).lines,
+    ).toEqual(['Metin: metnin gizli kısmı değişti'])
+    expect(
+      describe_([testCardChange('c1', uno, { ...uno, text: '[Uno] Add +20.' })]).lines,
+    ).toEqual(['Metin: “Add +10.” → “Add +20.”'])
+  })
+
+  it('shows the definition of a publish', () => {
+    const draft = { ...eyesBefore, status: 'draft' as const }
+    const sentence = describe_([testCardChange('c1', draft, eyesBefore, { step: 'published' })])
+    expect(sentenceText(sentence)).toBe("Aboleth's Eyes kartını yayınladı.")
+    expect(sentence.lines).toEqual([
+      'Kesqerian Nights · Common · Arcanus Divine · Cost 2',
+      "Aboleth's Eyes text.",
+    ])
+  })
+
+  it('describes adding, retiring, bringing back and deleting', () => {
+    const draft = { ...eyesBefore, status: 'draft' as const }
+    const retired = { ...eyesBefore, status: 'retired' as const }
+    const abyss = testWordSnapshot('Abyss')
+    expect(
+      text(
+        only({ changes: [testCardChange('c1', null, draft, { step: 'added', public: false })] }),
+      ),
+    ).toBe("Taslak kart ekledi: Aboleth's Eyes.")
+    expect(
+      text(
+        only({
+          changes: [
+            testWordChange('c1', abyss, { ...abyss, status: 'retired' }, { step: 'retired' }),
+          ],
+        }),
+      ),
+    ).toBe("Abyss True Word'ünü kaldırdı.")
+    expect(
+      text(only({ changes: [testCardChange('c1', retired, eyesBefore, { step: 'restored' })] })),
+    ).toBe("Aboleth's Eyes kartını yeniden yayına aldı.")
+    expect(
+      text(
+        only({ changes: [testCardChange('c1', draft, null, { step: 'deleted', public: false })] }),
+      ),
+    ).toBe("Taslak Aboleth's Eyes kartını sildi.")
+  })
+
+  it('describes an import with its count and names', () => {
+    const sentence = describe_([testImportRecord('i1', 742)])
+    expect(sentenceText(sentence)).toBe('742 kart ekledi.')
+    expect(sentence.names).toHaveLength(742)
+    expect(
+      sentenceText(
+        describe_([
+          testImportRecord('i2', 3, {
+            public: false,
+            items: [{ id: 'legend-x', name: 'X', status: 'draft' }],
+          }),
+        ]),
+      ),
+    ).toBe('1 taslak kart ekledi.')
   })
 })

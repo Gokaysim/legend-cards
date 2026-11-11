@@ -259,12 +259,13 @@ describe('card definitions (cards/{cardId})', () => {
     rarity: 'common',
     mechanicPack: 'Arcanus Divine',
     text: 'Gain Immune.',
-    retired: false,
+    status: 'active',
   }
   const CARD_PATH = 'cards/legend-abolethseyes'
+  const DRAFT_PATH = 'cards/legend-bardsencore'
 
   beforeEach(async () => {
-    // Bob is a player, Dana is the DM. Cards exist only through the import script, so they are seeded here.
+    // Bob is a player, Dana is the DM.
     await testEnv.withSecurityRulesDisabled(async (admin) => {
       const db = firestoreOf(admin)
       await setDoc(doc(db, 'users/bob'), {
@@ -280,35 +281,525 @@ describe('card definitions (cards/{cardId})', () => {
         createdAt: Timestamp.fromMillis(0),
       })
       await setDoc(doc(db, CARD_PATH), seededCard)
-      await setDoc(doc(db, 'cards/cursed-hex'), { ...seededCard, kind: 'cursed', retired: true })
+      await setDoc(doc(db, 'cards/cursed-hex'), {
+        ...seededCard,
+        kind: 'cursed',
+        setCode: null,
+        rarity: null,
+        mechanicPack: null,
+        status: 'retired',
+      })
+      await setDoc(doc(db, DRAFT_PATH), {
+        ...seededCard,
+        name: "Bard's Encore",
+        nameKey: 'bardsencore',
+        status: 'draft',
+        changeId: 'c-draft',
+      })
     })
   })
 
   const as = (uid: string) => firestoreOf(testEnv.authenticatedContext(uid))
+  const visibleToPlayers = (db: Firestore) =>
+    query(collection(db, 'cards'), where('status', 'in', ['active', 'retired']))
 
-  it.each(['bob', 'dana'])('lets %s read a card and query the whole collection', async (uid) => {
-    await assertSucceeds(getDoc(doc(as(uid), CARD_PATH)))
-    const all = await assertSucceeds(getDocs(collection(as(uid), 'cards')))
-    expect(all.size).toBe(2)
-    await assertSucceeds(
-      getDocs(query(collection(as(uid), 'cards'), where('retired', '==', false))),
+  it('lets a player read the active and retired cards, and query them by status', async () => {
+    await assertSucceeds(getDoc(doc(as('bob'), CARD_PATH)))
+    await assertSucceeds(getDoc(doc(as('bob'), 'cards/cursed-hex')))
+    const visible = await assertSucceeds(getDocs(visibleToPlayers(as('bob'))))
+    expect(visible.docs.map((card) => card.id).sort()).toEqual([
+      'cursed-hex',
+      'legend-abolethseyes',
+    ])
+  })
+
+  it('denies a player a draft, and a query that could return one', async () => {
+    await assertFails(getDoc(doc(as('bob'), DRAFT_PATH)))
+    await assertFails(getDocs(collection(as('bob'), 'cards')))
+    await assertFails(
+      getDocs(query(collection(as('bob'), 'cards'), where('status', '==', 'draft'))),
     )
+  })
+
+  it('lets the DM read every card, the drafts included', async () => {
+    await assertSucceeds(getDoc(doc(as('dana'), DRAFT_PATH)))
+    const all = await assertSucceeds(getDocs(collection(as('dana'), 'cards')))
+    expect(all.size).toBe(3)
   })
 
   it('denies signed-out reads', async () => {
     const db = firestoreOf(testEnv.unauthenticatedContext())
     await assertFails(getDoc(doc(db, CARD_PATH)))
-    await assertFails(getDocs(collection(db, 'cards')))
+    await assertFails(getDocs(visibleToPlayers(db)))
   })
 
-  it.each(['bob', 'dana'])('denies %s creating, changing or deleting a card', async (uid) => {
-    const db = as(uid)
-    await assertFails(setDoc(doc(db, 'cards/legend-newcard'), { ...seededCard, name: 'New Card' }))
-    await assertFails(updateDoc(doc(db, CARD_PATH), { text: 'Changed by the app.' }))
-    await assertFails(setDoc(doc(db, CARD_PATH), { ...seededCard, text: 'Overwritten.' }))
-    await assertFails(deleteDoc(doc(db, CARD_PATH)))
-    expect(await readAsAdmin(CARD_PATH)).toEqual(seededCard)
-    expect(await readAsAdmin('cards/legend-newcard')).toBeUndefined()
+  it.each(['bob', 'dana'])(
+    'denies %s creating, changing or deleting a card without its change record',
+    async (uid) => {
+      const db = as(uid)
+      await assertFails(
+        setDoc(doc(db, 'cards/legend-newcard'), {
+          ...seededCard,
+          name: 'New Card',
+          nameKey: 'newcard',
+          changeId: 'c-none',
+        }),
+      )
+      await assertFails(updateDoc(doc(db, CARD_PATH), { text: 'Changed by the app.' }))
+      await assertFails(updateDoc(doc(db, CARD_PATH), { text: 'Changed.', changeId: 'c-none' }))
+      await assertFails(setDoc(doc(db, CARD_PATH), { ...seededCard, text: 'Overwritten.' }))
+      await assertFails(deleteDoc(doc(db, DRAFT_PATH)))
+      expect(await readAsAdmin(CARD_PATH)).toEqual(seededCard)
+      expect(await readAsAdmin('cards/legend-newcard')).toBeUndefined()
+    },
+  )
+})
+
+describe('definition steps (cards, trueWords and definitionChanges)', () => {
+  const CARD_KEYS = [
+    'kind',
+    'name',
+    'nameKey',
+    'setCode',
+    'cost',
+    'rarity',
+    'mechanicPack',
+    'text',
+    'status',
+  ]
+  const WORD_KEYS = ['name', 'nameKey', 'cost', 'text', 'status']
+  type Definition = Record<string, unknown>
+  type Status = 'draft' | 'active' | 'retired' | null
+
+  const card = (name: string, extra: Definition = {}): Definition => ({
+    kind: 'normal',
+    name,
+    nameKey: name.toLowerCase().replace(/[^a-z0-9]/g, ''),
+    setCode: 'Kesqer',
+    cost: '2',
+    rarity: 'common',
+    mechanicPack: 'Arcanus Divine',
+    text: `${name} text.`,
+    status: 'active',
+    ...extra,
+  })
+  const word = (name: string, extra: Definition = {}): Definition => ({
+    name,
+    nameKey: name.toLowerCase(),
+    cost: '1',
+    text: `${name} text.`,
+    status: 'active',
+    ...extra,
+  })
+
+  const EYES = 'legend-abolethseyes'
+  const OLD = 'legend-oldcard'
+  const ENCORE = 'legend-bardsencore'
+  const MAP = 'legend-thecartographer'
+  const HEX = 'cursed-hex'
+
+  beforeEach(async () => {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const db = firestoreOf(admin)
+      await setDoc(doc(db, 'users/ayla'), seededUser('player', 'Ayla'))
+      await setDoc(doc(db, 'users/dana'), seededUser('dm', 'Dana'))
+      await setDoc(doc(db, `cards/${EYES}`), card("Aboleth's Eyes", { holder: null }))
+      await setDoc(
+        doc(db, `cards/${OLD}`),
+        card('Old Card', { status: 'retired', changeId: 'c-old' }),
+      )
+      // A complete draft, and an incomplete one as an import adds it.
+      await setDoc(
+        doc(db, `cards/${ENCORE}`),
+        card("Bard's Encore", { status: 'draft', changeId: 'c-encore' }),
+      )
+      await setDoc(
+        doc(db, `cards/${MAP}`),
+        card('The Cartographer', {
+          status: 'draft',
+          setCode: null,
+          rarity: null,
+          mechanicPack: null,
+          changeId: 'c-import',
+        }),
+      )
+      await setDoc(
+        doc(db, `cards/${HEX}`),
+        card('Hex', { kind: 'cursed', setCode: null, rarity: null, mechanicPack: null }),
+      )
+      await setDoc(doc(db, 'trueWords/tw-abyss'), word('Abyss'))
+      await setDoc(doc(db, 'trueWords/tw-old'), word('Old', { status: 'retired' }))
+      await setDoc(
+        doc(db, 'trueWords/tw-echo'),
+        word('Echo', { status: 'draft', cost: null, text: '', changeId: 'c-echo' }),
+      )
+      const at = Timestamp.fromMillis(1000)
+      const record = { target: 'card', targetId: ENCORE, name: "Bard's Encore", by: 'dana', at }
+      await setDoc(doc(db, 'definitionChanges/c-public'), {
+        ...record,
+        step: 'retired',
+        before: card("Bard's Encore"),
+        after: card("Bard's Encore", { status: 'retired' }),
+        public: true,
+      })
+      await setDoc(doc(db, 'definitionChanges/c-encore'), {
+        ...record,
+        step: 'added',
+        before: null,
+        after: card("Bard's Encore", { status: 'draft' }),
+        public: false,
+      })
+    })
+  })
+
+  const pick = (keys: readonly string[], data: Definition) =>
+    Object.fromEntries(keys.map((key) => [key, data[key]]))
+  const statusOf = (data: Definition | null): Status => (data?.status as Status) ?? null
+  const stepName = (before: Status, after: Status) =>
+    before === null
+      ? 'added'
+      : after === null
+        ? 'deleted'
+        : before === after
+          ? 'edited'
+          : before === 'draft'
+            ? 'published'
+            : after === 'retired'
+              ? 'retired'
+              : 'restored'
+  const isPlayerVisible = (status: Status) => status === 'active' || status === 'retired'
+
+  type StepSpec = {
+    /** The change record's ID. Default: `c-new`, or the fixed delete ID for a delete. */
+    changeId?: string
+    /** Fields that replace the record's computed ones. */
+    record?: Definition
+    /** Leave out the definition's change, or its record. */
+    withoutChange?: boolean
+    withoutRecord?: boolean
+  }
+
+  /**
+   * One DM step as the app writes it: the definition (created, merged or deleted) with its change record, in one
+   * batch. `changes` are merged into the stored definition; `null` deletes it.
+   */
+  async function step(
+    uid: string,
+    target: 'card' | 'word',
+    id: string,
+    changes: Definition | null,
+    spec: StepSpec = {},
+  ) {
+    const path = `${target === 'card' ? 'cards' : 'trueWords'}/${id}`
+    const keys = target === 'card' ? CARD_KEYS : WORD_KEYS
+    const stored = (await readAsAdmin(path)) as Definition | undefined
+    const before = stored ? pick(keys, stored) : null
+    const after = changes === null ? null : pick(keys, { ...stored, ...changes })
+    const changeId =
+      spec.changeId ?? (after === null ? `del-${id}-${String(stored?.changeId)}` : 'c-new')
+    const db = asUser(uid)
+    const batch = writeBatch(db)
+    if (!spec.withoutChange) {
+      if (after === null) batch.delete(doc(db, path))
+      else batch.set(doc(db, path), { ...after, changeId }, { merge: true })
+    }
+    if (!spec.withoutRecord) {
+      batch.set(doc(db, `definitionChanges/${changeId}`), {
+        target,
+        targetId: id,
+        name: (after ?? before)?.name,
+        step: stepName(statusOf(before), statusOf(after)),
+        before,
+        after,
+        public: isPlayerVisible(statusOf(before)) || isPlayerVisible(statusOf(after)),
+        by: uid,
+        at: serverTimestamp(),
+        ...spec.record,
+      })
+    }
+    return batch.commit()
+  }
+
+  async function openPack() {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(firestoreOf(admin), 'table/main'), { openPackId: 'p-open' })
+    })
+  }
+
+  describe('allowed', () => {
+    it('lets the DM add an unfinished draft, which players cannot read', async () => {
+      const draft = card('Lute Song', { status: 'draft', text: '', rarity: null })
+      await assertSucceeds(step('dana', 'card', 'legend-lutesong', draft))
+      expect(await readAsAdmin('cards/legend-lutesong')).toMatchObject({
+        status: 'draft',
+        changeId: 'c-new',
+      })
+      await assertFails(getDoc(doc(asUser('ayla'), 'cards/legend-lutesong')))
+      await assertFails(getDoc(doc(asUser('ayla'), 'definitionChanges/c-new')))
+      await assertSucceeds(getDoc(doc(asUser('dana'), 'definitionChanges/c-new')))
+    })
+
+    it('lets the DM add a complete card straight to active, with a public record', async () => {
+      await assertSucceeds(
+        step(
+          'dana',
+          'card',
+          'cursed-hollowbones',
+          card('Hollow Bones', { kind: 'cursed', setCode: null, rarity: null, mechanicPack: null }),
+        ),
+      )
+      expect(await readAsAdmin('definitionChanges/c-new')).toMatchObject({
+        step: 'added',
+        public: true,
+      })
+      await assertSucceeds(getDoc(doc(asUser('ayla'), 'definitionChanges/c-new')))
+    })
+
+    it.each([
+      ['an active card', EYES],
+      ['a retired card', OLD],
+      ['a draft', ENCORE],
+    ])('lets the DM edit %s', async (_case, id) => {
+      await assertSucceeds(step('dana', 'card', id, { cost: '3', text: 'Fixed text.' }))
+      expect(await readAsAdmin(`cards/${id}`)).toMatchObject({ cost: '3', changeId: 'c-new' })
+    })
+
+    it('lets the DM publish a complete draft, with fields changed in the same step', async () => {
+      // The heaviest step: the card, the table check and the record. It must stay within the lookup limits.
+      await assertSucceeds(step('dana', 'card', ENCORE, { status: 'active', cost: '5' }))
+      expect(await readAsAdmin(`cards/${ENCORE}`)).toMatchObject({ status: 'active', cost: '5' })
+      expect(await readAsAdmin('definitionChanges/c-new')).toMatchObject({
+        step: 'published',
+        public: true,
+      })
+    })
+
+    it('lets the DM retire an active card and bring it back', async () => {
+      await assertSucceeds(step('dana', 'card', EYES, { status: 'retired' }, { changeId: 'c-1' }))
+      await assertSucceeds(step('dana', 'card', EYES, { status: 'active' }, { changeId: 'c-2' }))
+      expect(await readAsAdmin('definitionChanges/c-2')).toMatchObject({ step: 'restored' })
+    })
+
+    it('lets the DM delete a draft, with the record its newest record fixes', async () => {
+      await assertSucceeds(step('dana', 'card', ENCORE, null))
+      expect(await readAsAdmin(`cards/${ENCORE}`)).toBeUndefined()
+      expect(await readAsAdmin(`definitionChanges/del-${ENCORE}-c-encore`)).toMatchObject({
+        step: 'deleted',
+        after: null,
+        public: false,
+      })
+    })
+
+    it('lets the DM change a draft between normal and Blessed, also as it is published', async () => {
+      await assertSucceeds(
+        step(
+          'dana',
+          'card',
+          ENCORE,
+          { kind: 'blessed', setCode: null, rarity: null },
+          { changeId: 'c-1' },
+        ),
+      )
+      await assertSucceeds(
+        step(
+          'dana',
+          'card',
+          ENCORE,
+          { kind: 'normal', setCode: 'Kesqer', rarity: 'rare', status: 'active' },
+          { changeId: 'c-2' },
+        ),
+      )
+    })
+
+    it('lets the DM fix a text while a pack is open', async () => {
+      await openPack()
+      await assertSucceeds(step('dana', 'card', EYES, { text: 'Typo fixed.' }))
+    })
+
+    it('lets the DM add, edit, publish, retire, bring back and delete True Words', async () => {
+      await assertSucceeds(
+        step('dana', 'word', 'tw-lull', word('Lull', { status: 'draft', cost: null }), {
+          changeId: 'c-1',
+        }),
+      )
+      await assertSucceeds(step('dana', 'word', 'tw-lull', { cost: '2' }, { changeId: 'c-2' }))
+      await assertSucceeds(
+        step('dana', 'word', 'tw-lull', { status: 'active' }, { changeId: 'c-3' }),
+      )
+      await assertSucceeds(step('dana', 'word', 'tw-lull', { text: 'New.' }, { changeId: 'c-4' }))
+      await assertSucceeds(
+        step('dana', 'word', 'tw-lull', { status: 'retired' }, { changeId: 'c-5' }),
+      )
+      await assertSucceeds(
+        step('dana', 'word', 'tw-lull', { status: 'active' }, { changeId: 'c-6' }),
+      )
+      await assertSucceeds(step('dana', 'word', 'tw-echo', null))
+      expect(await readAsAdmin('trueWords/tw-echo')).toBeUndefined()
+    })
+  })
+
+  describe('denied', () => {
+    it.each<[string, string, string, Definition | null, StepSpec?]>([
+      ['publishing an incomplete draft', 'card', MAP, { status: 'active' }],
+      [
+        'adding an incomplete card straight to active',
+        'card',
+        'legend-lutesong',
+        card('Lute Song', { text: '' }),
+      ],
+      ['emptying the text of an active card', 'card', EYES, { text: '' }],
+      ['emptying the mechanic pack of a retired card', 'card', OLD, { mechanicPack: null }],
+      ['making an active card a draft', 'card', EYES, { status: 'draft' }],
+      ['making a retired card a draft', 'card', OLD, { status: 'draft' }],
+      ['retiring a draft', 'card', ENCORE, { status: 'retired' }],
+      ['retiring with a change of text', 'card', EYES, { status: 'retired', text: 'Other.' }],
+      ['deleting an active card', 'card', EYES, null, { changeId: `del-${EYES}-null` }],
+      ['deleting a retired card', 'card', OLD, null],
+      [
+        'changing the kind of an active card',
+        'card',
+        EYES,
+        { kind: 'blessed', setCode: null, rarity: null },
+      ],
+      [
+        'making a Legend draft Cursed',
+        'card',
+        ENCORE,
+        { kind: 'cursed', setCode: null, rarity: null, mechanicPack: null },
+      ],
+      [
+        'a Cursed card under a Legend ID',
+        'card',
+        'legend-hollowbones',
+        card('Hollow Bones', { kind: 'cursed', setCode: null, rarity: null, mechanicPack: null }),
+      ],
+      ['a Blessed card with a set', 'card', ENCORE, { kind: 'blessed', rarity: null }],
+      ['a change without its record', 'card', EYES, { text: 'Other.' }, { withoutRecord: true }],
+      ['a record without its change', 'card', EYES, { text: 'Other.' }, { withoutChange: true }],
+      [
+        'a record whose before is stale',
+        'card',
+        EYES,
+        { text: 'Other.' },
+        { record: { before: card("Aboleth's Eyes", { cost: '9' }) } },
+      ],
+      [
+        'a draft-work record marked public',
+        'card',
+        ENCORE,
+        { text: 'Other.' },
+        { record: { public: true } },
+      ],
+      [
+        'a public change marked private',
+        'card',
+        EYES,
+        { text: 'Other.' },
+        { record: { public: false } },
+      ],
+      [
+        'a record that names the wrong step',
+        'card',
+        ENCORE,
+        { status: 'active' },
+        { record: { step: 'edited' } },
+      ],
+      [
+        'a record under another name',
+        'card',
+        EYES,
+        { text: 'Other.' },
+        { record: { name: 'Other' } },
+      ],
+      ['a record by someone else', 'card', EYES, { text: 'Other.' }, { record: { by: 'ayla' } }],
+      [
+        'deleting a draft with a record under another ID',
+        'card',
+        ENCORE,
+        null,
+        { changeId: 'c-new' },
+      ],
+      ['publishing an incomplete word', 'word', 'tw-echo', { status: 'active' }],
+      ['retiring a draft word', 'word', 'tw-echo', { status: 'retired' }],
+      ['a word under a card ID', 'word', 'legend-lull', word('Lull')],
+    ])('denies %s', async (_case, target, id, changes, spec) => {
+      await assertFails(step('dana', target as 'card' | 'word', id, changes, spec))
+    })
+
+    it('denies every status step while a pack is open', async () => {
+      await openPack()
+      await assertFails(step('dana', 'card', ENCORE, { status: 'active' }))
+      await assertFails(step('dana', 'card', EYES, { status: 'retired' }))
+      await assertFails(step('dana', 'card', OLD, { status: 'active' }))
+      await assertFails(step('dana', 'card', ENCORE, null))
+      await assertFails(step('dana', 'card', 'legend-lutesong', card('Lute Song')))
+      await assertFails(step('dana', 'word', 'tw-abyss', { status: 'retired' }))
+      // Adding a draft stays possible.
+      await assertSucceeds(
+        step('dana', 'card', 'legend-lutesong', card('Lute Song', { status: 'draft' })),
+      )
+    })
+
+    it('denies a holder change together with a text change', async () => {
+      const db = asUser('dana')
+      const batch = writeBatch(db)
+      batch.update(doc(db, `cards/${EYES}`), {
+        holder: { uid: 'ayla', userCardId: 'h-new' },
+        text: 'Other.',
+        changeId: 'c-new',
+      })
+      await assertFails(batch.commit())
+    })
+
+    it('denies a player every step, even with a record', async () => {
+      await assertFails(
+        step('ayla', 'card', 'legend-lutesong', card('Lute Song', { status: 'draft' })),
+      )
+      await assertFails(step('ayla', 'card', EYES, { text: 'Mine now.' }))
+      await assertFails(step('ayla', 'card', ENCORE, null))
+      await assertFails(step('ayla', 'word', 'tw-abyss', { cost: '0' }))
+    })
+
+    it('denies changing or deleting a record', async () => {
+      const db = asUser('dana')
+      await assertFails(updateDoc(doc(db, 'definitionChanges/c-public'), { name: 'Other' }))
+      await assertFails(deleteDoc(doc(db, 'definitionChanges/c-public')))
+    })
+  })
+
+  describe('reading', () => {
+    it('lets a player read the public records only, also after a draft is published', async () => {
+      const db = asUser('ayla')
+      await assertSucceeds(getDoc(doc(db, 'definitionChanges/c-public')))
+      await assertFails(getDoc(doc(db, 'definitionChanges/c-encore')))
+      await assertSucceeds(
+        getDocs(query(collection(db, 'definitionChanges'), where('public', '==', true))),
+      )
+      await assertFails(getDocs(collection(db, 'definitionChanges')))
+      await step('dana', 'card', ENCORE, { status: 'active' })
+      await assertFails(getDoc(doc(db, 'definitionChanges/c-encore')))
+    })
+
+    it('lets the DM read every record', async () => {
+      const all = await assertSucceeds(getDocs(collection(asUser('dana'), 'definitionChanges')))
+      expect(all.size).toBe(2)
+    })
+
+    it('lets a player read the active and retired words, and no draft', async () => {
+      const db = asUser('ayla')
+      const visible = await assertSucceeds(
+        getDocs(query(collection(db, 'trueWords'), where('status', 'in', ['active', 'retired']))),
+      )
+      expect(visible.docs.map((entry) => entry.id).sort()).toEqual(['tw-abyss', 'tw-old'])
+      await assertFails(getDoc(doc(db, 'trueWords/tw-echo')))
+      await assertFails(getDocs(collection(db, 'trueWords')))
+      await assertSucceeds(getDoc(doc(asUser('dana'), 'trueWords/tw-echo')))
+    })
+
+    it('denies signed-out reads of the records', async () => {
+      const db = firestoreOf(testEnv.unauthenticatedContext())
+      await assertFails(getDoc(doc(db, 'definitionChanges/c-public')))
+    })
   })
 })
 
@@ -325,6 +816,8 @@ const HOLDINGS_SEED = {
   CURSED: 'cursed-visionsofdeath',
   /** A retired normal card in the pool. */
   RETIRED: 'legend-oldcard',
+  /** A normal draft, complete but not published: only the DM reads it, and nobody gives, draws or chooses it. */
+  DRAFT: 'legend-newcard',
 }
 
 function seededUser(role: 'player' | 'dm', displayName: string) {
@@ -341,7 +834,7 @@ function seededCardOf(kind: 'normal' | 'blessed' | 'cursed', name: string, extra
     rarity: kind === 'normal' ? 'common' : null,
     mechanicPack: kind === 'cursed' ? null : 'Arcanus Divine',
     text: `${name} text.`,
-    retired: false,
+    status: 'active',
     ...extra,
   }
 }
@@ -378,7 +871,7 @@ function newHolding(overrides: Record<string, unknown> = {}) {
 const asUser = (uid: string) => firestoreOf(testEnv.authenticatedContext(uid))
 
 async function seedHoldings() {
-  const { POOL, HELD, BLESSED, CURSED, RETIRED } = HOLDINGS_SEED
+  const { POOL, HELD, BLESSED, CURSED, RETIRED, DRAFT } = HOLDINGS_SEED
   await testEnv.withSecurityRulesDisabled(async (admin) => {
     const db = firestoreOf(admin)
     await setDoc(doc(db, 'users/ayla'), seededUser('player', 'Ayla'))
@@ -395,7 +888,11 @@ async function seedHoldings() {
       seededCardOf('blessed', 'Second Wind', { holder: null }),
     )
     await setDoc(doc(db, `cards/${CURSED}`), seededCardOf('cursed', 'Visions of Death'))
-    await setDoc(doc(db, `cards/${RETIRED}`), seededCardOf('normal', 'Old Card', { retired: true }))
+    await setDoc(
+      doc(db, `cards/${RETIRED}`),
+      seededCardOf('normal', 'Old Card', { status: 'retired' }),
+    )
+    await setDoc(doc(db, `cards/${DRAFT}`), seededCardOf('normal', 'New Card', { status: 'draft' }))
     const greedy = { cardId: HELD, cardName: 'Greedy Hands' }
     await setDoc(doc(db, 'userCards/h-bora'), seededHolding({ ...greedy, uid: 'bora' }))
     await setDoc(doc(db, 'userCards/h-ayla-extra'), seededHolding({ ...greedy, uid: 'ayla' }))
@@ -418,7 +915,7 @@ async function seedHoldings() {
 }
 
 describe('card holdings (userCards/{holdingId})', () => {
-  const { CURSED, BLESSED, RETIRED } = HOLDINGS_SEED
+  const { CURSED, BLESSED } = HOLDINGS_SEED
   const cursedGift = { cardId: CURSED, cardName: 'Visions of Death', cardKind: 'cursed' }
 
   beforeEach(seedHoldings)
@@ -508,13 +1005,16 @@ describe('card holdings (userCards/{holdingId})', () => {
       await assertFails(setDoc(doc(asUser('dana'), 'userCards/new-1'), holding))
     })
 
-    it('denies giving a retired card', async () => {
+    it.each([
+      ['a retired card', 'legend-oldcard', 'Old Card'],
+      ['a draft', 'legend-newcard', 'New Card'],
+    ])('denies giving %s', async (_case, cardId, cardName) => {
       const db = asUser('dana')
       const batch = writeBatch(db)
-      batch.set(doc(db, 'userCards/new-1'), newHolding({ cardId: RETIRED, cardName: 'Old Card' }))
-      batch.update(doc(db, `cards/${RETIRED}`), { holder: { uid: 'ayla', userCardId: 'new-1' } })
+      batch.set(doc(db, 'userCards/new-1'), newHolding({ cardId, cardName }))
+      batch.update(doc(db, `cards/${cardId}`), { holder: { uid: 'ayla', userCardId: 'new-1' } })
       await assertFails(batch.commit())
-      expect(await readAsAdmin(`cards/${RETIRED}`)).not.toHaveProperty('holder')
+      expect(await readAsAdmin(`cards/${cardId}`)).not.toHaveProperty('holder')
     })
   })
 
@@ -1174,6 +1674,7 @@ describe('draws (draws/{drawId} with its holding, card, ledger entry and LP)', (
   const CURSED_CARD = { cardId: CURSED, cardName: 'Visions of Death', cardKind: 'cursed' }
   const HELD_CARD = { cardId: HELD, cardName: 'Greedy Hands', cardKind: 'normal' }
   const RETIRED_CARD = { cardId: RETIRED, cardName: 'Old Card', cardKind: 'normal' }
+  const DRAFT_CARD = { cardId: HOLDINGS_SEED.DRAFT, cardName: 'New Card', cardKind: 'normal' }
   /** A second normal card in the pool. */
   const OTHER_CARD = { cardId: 'legend-bloodrite', cardName: 'Blood Rite', cardKind: 'normal' }
   const FILTERS = { cost: '1', mechanicPack: 'Arcanus Divine', rarity: 'common', keyword: 'eyes' }
@@ -1403,12 +1904,13 @@ describe('draws (draws/{drawId} with its holding, card, ledger entry and LP)', (
       await assertFails(draw('ayla', { entry: { balanceAfter: 0 }, balance: { lp: 0 } }))
     })
 
-    it('denies a random draw of a held normal card, a Cursed card, or a retired card', async () => {
+    it('denies a random draw of a held normal card, a Cursed card, a retired card, or a draft', async () => {
       await assertFails(draw('ayla', { card: HELD_CARD }))
       await assertFails(draw('ayla', { card: HELD_CARD, takesCard: false }))
       await assertFails(draw('ayla', { card: CURSED_CARD, kind: 'random' }))
       await assertFails(draw('dana', { uid: 'ayla', card: CURSED_CARD, kind: 'random' }))
       await assertFails(draw('ayla', { card: RETIRED_CARD }))
+      await assertFails(draw('ayla', { card: DRAFT_CARD }))
       expect(await readAsAdmin(`cards/${HELD}`)).toMatchObject({
         holder: { uid: 'bora', userCardId: 'h-bora' },
       })
@@ -2345,7 +2847,7 @@ describe('packs (draws/{drawId} with kind pack, table/main, and their holdings a
       await assertFails(choose('ayla'))
     })
 
-    it('denies choosing a card that was not shown, a held card, or a retired card', async () => {
+    it('denies choosing a card that was not shown, a held card, a retired card, or a draft', async () => {
       await seedOpenPack()
       await assertFails(
         choose('ayla', { card: { cardId: OUTSIDE, cardName: 'Outside Card', cardKind: 'normal' } }),
@@ -2357,6 +2859,12 @@ describe('packs (draws/{drawId} with kind pack, table/main, and their holdings a
       await seedOpenPack({ offered: [RETIRED, ...PACK_CARDS] })
       await assertFails(
         choose('ayla', { card: { cardId: RETIRED, cardName: 'Old Card', cardKind: 'normal' } }),
+      )
+      await seedOpenPack({ offered: [HOLDINGS_SEED.DRAFT, ...PACK_CARDS] })
+      await assertFails(
+        choose('ayla', {
+          card: { cardId: HOLDINGS_SEED.DRAFT, cardName: 'New Card', cardKind: 'normal' },
+        }),
       )
     })
 
@@ -2524,7 +3032,7 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
     nameKey: name.toLowerCase(),
     cost: '1',
     text: `${name} text.`,
-    retired: false,
+    status: 'active',
     ...extra,
   })
 
@@ -2552,7 +3060,8 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
       for (const name of ['Abyss', 'Aid', 'Dragon', 'Chaos', 'Hoard', 'Mimic']) {
         await setDoc(doc(db, `trueWords/tw-${name.toLowerCase()}`), word(name))
       }
-      await setDoc(doc(db, 'trueWords/tw-old'), word('Old', { retired: true }))
+      await setDoc(doc(db, 'trueWords/tw-old'), word('Old', { status: 'retired' }))
+      await setDoc(doc(db, 'trueWords/tw-echo'), word('Echo', { status: 'draft' }))
       await setDoc(doc(db, 'userTrueWords/r-chaos'), seededRecord('tw-chaos', 'Chaos'))
       await setDoc(doc(db, 'userTrueWords/r-hoard'), seededRecord('tw-hoard', 'Hoard'))
       await setDoc(doc(db, 'playerWords/ayla'), AYLA_STATE)
@@ -2955,9 +3464,11 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
       await assertFails(learn('ayla', { state: { known: { ...AYLA_KNOWN, 'tw-abyss': 'r-new' } } }))
     })
 
-    it('denies a shown word that an import retired meanwhile', async () => {
+    it('denies a shown word that the DM retired meanwhile, or that is a draft', async () => {
       await seedOpenDraft({ offered: ['tw-old', 'tw-aid', 'tw-dragon'] })
       await assertFails(learn('ayla', { wordId: 'tw-old', wordName: 'Old' }))
+      await seedOpenDraft({ offered: ['tw-echo', 'tw-aid', 'tw-dragon'] })
+      await assertFails(learn('ayla', { wordId: 'tw-echo', wordName: 'Echo' }))
     })
 
     it('denies a learned record without ending the draft, and a draft ended without its record', async () => {
@@ -3047,6 +3558,7 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
       ['a player teaching themselves', 'ayla', {}],
       ['teaching a word the player knows', 'dana', { wordId: 'tw-chaos', wordName: 'Chaos' }],
       ['teaching a retired word', 'dana', { wordId: 'tw-old', wordName: 'Old' }],
+      ['teaching a draft word', 'dana', { wordId: 'tw-echo', wordName: 'Echo' }],
       ['teaching a word that does not exist', 'dana', { wordId: 'tw-none', wordName: 'None' }],
       ['a record under another name', 'dana', { record: { wordName: 'Renamed' } }],
       ['a record that starts active', 'dana', { record: { active: true } }],

@@ -1,7 +1,9 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { useState } from 'react'
 import { describe, expect, it } from 'vitest'
 
+import type { StatusFilterValue } from '@/features/definitions/statusFilterOptions'
 import type { Subscription } from '@/lib/firestore/subscription'
 import { testArt } from '@/test/artFixtures'
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
@@ -483,5 +485,103 @@ describe('CardBrowser pool status', () => {
     await user.click(screen.getByRole('button', { name: '☷ Liste' }))
     expect(durum('Visions of Death')).toHaveTextContent('Elde: Ayla, Bora')
     expect(durum('Heart Attack')).toHaveTextContent('—')
+  })
+})
+
+describe('CardBrowser for the DM: the status filter and the edit control', () => {
+  const draft = testCard('Lute Song', { status: 'draft', setCode: null, rarity: null })
+  const retired = testCard('Old Aboleth', { status: 'retired', setCode: 'Kesqer' })
+  const ALL_CARDS: Card[] = [...LEGEND, draft, retired]
+  const byStatus = (value: string) =>
+    value === 'all' ? ALL_CARDS : ALL_CARDS.filter((card) => card.status === value)
+
+  /** The library as the DM's page renders it: the page filters the cards, the browser shows the filter. */
+  function DmBrowser({ onEdit = () => undefined }: { onEdit?: (card: Card) => void }) {
+    const [value, setValue] = useState<StatusFilterValue>('active')
+    return (
+      <CardBrowser
+        deck="legend"
+        cards={ready(byStatus(value))}
+        status={deckStatus(ALL_CARDS, {
+          'Old Aboleth': { inPool: false, holderNames: ['Ayla'] },
+          'Lute Song': { inPool: false },
+        })}
+        statusFilter={{ value, onChange: setValue }}
+        onEdit={onEdit}
+      />
+    )
+  }
+
+  it('starts at "Yayında" with the active cards, and lists the drafts or the retired cards on demand', async () => {
+    const user = userEvent.setup()
+    render(<DmBrowser />)
+
+    expect(options('Durum')).toEqual(['Yayında', 'Taslak', 'Kaldırıldı', 'Hepsi'])
+    expect(screen.getByRole('combobox', { name: 'Durum' })).toHaveValue('active')
+    expect(shownNames()).not.toContain('Lute Song')
+    expect(screen.getByRole('article', { name: 'Let Go' })).not.toHaveTextContent('Yayında')
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Durum' }), 'draft')
+    expect(shownNames()).toEqual(['Lute Song'])
+    expect(screen.getByRole('article', { name: 'Lute Song' })).toHaveTextContent('Taslak')
+    expect(screen.getByText('1 kart')).toBeInTheDocument()
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Durum' }), 'all')
+    expect(shownNames()).toHaveLength(ALL_CARDS.length)
+    expect(screen.getByRole('article', { name: 'Let Go' })).toHaveTextContent('Yayında')
+  })
+
+  it('combines the status filter with the search', async () => {
+    const user = userEvent.setup()
+    render(<DmBrowser />)
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Durum' }), 'all')
+    await user.type(search(), 'aboleth')
+    expect(shownNames()).toEqual(['Old Aboleth'])
+  })
+
+  it('shows a retired card in a hand as "Kaldırıldı · Elde: Ayla"', async () => {
+    const user = userEvent.setup()
+    render(<DmBrowser />)
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Durum' }), 'retired')
+    expect(screen.getByRole('article', { name: 'Old Aboleth' })).toHaveTextContent('Kaldırıldı')
+
+    await user.click(screen.getByRole('button', { name: '☷ Liste' }))
+    const row = within(screen.getByRole('row', { name: /Old Aboleth/ }))
+    expect(row.getAllByRole('cell').at(-2)).toHaveTextContent('Kaldırıldı · Elde: Ayla')
+  })
+
+  it('keeps the toolbar when the filter keeps no card, so the DM can switch back', async () => {
+    const user = userEvent.setup()
+    function Empty() {
+      const [value, setValue] = useState<StatusFilterValue>('draft')
+      return (
+        <CardBrowser
+          deck="cursed"
+          cards={ready(value === 'draft' ? [] : CURSED)}
+          statusFilter={{ value, onChange: setValue }}
+        />
+      )
+    }
+    render(<Empty />)
+    expect(screen.getByText('Kart bulunamadı.')).toBeInTheDocument()
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Durum' }), 'active')
+    expect(shownNames()).toHaveLength(2)
+  })
+
+  it('opens the edit form from a face and from a list row', async () => {
+    const user = userEvent.setup()
+    const edited: string[] = []
+    render(<DmBrowser onEdit={(card) => edited.push(card.name)} />)
+
+    await user.click(screen.getByRole('button', { name: 'Let Go: düzenle' }))
+    await user.click(screen.getByRole('button', { name: '☷ Liste' }))
+    await user.click(screen.getByRole('button', { name: 'Greedy Hands: düzenle' }))
+    expect(edited).toEqual(['Let Go', 'Greedy Hands'])
+  })
+
+  it('shows a player no status filter and no edit control', () => {
+    render(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
+    expect(screen.queryByRole('combobox', { name: 'Durum' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /düzenle/ })).toBeNull()
   })
 })

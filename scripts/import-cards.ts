@@ -1,19 +1,16 @@
-// Imports the card definitions from CSV files:
+// Adds the card definitions from CSV files that are not stored yet:
 //   npm run import-cards -- [--legend <csv>] [--cursed <csv>] [--dry-run] [--project <id>] [--yes]
-// Without file options it imports both files in data/. Targets the local emulators unless --project names a
-// real project (which must then be confirmed). Every file is checked before anything is written.
+// Without file options it imports both files in data/. A stored card is never changed: the DM edits cards in the
+// app. A row with an empty value its kind uses is added as a draft. Stored cards from before statuses get one.
+// Targets the local emulators unless --project names a real project (which must then be confirmed). Every file is
+// checked before anything is written.
 import { readFile } from 'node:fs/promises'
 import { relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 
-import {
-  type CardDefinition,
-  type Deck,
-  parseCardFile,
-  type ParsedCardFile,
-} from './lib/cardRows.ts'
-import { runImport } from './lib/importCards.ts'
+import { type Deck, parseCardFile, type ParsedCardFile } from './lib/cardRows.ts'
+import { type CardRow, runImport } from './lib/importCards.ts'
 import { messages } from './lib/messages.ts'
 import { connect, TARGET_OPTIONS } from './lib/target.ts'
 
@@ -94,8 +91,8 @@ async function main(): Promise<number> {
 
   const { admin } = connection
   try {
-    const decks: Partial<Record<Deck, CardDefinition[]>> = {}
-    for (const { deck, result } of parsed) decks[deck] = result.cards.map(({ card }) => card)
+    const decks: Partial<Record<Deck, CardRow[]>> = {}
+    for (const { deck, result } of parsed) decks[deck] = result.cards
 
     // 3. Plan, write unless this is a dry run, and report.
     const { plan, written } = await runImport(admin.db, decks, { dryRun })

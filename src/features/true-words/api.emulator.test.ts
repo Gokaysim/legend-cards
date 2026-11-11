@@ -22,12 +22,14 @@ import firestoreRules from '../../../firestore.rules?raw'
 import {
   cancelDraft,
   learnWord,
+  playerVisibleWordsQuery,
   setWordActive,
   skipDraft,
   startDraft,
   type StartDraftInput,
   takeBackWord,
   teachWord,
+  trueWordsRef,
 } from './api'
 import { toWordFailure, WordError } from './errors'
 import type { TrueWord } from './schema'
@@ -50,7 +52,8 @@ const [ABYSS, AID, CHAOS, DRAGON, HOARD, MIMIC] = [
   'Hoard',
   'Mimic',
 ].map((name) => testTrueWord(name)) as [TrueWord, TrueWord, TrueWord, TrueWord, TrueWord, TrueWord]
-const OLD = testTrueWord('Old', { retired: true })
+const OLD = testTrueWord('Old', { status: 'retired' })
+const ECHO = testTrueWord('Echo', { status: 'draft', cost: null, text: '' })
 const WORDS: TrueWord[] = [ABYSS, AID, CHAOS, DRAGON, HOARD, MIMIC, OLD]
 
 /** A word as the import stores it: without the ID. */
@@ -136,7 +139,31 @@ beforeEach(async () => {
     await setDoc(doc(db, 'users/ayla'), { ...profile('player', 'Ayla'), lp: 5, lpEntryId: 'seed' })
     await setDoc(doc(db, 'users/bora'), { ...profile('player', 'Bora'), lp: 4, lpEntryId: 'seed' })
     await setDoc(doc(db, 'users/dana'), profile('dm', 'Dana'))
-    for (const word of WORDS) await setDoc(doc(db, `trueWords/${word.id}`), storedWord(word))
+    for (const word of [...WORDS, ECHO]) {
+      await setDoc(doc(db, `trueWords/${word.id}`), storedWord(word))
+    }
+  })
+})
+
+describe('reading the words under the real rules', () => {
+  it("gives a player's query the active and retired words, and never a draft", async () => {
+    const snapshot = await getDocs(playerVisibleWordsQuery(as('ayla')))
+    const ids = snapshot.docs.map((entry) => entry.id)
+    expect(ids).toContain(OLD.id)
+    expect(ids).not.toContain(ECHO.id)
+    expect(ids).toHaveLength(WORDS.length)
+  })
+
+  it('gives the DM every word, the drafts included, and refuses a player the whole collection', async () => {
+    const snapshot = await getDocs(trueWordsRef(as('dana')))
+    expect(snapshot.docs.map((entry) => entry.id)).toContain(ECHO.id)
+    await expect(getDocs(trueWordsRef(as('ayla')))).rejects.toThrow()
+  })
+
+  it('never offers a draft word in a draft, even when it is passed in', async () => {
+    const id = await aylaStarts({ words: [...WORDS, ECHO] })
+    const draft = await stored(`wordDrafts/${id}`)
+    expect(draft?.offered).not.toContain(ECHO.id)
   })
 })
 

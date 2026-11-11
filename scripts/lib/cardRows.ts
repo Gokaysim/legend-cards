@@ -50,11 +50,24 @@ export type CardFileError =
 
 /** A finding that does not stop the import. */
 export type CardFileWarning =
-  | { kind: 'skipped-without-set'; row: number; name: string }
   | { kind: 'unknown-set'; setCode: string; count: number }
   | { kind: 'unknown-mechanic-pack'; mechanicPack: string; count: number }
 
-export type ParsedCard = { row: number; card: CardDefinition }
+/** A column a card's kind uses. Keep in step with `missingCardFields` in `src/features/cards/schema.ts`. */
+export type CardColumn = 'set' | 'cost' | 'rarity' | 'mechanic pack' | 'text'
+
+/** The columns each kind uses (spec: admin-scripts, "Imported definitions are active unless a value is missing"). */
+export const COLUMNS_USED: Readonly<Record<CardKind, readonly CardColumn[]>> = {
+  normal: ['set', 'cost', 'rarity', 'mechanic pack', 'text'],
+  blessed: ['cost', 'mechanic pack', 'text'],
+  cursed: ['cost', 'text'],
+}
+
+/**
+ * One card read from a file, with the columns its kind uses that the row leaves empty. A card without any is added
+ * as active, and one with some as a draft.
+ */
+export type ParsedCard = { row: number; card: CardDefinition; missing: CardColumn[] }
 
 export type ParsedCardFile = {
   cards: ParsedCard[]
@@ -68,7 +81,7 @@ const RARITIES: ReadonlyMap<string, Rarity> = new Map([
   ['rare', 'rare'],
 ])
 
-/** How the data writes "nothing here": an empty cell or a dash. */
+/** An empty cell, or a dash ("deliberately none"), which counts as empty outside the Cost column. */
 const isBlank = (value: string) => value === '' || /^[—–-]$/.test(value)
 
 /** Counts how often each value occurs, keeping the first spelling seen. */
@@ -80,8 +93,8 @@ function tally(values: string[]): { value: string; count: number }[] {
 
 /**
  * Reads one card file and checks every row (spec: admin-scripts, "Card file columns", "Legend card rows",
- * "Cursed card rows"). Returns all cards, errors and warnings; the caller writes nothing if there is an error.
- * Pure: no files, no Firebase.
+ * "Cursed card rows"). Returns all cards with their missing columns, errors and warnings; the caller writes nothing if
+ * there is an error. An empty value is never an error: it makes the card a draft. Pure: no files, no Firebase.
  */
 export function parseCardFile(text: string, deck: Deck): ParsedCardFile {
   const records = readRecords(text)
@@ -126,8 +139,12 @@ export function parseCardFile(text: string, deck: Deck): ParsedCardFile {
     }
 
     let card: CardDefinition
-    const cost = limited('cost', column(record, 'cost'))
-    const cardText = limited('text', column(record, 'text'))
+    // An empty Cost is missing; a dash there is "no cost", which a card may have. Elsewhere a dash counts as empty.
+    const costCell = limited('cost', column(record, 'cost'))
+    const textCell = limited('text', column(record, 'text'))
+    const cardText = isBlank(textCell) ? '' : textCell
+    const empty: CardColumn[] = []
+    if (costCell === '') empty.push('cost')
     limited('name', name)
 
     if (deck === 'cursed') {
@@ -136,43 +153,48 @@ export function parseCardFile(text: string, deck: Deck): ParsedCardFile {
         name,
         nameKey,
         setCode: null,
-        cost: isBlank(cost) ? null : cost,
+        cost: isBlank(costCell) ? null : costCell,
         rarity: null,
         mechanicPack: null,
         text: cardText,
       }
     } else {
-      const set = column(record, 'set')
-      if (set === '') {
-        warnings.push({ kind: 'skipped-without-set', row, name })
-        return
-      }
+      const setCell = column(record, 'set')
       const rarityCell = column(record, 'rarity')
-      const mechanicPack = limited('mechanicPack', column(record, 'mechanic pack'))
-      const isBlessed = normalize(set) === 'blessed'
+      const packCell = limited('mechanicPack', column(record, 'mechanic pack'))
+      const isBlessed = normalize(setCell) === 'blessed'
 
       let rarity: Rarity | null = null
       if (isBlessed) {
         if (!isBlank(rarityCell)) {
           rowErrors.push({ kind: 'blessed-with-rarity', row, name, rarity: rarityCell })
         }
+      } else if (isBlank(rarityCell)) {
+        empty.push('rarity')
       } else {
         rarity = RARITIES.get(rarityCell.toLowerCase()) ?? null
         if (rarity === null)
           rowErrors.push({ kind: 'invalid-rarity', row, name, rarity: rarityCell })
       }
 
+      // A row without a set is a normal card without one: a draft until the DM chooses its set.
+      const setCode = isBlessed || isBlank(setCell) ? null : limited('setCode', setCell)
+      if (!isBlessed && setCode === null) empty.push('set')
+      const mechanicPack = isBlank(packCell) ? null : packCell
+      if (mechanicPack === null) empty.push('mechanic pack')
+
       card = {
         kind: isBlessed ? 'blessed' : 'normal',
         name,
         nameKey,
-        setCode: isBlessed ? null : limited('setCode', set),
-        cost: isBlank(cost) ? null : cost,
+        setCode,
+        cost: isBlank(costCell) ? null : costCell,
         rarity,
-        mechanicPack: mechanicPack === '' ? null : mechanicPack,
+        mechanicPack,
         text: cardText,
       }
     }
+    if (cardText === '') empty.push('text')
 
     const firstRow = firstRowByKey.get(nameKey)
     if (firstRow !== undefined) {
@@ -185,7 +207,9 @@ export function parseCardFile(text: string, deck: Deck): ParsedCardFile {
       errors.push(...rowErrors)
       return
     }
-    cards.push({ row, card })
+    // In the order the columns are used, so that every report names them the same way.
+    const missingColumns = COLUMNS_USED[card.kind].filter((name) => empty.includes(name))
+    cards.push({ row, card, missing: missingColumns })
   })
 
   const unknownSets = tally(

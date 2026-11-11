@@ -1,0 +1,77 @@
+import { screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { describe, expect, it } from 'vitest'
+
+import type { Card } from '@/features/cards/schema'
+import { testCard, testCursedCard } from '@/test/cardFixtures'
+import { ready, testProfile } from '@/test/fixtures'
+import { renderApp } from '@/test/renderApp'
+
+const eyes = testCard("Aboleth's Eyes")
+const draft = testCard("Bard's Encore", { status: 'draft', mechanicPack: null })
+const retired = testCard('Old Card', { status: 'retired' })
+const hex = testCursedCard('Hex')
+const hexDraft = testCursedCard('Jinx', { status: 'draft' })
+const CARDS: Card[] = [eyes, draft, retired, hex, hexDraft]
+
+const dm = testProfile({ role: 'dm' })
+const player = testProfile()
+
+function renderDeck(path: string, profile = dm) {
+  return renderApp({
+    path,
+    users: { currentProfile: ready(profile), profiles: ready([profile]) },
+    cards: { cards: ready(CARDS) },
+  })
+}
+
+const faces = () =>
+  within(screen.getByRole('list', { name: 'Kartlar' }))
+    .getAllByRole('article')
+    .map((card) => card.getAttribute('aria-label'))
+
+describe('the DM on the Kart kütüphanesi', () => {
+  it('adds a card, browses the drafts, and edits a card', async () => {
+    const user = userEvent.setup()
+    renderDeck('/library')
+
+    expect(faces()).toEqual(["Aboleth's Eyes"])
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Durum' }), 'draft')
+    expect(faces()).toEqual(["Bard's Encore"])
+
+    await user.click(screen.getByRole('button', { name: "Bard's Encore: düzenle" }))
+    expect(screen.getByRole('dialog', { name: "Düzenle: Bard's Encore" })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: '✕ Kapat' }))
+
+    await user.click(screen.getByRole('button', { name: '+ Kart ekle' }))
+    const form = within(screen.getByRole('dialog', { name: 'Yeni kart' }))
+    expect(form.getByLabelText('Tür')).toHaveValue('normal')
+  })
+})
+
+describe('the DM on the Cursed Deck', () => {
+  it('adds a Cursed card and finds the Cursed drafts', async () => {
+    const user = userEvent.setup()
+    renderDeck('/cursed-deck')
+
+    expect(faces()).toEqual(['Hex'])
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Durum' }), 'draft')
+    expect(faces()).toEqual(['Jinx'])
+
+    await user.click(screen.getByRole('button', { name: '+ Kart ekle' }))
+    expect(screen.getByRole('dialog', { name: 'Yeni Cursed kart' })).toBeVisible()
+  })
+})
+
+describe('a player on the deck screens', () => {
+  it.each(['/library', '/cursed-deck'])(
+    'sees on %s only the active cards and no DM control',
+    (path) => {
+      renderDeck(path, player)
+      expect(faces()).toHaveLength(1)
+      expect(screen.queryByRole('button', { name: '+ Kart ekle' })).toBeNull()
+      expect(screen.queryByRole('combobox', { name: 'Durum' })).toBeNull()
+      expect(screen.queryByRole('button', { name: /düzenle/ })).toBeNull()
+    },
+  )
+})

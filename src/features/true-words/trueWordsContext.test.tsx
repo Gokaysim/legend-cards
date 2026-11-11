@@ -18,7 +18,8 @@ import {
 const abyss = testTrueWord('Abyss')
 const aid = testTrueWord('Aid')
 const chaos = testTrueWord('Chaos')
-const old = testTrueWord('Old', { retired: true })
+const old = testTrueWord('Old', { status: 'retired' })
+const echo = testTrueWord('Echo', { status: 'draft', cost: null, text: '' })
 
 const at = (millis: number) => ({ learnedAt: Timestamp.fromMillis(millis) })
 
@@ -54,7 +55,7 @@ describe('knownWordsOf', () => {
 
 describe('activeWordsSorted', () => {
   it('keeps the active words, sorted by name', () => {
-    expect(activeWordsSorted([chaos, old, abyss, aid]).map((word) => word.name)).toEqual([
+    expect(activeWordsSorted([chaos, old, echo, abyss, aid]).map((word) => word.name)).toEqual([
       'Abyss',
       'Aid',
       'Chaos',

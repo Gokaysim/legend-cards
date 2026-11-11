@@ -20,7 +20,8 @@ export function testTrueWord(
     nameKey: keyOf(name),
     cost: '1',
     text: `${name} text.`,
-    retired: false,
+    status: 'active',
+    changeId: null,
     ...overrides,
   }
 }

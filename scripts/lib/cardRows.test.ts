@@ -81,7 +81,7 @@ describe('parseCardFile: values', () => {
     })
   })
 
-  it('keeps a cost as written, and reads an empty cost or a dash as no cost', () => {
+  it('keeps a cost as written; an empty cost is missing, and a dash is deliberately no cost', () => {
     const result = parseCardFile(
       legend(
         "Dice,Kesqer,d6,Common,No,Roll.,Gambler's Gambit,0",
@@ -90,12 +90,35 @@ describe('parseCardFile: values', () => {
       ),
       'legend',
     )
-    expect(result.cards.map(({ card }) => card.cost)).toEqual(['d6', null, null])
+    expect(result.cards.map(({ card, missing }) => [card.cost, missing])).toEqual([
+      ['d6', []],
+      [null, ['cost']],
+      [null, []],
+    ])
   })
 
-  it('reads an empty mechanic pack as none', () => {
-    const result = parseCardFile(legend('Loose,Kesqer,1,Common,No,Text.,,0'), 'legend')
-    expect(result.cards[0]?.card.mechanicPack).toBeNull()
+  it('reads an empty mechanic pack, or a dash there, as missing', () => {
+    const result = parseCardFile(
+      legend('Loose,Kesqer,1,Common,No,Text.,,0', 'Dashed,Kesqer,1,Common,No,Text.,—,0'),
+      'legend',
+    )
+    expect(result.cards.map(({ card, missing }) => [card.mechanicPack, missing])).toEqual([
+      [null, ['mechanic pack']],
+      [null, ['mechanic pack']],
+    ])
+  })
+
+  it('reads an empty text, or a dash there, as missing', () => {
+    const result = parseCardFile(cursed('Hex,Cursed,1,', 'Jinx,Cursed,1,—'), 'cursed')
+    expect(result.cards.map(({ card, missing }) => [card.text, missing])).toEqual([
+      ['', ['text']],
+      ['', ['text']],
+    ])
+  })
+
+  it('misses nothing in a complete row', () => {
+    const result = parseCardFile(legend('Full,Kesqer,1,Common,No,Text.,Permamancy,0'), 'legend')
+    expect(result.cards[0]?.missing).toEqual([])
   })
 
   it('numbers rows as a spreadsheet does, counting blank rows and the header', () => {
@@ -127,6 +150,7 @@ describe('parseCardFile: Legend rows', () => {
       'legend',
     )
     expect(result.errors).toEqual([])
+    expect(result.cards[0]?.missing).toEqual([])
     expect(result.cards[0]?.card).toEqual({
       kind: 'blessed',
       name: 'Dawn of Fortune',
@@ -151,11 +175,20 @@ describe('parseCardFile: Legend rows', () => {
     ])
   })
 
-  it.each(['Epic', '', '—'])('refuses the rarity %j on a normal card', (rarity) => {
-    const result = parseCardFile(legend(`Odd,Kesqer,1,${rarity},No,T.,Permamancy,0`), 'legend')
-    expect(result.errors).toEqual([{ kind: 'invalid-rarity', row: 2, name: 'Odd', rarity }])
+  it('refuses an unknown rarity on a normal card', () => {
+    const result = parseCardFile(legend('Odd,Kesqer,1,Epic,No,T.,Permamancy,0'), 'legend')
+    expect(result.errors).toEqual([{ kind: 'invalid-rarity', row: 2, name: 'Odd', rarity: 'Epic' }])
     expect(result.cards).toEqual([])
   })
+
+  it.each(['', '—'])(
+    'reads the rarity %j on a normal card as missing, not as an error',
+    (rarity) => {
+      const result = parseCardFile(legend(`Odd,Kesqer,1,${rarity},No,T.,Permamancy,0`), 'legend')
+      expect(result.errors).toEqual([])
+      expect(result.cards[0]).toMatchObject({ card: { rarity: null }, missing: ['rarity'] })
+    },
+  )
 
   it('accepts Common and Rare in any case', () => {
     const result = parseCardFile(
@@ -165,16 +198,17 @@ describe('parseCardFile: Legend rows', () => {
     expect(result.cards.map(({ card }) => card.rarity)).toEqual(['common', 'rare'])
   })
 
-  it('skips a row without a set, with a warning', () => {
+  it('reads a row without a set as a normal card without one, missing its set', () => {
     const result = parseCardFile(
       legend('The Cartographer,,1,,,"Until you leave this Dungeon, gain Advantage.",,'),
       'legend',
     )
     expect(result.errors).toEqual([])
-    expect(result.cards).toEqual([])
-    expect(result.warnings).toEqual([
-      { kind: 'skipped-without-set', row: 2, name: 'The Cartographer' },
-    ])
+    expect(result.warnings).toEqual([])
+    expect(result.cards[0]).toMatchObject({
+      card: { kind: 'normal', setCode: null, rarity: null, mechanicPack: null },
+      missing: ['set', 'rarity', 'mechanic pack'],
+    })
   })
 
   it('stops on an invalid row, but still checks every other row', () => {
@@ -274,14 +308,21 @@ describe('parseCardFile: warnings', () => {
 })
 
 describe('parseCardFile: the repository data', () => {
-  it('reads data/legend-cards.csv as 571 normal and 19 Blessed cards, skipping The Cartographer', () => {
+  it('reads data/legend-cards.csv as 572 normal and 19 Blessed cards, 3 of them missing values', () => {
     const result = parseCardFile(dataFile('legend-cards.csv'), 'legend')
     expect(result.errors).toEqual([])
-    expect(result.cards).toHaveLength(590)
-    expect(result.cards.filter(({ card }) => card.kind === 'normal')).toHaveLength(571)
+    expect(result.warnings).toEqual([])
+    expect(result.cards).toHaveLength(591)
+    expect(result.cards.filter(({ card }) => card.kind === 'normal')).toHaveLength(572)
     expect(result.cards.filter(({ card }) => card.kind === 'blessed')).toHaveLength(19)
-    expect(result.warnings).toEqual([
-      { kind: 'skipped-without-set', row: expect.any(Number) as number, name: 'The Cartographer' },
+    expect(
+      result.cards
+        .filter(({ missing }) => missing.length > 0)
+        .map(({ card, missing }) => [card.name, missing]),
+    ).toEqual([
+      ["Hrolf's Hornswaggle", ['cost']],
+      ['The Cartographer', ['set', 'rarity', 'mechanic pack']],
+      ['The Grand Finale', ['cost']],
     ])
   })
 

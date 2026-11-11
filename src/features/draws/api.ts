@@ -111,9 +111,9 @@ export async function drawCard(db: Firestore, input: DrawCardInput): Promise<Dra
   throw new DrawError('retries-exhausted')
 }
 
-/** True for a card a draw cannot give now: missing, retired, or a normal card with a holder. */
+/** True for a card a draw cannot give now: missing, not active, or a normal card with a holder. */
 function isTaken(card: Card | undefined): boolean {
-  return !card || card.retired || (card.kind === 'normal' && card.holder !== null)
+  return !card || card.status !== 'active' || (card.kind === 'normal' && card.holder !== null)
 }
 
 async function isTakenOnServer(db: Firestore, cardId: string): Promise<boolean> {

@@ -247,7 +247,7 @@ describe('drawing on the hand', () => {
     renderApp({
       path: `/hands/${testUser.uid}`,
       users: { profiles: ready([meWithLp]) },
-      cards: { cards: ready([eyes, testCursedCard('Old Curse', { retired: true })]) },
+      cards: { cards: ready([eyes, testCursedCard('Old Curse', { status: 'retired' })]) },
     })
 
     expect(main().getByRole('button', { name: '☠ Cursed Kart Çek' })).toBeDisabled()

@@ -3,11 +3,11 @@ import {
   type RulesTestContext,
   type RulesTestEnvironment,
 } from '@firebase/rules-unit-testing'
-import { doc, type Firestore, getDocs, setDoc } from 'firebase/firestore'
+import { doc, type Firestore, getDocs, setDoc, Timestamp } from 'firebase/firestore'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import firestoreRules from '../../../firestore.rules?raw'
-import { cardsRef } from './api'
+import { cardsRef, playerVisibleCardsQuery } from './api'
 
 let testEnv: RulesTestEnvironment
 
@@ -16,7 +16,7 @@ function firestoreOf(context: RulesTestContext): Firestore {
   return context.firestore() as unknown as Firestore
 }
 
-const storedCard = (name: string, nameKey: string, retired: boolean) => ({
+const storedCard = (name: string, nameKey: string, status: 'active' | 'retired' | 'draft') => ({
   kind: 'cursed',
   name,
   nameKey,
@@ -25,7 +25,7 @@ const storedCard = (name: string, nameKey: string, retired: boolean) => ({
   rarity: null,
   mechanicPack: null,
   text: 'Bad luck.',
-  retired,
+  status,
 })
 
 beforeAll(async () => {
@@ -41,23 +41,54 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await testEnv.clearFirestore()
-  // Cards are written only by the import script, so they are seeded with the rules disabled.
+  // Seeded with the rules disabled: Bob is a player and Dana the DM, with an active, a retired and a draft card.
   await testEnv.withSecurityRulesDisabled(async (admin) => {
     const db = firestoreOf(admin)
-    await setDoc(doc(db, 'cards/cursed-hex'), storedCard('Hex', 'hex', false))
-    await setDoc(doc(db, 'cards/cursed-oldcurse'), storedCard('Old Curse', 'oldcurse', true))
+    const user = (role: string) => ({
+      displayName: role,
+      photoURL: null,
+      role,
+      createdAt: Timestamp.fromMillis(0),
+    })
+    await setDoc(doc(db, 'users/bob'), user('player'))
+    await setDoc(doc(db, 'users/dana'), user('dm'))
+    await setDoc(doc(db, 'cards/cursed-hex'), storedCard('Hex', 'hex', 'active'))
+    await setDoc(doc(db, 'cards/cursed-oldcurse'), storedCard('Old Curse', 'oldcurse', 'retired'))
+    await setDoc(doc(db, 'cards/cursed-newcurse'), storedCard('New Curse', 'newcurse', 'draft'))
   })
 })
 
-describe('cardsRef under the real rules', () => {
-  it('returns every card, retired ones included, validated, with their IDs and no holder', async () => {
-    const db = firestoreOf(testEnv.authenticatedContext('alice'))
+const ids = (cards: { id: string }[]) => cards.map((card) => card.id).sort()
 
-    const snapshot = await getDocs(cardsRef(db))
+describe('reading the cards under the real rules', () => {
+  it("gives a player's query the active and retired cards, validated, and never a draft", async () => {
+    const snapshot = await getDocs(
+      playerVisibleCardsQuery(firestoreOf(testEnv.authenticatedContext('bob'))),
+    )
 
     expect(snapshot.docs.map((document) => document.data())).toEqual([
-      { id: 'cursed-hex', ...storedCard('Hex', 'hex', false), holder: null },
-      { id: 'cursed-oldcurse', ...storedCard('Old Curse', 'oldcurse', true), holder: null },
+      { id: 'cursed-hex', ...storedCard('Hex', 'hex', 'active'), holder: null, changeId: null },
+      {
+        id: 'cursed-oldcurse',
+        ...storedCard('Old Curse', 'oldcurse', 'retired'),
+        holder: null,
+        changeId: null,
+      },
+    ])
+  })
+
+  it('refuses a player the whole collection', async () => {
+    await expect(
+      getDocs(cardsRef(firestoreOf(testEnv.authenticatedContext('bob')))),
+    ).rejects.toThrow()
+  })
+
+  it('gives the DM every card, the drafts included', async () => {
+    const snapshot = await getDocs(cardsRef(firestoreOf(testEnv.authenticatedContext('dana'))))
+    expect(ids(snapshot.docs.map((document) => document.data()))).toEqual([
+      'cursed-hex',
+      'cursed-newcurse',
+      'cursed-oldcurse',
     ])
   })
 })

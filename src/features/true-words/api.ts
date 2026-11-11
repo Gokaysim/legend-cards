@@ -16,6 +16,7 @@ import {
 } from 'firebase/firestore'
 
 import { LEDGER_COLLECTION, newLedgerEntry, readBalance, setBalance } from '@/features/balances/api'
+import { PLAYER_VISIBLE_STATUSES } from '@/features/definitions/status'
 import { BalanceError } from '@/features/balances/errors'
 import { explainDenial, openPackIdOnServer, tableRef } from '@/features/table/api'
 import { TableBusyError } from '@/features/table/errors'
@@ -47,9 +48,20 @@ export const LEARNED_WORDS_COLLECTION = 'userTrueWords'
 export const PLAYER_WORDS_COLLECTION = 'playerWords'
 export const WORD_DRAFTS_COLLECTION = 'wordDrafts'
 
-/** Every word, retired ones included: a retired word stays with the players who know it. */
+/**
+ * Every word, drafts and retired ones included. Only the DM may read the whole collection: a player reads it through
+ * `playerVisibleWordsQuery` (design D3).
+ */
 export function trueWordsRef(db: Firestore): CollectionReference<TrueWord> {
   return collection(db, TRUE_WORDS_COLLECTION).withConverter(trueWordConverter)
+}
+
+/**
+ * The words a player may read: the active ones, and the retired ones, which stay with the players who know them. A
+ * draft never reaches a player's device.
+ */
+export function playerVisibleWordsQuery(db: Firestore): Query<TrueWord> {
+  return query(trueWordsRef(db), where('status', 'in', [...PLAYER_VISIBLE_STATUSES]))
 }
 
 export function trueWordRef(db: Firestore, wordId: string): DocumentReference<TrueWord> {
@@ -121,7 +133,7 @@ async function readActiveWord(
   wordId: string,
 ): Promise<TrueWord> {
   const word = (await transaction.get(trueWordRef(db, wordId))).data()
-  if (!word || word.retired) throw new WordError('unavailable')
+  if (!word || word.status !== 'active') throw new WordError('unavailable')
   return word
 }
 
@@ -185,7 +197,7 @@ class KnownWordError extends Error {
 
 /** The active words a draft for a player who knows `known` can show. */
 export function learnableWords(words: readonly TrueWord[], known: ReadonlySet<string>): TrueWord[] {
-  return words.filter((word) => !word.retired && !known.has(word.id))
+  return words.filter((word) => word.status === 'active' && !known.has(word.id))
 }
 
 /**

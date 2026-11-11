@@ -6,15 +6,16 @@ import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 import { ready } from '@/test/fixtures'
 import { TestCardsProvider } from '@/test/TestCardsProvider'
 
-import { useCards, useCardsById, useDeckCards } from './cardsContext'
+import { useCards, useCardsById, useDeckCards, useDeckDefinitions } from './cardsContext'
 import type { Card } from './schema'
 import type { Subscription } from '@/lib/firestore/subscription'
 
 const common = testCard('Aboleth Eyes')
 const blessed = testBlessedCard('Dawn of Fortune')
 const cursed = testCursedCard('Visions of Death')
-const retired = testCard('Old Card', { retired: true })
-const retiredCursed = testCursedCard('Old Curse', { retired: true })
+const retired = testCard('Old Card', { status: 'retired' })
+const retiredCursed = testCursedCard('Old Curse', { status: 'retired' })
+const draft = testCard('New Card', { status: 'draft' })
 
 function wrapperWith(cards: Subscription<Card[]>) {
   return ({ children }: { children: ReactNode }) => (
@@ -88,5 +89,24 @@ describe('useDeckCards', () => {
     }
     const failed = renderHook(() => useDeckCards('cursed'), { wrapper: wrapperWith(error) })
     expect(failed.result.current).toEqual(error)
+  })
+})
+
+describe('useDeckDefinitions', () => {
+  it("gives one deck's cards whatever their status, for the DM's status filter", () => {
+    const { result } = renderHook(() => useDeckDefinitions('legend'), {
+      wrapper: wrapperWith(ready([common, retired, draft, cursed, blessed])),
+    })
+    expect(result.current).toMatchObject({
+      status: 'ready',
+      data: [common, retired, draft, blessed],
+    })
+  })
+
+  it('keeps drafts out of the active cards', () => {
+    const { result } = renderHook(() => useCards(), {
+      wrapper: wrapperWith(ready([common, draft])),
+    })
+    expect(result.current).toMatchObject({ status: 'ready', data: [common] })
   })
 })

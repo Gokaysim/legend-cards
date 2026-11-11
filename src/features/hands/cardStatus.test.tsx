@@ -45,6 +45,20 @@ describe('cardStatuses', () => {
     expect(statuses.get(hex.id)).toEqual({ inPool: false, holderNames: [] })
   })
 
+  it('keeps drafts and retired cards out of the pool, naming those who still hold a retired card', () => {
+    const draft = testCard('Lute Song', { status: 'draft' })
+    const retired = testCard('Old Card', { status: 'retired' })
+    const retiredBlessed = testBlessedCard('Old Blessing', { status: 'retired' })
+    const statuses = cardStatuses(
+      [draft, retired, retiredBlessed],
+      [testHolding(retired, 'ayla', 1000)],
+      profiles,
+    )
+    expect(statuses.get(draft.id)).toEqual({ inPool: false, holderNames: [] })
+    expect(statuses.get(retired.id)).toEqual({ inPool: false, holderNames: ['Ayla'] })
+    expect(statuses.get(retiredBlessed.id)).toEqual({ inPool: false, holderNames: [] })
+  })
+
   it('names the holder before its holding arrives, and a user without a profile generically', () => {
     const statuses = cardStatuses([eyes, visions], [testHolding(visions, 'ghost', 1000)], profiles)
 

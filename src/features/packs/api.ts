@@ -85,9 +85,9 @@ class TakenError extends Error {
   }
 }
 
-/** True for a card a pack cannot show now: missing, retired, or a normal card with a holder. */
+/** True for a card a pack cannot show now: missing, not active, or a normal card with a holder. */
 function isTaken(card: Card | undefined): boolean {
-  return !card || card.retired || (card.kind === 'normal' && card.holder !== null)
+  return !card || card.status !== 'active' || (card.kind === 'normal' && card.holder !== null)
 }
 
 const accountOf = (currency: PackCurrency, uid: string): BalanceAccount =>
@@ -310,7 +310,7 @@ function chooseOnce(db: Firestore, { drawId, cardId, by }: ChoosePackCardInput):
     let curse: Card | null = null
     if (isCursedPackType(pack.packType)) {
       curse = [...shown.values()].find((shownCard) => shownCard?.kind === 'cursed') ?? null
-      if (curse === null || curse.retired) throw new PackError('unavailable')
+      if (curse === null || curse.status !== 'active') throw new PackError('unavailable')
     }
 
     transaction.set(

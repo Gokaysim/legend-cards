@@ -8,8 +8,8 @@ import { ready } from './fixtures'
 
 export type TestCards = {
   /**
-   * Every card, as the one subscription of `CardsProvider` delivers them: retired cards are left out of
-   * `useCards()` and kept in `useCardsById()`. Defaults to a ready, empty list.
+   * Every card the device reads, as the one subscription of `CardsProvider` delivers them: drafts and retired cards are
+   * left out of `useCards()` and kept in `useCardsById()` and `useDeckDefinitions()`. Defaults to a ready, empty list.
    */
   cards?: Subscription<Card[]>
 }

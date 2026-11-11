@@ -56,13 +56,13 @@ describe('parseTrueWordFile: rows', () => {
     expect(result.errors).toEqual([{ kind: 'name-without-letters', row: 2, name: '!!!' }])
   })
 
-  it('reports an empty cost, and a dash as an empty cost', () => {
+  it('reads an empty cost, and a dash, as a missing cost: the word becomes a draft, not an error', () => {
     const result = parseTrueWordFile(words('Abyss,,Free card.', 'Aid,—,Swift aid.'))
-    expect(result.errors).toEqual([
-      { kind: 'empty-cost', row: 2, name: 'Abyss' },
-      { kind: 'empty-cost', row: 3, name: 'Aid' },
+    expect(result.errors).toEqual([])
+    expect(result.words.map(({ word, missing }) => [word.cost, missing])).toEqual([
+      [null, ['cost']],
+      [null, ['cost']],
     ])
-    expect(result.words).toEqual([])
   })
 
   it('reports a cost longer than 10 characters', () => {
@@ -78,11 +78,17 @@ describe('parseTrueWordFile: rows', () => {
     expect(result.words).toHaveLength(1)
   })
 
-  it('imports a row with an empty text, with a warning', () => {
-    const result = parseTrueWordFile(words('Abyss,5,'))
+  it('reads an empty text, and a dash, as a missing text', () => {
+    const result = parseTrueWordFile(words('Abyss,5,', 'Aid,1,—'))
     expect(result.errors).toEqual([])
-    expect(result.words).toHaveLength(1)
-    expect(result.warnings).toEqual([{ kind: 'empty-text', row: 2, name: 'Abyss' }])
+    expect(result.words.map(({ word, missing }) => [word.text, missing])).toEqual([
+      ['', ['text']],
+      ['', ['text']],
+    ])
+  })
+
+  it('misses nothing in a complete row', () => {
+    expect(parseTrueWordFile(words('Dragon,X,Breathe.')).words[0]?.missing).toEqual([])
   })
 
   it('skips fully empty rows', () => {
@@ -98,10 +104,10 @@ describe('parseTrueWordFile: rows', () => {
 })
 
 describe('parseTrueWordFile: the repository file', () => {
-  it('reads all 53 words without errors or warnings', () => {
+  it('reads all 53 words without errors, none of them missing a value', () => {
     const result = parseTrueWordFile(dataFile('true-words.csv'))
     expect(result.errors).toEqual([])
-    expect(result.warnings).toEqual([])
     expect(result.words).toHaveLength(53)
+    expect(result.words.filter(({ missing }) => missing.length > 0)).toEqual([])
   })
 })

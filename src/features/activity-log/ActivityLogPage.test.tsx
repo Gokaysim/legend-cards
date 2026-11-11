@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 import type { Card } from '@/features/cards/schema'
 import type { Holding } from '@/features/hands/schema'
 import { testCard, testCursedCard } from '@/test/cardFixtures'
+import { testCardChange, testCardSnapshot, testImportRecord } from '@/test/definitionFixtures'
 import { testDmDraw, testDraw } from '@/test/drawFixtures'
 import { ready, testProfile } from '@/test/fixtures'
 import { testHolding } from '@/test/holdingFixtures'
@@ -499,5 +500,58 @@ describe('True Words in the İşlem Logu', () => {
 
     expect(rowTexts()[0]).toContain("Bora'dan Abyss True Word'ünü geri aldı.")
     expect(rowTexts()[1]).toContain("Bora'ya Abyss True Word'ünü öğretti.")
+  })
+})
+
+describe('definition changes in the İşlem Logu', () => {
+  const eyesBefore = testCardSnapshot("Aboleth's Eyes")
+  const edit = testCardChange('c-edit', eyesBefore, { ...eyesBefore, cost: '3' }, { at: on(8, 50) })
+  const draftAdded = testCardChange(
+    'c-draft',
+    null,
+    testCardSnapshot("Bard's Encore", { status: 'draft' }),
+    { step: 'added', public: false, at: on(8, 55) },
+  )
+  const imported = testImportRecord('c-import', 742, { at: on(7, 0) })
+
+  it('lists an edit with its changed fields, among the other events, newest first', () => {
+    renderLog({ records: ready(records({ entries: [lpForAyla], changes: [edit] })) })
+    const [first, second] = rows()
+    expect(first).toHaveTextContent("Aboleth's Eyes kartını düzenledi.")
+    expect(first).toHaveTextContent('Cost: 2 → 3')
+    expect(first).toHaveTextContent('Dana')
+    expect(second).toHaveTextContent('Ayla: +2 LP')
+  })
+
+  it("marks the DM's draft work as visible to the DM only", () => {
+    renderLog({ records: ready(records({ changes: [draftAdded, edit] })) })
+    expect(rows()[0]).toHaveTextContent("Taslak kart ekledi: Bard's Encore.")
+    expect(rows()[0]).toHaveTextContent('🔒 Yalnızca DM')
+    expect(rows()[1]).not.toHaveTextContent('Yalnızca DM')
+  })
+
+  it('shows the first import as one event of 742 cards, by "Import"', () => {
+    renderLog({ records: ready(records({ changes: [imported] })) })
+    expect(rows()).toHaveLength(1)
+    expect(rows()[0]).toHaveTextContent('Import')
+    expect(rows()[0]).toHaveTextContent('742 kart ekledi.')
+    expect(rows()[0]).toHaveTextContent('Eklenenler (742)')
+  })
+
+  it('leaves the definition changes out of the player filter', async () => {
+    const user = userEvent.setup()
+    renderLog({
+      records: (uid) =>
+        ready(
+          uid === null
+            ? records({ given: [givenToAyla], changes: [edit] })
+            : records({ given: [givenToAyla] }),
+        ),
+    })
+    expect(rows()).toHaveLength(2)
+
+    await user.selectOptions(main().getByRole('combobox', { name: 'Oyuncu' }), 'Ayla')
+
+    expect(rowTexts().join(' ')).not.toContain('düzenledi')
   })
 })

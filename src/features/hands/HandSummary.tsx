@@ -22,7 +22,8 @@ import { StatTile } from './StatTile'
 function handSets(entries: readonly HandEntry[]): { name: string; count: number }[] {
   const counts = new Map<string, { name: string; order: number; count: number }>()
   for (const { card } of entries) {
-    if (card.kind !== 'normal') continue
+    // A held card is active or retired, so a normal one has a set; the check is for the types.
+    if (card.kind !== 'normal' || card.setCode === null) continue
     const name = setDisplayName(card.setCode)
     const current = counts.get(name)
     if (current) current.count += 1

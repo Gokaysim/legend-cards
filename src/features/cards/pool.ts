@@ -30,18 +30,18 @@ export const NO_FILTERS: DrawFilters = {
 
 /** True for a card a random draw can give: an active normal card without a holder, or an active Blessed card. */
 export function isDrawable(card: Card): boolean {
-  if (card.retired) return false
+  if (card.status !== 'active') return false
   return card.kind === 'blessed' || (card.kind === 'normal' && card.holder === null)
 }
 
-/** The cards a random draw picks from. Held normal cards, Cursed cards and retired cards are never in it. */
+/** The cards a random draw picks from. Held normal cards, Cursed cards, drafts and retired cards are never in it. */
 export function drawablePool(cards: readonly Card[]): Card[] {
   return cards.filter(isDrawable)
 }
 
 /** The cards a Cursed draw picks from: the active Cursed cards. */
 export function cursedPool(cards: readonly Card[]): Card[] {
-  return cards.filter((card) => card.kind === 'cursed' && !card.retired)
+  return cards.filter((card) => card.kind === 'cursed' && card.status === 'active')
 }
 
 /** A card's rarity for the draw filter: its rarity, `blessed` for a Blessed card, and none for a Cursed card. */

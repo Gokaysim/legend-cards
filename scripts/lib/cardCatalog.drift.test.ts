@@ -1,13 +1,16 @@
 // @vitest-environment node
-// Scripts do not import app code, so the official sets and the name normalization exist twice: here in
+// Scripts do not import app code, so the official sets, the mechanic packs and the name normalization exist twice: here in
 // `cardCatalog.ts`, and in `src/features/cards/`. This test fails when the two copies disagree.
 import { readFileSync } from 'node:fs'
 
 import { describe, expect, it } from 'vitest'
 
-import { OFFICIAL_SETS as APP_SETS } from '../../src/features/cards/sets.ts'
+import {
+  OFFICIAL_SETS as APP_SETS,
+  MECHANIC_PACKS as APP_MECHANIC_PACKS,
+} from '../../src/features/cards/sets.ts'
 import { normalize as appNormalize } from '../../src/features/cards/text.ts'
-import { normalize, OFFICIAL_SETS } from './cardCatalog.ts'
+import { MECHANIC_PACKS, normalize, OFFICIAL_SETS } from './cardCatalog.ts'
 import { parseCardFile } from './cardRows.ts'
 
 const dataFile = (name: string) =>
@@ -16,6 +19,10 @@ const dataFile = (name: string) =>
 describe('the script catalog and the app agree', () => {
   it('on every set code, official name, alias, and the shop order', () => {
     expect(OFFICIAL_SETS).toEqual(APP_SETS)
+  })
+
+  it('on the eight mechanic packs', () => {
+    expect(MECHANIC_PACKS).toEqual(APP_MECHANIC_PACKS)
   })
 
   it('on the normalization of every name in both card files', () => {
