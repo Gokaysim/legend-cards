@@ -7,7 +7,7 @@ Keeps the card definitions of the DM's side card system, the Legend cards (norma
 ## Requirements
 
 ### Requirement: Card definitions
-Every card SHALL be stored once, with a kind and its definition: name, set code, cost, rarity, mechanic pack, and text. The kind SHALL be one of "normal", "blessed" or "cursed". A Blessed card SHALL have no set code and no rarity. A Cursed card SHALL have no set code, no rarity, and no mechanic pack. A cost MAY be absent. Each card keeps its cost as written, for example "X" or "d6".
+Every card SHALL be stored once, with a kind, a status (spec: definition-editing) and its definition: name, set code, cost, rarity, mechanic pack, and text. The kind SHALL be one of "normal", "blessed" or "cursed". A Blessed card SHALL have no set code and no rarity. A Cursed card SHALL have no set code, no rarity, and no mechanic pack. A cost MAY be absent. Each card keeps its cost as written, for example "X" or "d6". A draft MAY lack the other fields its kind requires.
 
 #### Scenario: A Blessed card
 - **WHEN** a user looks at a Blessed card
@@ -25,53 +25,54 @@ Every card SHALL be stored once, with a kind and its definition: name, set code,
 - **WHEN** a user looks at a card whose cost is "d6"
 - **THEN** the cost shows as "d6"
 
+#### Scenario: A draft without a set
+- **WHEN** the DM looks at the normal draft "The Cartographer", which has no set, rarity or mechanic pack
+- **THEN** its set, rarity and mechanic pack show as empty, and it is marked "Taslak"
+
 ### Requirement: Cards readable by every signed-in user
-Every signed-in user SHALL be able to read every card, the DM and the players alike. Signed-out requests SHALL be denied.
+Every signed-in user SHALL be able to read every active and every retired card, the DM and the players alike. Only the DM SHALL be able to read a draft. A player's device SHALL never receive a draft. Signed-out requests SHALL be denied.
 
 #### Scenario: A player reads the cards
 - **WHEN** a signed-in player reads the cards
-- **THEN** they get every card definition, including the Cursed and the retired cards
+- **THEN** they get every active and retired card definition, including the Cursed cards, and no draft
+
+#### Scenario: A player reads a draft
+- **WHEN** a signed-in player tries to read the draft "Bard's Encore"
+- **THEN** the server denies it
+
+#### Scenario: The DM reads the cards
+- **WHEN** the signed-in DM reads the cards
+- **THEN** they get every card, including the drafts
 
 #### Scenario: Signed-out read
 - **WHEN** a request without a signed-in user tries to read a card
 - **THEN** the server denies it
 
-### Requirement: Card definitions are read-only for the application
-The server SHALL deny every write from the application that creates a card, deletes a card, or changes any card field other than its holder, by any user, including the DM. Card definitions SHALL change only through the card import script. A holder SHALL change only as the card-holdings rules allow.
-
-#### Scenario: The DM changes a card
-- **WHEN** the signed-in DM tries to change a card's text from the application
-- **THEN** the server denies the write and the card does not change
-
-#### Scenario: A player adds a card
-- **WHEN** a signed-in player tries to create a card
-- **THEN** the server denies the write
-
-#### Scenario: Deleting a card
-- **WHEN** any signed-in user tries to delete a card
-- **THEN** the server denies the delete
-
-#### Scenario: Text changed together with the holder
-- **WHEN** the DM gives a card and, in the same write, changes its text
-- **THEN** the server denies the whole write
-
 ### Requirement: Retired cards are hidden
-A card marked as retired SHALL NOT appear in the Kart kütüphanesi, in the Cursed Deck, or in their counts. Its stored definition SHALL be kept.
+A draft or a retired card SHALL NOT appear in a player's Kart kütüphanesi or Cursed Deck, or in their counts. The DM SHALL see them there only through the status filter. A retired card's stored definition SHALL be kept.
 
 #### Scenario: A card removed from the data
-- **WHEN** a card has been retired by an import
+- **WHEN** the DM retires a card
 - **THEN** it no longer appears in the Kart kütüphanesi, and the card count is one lower
+
+#### Scenario: A draft
+- **WHEN** the DM adds the draft "Bard's Encore"
+- **THEN** no player's Kart kütüphanesi lists it, and the players' card count does not change
 
 ### Requirement: Kart kütüphanesi lists the Legend cards live
 The Kart kütüphanesi screen SHALL list every active normal and Blessed card, and no Cursed card. It SHALL show the number of cards it lists. A change to the cards SHALL appear on every open device without a page reload.
 
 #### Scenario: Opening the library
 - **WHEN** a signed-in user opens the Kart kütüphanesi after the initial data was imported
-- **THEN** the screen lists 590 cards, none of them Cursed, and says that it shows 590 cards
+- **THEN** the screen lists 588 cards, none of them Cursed, and says that it shows 588 cards
 
 #### Scenario: An import while the screen is open
-- **WHEN** an import adds a card while a user has the Kart kütüphanesi open
+- **WHEN** an import adds an active card while a user has the Kart kütüphanesi open
 - **THEN** the new card appears on that user's screen without a reload
+
+#### Scenario: A card published while the screen is open
+- **WHEN** the DM publishes a draft while Ayla has the Kart kütüphanesi open
+- **THEN** the card appears on Ayla's screen without a reload
 
 ### Requirement: Pool status in the library
 The Kart kütüphanesi SHALL show each card's status, live. A normal card without a holder is "Havuzda". A held normal card is "Elde:" with the names of everyone holding a copy, and its card face is marked. A Blessed card is always "Havuzda", followed by the names of those holding it, if any. The screen SHALL show how many cards are in the pool and how many copies are in hands.
@@ -231,3 +232,29 @@ The Kart kütüphanesi SHALL offer a "▥ Havuz Dağılımı" dialog, live, over
 #### Scenario: An empty pool
 - **WHEN** no card can be drawn and a user opens the dialog
 - **THEN** it says in Turkish that the pool has no cards to show
+
+### Requirement: Who writes card definitions
+The application SHALL change a card's definition and status only through the DM's steps in definition-editing. It SHALL change a normal card's holder only as the card-holdings rules allow. The server SHALL deny a write that changes a card's holder together with its definition or status.
+
+#### Scenario: Text changed together with the holder
+- **WHEN** the DM gives a card and, in the same write, changes its text
+- **THEN** the server denies the whole write
+
+#### Scenario: A player changes a definition
+- **WHEN** a signed-in player tries to change a card's text
+- **THEN** the server denies the write, and the card does not change
+
+### Requirement: The DM's status filter
+For the DM, the Kart kütüphanesi and the Cursed Deck SHALL offer a status filter with "Yayında", "Taslak", "Kaldırıldı" and "Hepsi", starting at "Yayında". It SHALL combine with the search and the other filters, and the count SHALL follow it. With "Taslak", "Kaldırıldı" or "Hepsi" chosen, each card's face and list row SHALL show its status. Players SHALL NOT see the filter.
+
+#### Scenario: Finding the drafts
+- **WHEN** the DM chooses "Taslak" in the Kart kütüphanesi after the initial data was imported
+- **THEN** only "Hrolf's Hornswaggle", "The Grand Finale" and "The Cartographer" are listed, each marked "Taslak"
+
+#### Scenario: A retired card in a hand
+- **WHEN** the DM chooses "Kaldırıldı" while Ayla holds the retired card "Aboleth's Eyes"
+- **THEN** "Aboleth's Eyes" is listed, marked "Kaldırıldı", with "Elde: Ayla" as its status
+
+#### Scenario: A player's library
+- **WHEN** Ayla opens the Kart kütüphanesi
+- **THEN** she sees no status filter, and only active cards are listed

@@ -7,7 +7,7 @@ Shows what happened in the game on the İşlem Logu screen: the card movements a
 ## Requirements
 
 ### Requirement: One list of what happened
-The İşlem Logu screen SHALL list, newest first and live, every card given, drawn, used, discarded, and transferred, every pack opened, every True Word draft, every True Word the DM teaches or takes back, and every LP and GP change. The list SHALL be read from the card holdings, the draw and pack records, the True Word drafts and learned words, and the ledger, so it never disagrees with them. Switching a card or a True Word active, notes, and cost overrides SHALL NOT be listed.
+The İşlem Logu screen SHALL list, newest first and live, every card given, drawn, used, discarded, and transferred, every pack opened, every True Word draft, every word the DM teaches or takes back, every LP and GP change, and every definition change. It SHALL be read from the holdings, draws, packs, True Word drafts and learned words, the ledger, and the change records, so it never disagrees with them. Switching a card or a word active, notes, and cost overrides SHALL NOT be listed.
 
 #### Scenario: Events from both sources
 - **WHEN** the DM gives Ayla a card and then adds 2 LP to Bora
@@ -25,6 +25,10 @@ The İşlem Logu screen SHALL list, newest first and live, every card given, dra
 - **WHEN** the DM adds 2 LP to Bora, and then Ayla starts a True Word draft
 - **THEN** the log shows the draft first and the LP change below it
 
+#### Scenario: A definition change among the events
+- **WHEN** the DM adds 2 LP to Bora, and then fixes the text of "Aboleth's Eyes"
+- **THEN** the log shows the text change first and the LP change below it
+
 #### Scenario: Live update
 - **WHEN** Ayla uses a card while Bora has the log open
 - **THEN** the event appears at the top of Bora's log without a reload
@@ -34,11 +38,15 @@ The İşlem Logu screen SHALL list, newest first and live, every card given, dra
 - **THEN** the log shows no new event
 
 ### Requirement: Log readable by every signed-in user
-Every signed-in user SHALL see the whole log, including the events of other players.
+Every signed-in user SHALL see the whole log, including the events of other players. The one exception is the DM's work on drafts, which SHALL be listed for the DM only (spec: definition-editing, "Who reads the change records").
 
 #### Scenario: A player reads the log
 - **WHEN** Ayla opens the İşlem Logu
 - **THEN** she sees the events of every player, including Bora's LP changes
+
+#### Scenario: Draft work in a player's log
+- **WHEN** the DM adds the draft "Bard's Encore", edits it, and then publishes it, and Ayla opens the İşlem Logu
+- **THEN** Ayla sees only the publish, and the DM sees all three events
 
 ### Requirement: Permanent history
 The log SHALL keep every event across sessions and devices. Reloading the application or signing in on another device SHALL show the same events.
@@ -88,7 +96,7 @@ The log SHALL first show the 50 most recent events. When there are older events,
 - **THEN** no "Daha fazla" control is shown
 
 ### Requirement: Player filter
-The log SHALL offer a filter for one user. With a user chosen, it SHALL list only the cards that user received, including the cards drawn into their hand and the packs opened for them, the cards that left their hand, their True Word drafts, the True Words the DM taught them or took back from them, and the changes of their LP. Party purse changes SHALL be listed only without a filter.
+The log SHALL offer a filter for one user. With a user chosen, it SHALL list only the cards that user received, including the cards drawn into their hand and the packs opened for them, the cards that left their hand, their True Word drafts, the True Words the DM taught them or took back from them, and the changes of their LP. Party purse changes and definition changes SHALL be listed only without a filter.
 
 #### Scenario: Filtering by a player
 - **WHEN** a user chooses Ayla in the filter
@@ -109,6 +117,10 @@ The log SHALL offer a filter for one user. With a user chosen, it SHALL list onl
 #### Scenario: A transfer between two players
 - **WHEN** a user chooses Bora in the filter after the DM transferred a card from Ayla to Bora
 - **THEN** the transfer is listed
+
+#### Scenario: Definition changes in the filter
+- **WHEN** a user chooses Ayla in the filter after the DM changed the text of a card that Ayla holds
+- **THEN** the text change is not listed
 
 ### Requirement: Log states
 While the log is loading, the screen SHALL show a loading indicator. If it cannot be loaded, it SHALL show a Turkish error message. When there are no events, it SHALL say so in Turkish.
@@ -184,3 +196,36 @@ A True Word the DM teaches SHALL appear as one event naming the DM, the player, 
 #### Scenario: Taking back a word
 - **WHEN** the DM takes back "Abyss" from Ayla
 - **THEN** the log shows an event that the DM took back "Abyss" from Ayla, and the event of how she learned it stays
+
+### Requirement: Definition changes are events
+Each definition change record SHALL appear as one event. It names who made the change (the DM, or "Import"), the card or word, and the step: added, edited, published, retired, brought back or deleted. An edit SHALL show each changed field before and after. A publish and an add straight to active SHALL show the definition. Events of the DM's work on drafts SHALL be marked as visible to the DM only.
+
+#### Scenario: An edit
+- **WHEN** the DM changes the cost of "Aboleth's Eyes" from "2" to "3"
+- **THEN** the log shows one event naming the DM, "Aboleth's Eyes", and the cost "2 → 3"
+
+#### Scenario: A retire
+- **WHEN** the DM retires the True Word "Abyss"
+- **THEN** the log shows that the DM retired the True Word "Abyss"
+
+#### Scenario: Draft work in the DM's log
+- **WHEN** the DM adds the draft "Bard's Encore" and opens the İşlem Logu
+- **THEN** the event of adding it is marked as visible to the DM only
+
+### Requirement: Text changes in the log
+An edit event SHALL show a text before and after by its visible part, without bracket text, as the card screens do. When only the bracket text changed, the event SHALL say in Turkish that the hidden part of the text changed.
+
+#### Scenario: A visible text change
+- **WHEN** the DM changes the text of "Aboleth's Eyes"
+- **THEN** the event shows the old and the new visible text
+
+#### Scenario: A bracket-only change
+- **WHEN** the DM changes "[Uno]" to "[Duo]" in the text of "Hrolf's Hornswaggle"
+- **THEN** the event says that the hidden part of the text changed, and shows no bracket text
+
+### Requirement: An import is one event
+An import's change record SHALL appear as one event naming "Import", whether cards or True Words were added, how many, and their names. A player SHALL see only the event of the active additions.
+
+#### Scenario: The first import
+- **WHEN** the repository card files were imported into empty emulators, and Ayla opens the İşlem Logu
+- **THEN** she sees one event that the import added 742 cards, and no event of the 3 drafts
