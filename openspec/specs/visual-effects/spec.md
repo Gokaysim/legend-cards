@@ -91,7 +91,7 @@ In an open pack, the selected card and the chosen card SHALL glow gold. Once eve
 - **THEN** the face-up card does not glow gold
 
 ### Requirement: Premium and Cursed pack tiles
-In the Pack Shop, a set's Premium Pack tile SHALL show its picture in a gold ridged frame with a "✦" corner. A slow shimmer SHALL run over it. The Cursed, Cursed Golden and Pandemonium Cursed Pack tiles SHALL show theirs in a red ridged frame with a "☠" corner. Other tiles SHALL have no such frame. The tiles SHALL keep their names and prices.
+In the Pack Shop, a set's Premium Pack tile SHALL show its picture in a gold ridged frame with a "✦" corner. A slow shimmer SHALL run over it. The Cursed, Cursed Golden and Pandemonium Cursed Pack tiles SHALL show theirs in a red ridged frame with a "☠" corner. Other tiles SHALL have no such frame. The tiles SHALL keep their prices, and their names where card-images lists them.
 
 #### Scenario: A set's packs
 - **WHEN** a user opens the Kesqerian Nights group
