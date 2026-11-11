@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Keeps two free-text notes for each player: a player note that the player and the DM write and the whole table reads, and a DM note that only the DM can read or write. They are shown on the hand screen's Notlar tab.
+Keeps two free-text notes for each player: a player note that the player and the DM write and the whole table reads, and a DM note that only the DM can read or write. The player note is shown under every tab of the player's hand, and the DM note on the DM's own DM notu tab there.
 
 ## Requirements
 
@@ -56,54 +56,74 @@ Every user with a profile SHALL have one DM note of up to 2000 characters. Only 
 - **THEN** the server denies it
 
 ### Requirement: Players never load a DM note
-On a player's device, the application SHALL NOT request any DM note and SHALL NOT show a DM note section, not even an empty or hidden one.
+On a player's device, the application SHALL NOT request any DM note and SHALL NOT show a DM note section or the DM notu tab, not even an empty or hidden one.
 
 #### Scenario: A player opens the Notlar tab
-- **WHEN** Ayla opens the Notlar tab of her own hand
-- **THEN** she sees only her player note, and her device makes no request for a DM note
+- **WHEN** Ayla opens the URL of the former Notlar tab of her own hand
+- **THEN** the Kartlar tab shows only her player note, and her device makes no request for a DM note
 
-### Requirement: Notlar tab on the hand screen
-The hand screen SHALL have a "✎ Notlar" tab after "✦ True Words". The tab SHALL be kept in the URL, so reloading opens it again. It SHALL show the player note: as an editable field to that player and to the DM, and as read-only text to other players. To the DM only, it SHALL also show the DM note as an editable field, marked "Yalnızca DM görür".
+#### Scenario: A player opens their hand
+- **WHEN** Ayla opens her own hand and switches between its tabs
+- **THEN** she sees only her player note, no DM notu tab, and her device makes no request for a DM note
 
-#### Scenario: A player's own notes
-- **WHEN** Ayla opens the Notlar tab of her hand
-- **THEN** she sees her player note as an editable field
+### Requirement: Player note under the hand
+On every tab of the hand screen, the player note SHALL show under the tab's content, titled "Oyuncu notu". It SHALL be an editable field for that player and for the DM, and read-only text for other players.
 
-#### Scenario: Another player's notes
-- **WHEN** Bora opens the Notlar tab of Ayla's hand
-- **THEN** he sees Ayla's player note as read-only text
+#### Scenario: A player's own note
+- **WHEN** Ayla opens her hand
+- **THEN** she sees her player note as an editable field under her cards
+
+#### Scenario: Another player's note
+- **WHEN** Bora opens Ayla's hand
+- **THEN** he sees Ayla's player note as read-only text under her cards
+
+#### Scenario: The DM edits a player's note
+- **WHEN** the DM opens Ayla's hand
+- **THEN** the DM sees Ayla's player note as an editable field under her cards
+
+#### Scenario: On the True Words tab
+- **WHEN** Ayla opens the True Words tab of her hand
+- **THEN** her player note shows under her True Words
+
+### Requirement: DM notu tab
+For the DM only, the hand screen SHALL have a "🔒 DM notu" tab after "✦ True Words". It SHALL show the DM note as an editable field, marked "Yalnızca DM görür". The tab SHALL be kept in the URL, so reloading opens it again. A player SHALL have no such tab, and the tab's URL SHALL open the Kartlar tab for them. A link to the former Notlar tab SHALL open the Kartlar tab.
 
 #### Scenario: The DM's view
-- **WHEN** the DM opens the Notlar tab of Ayla's hand
-- **THEN** the DM sees Ayla's player note and her DM note, both editable, and the DM note is marked "Yalnızca DM görür"
+- **WHEN** the DM opens the DM notu tab of Ayla's hand
+- **THEN** the DM sees Ayla's DM note as an editable field, marked "Yalnızca DM görür", with her player note under it
 
 #### Scenario: Reloading the tab
-- **WHEN** a user reloads the browser while the Notlar tab of Bora's hand is open
-- **THEN** the Notlar tab of Bora's hand is shown again
+- **WHEN** the DM reloads the browser while the DM notu tab of Bora's hand is open
+- **THEN** the DM notu tab of Bora's hand is shown again
+
+#### Scenario: A player's tabs
+- **WHEN** Ayla opens any hand
+- **THEN** she sees the "♠ Kartlar" and "✦ True Words" tabs, and no DM notu tab
+
+#### Scenario: A player opens the tab's URL
+- **WHEN** Ayla opens the URL of the DM notu tab of her own hand
+- **THEN** the Kartlar tab of her hand is shown
+
+#### Scenario: An old Notlar link
+- **WHEN** a user opens the URL of the former Notlar tab of Ayla's hand
+- **THEN** the Kartlar tab of Ayla's hand is shown, with her player note under her cards
 
 ### Requirement: The DM note stays on its tab
-The DM note SHALL appear only on the Notlar tab. It SHALL NOT appear on the other tabs or in the hand summary, so a DM screen that faces the table shows it only after the DM opens the tab.
+The DM note SHALL appear only on the DM notu tab. It SHALL NOT appear on the other tabs, under the hand, or in the hand summary, so a DM screen that faces the table shows it only after the DM opens the tab.
 
 #### Scenario: The DM shows a hand to the table
 - **WHEN** the DM has Ayla's hand open on the Kartlar tab, and Ayla has a DM note
 - **THEN** nothing on the screen shows the DM note or its text
 
-### Requirement: Notlar tab marker
-The tab's label SHALL carry a marker, "✎ Notlar •", while the player note has text other than spaces and line breaks. The DM note SHALL NOT affect the marker.
-
-#### Scenario: A player note exists
-- **WHEN** a user opens Ayla's hand, and her player note has text
-- **THEN** the tab reads "✎ Notlar •"
-
-#### Scenario: Only a DM note exists
-- **WHEN** the DM opens Bora's hand, and Bora's player note is empty but his DM note has text
-- **THEN** the tab reads "✎ Notlar", without the marker
+#### Scenario: The DM's tab label
+- **WHEN** the DM opens Bora's hand, and Bora has a DM note
+- **THEN** the tab still reads "🔒 DM notu", without any mark that a note exists
 
 ### Requirement: Saving a note
 A note SHALL be saved when its field loses focus, if its text changed, and SHALL show on every device without a reload. A change from another device SHALL NOT replace the text in a field while the user is typing in it. When two users save the same note, the text saved last SHALL be the note.
 
 #### Scenario: Live on another device
-- **WHEN** Ayla edits her player note and leaves the field, while Bora has her Notlar tab open
+- **WHEN** Ayla edits her player note and leaves the field, while Bora has her hand open
 - **THEN** Bora sees the new text without a reload
 
 #### Scenario: Typing while the DM saves
@@ -118,8 +138,8 @@ Each note SHALL show who changed it last and when, as "Son düzenleyen: <name> �
 - **THEN** the note shows "Son düzenleyen: <DM's name> · 9 Kas 14:32"
 
 #### Scenario: An empty note
-- **WHEN** Bora opens the Notlar tab of Ayla's hand, and Ayla has never written a player note
-- **THEN** the player note reads "Not yok."
+- **WHEN** Bora opens Ayla's hand, and Ayla has never written a player note
+- **THEN** the player note under her cards reads "Not yok."
 
 ### Requirement: Notes are not table actions
 Writing a note SHALL NOT be listed in the İşlem Logu. Notes SHALL stay editable while a pack is open.
