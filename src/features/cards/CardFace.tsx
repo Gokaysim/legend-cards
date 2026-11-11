@@ -37,6 +37,7 @@ const GLOW_CLASSES: Record<FaceGlow, string> = {
   active: 'drop-shadow-glow-active',
   'active-cursed': 'drop-shadow-glow-cursed',
   'active-blessed': 'drop-shadow-glow-blessed',
+  selected: 'drop-shadow-glow-selected',
   'reveal-common': '',
   'reveal-rare': 'drop-shadow-reveal-rare',
   'reveal-cursed': 'drop-shadow-reveal-cursed',
@@ -84,6 +85,11 @@ export type CardFaceProps = {
   hasNote?: boolean
   /** For a card in a hand: an extra copy given by the DM, not the copy that holds the card. */
   isExtraCopy?: boolean
+  /**
+   * For a card in a hand whose details show beside it: it is the selected card. It glows gold unless it is active, and
+   * its open control is marked `aria-current` for screen readers.
+   */
+  isSelected?: boolean
   /** In the library: the names of the players holding it, for a held normal card or a Cursed card in hands. */
   heldBy?: readonly string[]
   /** In a draw or an open pack: the card has been turned face up. It glows in its kind's color. */
@@ -114,8 +120,8 @@ export type CardFaceProps = {
  * have none of those three. A card in a hand shows its marks, and its note as an icon in the bottom-left corner; a
  * held card in the library shows who holds it.
  *
- * The face glows (design D4): an active card in a hand, a revealed card in a draw or a pack, and a held card in the
- * library, each in its own color.
+ * The face glows (design D4): an active card in a hand, the selected card of a hand, a revealed card in a draw or a
+ * pack, and a held card in the library, each in its own color.
  *
  * The magnifier in the top-right corner opens the card's zoom view (spec: card-zoom). The magnifier and the note icon
  * show on hover or keyboard focus, and at all times on a device without hover.
@@ -126,6 +132,7 @@ export function CardFace({
   isActive = false,
   hasNote = false,
   isExtraCopy = false,
+  isSelected = false,
   heldBy,
   isRevealed = false,
   isTiltable = false,
@@ -149,6 +156,7 @@ export function CardFace({
   const look = picture.src !== null ? 'picture' : 'css'
   const glow = faceGlow(frame, {
     isActive,
+    isSelected,
     isRevealed,
     isHeld: heldBy !== undefined && heldBy.length > 0,
   })
@@ -223,6 +231,7 @@ export function CardFace({
       type="button"
       onClick={onOpen}
       aria-label={openLabel}
+      aria-current={isSelected || undefined}
       className={cn(
         'absolute -inset-0.5 z-1 rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold',
         look === 'css' && 'hover:bg-ink/5',

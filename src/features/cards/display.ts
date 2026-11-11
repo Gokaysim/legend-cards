@@ -35,27 +35,33 @@ export function cardFrame(card: Card): CardFrame {
 }
 
 /**
- * How a card face glows (spec: visual-effects): an active card in a hand by its kind, a revealed card in a draw or a
- * pack by its kind, a card someone holds in the library soft gold, or not at all.
+ * How a card face glows (spec: visual-effects): an active card in a hand by its kind, the selected card of a hand
+ * whose details show beside it gold, a revealed card in a draw or a pack by its kind, a card someone holds in the
+ * library soft gold, or not at all.
  */
 export type FaceGlow =
   | 'active'
   | 'active-cursed'
   | 'active-blessed'
+  | 'selected'
   | 'reveal-common'
   | 'reveal-rare'
   | 'reveal-cursed'
   | 'reveal-blessed'
   | 'held'
 
-/** The face's glow, in this order: its active state, its reveal, its holders (design D4). */
+/**
+ * The face's glow, in this order: its active state, its selection, its reveal, its holders. An active card keeps its
+ * active glow when it is selected (design D4 of `add-visual-effects` and of `align-hand-screen-with-v2-2-8`).
+ */
 export function faceGlow(
   frame: CardFrame,
-  state: { isActive: boolean; isRevealed: boolean; isHeld: boolean },
+  state: { isActive: boolean; isSelected?: boolean; isRevealed: boolean; isHeld: boolean },
 ): FaceGlow | null {
   if (state.isActive) {
     return frame === 'cursed' ? 'active-cursed' : frame === 'blessed' ? 'active-blessed' : 'active'
   }
+  if (state.isSelected) return 'selected'
   if (state.isRevealed) return `reveal-${frame}`
   return state.isHeld ? 'held' : null
 }

@@ -13,13 +13,16 @@ export type HandTableProps = {
   entries: readonly HandEntry[]
   /** Opens a card's details. */
   onSelect: (holdingId: string) => void
+  /** The holding whose details show beside the hand, if any. Its row is marked. */
+  selectedId?: string | null
 }
 
 /**
  * The hand's list view: one row per card, in the order received. The Cost column is the cost in this hand. Only
- * the table scrolls sideways at narrow widths, never the page.
+ * the table scrolls sideways at narrow widths, never the page. The selected card's row is raised, with a gold edge,
+ * and its name is marked `aria-current` for screen readers (spec: card-holdings, "Card details beside the hand").
  */
-export function HandTable({ entries, onSelect }: HandTableProps) {
+export function HandTable({ entries, onSelect, selectedId = null }: HandTableProps) {
   return (
     <div className="overflow-x-auto rounded-xl border border-line bg-pane">
       <table className="w-full min-w-3xl border-collapse text-left text-sm">
@@ -33,55 +36,72 @@ export function HandTable({ entries, onSelect }: HandTableProps) {
           </tr>
         </thead>
         <tbody>
-          {entries.map(({ holding, card, cost, isExtraCopy }, index) => (
-            <tr key={holding.id} className="border-t border-line align-top">
-              <td className="px-3 py-2 text-ink-muted">{index + 1}</td>
-              <th scope="row" className="px-3 py-2 font-semibold text-ink">
-                <button
-                  type="button"
-                  onClick={() => onSelect(holding.id)}
-                  className="text-left underline-offset-2 hover:text-gold hover:underline"
+          {entries.map(({ holding, card, cost, isExtraCopy }, index) => {
+            const isSelected = holding.id === selectedId
+            return (
+              <tr
+                key={holding.id}
+                data-selected={isSelected || undefined}
+                className={cn('border-t border-line align-top', isSelected && 'bg-pane-raised')}
+              >
+                <td
+                  className={cn(
+                    'px-3 py-2 text-ink-muted',
+                    isSelected && 'border-l-2 border-l-gold',
+                  )}
                 >
-                  {card.name}
-                </button>
-                {holding.note ? (
-                  <span className="ml-1 font-normal text-ink-muted">
-                    <span aria-hidden="true">✎</span>
-                    <span className="sr-only">(not var)</span>
-                  </span>
-                ) : null}
-              </th>
-              <td className="px-3 py-2 whitespace-nowrap text-ink">{setLabel(card) ?? NO_VALUE}</td>
-              <td className="px-3 py-2 whitespace-nowrap text-ink">{cost ?? NO_VALUE}</td>
-              <td className="px-3 py-2 whitespace-nowrap text-ink">
-                {rarityLabel(card) ?? NO_VALUE}
-              </td>
-              <td className="px-3 py-2 whitespace-nowrap text-ink">
-                {card.mechanicPack ?? NO_VALUE}
-              </td>
-              <td className="min-w-64 px-3 py-2 whitespace-pre-line text-ink">
-                {visibleText(card.text) || NO_VALUE}
-              </td>
-              <td className="px-3 py-2">
-                <span className="flex flex-wrap gap-1">
-                  <span
-                    className={cn(
-                      pill,
-                      holding.active ? 'border-green text-ink' : 'border-line text-ink-muted',
-                    )}
+                  {index + 1}
+                </td>
+                <th scope="row" className="px-3 py-2 font-semibold text-ink">
+                  <button
+                    type="button"
+                    aria-current={isSelected || undefined}
+                    onClick={() => onSelect(holding.id)}
+                    className="text-left underline-offset-2 hover:text-gold hover:underline"
                   >
-                    {holding.active ? '● Aktif' : 'Elde'}
+                    {card.name}
+                  </button>
+                  {holding.note ? (
+                    <span className="ml-1 font-normal text-ink-muted">
+                      <span aria-hidden="true">✎</span>
+                      <span className="sr-only">(not var)</span>
+                    </span>
+                  ) : null}
+                </th>
+                <td className="px-3 py-2 whitespace-nowrap text-ink">
+                  {setLabel(card) ?? NO_VALUE}
+                </td>
+                <td className="px-3 py-2 whitespace-nowrap text-ink">{cost ?? NO_VALUE}</td>
+                <td className="px-3 py-2 whitespace-nowrap text-ink">
+                  {rarityLabel(card) ?? NO_VALUE}
+                </td>
+                <td className="px-3 py-2 whitespace-nowrap text-ink">
+                  {card.mechanicPack ?? NO_VALUE}
+                </td>
+                <td className="min-w-64 px-3 py-2 whitespace-pre-line text-ink">
+                  {visibleText(card.text) || NO_VALUE}
+                </td>
+                <td className="px-3 py-2">
+                  <span className="flex flex-wrap gap-1">
+                    <span
+                      className={cn(
+                        pill,
+                        holding.active ? 'border-green text-ink' : 'border-line text-ink-muted',
+                      )}
+                    >
+                      {holding.active ? '● Aktif' : 'Elde'}
+                    </span>
+                    {card.kind === 'cursed' ? (
+                      <span className={cn(pill, 'border-cursed text-ink')}>☠ Cursed</span>
+                    ) : null}
+                    {isExtraCopy ? (
+                      <span className={cn(pill, 'border-line text-ink')}>Ek kopya</span>
+                    ) : null}
                   </span>
-                  {card.kind === 'cursed' ? (
-                    <span className={cn(pill, 'border-cursed text-ink')}>☠ Cursed</span>
-                  ) : null}
-                  {isExtraCopy ? (
-                    <span className={cn(pill, 'border-line text-ink')}>Ek kopya</span>
-                  ) : null}
-                </span>
-              </td>
-            </tr>
-          ))}
+                </td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>

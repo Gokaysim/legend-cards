@@ -116,10 +116,13 @@ export function trueWordsPath(forUid?: string): string {
   return forUid === undefined ? path : `${path}?for=${encodeURIComponent(forUid)}`
 }
 
-/** The search parameter of a hand's tab, and the values of its True Words and Notlar tabs. */
+/**
+ * The search parameter of a hand's tab, and the values of its True Words tab and of the DM's own DM notu tab. Any other
+ * value, such as the former Notlar tab's `notes`, opens the Kartlar tab.
+ */
 export const HAND_TAB_PARAM = 'tab'
 export const TRUE_WORDS_TAB = 'true-words'
-export const NOTES_TAB = 'notes'
+export const DM_NOTE_TAB = 'dm-note'
 
 /** A player's hand, opened on its True Words tab. */
 export function handTrueWordsPath(uid: string): string {

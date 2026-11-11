@@ -90,6 +90,32 @@ describe('theme tokens', () => {
     }
   }
 
+  // The hand's stat tiles (design D7): the plain numbers are gold, and the Cursed and True Words tiles are gradients
+  // whose label and number are read on both ends.
+  it('gold numbers on a plain stat tile have at least 4.5:1 contrast', () => {
+    expect(contrastRatio(token('gold'), token('pane-raised'))).toBeGreaterThanOrEqual(4.5)
+  })
+
+  const statTiles: [surfaces: string[], inks: string[]][] = [
+    [
+      ['stat-cursed', 'stat-cursed-deep'],
+      ['stat-cursed-ink', 'cursed-soft'],
+    ],
+    [
+      ['stat-word', 'stat-word-deep'],
+      ['true-word', 'ink-muted'],
+    ],
+  ]
+  for (const [surfaces, inks] of statTiles) {
+    for (const ink of inks) {
+      for (const surface of surfaces) {
+        it(`${ink} on ${surface} has at least 4.5:1 contrast`, () => {
+          expect(contrastRatio(token(ink), token(surface))).toBeGreaterThanOrEqual(4.5)
+        })
+      }
+    }
+  }
+
   it('keeps the Common frame purple apart from the True Words purples', () => {
     expect(token('common')).not.toBe(token('true-word'))
     expect(token('common')).not.toBe(token('true-word-line'))

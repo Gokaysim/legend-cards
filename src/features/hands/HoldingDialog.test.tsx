@@ -1,11 +1,12 @@
 import { act, fireEvent, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Card } from '@/features/cards/schema'
 import { testCard, testCursedCard } from '@/test/cardFixtures'
 import { ready, testProfile, testUser } from '@/test/fixtures'
 import { testHolding } from '@/test/holdingFixtures'
+import { stubWideWindow } from '@/test/media'
 import { renderApp } from '@/test/renderApp'
 
 import { HoldingError } from './errors'
@@ -14,6 +15,7 @@ import type { Holding } from './schema'
 
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 const me = testProfile()
@@ -73,323 +75,401 @@ async function openDetails({
   return { user, actions, held, ...view }
 }
 
-const details = () => within(screen.getByRole('dialog', { name: 'Night Owl' }))
+/** Where a card's details show: one body in two hosts (design D3). Every case below runs in both. */
+type Host = {
+  name: string
+  /** Sets the window up for this host. */
+  setup: () => void
+  /** The box that holds the details. */
+  container: () => HTMLElement
+  /** No card's details show: no dialog, or the panel's empty text. */
+  isClosed: () => boolean
+}
+
+const EMPTY_PANEL = 'Detayları görmek için elden bir kart seç.'
+const HOSTS: Host[] = [
+  {
+    name: 'the dialog',
+    setup: () => undefined,
+    container: () => screen.getByRole('dialog', { name: 'Night Owl' }),
+    isClosed: () => screen.queryByRole('dialog') === null,
+  },
+  {
+    name: 'the panel beside the hand',
+    setup: stubWideWindow,
+    container: () => screen.getByRole('region', { name: 'Seçili Kart' }),
+    isClosed: () =>
+      screen.queryByRole('dialog') === null &&
+      within(screen.getByRole('region', { name: 'Seçili Kart' })).queryByText(EMPTY_PANEL) !== null,
+  },
+]
+let host: Host = HOSTS[0]!
+
+const details = () => within(host.container())
 const button = (name: string) => details().queryByRole('button', { name })
 
-describe('HoldingDialog controls', () => {
-  it('shows the holder their note and "Kullan", without the DM controls', async () => {
-    await openDetails()
-
-    expect(details().getByRole('article', { name: 'Night Owl' })).toBeInTheDocument()
-    expect(details().getByText("Gökay'ın elinde")).toBeInTheDocument()
-    expect(details().getByRole('textbox', { name: 'Kart notu' })).toBeInTheDocument()
-    expect(button('Kullan')).toBeInTheDocument()
-    expect(details().queryByRole('textbox', { name: /Bu eldeki cost/ })).not.toBeInTheDocument()
-    for (const name of ['● Aktif et', 'Başkasına ver', 'At']) expect(button(name)).toBeNull()
+describe.each(HOSTS)('the card details in $name', (current) => {
+  beforeEach(() => {
+    host = current
+    current.setup()
   })
 
-  it("shows another player's card read-only, with no actions", async () => {
-    await openDetails({ handOf: ayla, holding: { note: 'Boss savaşında kullan' } })
+  describe('HoldingDialog controls', () => {
+    it('shows the holder their note and "Kullan", without the DM controls', async () => {
+      await openDetails()
 
-    expect(details().getByText("Ayla'nın elinde")).toBeInTheDocument()
-    expect(details().getByText('Boss savaşında kullan')).toBeInTheDocument()
-    expect(details().queryByRole('textbox')).not.toBeInTheDocument()
-    for (const name of ['Kullan', '● Aktif et', 'Başkasına ver', 'At'])
-      expect(button(name)).toBeNull()
-  })
-
-  it('shows the DM every control on any hand', async () => {
-    await openDetails({ viewer: dm, handOf: ayla })
-
-    expect(details().getByRole('textbox', { name: 'Kart notu' })).toBeInTheDocument()
-    expect(
-      details().getByRole('textbox', { name: 'Bu eldeki cost (boş = temel cost: 3)' }),
-    ).toBeInTheDocument()
-    for (const name of ['Kullan', '● Aktif et', 'Başkasına ver', 'At']) {
-      expect(button(name)).toBeInTheDocument()
-    }
-  })
-
-  it('marks an extra copy', async () => {
-    const user = userEvent.setup()
-    renderApp({
-      path: `/hands/${me.id}`,
-      cards: {
-        cards: ready([
-          testCard('Night Owl', { cost: '3', holder: { uid: 'bora', userCardId: 'other' } }),
-        ]),
-      },
-      holdings: { openHoldings: ready([testHolding(owl, me.id, 1000, { id: 'h1' })]) },
+      expect(details().getByRole('article', { name: 'Night Owl' })).toBeInTheDocument()
+      expect(details().getByText("Gökay'ın elinde")).toBeInTheDocument()
+      expect(details().getByRole('textbox', { name: 'Kart notu' })).toBeInTheDocument()
+      expect(button('Kullan')).toBeInTheDocument()
+      expect(details().queryByRole('textbox', { name: /Bu eldeki cost/ })).not.toBeInTheDocument()
+      for (const name of ['● Aktif et', 'Başkasına ver', 'At']) expect(button(name)).toBeNull()
     })
-    await user.click(screen.getByRole('button', { name: 'Night Owl: ayrıntılar' }))
 
-    expect(details().getByText("Gökay'ın elinde · Ek kopya")).toBeInTheDocument()
-  })
+    it("shows another player's card read-only, with no actions", async () => {
+      await openDetails({ handOf: ayla, holding: { note: 'Boss savaşında kullan' } })
 
-  it('closes with the close button', async () => {
-    const { user } = await openDetails()
-
-    await user.click(details().getByRole('button', { name: '✕ Kapat' }))
-
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-  })
-
-  it('closes when the card leaves the hand, for example on another device', async () => {
-    const { setHoldings } = await openDetails()
-
-    setHoldings({ openHoldings: ready([]) })
-
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-  })
-})
-
-describe('HoldingDialog while a pack is open', () => {
-  it('disables using, giving away and discarding, and says why', async () => {
-    await openDetails({ viewer: dm, handOf: ayla, openPackId: 'pack-1' })
-
-    for (const name of ['Kullan', 'Başkasına ver', 'At']) expect(button(name)).toBeDisabled()
-    expect(details().getByText('Bir Pack açık: seçim bekleniyor.')).toBeInTheDocument()
-  })
-
-  it('keeps the active switch, the note and the cost', async () => {
-    const actions = fakeActions()
-    const { user } = await openDetails({ viewer: dm, handOf: ayla, actions, openPackId: 'pack-1' })
-
-    await user.click(details().getByRole('button', { name: '● Aktif et' }))
-    expect(actions.setActive).toHaveBeenCalledExactlyOnceWith('h1', true)
-    expect(details().getByRole('textbox', { name: 'Kart notu' })).toBeEnabled()
-    expect(details().getByRole('textbox', { name: /Bu eldeki cost/ })).toBeEnabled()
-  })
-})
-
-describe('HoldingDialog notes and cost', () => {
-  it("saves the holder's note when the field is left, and only when it changed", async () => {
-    const { user, actions } = await openDetails({ holding: { note: 'Eski' } })
-    const field = details().getByRole('textbox', { name: 'Kart notu' })
-
-    await user.click(field)
-    await user.tab()
-    expect(actions.setNote).not.toHaveBeenCalled()
-
-    await user.clear(field)
-    await user.type(field, 'Boss savaşında kullan')
-    expect(actions.setNote).not.toHaveBeenCalled()
-    await user.tab()
-
-    expect(actions.setNote).toHaveBeenCalledExactlyOnceWith('h1', 'Boss savaşında kullan')
-    expect(field).toHaveValue('Boss savaşında kullan')
-  })
-
-  it('lets the DM set a cost and clear it again', async () => {
-    const { user, actions } = await openDetails({ viewer: dm, handOf: ayla })
-    const field = details().getByRole('textbox', { name: /Bu eldeki cost/ })
-
-    await user.type(field, ' 1 ')
-    await user.tab()
-    expect(actions.setCost).toHaveBeenLastCalledWith('h1', '1')
-  })
-
-  it('restores the card cost with an empty value', async () => {
-    const { user, actions } = await openDetails({
-      viewer: dm,
-      handOf: ayla,
-      holding: { costOverride: '1' },
+      expect(details().getByText("Ayla'nın elinde")).toBeInTheDocument()
+      expect(details().getByText('Boss savaşında kullan')).toBeInTheDocument()
+      expect(details().queryByRole('textbox')).not.toBeInTheDocument()
+      for (const name of ['Kullan', '● Aktif et', 'Başkasına ver', 'At'])
+        expect(button(name)).toBeNull()
     })
-    const field = details().getByRole('textbox', { name: /Bu eldeki cost/ })
-    expect(field).toHaveValue('1')
 
-    await user.clear(field)
-    await user.tab()
+    it('shows the DM every control on any hand', async () => {
+      await openDetails({ viewer: dm, handOf: ayla })
 
-    expect(actions.setCost).toHaveBeenCalledExactlyOnceWith('h1', '')
-  })
-
-  it('shows a Turkish error when a note cannot be saved', async () => {
-    const actions = fakeActions()
-    actions.setNote.mockRejectedValue(Object.assign(new Error('x'), { code: 'permission-denied' }))
-    const { user } = await openDetails({ actions })
-
-    await user.type(details().getByRole('textbox', { name: 'Kart notu' }), 'Not')
-    await user.tab()
-
-    expect(await details().findByRole('alert')).toHaveTextContent('Bu işlem için yetkin yok.')
-  })
-})
-
-describe('HoldingDialog actions', () => {
-  it('uses the card on a character after confirming, then closes', async () => {
-    const { user, actions } = await openDetails()
-
-    await user.click(details().getByRole('button', { name: 'Kullan' }))
-    await user.type(details().getByRole('textbox', { name: /Hangi karakter üzerinde/ }), 'Thorin')
-    await user.click(details().getByRole('button', { name: 'Kullanımı onayla' }))
-
-    expect(actions.closeHolding).toHaveBeenCalledExactlyOnceWith({
-      holdingId: 'h1',
-      by: testUser.uid,
-      reason: 'used',
-      usedOn: 'Thorin',
+      expect(details().getByRole('textbox', { name: 'Kart notu' })).toBeInTheDocument()
+      expect(
+        details().getByRole('textbox', { name: 'Bu eldeki cost (boş = temel cost: 3)' }),
+      ).toBeInTheDocument()
+      for (const name of ['Kullan', '● Aktif et', 'Başkasına ver', 'At']) {
+        expect(button(name)).toBeInTheDocument()
+      }
     })
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-  })
 
-  it('cancels using the card', async () => {
-    const { user, actions } = await openDetails()
+    it('marks an extra copy', async () => {
+      const user = userEvent.setup()
+      renderApp({
+        path: `/hands/${me.id}`,
+        cards: {
+          cards: ready([
+            testCard('Night Owl', { cost: '3', holder: { uid: 'bora', userCardId: 'other' } }),
+          ]),
+        },
+        holdings: { openHoldings: ready([testHolding(owl, me.id, 1000, { id: 'h1' })]) },
+      })
+      await user.click(screen.getByRole('button', { name: 'Night Owl: ayrıntılar' }))
 
-    await user.click(details().getByRole('button', { name: 'Kullan' }))
-    await user.click(details().getByRole('button', { name: 'Vazgeç' }))
-
-    expect(actions.closeHolding).not.toHaveBeenCalled()
-    expect(details().getByRole('button', { name: 'Kullan' })).toBeInTheDocument()
-  })
-
-  it('lets the DM switch a card active and inactive', async () => {
-    const { user, actions } = await openDetails({ viewer: dm, handOf: ayla })
-    await user.click(details().getByRole('button', { name: '● Aktif et' }))
-    expect(actions.setActive).toHaveBeenCalledExactlyOnceWith('h1', true)
-  })
-
-  it('offers the DM to switch an active card off', async () => {
-    const { user, actions } = await openDetails({
-      viewer: dm,
-      handOf: ayla,
-      holding: { active: true },
+      expect(details().getByText("Gökay'ın elinde · Ek kopya")).toBeInTheDocument()
     })
-    await user.click(details().getByRole('button', { name: '✓ Aktifliği kaldır' }))
-    expect(actions.setActive).toHaveBeenCalledExactlyOnceWith('h1', false)
-  })
 
-  it('lets the DM discard a card after confirming, and cancel', async () => {
-    const { user, actions } = await openDetails({ viewer: dm, handOf: ayla })
+    it("writes the card's set, rarity, mechanic pack and text under the holder, as v2.2.8 does", async () => {
+      await openDetails({
+        card: testCard('Night Owl', {
+          cost: '3',
+          setCode: 'Kesqer',
+          rarity: 'rare',
+          mechanicPack: 'Blood & Battle',
+          text: 'Gain 1 LP.',
+        }),
+      })
 
-    await user.click(details().getByRole('button', { name: 'At' }))
-    expect(
-      details().getByText(/kullanılmadan elden atılsın mı\? Kart havuza döner\./),
-    ).toBeVisible()
-    await user.click(details().getByRole('button', { name: 'Vazgeç' }))
-    expect(actions.closeHolding).not.toHaveBeenCalled()
+      const info = details().getByText("Gökay'ın elinde").nextElementSibling as HTMLElement
+      expect(
+        within(info)
+          .getAllByRole('paragraph')
+          .map((line) => line.textContent),
+      ).toEqual(['Kesqerian Nights · Rare', 'Blood & Battle', 'Gain 1 LP.'])
+    })
 
-    await user.click(details().getByRole('button', { name: 'At' }))
-    await user.click(details().getByRole('button', { name: 'Evet, at' }))
+    it('writes only "Cursed" and the text for a Cursed card', async () => {
+      const curse = testCursedCard('Night Owl', { text: 'Lose 1 LP.' })
+      await openDetails({ card: curse })
 
-    expect(actions.closeHolding).toHaveBeenCalledExactlyOnceWith({
-      holdingId: 'h1',
-      by: testUser.uid,
-      reason: 'discarded',
+      const info = details().getByText("Gökay'ın elinde").nextElementSibling as HTMLElement
+      expect(
+        within(info)
+          .getAllByRole('paragraph')
+          .map((line) => line.textContent),
+      ).toEqual(['Cursed', 'Lose 1 LP.'])
+    })
+
+    it.runIf(current === HOSTS[0])('closes with the close button', async () => {
+      const { user } = await openDetails()
+
+      await user.click(details().getByRole('button', { name: '✕ Kapat' }))
+
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+
+    it('closes when the card leaves the hand, for example on another device', async () => {
+      const { setHoldings } = await openDetails()
+
+      setHoldings({ openHoldings: ready([]) })
+
+      expect(host.isClosed()).toBe(true)
     })
   })
 
-  it('lets the DM give the card to another player after choosing and confirming', async () => {
-    const { user, actions } = await openDetails({ viewer: dm, handOf: ayla })
+  describe('HoldingDialog while a pack is open', () => {
+    it('disables using, giving away and discarding, and says why', async () => {
+      await openDetails({ viewer: dm, handOf: ayla, openPackId: 'pack-1' })
 
-    await user.click(details().getByRole('button', { name: 'Başkasına ver' }))
-    const picker = details().getByRole('combobox', { name: 'Kime verilsin?' })
-    expect(
-      within(picker)
-        .getAllByRole('option')
-        .map((option) => option.textContent),
-    ).toEqual(['Oyuncu seç', 'Gökay', 'Bora'])
-    const confirm = details().getByRole('button', { name: 'Onayla ve ver' })
-    expect(confirm).toBeDisabled()
+      for (const name of ['Kullan', 'Başkasına ver', 'At']) expect(button(name)).toBeDisabled()
+      expect(details().getByText('Bir Pack açık: seçim bekleniyor.')).toBeInTheDocument()
+    })
 
-    await user.selectOptions(picker, 'Bora')
-    await user.click(confirm)
+    it('keeps the active switch, the note and the cost', async () => {
+      const actions = fakeActions()
+      const { user } = await openDetails({
+        viewer: dm,
+        handOf: ayla,
+        actions,
+        openPackId: 'pack-1',
+      })
 
-    expect(actions.transferHolding).toHaveBeenCalledExactlyOnceWith({
-      holdingId: 'h1',
-      toUid: 'bora',
-      by: testUser.uid,
+      await user.click(details().getByRole('button', { name: '● Aktif et' }))
+      expect(actions.setActive).toHaveBeenCalledExactlyOnceWith('h1', true)
+      expect(details().getByRole('textbox', { name: 'Kart notu' })).toBeEnabled()
+      expect(details().getByRole('textbox', { name: /Bu eldeki cost/ })).toBeEnabled()
     })
   })
 
-  it('cancels giving the card to another player', async () => {
-    const { user, actions } = await openDetails({ viewer: dm, handOf: ayla })
+  describe('HoldingDialog notes and cost', () => {
+    it("saves the holder's note when the field is left, and only when it changed", async () => {
+      const { user, actions } = await openDetails({ holding: { note: 'Eski' } })
+      const field = details().getByRole('textbox', { name: 'Kart notu' })
 
-    await user.click(details().getByRole('button', { name: 'Başkasına ver' }))
-    await user.click(details().getByRole('button', { name: 'Vazgeç' }))
+      await user.click(field)
+      await user.tab()
+      expect(actions.setNote).not.toHaveBeenCalled()
 
-    expect(actions.transferHolding).not.toHaveBeenCalled()
-    expect(details().getByRole('button', { name: 'Başkasına ver' })).toBeInTheDocument()
+      await user.clear(field)
+      await user.type(field, 'Boss savaşında kullan')
+      expect(actions.setNote).not.toHaveBeenCalled()
+      await user.tab()
+
+      expect(actions.setNote).toHaveBeenCalledExactlyOnceWith('h1', 'Boss savaşında kullan')
+      expect(field).toHaveValue('Boss savaşında kullan')
+    })
+
+    it('lets the DM set a cost and clear it again', async () => {
+      const { user, actions } = await openDetails({ viewer: dm, handOf: ayla })
+      const field = details().getByRole('textbox', { name: /Bu eldeki cost/ })
+
+      await user.type(field, ' 1 ')
+      await user.tab()
+      expect(actions.setCost).toHaveBeenLastCalledWith('h1', '1')
+    })
+
+    it('restores the card cost with an empty value', async () => {
+      const { user, actions } = await openDetails({
+        viewer: dm,
+        handOf: ayla,
+        holding: { costOverride: '1' },
+      })
+      const field = details().getByRole('textbox', { name: /Bu eldeki cost/ })
+      expect(field).toHaveValue('1')
+
+      await user.clear(field)
+      await user.tab()
+
+      expect(actions.setCost).toHaveBeenCalledExactlyOnceWith('h1', '')
+    })
+
+    it('shows a Turkish error when a note cannot be saved', async () => {
+      const actions = fakeActions()
+      actions.setNote.mockRejectedValue(
+        Object.assign(new Error('x'), { code: 'permission-denied' }),
+      )
+      const { user } = await openDetails({ actions })
+
+      await user.type(details().getByRole('textbox', { name: 'Kart notu' }), 'Not')
+      await user.tab()
+
+      expect(await details().findByRole('alert')).toHaveTextContent('Bu işlem için yetkin yok.')
+    })
   })
 
-  it('says so when the card was already closed elsewhere, and stays open', async () => {
-    const actions = fakeActions()
-    actions.closeHolding.mockRejectedValue(new HoldingError('closed'))
-    const { user } = await openDetails({ actions })
+  describe('HoldingDialog actions', () => {
+    it('uses the card on a character after confirming, then closes', async () => {
+      const { user, actions } = await openDetails()
 
-    await user.click(details().getByRole('button', { name: 'Kullan' }))
-    await user.click(details().getByRole('button', { name: 'Kullanımı onayla' }))
+      await user.click(details().getByRole('button', { name: 'Kullan' }))
+      await user.type(details().getByRole('textbox', { name: /Hangi karakter üzerinde/ }), 'Thorin')
+      await user.click(details().getByRole('button', { name: 'Kullanımı onayla' }))
 
-    expect(details().getByRole('alert')).toHaveTextContent(
-      'Bu kart artık bu elde değil: başka bir cihazda kullanılmış ya da verilmiş olabilir.',
-    )
-    expect(details().getByRole('button', { name: 'Kullanımı onayla' })).toBeEnabled()
+      expect(actions.closeHolding).toHaveBeenCalledExactlyOnceWith({
+        holdingId: 'h1',
+        by: testUser.uid,
+        reason: 'used',
+        usedOn: 'Thorin',
+      })
+      expect(host.isClosed()).toBe(true)
+    })
+
+    it('cancels using the card', async () => {
+      const { user, actions } = await openDetails()
+
+      await user.click(details().getByRole('button', { name: 'Kullan' }))
+      await user.click(details().getByRole('button', { name: 'Vazgeç' }))
+
+      expect(actions.closeHolding).not.toHaveBeenCalled()
+      expect(details().getByRole('button', { name: 'Kullan' })).toBeInTheDocument()
+    })
+
+    it('lets the DM switch a card active and inactive', async () => {
+      const { user, actions } = await openDetails({ viewer: dm, handOf: ayla })
+      await user.click(details().getByRole('button', { name: '● Aktif et' }))
+      expect(actions.setActive).toHaveBeenCalledExactlyOnceWith('h1', true)
+    })
+
+    it('offers the DM to switch an active card off', async () => {
+      const { user, actions } = await openDetails({
+        viewer: dm,
+        handOf: ayla,
+        holding: { active: true },
+      })
+      await user.click(details().getByRole('button', { name: '✓ Aktifliği kaldır' }))
+      expect(actions.setActive).toHaveBeenCalledExactlyOnceWith('h1', false)
+    })
+
+    it('lets the DM discard a card after confirming, and cancel', async () => {
+      const { user, actions } = await openDetails({ viewer: dm, handOf: ayla })
+
+      await user.click(details().getByRole('button', { name: 'At' }))
+      expect(
+        details().getByText(/kullanılmadan elden atılsın mı\? Kart havuza döner\./),
+      ).toBeVisible()
+      await user.click(details().getByRole('button', { name: 'Vazgeç' }))
+      expect(actions.closeHolding).not.toHaveBeenCalled()
+
+      await user.click(details().getByRole('button', { name: 'At' }))
+      await user.click(details().getByRole('button', { name: 'Evet, at' }))
+
+      expect(actions.closeHolding).toHaveBeenCalledExactlyOnceWith({
+        holdingId: 'h1',
+        by: testUser.uid,
+        reason: 'discarded',
+      })
+    })
+
+    it('lets the DM give the card to another player after choosing and confirming', async () => {
+      const { user, actions } = await openDetails({ viewer: dm, handOf: ayla })
+
+      await user.click(details().getByRole('button', { name: 'Başkasına ver' }))
+      const picker = details().getByRole('combobox', { name: 'Kime verilsin?' })
+      expect(
+        within(picker)
+          .getAllByRole('option')
+          .map((option) => option.textContent),
+      ).toEqual(['Oyuncu seç', 'Gökay', 'Bora'])
+      const confirm = details().getByRole('button', { name: 'Onayla ve ver' })
+      expect(confirm).toBeDisabled()
+
+      await user.selectOptions(picker, 'Bora')
+      await user.click(confirm)
+
+      expect(actions.transferHolding).toHaveBeenCalledExactlyOnceWith({
+        holdingId: 'h1',
+        toUid: 'bora',
+        by: testUser.uid,
+      })
+    })
+
+    it('cancels giving the card to another player', async () => {
+      const { user, actions } = await openDetails({ viewer: dm, handOf: ayla })
+
+      await user.click(details().getByRole('button', { name: 'Başkasına ver' }))
+      await user.click(details().getByRole('button', { name: 'Vazgeç' }))
+
+      expect(actions.transferHolding).not.toHaveBeenCalled()
+      expect(details().getByRole('button', { name: 'Başkasına ver' })).toBeInTheDocument()
+    })
+
+    it('says so when the card was already closed elsewhere, and stays open', async () => {
+      const actions = fakeActions()
+      actions.closeHolding.mockRejectedValue(new HoldingError('closed'))
+      const { user } = await openDetails({ actions })
+
+      await user.click(details().getByRole('button', { name: 'Kullan' }))
+      await user.click(details().getByRole('button', { name: 'Kullanımı onayla' }))
+
+      expect(details().getByRole('alert')).toHaveTextContent(
+        'Bu kart artık bu elde değil: başka bir cihazda kullanılmış ya da verilmiş olabilir.',
+      )
+      expect(details().getByRole('button', { name: 'Kullanımı onayla' })).toBeEnabled()
+    })
+
+    it('says so when the rules deny an action', async () => {
+      const actions = fakeActions()
+      actions.transferHolding.mockRejectedValue(
+        Object.assign(new Error('denied'), { code: 'permission-denied' }),
+      )
+      const { user } = await openDetails({ viewer: dm, handOf: ayla, actions })
+
+      await user.click(details().getByRole('button', { name: 'Başkasına ver' }))
+      await user.selectOptions(details().getByRole('combobox'), 'Bora')
+      await user.click(details().getByRole('button', { name: 'Onayla ve ver' }))
+
+      expect(details().getByRole('alert')).toHaveTextContent('Bu işlem için yetkin yok.')
+    })
+
+    it('does not try a card movement offline, and says that a connection is needed', async () => {
+      vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+      const { user, actions } = await openDetails({ card: testCursedCard('Night Owl') })
+
+      await user.click(details().getByRole('button', { name: 'Kullan' }))
+      await user.click(details().getByRole('button', { name: 'Kullanımı onayla' }))
+
+      expect(actions.closeHolding).not.toHaveBeenCalled()
+      expect(details().getByRole('alert')).toHaveTextContent(
+        'Bağlantı yok: kart hareketleri için internet bağlantısı gerekiyor.',
+      )
+    })
   })
 
-  it('says so when the rules deny an action', async () => {
-    const actions = fakeActions()
-    actions.transferHolding.mockRejectedValue(
-      Object.assign(new Error('denied'), { code: 'permission-denied' }),
-    )
-    const { user } = await openDetails({ viewer: dm, handOf: ayla, actions })
+  describe('HoldingDialog zoom', () => {
+    it("zooms the details' face, and closing the zoom view as Escape does leaves the details open", async () => {
+      const { user } = await openDetails({ holding: { note: 'Boss savaşında kullan' } })
+      const detailsBox = host.container()
+      const magnifier = within(detailsBox).getByRole('button', { name: 'Night Owl: büyüt' })
 
-    await user.click(details().getByRole('button', { name: 'Başkasına ver' }))
-    await user.selectOptions(details().getByRole('combobox'), 'Bora')
-    await user.click(details().getByRole('button', { name: 'Onayla ve ver' }))
+      await user.click(magnifier)
 
-    expect(details().getByRole('alert')).toHaveTextContent('Bu işlem için yetkin yok.')
-  })
+      const zooms = screen
+        .getAllByRole<HTMLDialogElement>('dialog', { name: 'Night Owl' })
+        .filter((dialog) => dialog !== detailsBox)
+      expect(zooms).toHaveLength(1)
+      const zoom = zooms[0]!
+      expect(zoom).toHaveTextContent('Kesqerian Nights · Cost 3 · Common')
+      expect(zoom).not.toHaveTextContent('Boss savaşında kullan')
 
-  it('does not try a card movement offline, and says that a connection is needed', async () => {
-    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
-    const { user, actions } = await openDetails({ card: testCursedCard('Night Owl') })
+      act(() => zoom.close())
 
-    await user.click(details().getByRole('button', { name: 'Kullan' }))
-    await user.click(details().getByRole('button', { name: 'Kullanımı onayla' }))
+      expect(screen.queryAllByRole('dialog').filter((dialog) => dialog !== detailsBox)).toEqual([])
+      expect(host.container()).toBe(detailsBox)
+      expect(magnifier).toHaveFocus()
+    })
 
-    expect(actions.closeHolding).not.toHaveBeenCalled()
-    expect(details().getByRole('alert')).toHaveTextContent(
-      'Bağlantı yok: kart hareketleri için internet bağlantısı gerekiyor.',
-    )
-  })
-})
+    it('closes only the zoom view with a click outside it, leaving the details open', async () => {
+      const { user } = await openDetails()
+      const detailsBox = host.container()
+      const magnifier = within(detailsBox).getByRole('button', { name: 'Night Owl: büyüt' })
+      await user.click(magnifier)
+      const zoom = screen
+        .getAllByRole('dialog', { name: 'Night Owl' })
+        .find((dialog) => dialog !== detailsBox)!
+      zoom.getBoundingClientRect = () => new DOMRect(100, 50, 600, 800)
 
-describe('HoldingDialog zoom', () => {
-  it("zooms the details' face, and closing the zoom view as Escape does leaves the details open", async () => {
-    const { user } = await openDetails({ holding: { note: 'Boss savaşında kullan' } })
-    const detailsDialog = screen.getByRole('dialog', { name: 'Night Owl' })
-    const magnifier = within(detailsDialog).getByRole('button', { name: 'Night Owl: büyüt' })
+      // The zoom view's backdrop covers the page, the details included.
+      fireEvent.pointerDown(zoom, { clientX: 40, clientY: 400 })
+      fireEvent.click(zoom, { clientX: 40, clientY: 400 })
 
-    await user.click(magnifier)
-
-    const dialogs = screen.getAllByRole<HTMLDialogElement>('dialog', { name: 'Night Owl' })
-    expect(dialogs).toHaveLength(2)
-    const zoom = dialogs.find((dialog) => dialog !== detailsDialog)!
-    expect(zoom).toHaveTextContent('Kesqerian Nights · Cost 3 · Common')
-    expect(zoom).not.toHaveTextContent('Boss savaşında kullan')
-
-    act(() => zoom.close())
-
-    expect(screen.getAllByRole('dialog')).toEqual([detailsDialog])
-    expect(detailsDialog).toHaveAttribute('open')
-    expect(magnifier).toHaveFocus()
-  })
-
-  it('closes only the zoom view with a click outside it, leaving the details open', async () => {
-    const { user } = await openDetails()
-    const detailsDialog = screen.getByRole('dialog', { name: 'Night Owl' })
-    const magnifier = within(detailsDialog).getByRole('button', { name: 'Night Owl: büyüt' })
-    await user.click(magnifier)
-    const zoom = screen
-      .getAllByRole('dialog', { name: 'Night Owl' })
-      .find((dialog) => dialog !== detailsDialog)!
-    zoom.getBoundingClientRect = () => new DOMRect(100, 50, 600, 800)
-
-    // The zoom view's backdrop covers the page, the details included.
-    fireEvent.pointerDown(zoom, { clientX: 40, clientY: 400 })
-    fireEvent.click(zoom, { clientX: 40, clientY: 400 })
-
-    expect(screen.getAllByRole('dialog')).toEqual([detailsDialog])
-    expect(magnifier).toHaveFocus()
+      expect(screen.queryAllByRole('dialog').filter((dialog) => dialog !== detailsBox)).toEqual([])
+      expect(host.container()).toBe(detailsBox)
+      expect(magnifier).toHaveFocus()
+    })
   })
 })

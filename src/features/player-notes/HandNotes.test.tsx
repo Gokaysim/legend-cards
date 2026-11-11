@@ -35,8 +35,8 @@ function fakeActions() {
 }
 
 /**
- * The Notlar tab of `owner`'s hand, as `viewer` (signed in as `testUser`). Ayla's hand by default, seen by another
- * player.
+ * `owner`'s hand on its DM notu tab, as `viewer` (signed in as `testUser`). Ayla's hand by default, seen by another
+ * player. A player gets the Kartlar tab instead; the player note shows under either.
  */
 function renderNotes({
   viewer = me,
@@ -52,7 +52,7 @@ function renderNotes({
   const signedIn = { ...viewer, id: testUser.uid }
   const ownerProfile = owner.id === viewer.id ? signedIn : owner
   const view = renderApp({
-    path: `/hands/${ownerProfile.id}?tab=notes`,
+    path: `/hands/${ownerProfile.id}?tab=dm-note`,
     users: {
       currentProfile: ready(signedIn),
       profiles: ready([ownerProfile, signedIn, dana]),
@@ -72,7 +72,7 @@ describe('the player note', () => {
       'placeholder',
       'Oyuncunun genel notlarını buraya yaz…',
     )
-    expect(main().queryByRole('region', { name: 'DM notu' })).not.toBeInTheDocument()
+    expect(main().queryByRole('region', { name: /DM notu/ })).not.toBeInTheDocument()
     expect(main().queryByText('🔒 Yalnızca DM görür')).not.toBeInTheDocument()
     expect(onUseDmNote).not.toHaveBeenCalled()
   })
@@ -225,10 +225,12 @@ describe('the DM note', () => {
     expect(main().getByRole('textbox', { name: 'Oyuncu notu' })).toHaveValue(
       'Kayıp kardeşini arıyor.',
     )
-    const dm = main().getByRole('textbox', { name: 'DM notu' })
+    const dm = main().getByRole('textbox', { name: 'Ayla — DM notu' })
     expect(dm).toHaveValue('Kardeşi aslında hayatta.')
     expect(dm).toHaveAccessibleDescription('🔒 Yalnızca DM görür')
-    expect(section('DM notu').getByText('Son düzenleyen: Dana · 9 Kas 14:32')).toBeInTheDocument()
+    expect(
+      section('Ayla — DM notu').getByText('Son düzenleyen: Dana · 9 Kas 14:32'),
+    ).toBeInTheDocument()
     expect(onUseDmNote).toHaveBeenCalledWith('ayla')
   })
 
@@ -236,7 +238,7 @@ describe('the DM note', () => {
     const { user, actions } = renderNotes({ viewer: dana })
 
     await user.type(main().getByRole('textbox', { name: 'Oyuncu notu' }), 'Herkes görür.')
-    await user.type(main().getByRole('textbox', { name: 'DM notu' }), 'Sadece ben.')
+    await user.type(main().getByRole('textbox', { name: 'Ayla — DM notu' }), 'Sadece ben.')
     await user.tab()
 
     expect(actions.savePlayerNote).toHaveBeenCalledExactlyOnceWith({
@@ -258,7 +260,7 @@ describe('the DM note', () => {
     })
 
     expect(main().queryByText('Gizli sır.')).not.toBeInTheDocument()
-    expect(main().queryByRole('region', { name: 'DM notu' })).not.toBeInTheDocument()
+    expect(main().queryByRole('region', { name: /DM notu/ })).not.toBeInTheDocument()
     expect(onUseDmNote).not.toHaveBeenCalled()
   })
 
@@ -277,8 +279,8 @@ describe('the DM note', () => {
     expect(screen.queryByText('Gizli sır.')).not.toBeInTheDocument()
     expect(onUseDmNote).not.toHaveBeenCalled()
 
-    await user.click(main().getByRole('tab', { name: '✎ Notlar' }))
-    expect(main().getByRole('textbox', { name: 'DM notu' })).toHaveValue('Gizli sır.')
+    await user.click(main().getByRole('tab', { name: '🔒 DM notu' }))
+    expect(main().getByRole('textbox', { name: 'Ayla — DM notu' })).toHaveValue('Gizli sır.')
   })
 
   it('says so when it cannot be read', () => {
@@ -291,7 +293,7 @@ describe('the DM note', () => {
       },
     })
 
-    expect(section('DM notu').getByRole('alert')).toHaveTextContent('DM notu yüklenemedi.')
+    expect(section('Ayla — DM notu').getByRole('alert')).toHaveTextContent('DM notu yüklenemedi.')
     expect(main().getByRole('textbox', { name: 'Oyuncu notu' })).toBeInTheDocument()
   })
 })

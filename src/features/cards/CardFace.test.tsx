@@ -523,6 +523,35 @@ describe('CardFace glow', () => {
     expect(glowOf(face('R'))).toBe('active')
   })
 
+  it('makes a selected hand card glow gold, and marks its open control as current', () => {
+    render(
+      <>
+        <CardFace card={testCard('Owl')} handCost="1" isSelected onOpen={vi.fn()} openLabel="Owl" />
+        <CardFace card={testCard('Bat')} handCost="1" onOpen={vi.fn()} openLabel="Bat" />
+      </>,
+    )
+    expect(glowOf(face('Owl'))).toBe('selected')
+    expect(face('Owl').closest('[data-glow]')).toHaveClass('drop-shadow-glow-selected')
+    expect(screen.getByRole('button', { name: 'Owl' })).toHaveAttribute('aria-current', 'true')
+    expect(glowOf(face('Bat'))).toBeNull()
+    expect(screen.getByRole('button', { name: 'Bat' })).not.toHaveAttribute('aria-current')
+  })
+
+  it('keeps the active glow of a selected active card', () => {
+    render(
+      <CardFace
+        card={testCursedCard('X')}
+        handCost="1"
+        isActive
+        isSelected
+        onOpen={vi.fn()}
+        openLabel="X"
+      />,
+    )
+    expect(glowOf(face('X'))).toBe('active-cursed')
+    expect(screen.getByRole('button', { name: 'X' })).toHaveAttribute('aria-current', 'true')
+  })
+
   it('glows around the picture, and keeps the face mounted when the glow changes', () => {
     const { rerender } = renderWithArt(<CardFace card={ABOLETH} handCost="3" />)
     const picture = within(face("Aboleth's Eyes")).getByRole('img')

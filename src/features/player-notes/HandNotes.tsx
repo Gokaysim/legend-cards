@@ -2,7 +2,6 @@ import { useId, useState } from 'react'
 
 import { Spinner } from '@/components/ui/Spinner'
 import { useAuth } from '@/features/auth/authContext'
-import { DmOnly } from '@/features/users/DmOnly'
 import type { UserProfile } from '@/features/users/schema'
 import { profileName, useIsDm, useProfiles } from '@/features/users/usersContext'
 import { cn } from '@/lib/cn'
@@ -10,7 +9,7 @@ import type { Subscription } from '@/lib/firestore/subscription'
 import { useSavedField } from '@/lib/useSavedField'
 
 import type { NoteSave } from './api'
-import { useDmNote, useNoteActions } from './playerNotesContext'
+import { useDmNote, useNoteActions, usePlayerNote } from './playerNotesContext'
 import { hasNoteText, type Note, NOTE_LIMITS } from './schema'
 
 const fieldClasses =
@@ -24,54 +23,45 @@ const editedAtFormat = new Intl.DateTimeFormat('tr-TR', {
   minute: '2-digit',
 })
 
-export type HandNotesProps = {
-  /** The player whose notes these are. */
-  profile: UserProfile
-  /** That player's note, live. The hand screen subscribes to it once, for the tab's marker too. */
-  playerNote: Subscription<Note | null>
-}
-
 /**
- * The hand's Notlar tab. The player note is editable by its player and the DM, and read-only for everyone else.
- * The DM note shows only to the DM: its section is inside `<DmOnly>`, so a player's device never mounts it and never
- * asks for the DM note (spec: player-notes).
+ * The player note under a hand's tab content, on every tab (spec: player-notes, "Player note under the hand"). It is
+ * editable by its player and the DM, and read-only for everyone else.
  */
-export function HandNotes({ profile, playerNote }: HandNotesProps) {
+export function PlayerNote({ profile }: { profile: UserProfile }) {
   const auth = useAuth()
   const isDm = useIsDm()
+  const note = usePlayerNote(profile.id)
   const { savePlayerNote } = useNoteActions()
   const isOwner = auth.status === 'signedIn' && auth.user.uid === profile.id
 
   return (
-    <div className="flex max-w-3xl flex-col gap-4">
-      <NoteSection
-        title="Oyuncu notu"
-        note={playerNote}
-        canEdit={isDm || isOwner}
-        placeholder="Oyuncunun genel notlarını buraya yaz…"
-        loadError="Notlar yüklenemedi."
-        save={(save) => savePlayerNote({ ...save, uid: profile.id })}
-      />
-      <DmOnly>
-        <DmNoteSection uid={profile.id} />
-      </DmOnly>
-    </div>
+    <NoteSection
+      title="Oyuncu notu"
+      note={note}
+      canEdit={isDm || isOwner}
+      placeholder="Oyuncunun genel notlarını buraya yaz…"
+      loadError="Notlar yüklenemedi."
+      save={(save) => savePlayerNote({ ...save, uid: profile.id })}
+    />
   )
 }
 
-/** The DM note about `uid`. Only rendered for the DM; it alone reads a DM note. */
-function DmNoteSection({ uid }: { uid: string }) {
-  const note = useDmNote(uid)
+/**
+ * The DM note about `profile`, the content of the hand's DM notu tab. Render it only inside `<DmOnly>`: it alone reads
+ * a DM note, so a player's device never mounts it and never asks for one (spec: player-notes).
+ */
+export function DmNote({ profile }: { profile: UserProfile }) {
+  const note = useDmNote(profile.id)
   const { saveDmNote } = useNoteActions()
   return (
     <NoteSection
-      title="DM notu"
+      title={`${profileName(profile)} — DM notu`}
       hint="🔒 Yalnızca DM görür"
       note={note}
       canEdit
       placeholder="Yalnızca senin göreceğin notlar…"
       loadError="DM notu yüklenemedi."
-      save={(save) => saveDmNote({ ...save, uid })}
+      save={(save) => saveDmNote({ ...save, uid: profile.id })}
       className="border-dashed border-gold"
     />
   )

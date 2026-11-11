@@ -2,9 +2,9 @@ import { useId, useMemo, useState } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router'
 
 import {
+  DM_NOTE_TAB,
   HAND_TAB_PARAM,
   handPath,
-  NOTES_TAB,
   packShopPath,
   screenById,
   TRUE_WORDS_TAB,
@@ -15,13 +15,14 @@ import { Spinner } from '@/components/ui/Spinner'
 import { useAuth } from '@/features/auth/authContext'
 import { useCardsById } from '@/features/cards/cardsContext'
 import { DrawButtons } from '@/features/draws/DrawButtons'
-import { HandNotes } from '@/features/player-notes/HandNotes'
-import { usePlayerNote } from '@/features/player-notes/playerNotesContext'
-import { hasNoteText } from '@/features/player-notes/schema'
+import { DmNote, PlayerNote } from '@/features/player-notes/HandNotes'
 import { TABLE_BUSY_NOTE } from '@/features/table/errors'
 import { TableBusyNote } from '@/features/table/TableBusyNote'
 import { useIsTableBusy } from '@/features/table/tableContext'
+import { ActiveWordsPeek } from '@/features/true-words/ActiveWordsPeek'
 import { HandTrueWords } from '@/features/true-words/HandTrueWords'
+import { TrueWordDetails } from '@/features/true-words/TrueWordDetails'
+import { TrueWordDialog } from '@/features/true-words/TrueWordDialog'
 import {
   knownWordEntries,
   useKnownWords,
@@ -30,11 +31,15 @@ import {
 import { DmOnly } from '@/features/users/DmOnly'
 import type { UserProfile } from '@/features/users/schema'
 import { profileName, useCurrentProfile, useIsDm, useProfiles } from '@/features/users/usersContext'
+import { cn } from '@/lib/cn'
+import { useWideWindow } from '@/lib/useWideWindow'
 
 import { handEntries } from './handEntries'
 import { GiveCardDialog } from './GiveCardDialog'
+import { HandDetailsPanel } from './HandDetailsPanel'
 import { HandSummary } from './HandSummary'
 import { HandView } from './HandView'
+import { HoldingDetails } from './HoldingDetails'
 import { HoldingDialog } from './HoldingDialog'
 import { useOpenHoldings } from './holdingsContext'
 
@@ -108,7 +113,7 @@ function HandScreen({ profile }: { profile: UserProfile }) {
   return (
     <section className="flex flex-col gap-6">
       <PageHeader
-        title={`${profileName(profile)} — Kart Eli`}
+        title={screenById('hands').label}
         actions={
           <>
             <TableBusyNote />
@@ -138,36 +143,55 @@ function HandScreen({ profile }: { profile: UserProfile }) {
   )
 }
 
-type HandTab = 'cards' | 'true-words' | 'notes'
+type HandTab = 'cards' | 'true-words' | 'dm-note'
+
+/**
+ * A selected card or word, with the layout it was selected in (design D2). It counts only while the layout is the
+ * same: crossing 1024 px drops it, so no dialog opens by itself (spec: card-holdings).
+ */
+type Selection = { id: string; isWide: boolean }
 
 /** Each tab's value in the URL. The cards tab has none: it is the hand's default. */
 const TAB_VALUES: Record<Exclude<HandTab, 'cards'>, string> = {
   'true-words': TRUE_WORDS_TAB,
-  notes: NOTES_TAB,
+  'dm-note': DM_NOTE_TAB,
 }
 
-function tabOf(value: string | null): HandTab {
+/**
+ * The tab a URL value opens. The DM notu tab is the DM's alone: for a player its value opens the Kartlar tab, and so
+ * does any other value, such as the former Notlar tab's `notes`.
+ */
+function tabOf(value: string | null, isDm: boolean): HandTab {
   if (value === TRUE_WORDS_TAB) return 'true-words'
-  if (value === NOTES_TAB) return 'notes'
+  if (value === DM_NOTE_TAB && isDm) return 'dm-note'
   return 'cards'
 }
 
 /**
- * The hand of one player, live: the summary, then three tabs, kept in the URL (`?tab=true-words`, `?tab=notes`):
- * the cards with the details of the selected card, the player's True Words, and the player's notes. The Notlar tab
- * is marked while the player note has text; the DM note never marks it, because the DM's screen may face the table.
+ * The hand of one player, live: the summary with the tabs beside it, kept in the URL (`?tab=true-words`,
+ * `?tab=dm-note`): the cards, the player's True Words, and for the DM alone the DM note. The player note shows under
+ * every tab. The DM note shows only on its tab and its label never changes, because the DM's screen may face the table
+ * (spec: player-notes).
+ *
+ * On a wide window, the selected card's details show in a panel beside the hand; on a narrower one, in a dialog
+ * (spec: card-holdings; design D2, D3).
  */
 function HandContent({ profile }: { profile: UserProfile }) {
   const ids = useId()
+  const isDm = useIsDm()
   const holdings = useOpenHoldings()
   const cardsById = useCardsById()
   const words = useTrueWords()
   const knownWords = useKnownWords(profile.id)
   const [params, setParams] = useSearchParams()
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const tab = tabOf(params.get(HAND_TAB_PARAM))
-  const playerNote = usePlayerNote(profile.id)
-  const hasPlayerNote = playerNote.status === 'ready' && hasNoteText(playerNote.data)
+  const isWide = useWideWindow()
+  const [cardSelection, setCardSelection] = useState<Selection | null>(null)
+  const [wordSelection, setWordSelection] = useState<Selection | null>(null)
+  const tab = tabOf(params.get(HAND_TAB_PARAM), isDm)
+  // Crossing 1024 px clears a selection made in the other layout, during this render (design D2): a dialog never opens
+  // by itself, and going back does not bring the old selection back.
+  if (cardSelection !== null && cardSelection.isWide !== isWide) setCardSelection(null)
+  if (wordSelection !== null && wordSelection.isWide !== isWide) setWordSelection(null)
 
   const wordEntries = useMemo(
     () =>
@@ -202,60 +226,133 @@ function HandContent({ profile }: { profile: UserProfile }) {
   if (entries === null) return <Spinner label="El yükleniyor…" className="py-12" />
 
   // A card that left the hand (used, discarded, or given away, here or on another device) closes its details.
-  const selected = entries.find((entry) => entry.holding.id === selectedId)
+  const selectedCardId = cardSelection?.isWide === isWide ? cardSelection.id : null
+  const selected = entries.find((entry) => entry.holding.id === selectedCardId)
+  const selectCard = (id: string) => setCardSelection({ id, isWide })
+  // A word taken back, here or on another device, closes its details.
+  const selectedWordId = wordSelection?.isWide === isWide ? wordSelection.id : null
+  const selectedWord = wordEntries.find((entry) => entry.record.id === selectedWordId)
+  const selectWord = (id: string) => setWordSelection({ id, isWide })
+  const showsPanel = isWide && tab !== 'dm-note'
   const tabs: { id: HandTab; label: string }[] = [
     { id: 'cards', label: '♠ Kartlar' },
     { id: 'true-words', label: '✦ True Words' },
-    { id: 'notes', label: '✎ Notlar' },
+    ...(isDm ? [{ id: 'dm-note' as const, label: '🔒 DM notu' }] : []),
   ]
+  const name = profileName(profile)
   return (
     <>
-      <HandSummary entries={entries} words={wordEntries} profile={profile} />
-      <div role="tablist" aria-label="El" className="flex flex-wrap gap-2">
-        {tabs.map(({ id, label }) => (
-          <Button
-            key={id}
-            role="tab"
-            id={`${ids}-tab-${id}`}
-            aria-selected={tab === id}
-            aria-controls={`${ids}-panel`}
-            variant={tab === id ? 'primary' : 'secondary'}
-            onClick={() => chooseTab(id)}
+      {/* The dashboard (v2.2.8's `.hand-dashboard`): the stats, and the tabs stacked at their right, or in a row
+          under them on a phone (design D5). */}
+      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+        <HandSummary entries={entries} words={wordEntries} profile={profile} />
+        <div
+          role="tablist"
+          aria-label="El"
+          className="flex gap-2 sm:w-34 sm:flex-col sm:justify-center"
+        >
+          {tabs.map(({ id, label }) => (
+            <Button
+              key={id}
+              role="tab"
+              id={`${ids}-tab-${id}`}
+              aria-selected={tab === id}
+              aria-controls={`${ids}-panel`}
+              variant={tab === id ? 'primary' : 'secondary'}
+              onClick={() => chooseTab(id)}
+              className="min-w-0 flex-1 whitespace-nowrap sm:flex-none"
+            >
+              {label}
+            </Button>
+          ))}
+        </div>
+      </div>
+      <div className={cn('grid gap-4', showsPanel && 'lg:grid-cols-[minmax(0,1fr)_19.5rem]')}>
+        <div className="flex min-w-0 flex-col gap-4">
+          <div role="tabpanel" id={`${ids}-panel`} aria-labelledby={`${ids}-tab-${tab}`}>
+            {tab === 'cards' ? (
+              <ActiveWordsPeek entries={wordEntries}>
+                <HandView
+                  title={`${name} — Kart Eli`}
+                  entries={entries}
+                  onSelect={selectCard}
+                  selectedId={isWide ? (selected?.holding.id ?? null) : null}
+                />
+              </ActiveWordsPeek>
+            ) : tab === 'dm-note' ? (
+              <DmOnly>
+                <DmNote profile={profile} />
+              </DmOnly>
+            ) : words.status === 'error' || knownWords.status === 'error' ? (
+              <p
+                role="alert"
+                className="rounded-xl border border-danger-line bg-pane p-4 text-danger-ink"
+              >
+                True Words yüklenemedi.
+              </p>
+            ) : words.status === 'loading' || knownWords.status === 'loading' ? (
+              <Spinner label="True Words yükleniyor…" className="py-12" />
+            ) : (
+              <HandTrueWords
+                profile={profile}
+                words={words.data}
+                entries={wordEntries}
+                onSelect={selectWord}
+                selectedId={isWide ? (selectedWord?.record.id ?? null) : null}
+              />
+            )}
+          </div>
+          <PlayerNote profile={profile} />
+        </div>
+        {showsPanel && tab === 'true-words' ? (
+          <HandDetailsPanel
+            title="Seçili True Word"
+            name={selectedWord?.word.name ?? null}
+            emptyText="Detaylarını görmek için bir True Word seç."
           >
-            {label}
-            {id === 'notes' && hasPlayerNote ? (
-              <>
-                {' '}
-                <span aria-hidden="true">•</span> <span className="sr-only">(not var)</span>
-              </>
+            {selectedWord ? (
+              <TrueWordDetails
+                key={selectedWord.record.id}
+                entry={selectedWord}
+                holderName={name}
+                onDone={() => setWordSelection(null)}
+              />
             ) : null}
-          </Button>
-        ))}
-      </div>
-      <div role="tabpanel" id={`${ids}-panel`} aria-labelledby={`${ids}-tab-${tab}`}>
-        {tab === 'cards' ? (
-          <HandView entries={entries} onSelect={setSelectedId} />
-        ) : tab === 'notes' ? (
-          <HandNotes profile={profile} playerNote={playerNote} />
-        ) : words.status === 'error' || knownWords.status === 'error' ? (
-          <p
-            role="alert"
-            className="rounded-xl border border-danger-line bg-pane p-4 text-danger-ink"
+          </HandDetailsPanel>
+        ) : null}
+        {showsPanel && tab === 'cards' ? (
+          <HandDetailsPanel
+            title="Seçili Kart"
+            name={selected?.card.name ?? null}
+            emptyText="Detayları görmek için elden bir kart seç."
           >
-            True Words yüklenemedi.
-          </p>
-        ) : words.status === 'loading' || knownWords.status === 'loading' ? (
-          <Spinner label="True Words yükleniyor…" className="py-12" />
-        ) : (
-          <HandTrueWords profile={profile} words={words.data} entries={wordEntries} />
-        )}
+            {selected ? (
+              // Keyed by the holding, so a new selection starts without an open step.
+              <HoldingDetails
+                key={selected.holding.id}
+                entry={selected}
+                holderName={name}
+                onDone={() => setCardSelection(null)}
+                layout="panel"
+              />
+            ) : null}
+          </HandDetailsPanel>
+        ) : null}
       </div>
-      {tab === 'cards' && selected ? (
+      {!isWide && tab === 'cards' && selected ? (
         <HoldingDialog
           key={selected.holding.id}
           entry={selected}
-          holderName={profileName(profile)}
-          onClose={() => setSelectedId(null)}
+          holderName={name}
+          onClose={() => setCardSelection(null)}
+        />
+      ) : null}
+      {!isWide && tab === 'true-words' && selectedWord ? (
+        <TrueWordDialog
+          key={selectedWord.record.id}
+          entry={selectedWord}
+          holderName={name}
+          onClose={() => setWordSelection(null)}
         />
       ) : null}
     </>

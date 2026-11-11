@@ -119,7 +119,7 @@ describe('AppShell', () => {
     await user.click(within(players).getByRole('link', { name: 'Bora' }))
 
     expect(router.state.location.pathname).toBe('/hands/bora')
-    expect(screen.getByRole('heading', { level: 1, name: 'Bora — Kart Eli' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 2, name: 'Bora — Kart Eli' })).toBeInTheDocument()
     expect(within(players).getByRole('link', { name: 'Bora' })).toHaveAttribute(
       'aria-current',
       'page',

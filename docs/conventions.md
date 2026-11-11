@@ -40,7 +40,9 @@ src/
                         the card browser (CardBrowser, CardFace, CardTable), the cost badge (CostBadge), and the
                         zoom view (CardZoomDialog, opened from a face's magnifier)
     hands/              card holdings: schema, api (the card movements), errors, HoldingsProvider,
-                        useOpenHoldings, and the "Oyuncu elleri" screen (HandsPage, the hand, its dialogs)
+                        useOpenHoldings, and the "Oyuncu elleri" screen (HandsPage, the stats (HandSummary,
+                        StatTile), the hand (HandView, HandTable), the card details (HoldingDetails, shown in
+                        HandDetailsPanel beside the hand on a wide window, or in HoldingDialog), and its dialogs)
     balances/           LP and the party's GP: schema, api (changeBalance), errors, BalancesProvider,
                         usePartyPurse, useBalanceActions, the amount format, BalanceDialog, PartyPurse
     draws/              drawing cards into a hand: schema (card draws and pack openings), api (drawCard, one
@@ -54,10 +56,13 @@ src/
     true-words/         True Words: schema (words, learned words, player state, drafts), api (startDraft,
                         learnWord, skipDraft, cancelDraft, teachWord, takeBackWord, setWordActive), errors,
                         TrueWordsProvider, useTrueWords, useKnownWords, useOpenDraft, useTrueWordActions,
-                        the True Words screen, the open draft panel, and the hand's True Words tab
+                        the True Words screen, the open draft panel, the word's details (TrueWordDetails, in
+                        the hand's panel or in TrueWordDialog), the hand's True Words tab, the active words
+                        peeking out above the hand (ActiveWordsPeek), and a word shown large (TrueWordZoomDialog)
     player-notes/       the player note and the DM note: schema (hasNoteText), api (playerNoteRef, dmNoteRef,
                         savePlayerNote, saveDmNote), PlayerNotesProvider, usePlayerNote, useDmNote (only inside
-                        <DmOnly>; dmNoteTarget), useNoteActions, and the hand's Notlar tab (HandNotes)
+                        <DmOnly>; dmNoteTarget), useNoteActions, and the hand's notes (HandNotes.tsx: PlayerNote,
+                        under every tab, and DmNote, the DM notu tab)
     library/ cursed-deck/
                         the two card screens, each a <Name>Page.tsx around the shared card browser
     activity-log/       the İşlem Logu: the log queries (api), ActivityLogProvider (useLogRecords, useHolding),
@@ -77,8 +82,11 @@ src/
     cn.ts               class-name merge helper
     useOnlineStatus.ts  browser network status
     useReducedMotion.ts whether the device asks for reduced motion, live
+    useMediaQuery.ts    whether a CSS media query matches, live; false where the browser cannot tell
     useWideHover.ts     whether this is a window at least 1024 px wide on a device with hover, live: the shops'
                         Cardmaker then stands in the corner and speaks
+    useWideWindow.ts    whether this is a window at least 1024 px wide, live: the hand then shows the selected
+                        card's or word's details in a panel beside it instead of a dialog
     useSavedField.ts    a text field saved on blur that keeps the user's draft while live changes arrive
                         (the card note, the cost override and the player notes)
     turkish.ts          Turkish grammar helpers, such as the genitive of a name ("Ayla'nın")
@@ -203,7 +211,7 @@ All stored data lives in Firestore and is read in real time.
   - Holdings: `useOpenHoldings()` for every card in every hand (`HoldingsProvider`). Derive views with the pure helpers next to it: `holdingsOf(holdings, uid)` for one hand in the order the cards were received, and `holdersOf(holdings, cardId)` for who holds a copy of a card.
   - The pool: derive it from the cards with the pure helpers in `cards/pool.ts`. A normal card's `holder` is the source of truth for whether it is in the pool, so `isDrawable`, `drawablePool`, `cursedPool`, the draw filters (`matchesFilters`, `drawFilterOptions`) and `poolDistribution` need only `useCards()`. The library's Durum also names who holds each card, so it comes from the holdings instead (`useDeckStatus` in `hands/cardStatus.ts`).
 - **Data for one screen.** A screen that alone needs some data subscribes while it is shown, through hooks that a provider injects, so its test provider can answer instead of Firebase. The İşlem Logu reads `useLogRecords(uid, n)` and `useHolding(id)` from `ActivityLogProvider`. Its events are derived from its sources, the holdings, the draws (with the pack openings), the ledger, the True Word drafts and the learned True Words (`events.ts`), never written separately, through seven queries (`logQueries`): given holdings, closed holdings, draws, changes by hand, drafts, words taught, and words taken back. A draw is one event, and so is a pack opening, at the time it was opened, and a True Word draft, at the time it started. Their holdings, learned words, payments and refunds make no events of their own: the log queries leave them out (`givenVia` `dm` or `transfer`, `source` `manual`, and `learnedVia` `dm`), so every record a query returns is exactly one event and paging stays exact. A word taught and later taken back is one event in each of its two queries.
-  - The hand screen reads the notes the same way: `usePlayerNote(uid)`, `useDmNote(uid)` and `useNoteActions()` from `PlayerNotesProvider` (`src/features/player-notes/`). `HandsPage` subscribes to the player note while a hand is shown, for the Notlar tab's marker. Only the DM note panel, inside `<DmOnly>` and mounted only while the Notlar tab is open, calls `useDmNote`. The real hook also asks for nothing unless `useIsDm()` is true (`dmNoteTarget`). So a player's device never requests `dmNotes`, which the rules deny it anyway.
+  - The hand screen reads the notes the same way: `usePlayerNote(uid)`, `useDmNote(uid)` and `useNoteActions()` from `PlayerNotesProvider` (`src/features/player-notes/`). `PlayerNote` subscribes to the player note while a hand is shown, under every tab. Only `DmNote`, inside `<DmOnly>` and mounted only while the DM notu tab is open, calls `useDmNote`. The real hook also asks for nothing unless `useIsDm()` is true (`dmNoteTarget`). So a player's device never requests `dmNotes`, which the rules deny it anyway.
 - **Composite indexes.** A query that filters on one field and orders by another needs a composite index in `firestore.indexes.json`, such as the log's filtered queries. The emulator does not check indexes, so a missing one only fails on a real project: add the index in the same change as the query, and deploy it with the rules.
 - **Staleness hints.** When `ready`, `fromCache: true` means the data has not been confirmed by the server (for example while offline), and `hasPendingWrites: true` means local changes are still waiting to sync. Show a subtle hint where it matters, for example next to an LP balance.
 - **Writing.** Write with the SDK (`setDoc`, `updateDoc`, `addDoc`, `runTransaction`, …) inside the feature's `api.ts`. Writes made offline are queued and sent when the connection returns. Do not wait for a write's promise before updating the UI: the subscription already shows the change as a pending write.

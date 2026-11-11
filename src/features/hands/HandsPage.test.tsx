@@ -18,6 +18,8 @@ const dmProfile = testProfile({ role: 'dm' })
 const BUSY = 'Bir Pack açık: seçim bekleniyor.'
 
 const heading = () => screen.getByRole('heading', { level: 1 })
+/** The heading of the hand's panel, which names whose hand it is. */
+const handHeading = () => main().getByRole('heading', { level: 2, name: /— Kart Eli$/ })
 /** The screen itself, without the sidebar (its "Oyuncular" list has its own loading and error states). */
 const main = () => within(screen.getByRole('main'))
 
@@ -29,7 +31,8 @@ describe('the "Oyuncu elleri" entry', () => {
     })
 
     expect(router.state.location.pathname).toBe(`/hands/${testUser.uid}`)
-    expect(heading()).toHaveTextContent('Gökay — Kart Eli')
+    expect(heading()).toHaveTextContent('Oyuncu elleri')
+    expect(handHeading()).toHaveTextContent('Gökay — Kart Eli')
   })
 
   it('opens the DM on the first player of the list who is not the DM', () => {
@@ -39,7 +42,8 @@ describe('the "Oyuncu elleri" entry', () => {
     })
 
     expect(router.state.location.pathname).toBe('/hands/ayla')
-    expect(heading()).toHaveTextContent('Ayla — Kart Eli')
+    expect(heading()).toHaveTextContent('Oyuncu elleri')
+    expect(handHeading()).toHaveTextContent('Ayla — Kart Eli')
   })
 
   it("opens the DM's own hand when there is no other player", () => {
@@ -75,7 +79,8 @@ describe('a hand URL', () => {
   it('shows that hand directly, as after a reload', () => {
     renderApp({ path: '/hands/bora', users: { profiles: ready([me, bora]) } })
 
-    expect(heading()).toHaveTextContent('Bora — Kart Eli')
+    expect(heading()).toHaveTextContent('Oyuncu elleri')
+    expect(handHeading()).toHaveTextContent('Bora — Kart Eli')
   })
 
   it('says in Turkish when the user ID has no profile', () => {
@@ -315,83 +320,122 @@ describe('drawing on the hand', () => {
   })
 })
 
-describe('the Notlar tab', () => {
+describe('the notes on the hand', () => {
   const note = (text: string) => ({
     text,
     updatedBy: 'ayla',
     updatedAt: Timestamp.fromMillis(1000),
   })
   const tabs = () => main().getAllByRole('tab')
+  const asDm = { currentProfile: ready(dmProfile), profiles: ready([ayla, bora, dmProfile]) }
 
-  it('comes third, after the cards and the True Words, and is kept in the URL', async () => {
+  it('shows the player note under the cards and under the True Words', async () => {
     const user = userEvent.setup()
-    const { router } = renderApp({ path: '/hands/ayla', users: { profiles: ready([me, ayla]) } })
-
-    expect(tabs().map((tab) => tab.textContent)).toEqual(['♠ Kartlar', '✦ True Words', '✎ Notlar'])
-
-    await user.click(main().getByRole('tab', { name: '✎ Notlar' }))
-
-    expect(router.state.location.search).toBe('?tab=notes')
-    expect(main().getByRole('tab', { name: '✎ Notlar' })).toHaveAttribute('aria-selected', 'true')
-    expect(main().getByRole('heading', { name: 'Oyuncu notu' })).toBeInTheDocument()
-
-    await user.click(main().getByRole('tab', { name: '♠ Kartlar' }))
-    expect(router.state.location.search).toBe('')
-  })
-
-  it('opens again from its URL, as after a reload', () => {
-    renderApp({ path: '/hands/bora?tab=notes', users: { profiles: ready([me, bora]) } })
-
-    expect(main().getByRole('tab', { name: '✎ Notlar' })).toHaveAttribute('aria-selected', 'true')
-    expect(main().getByRole('heading', { name: 'Oyuncu notu' })).toBeInTheDocument()
-  })
-
-  it('is marked while the player note has text, on every tab', () => {
     renderApp({
       path: '/hands/ayla',
       users: { profiles: ready([me, ayla]) },
       notes: { playerNotes: { ayla: ready(note('Kayıp kardeşini arıyor.')) } },
     })
 
-    const tab = main().getByRole('tab', { name: '✎ Notlar (not var)' })
-    expect(tab).toHaveTextContent('✎ Notlar •')
+    expect(main().getByRole('region', { name: 'Oyuncu notu' })).toHaveTextContent(
+      'Kayıp kardeşini arıyor.',
+    )
+
+    await user.click(main().getByRole('tab', { name: '✦ True Words' }))
+    expect(main().getByRole('region', { name: 'Oyuncu notu' })).toHaveTextContent(
+      'Kayıp kardeşini arıyor.',
+    )
   })
 
-  it('follows the player note live', () => {
-    const { setNotes } = renderApp({
+  it('gives a player the Kartlar and True Words tabs only, and never reads a DM note', () => {
+    const onUseDmNote = vi.fn()
+    renderApp({
       path: '/hands/ayla',
       users: { profiles: ready([me, ayla]) },
+      notes: { onUseDmNote },
     })
-    expect(main().getByRole('tab', { name: '✎ Notlar' })).toBeInTheDocument()
 
-    setNotes({ playerNotes: { ayla: ready(note('Yeni not.')) } })
+    expect(tabs().map((tab) => tab.textContent)).toEqual(['♠ Kartlar', '✦ True Words'])
+    expect(onUseDmNote).not.toHaveBeenCalled()
+  })
 
-    expect(main().getByRole('tab', { name: '✎ Notlar (not var)' })).toBeInTheDocument()
+  it('gives the DM a third tab, "🔒 DM notu", kept in the URL', async () => {
+    const user = userEvent.setup()
+    const { router } = renderApp({
+      path: '/hands/ayla',
+      users: asDm,
+      notes: { dmNotes: { ayla: ready(note('Kardeşi aslında hayatta.')) } },
+    })
+
+    expect(tabs().map((tab) => tab.textContent)).toEqual([
+      '♠ Kartlar',
+      '✦ True Words',
+      '🔒 DM notu',
+    ])
+
+    await user.click(main().getByRole('tab', { name: '🔒 DM notu' }))
+
+    expect(router.state.location.search).toBe('?tab=dm-note')
+    expect(main().getByRole('tab', { name: '🔒 DM notu' })).toHaveAttribute('aria-selected', 'true')
+    expect(main().getByRole('textbox', { name: 'Ayla — DM notu' })).toHaveValue(
+      'Kardeşi aslında hayatta.',
+    )
+    expect(main().getByRole('region', { name: 'Oyuncu notu' })).toBeInTheDocument()
+
+    await user.click(main().getByRole('tab', { name: '♠ Kartlar' }))
+    expect(router.state.location.search).toBe('')
+  })
+
+  it('opens the DM notu tab again from its URL, as after a reload', () => {
+    renderApp({ path: '/hands/bora?tab=dm-note', users: asDm })
+
+    expect(main().getByRole('tab', { name: '🔒 DM notu' })).toHaveAttribute('aria-selected', 'true')
+    expect(main().getByRole('textbox', { name: 'Bora — DM notu' })).toBeInTheDocument()
+  })
+
+  it("opens the Kartlar tab for a player who opens the DM notu tab's URL", () => {
+    const onUseDmNote = vi.fn()
+    renderApp({
+      path: `/hands/${testUser.uid}?tab=dm-note`,
+      users: { profiles: ready([me]) },
+      notes: { onUseDmNote },
+    })
+
+    expect(main().getByRole('tab', { name: '♠ Kartlar' })).toHaveAttribute('aria-selected', 'true')
+    expect(main().queryByRole('tab', { name: '🔒 DM notu' })).not.toBeInTheDocument()
+    expect(onUseDmNote).not.toHaveBeenCalled()
   })
 
   it.each([
-    ['a blank player note', ready(note('  \n '))],
-    ['a player note that is still loading', { status: 'loading' as const }],
-    ['no player note', ready(null)],
-  ])('is not marked for %s', (_case, playerNote) => {
+    ['a player', { profiles: ready([me, ayla]) }],
+    ['the DM', asDm],
+  ])('opens the Kartlar tab for %s from a link to the former Notlar tab', (_case, users) => {
     renderApp({
-      path: '/hands/ayla',
-      users: { profiles: ready([me, ayla]) },
-      notes: { playerNotes: { ayla: playerNote } },
+      path: '/hands/ayla?tab=notes',
+      users,
+      notes: { playerNotes: { ayla: ready(note('Kayıp kardeşini arıyor.')) } },
     })
 
-    expect(main().getByRole('tab', { name: '✎ Notlar' })).not.toHaveTextContent('•')
+    expect(main().getByRole('tab', { name: '♠ Kartlar' })).toHaveAttribute('aria-selected', 'true')
+    expect(main().getByRole('region', { name: 'Oyuncu notu' })).toHaveTextContent(
+      'Kayıp kardeşini arıyor.',
+    )
   })
 
-  it('is not marked by a DM note, and the DM note is not read until the tab opens', () => {
-    const onUseDmNote = vi.fn()
+  it('marks no tab, whether the player note or the DM note has text', () => {
     renderApp({
-      path: '/hands/bora',
-      users: { currentProfile: ready(dmProfile), profiles: ready([bora, dmProfile]) },
-      notes: { dmNotes: { bora: ready(note('Gizli plan.')) }, onUseDmNote },
+      path: '/hands/ayla',
+      users: asDm,
+      notes: {
+        playerNotes: { ayla: ready(note('Kayıp kardeşini arıyor.')) },
+        dmNotes: { ayla: ready(note('Gizli plan.')) },
+      },
     })
 
-    expect(main().getByRole('tab', { name: '✎ Notlar' })).not.toHaveTextContent('•')
-    expect(onUseDmNote).not.toHaveBeenCalled()
+    expect(tabs().map((tab) => tab.textContent)).toEqual([
+      '♠ Kartlar',
+      '✦ True Words',
+      '🔒 DM notu',
+    ])
   })
 })

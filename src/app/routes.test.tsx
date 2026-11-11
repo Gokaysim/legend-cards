@@ -33,14 +33,15 @@ const CARDS = ready([
 /** Menu entries that land somewhere else than their own path, with the heading shown there. */
 const LANDINGS: Record<string, { pathname: string; heading: string }> = {
   // "Oyuncu elleri" opens the signed-in player's own hand.
-  '/hands': { pathname: `/hands/${testUser.uid}`, heading: 'Gökay — Kart Eli' },
+  '/hands': { pathname: `/hands/${testUser.uid}`, heading: 'Oyuncu elleri' },
 }
 
 /** The screens that have real content, with what each one shows instead of the not-ready note. */
 const BUILT_SCREENS: Record<string, () => void> = {
   // The hand of the signed-in player, who holds no cards here.
   '/hands': () => {
-    expect(screen.getByRole('heading', { level: 1, name: 'Gökay — Kart Eli' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'Oyuncu elleri' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 2, name: 'Gökay — Kart Eli' })).toBeInTheDocument()
     expect(screen.getByText('Bu elde henüz kart yok.')).toBeInTheDocument()
   },
   // The Shops hub leads to the two shops.
@@ -87,8 +88,9 @@ describe('routes and navigation', () => {
     const { router } = renderApp({ path: '/' })
 
     expect(
-      await screen.findByRole('heading', { level: 1, name: 'Gökay — Kart Eli' }),
+      await screen.findByRole('heading', { level: 2, name: 'Gökay — Kart Eli' }),
     ).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'Oyuncu elleri' })).toBeInTheDocument()
     expect(router.state.location.pathname).toBe(`/hands/${testUser.uid}`)
     expect(within(mainMenu()).getByRole('link', { name: 'Oyuncu elleri' })).toHaveAttribute(
       'aria-current',
@@ -102,7 +104,7 @@ describe('routes and navigation', () => {
       users: { profiles: ready([testProfile(), testProfile({ id: 'bora', displayName: 'Bora' })]) },
     })
 
-    expect(screen.getByRole('heading', { level: 1, name: 'Bora — Kart Eli' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 2, name: 'Bora — Kart Eli' })).toBeInTheDocument()
     expect(screen.queryByText('Bu ekran henüz hazır değil.')).not.toBeInTheDocument()
     expect(within(mainMenu()).getByRole('link', { name: 'Oyuncu elleri' })).toHaveAttribute(
       'aria-current',
@@ -215,7 +217,7 @@ describe("each screen's Cardmaker", () => {
 
   it.each([
     ['the Custom Card Draft, whose Cardmaker has no picture', '/custom-draft', 'Custom Card Draft'],
-    ['a hand, which has no Cardmaker', `/hands/${testUser.uid}`, 'Gökay — Kart Eli'],
+    ['a hand, which has no Cardmaker', `/hands/${testUser.uid}`, 'Oyuncu elleri'],
   ])('shows %s without a picture', (_case, path, title) => {
     renderApp({ path, art: ART })
 

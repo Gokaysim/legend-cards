@@ -42,6 +42,21 @@
   --color-true-word-line: #9a87d1;
 
   /*
+   * The hand's stat tiles (spec: visual-effects, "The hand's stat colors"; design D7). The values are v2.2.8's
+   * `.stat-cursed` and `.stat-truewords`. Each surface is a gradient from the first token to its `-deep` one, and every
+   * label and number on it keeps at least 4.5:1 on both ends (theme.test.ts).
+   */
+  /* The "☠ Cursed kart" tile: its surface, its border, and its number. The number is lighter than `cursed`, which
+     stays just under 4.5:1 on this surface. Its label is `cursed-soft`. */
+  --color-stat-cursed: #432130;
+  --color-stat-cursed-deep: #2e1c2b;
+  --color-stat-cursed-line: #b8485e;
+  --color-stat-cursed-ink: #ff637e;
+  /* The "✦ True Words" tile's surface. Its border is `true-word-line`, its number `true-word`, its label `ink-muted`. */
+  --color-stat-word: #2e274c;
+  --color-stat-word-deep: #1d2038;
+
+  /*
    * Glows and decorative frames (spec: visual-effects). Light, not text: none of these is ever a text color, so they
    * need no contrast pair. The values are v2.2.8's.
    */
@@ -103,11 +118,15 @@
     color-mix(in oklab, var(--color-glow-blessed) 95%, transparent);
   /* A card someone holds, in the library. */
   --drop-shadow-glow-held: 0 0 5px color-mix(in oklab, var(--color-gold) 52%, transparent);
-  /* The selected or chosen card of an open pack. */
+  /* The selected or chosen card of an open pack, and the selected card of a hand while its details show beside it. */
   --drop-shadow-glow-selected: 0 0 9px color-mix(in oklab, var(--color-gold) 85%, transparent);
   /* An active True Word has two rings: the `glow-word` utility in `effects.css`. */
+  /* An active True Word peeking out above the hand (v2.2.8's `.tw-peek`); its lift shadow is `lift`, on a box inside. */
+  --drop-shadow-glow-word-peek: 0 0 8px color-mix(in oklab, var(--color-glow-word) 67%, transparent);
   /* The name of an active True Word in the hand summary. */
   --text-shadow-glow-word: 0 0 8px color-mix(in oklab, var(--color-glow-word) 47%, transparent);
+  /* The number on the hand's "☠ Cursed kart" tile. */
+  --text-shadow-glow-cursed: 0 0 16px color-mix(in oklab, var(--color-glow-cursed) 40%, transparent);
 
   /* The card flip's soft turn (v2.2.8): fast at first, settling slowly. */
   --ease-card-flip: cubic-bezier(0.18, 0.72, 0.16, 1);
