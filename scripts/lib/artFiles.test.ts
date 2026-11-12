@@ -1,26 +1,33 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
 
-import { type ArtAlias, type ArtData, type ArtFile, planArt, readAliases } from './artFiles.ts'
+import {
+  type ArtAlias,
+  type ArtCard,
+  type ArtData,
+  type ArtDefinition,
+  type ArtFile,
+  type ArtPlanMode,
+  NO_DEFINITIONS,
+  planArt,
+  readAliases,
+} from './artFiles.ts'
 import { normalize } from './cardCatalog.ts'
-import type { CardDefinition } from './cardRows.ts'
+import type { CardKind } from './cardRows.ts'
 
-const card = (
-  name: string,
-  kind: CardDefinition['kind'] = 'normal',
-  setCode: string | null = 'Kesqer',
-): CardDefinition => ({
+/** A stored card: its ID is the import's unless given, as for a card the DM renamed. */
+const card = (name: string, kind: CardKind = 'normal', id?: string): ArtCard => ({
+  id: id ?? `${kind === 'cursed' ? 'cursed' : 'legend'}-${normalize(name)}`,
   kind,
   name,
   nameKey: normalize(name),
-  setCode: kind === 'normal' ? setCode : null,
-  cost: kind === 'blessed' ? null : '1',
-  rarity: kind === 'normal' ? 'common' : null,
-  mechanicPack: kind === 'cursed' ? null : 'Blood & Battle',
-  text: '',
 })
 
-const word = (name: string) => ({ name, nameKey: normalize(name), cost: '5', text: '' })
+const word = (name: string): ArtDefinition => ({
+  id: `tw-${normalize(name)}`,
+  name,
+  nameKey: normalize(name),
+})
 
 const DATA: ArtData = {
   legend: [
@@ -40,21 +47,37 @@ const DATA: ArtData = {
 
 const files = (...names: string[]): ArtFile[] => names.map((name) => ({ name }))
 
-/** The target of each used file, as `<file> -> <section group>:<key>`. */
-function matches(names: string[], aliases: readonly ArtAlias[] = []): Record<string, string> {
-  const plan = planArt(files(...names), DATA, aliases)
+/** The alias table as each script reads it. */
+type Aliases = Record<ArtPlanMode, readonly ArtAlias[]>
+const NO_ALIASES: Aliases = { assets: [], definitions: [] }
+
+/** The plans of both scripts: the build's (assets, no definitions) and the picture import's (the definitions). */
+const plansOf = (names: string[], aliases: Aliases = NO_ALIASES) => ({
+  assets: planArt(files(...names), NO_DEFINITIONS, aliases.assets, 'assets'),
+  definitions: planArt(files(...names), DATA, aliases.definitions, 'definitions'),
+})
+
+/** The target of each used file, by either script, as `<file> -> <group>:<key>`. */
+function matches(names: string[], aliases: Aliases = NO_ALIASES): Record<string, string> {
+  const { assets, definitions } = plansOf(names, aliases)
   return Object.fromEntries(
-    plan.assignments.map(({ file, target }) => [file.name, `${target.group}:${target.key}`]),
+    [...assets.assignments, ...definitions.assignments].map(({ file, target }) => [
+      file.name,
+      `${target.group}:${target.key}`,
+    ]),
   )
 }
 
-const unknownOf = (names: string[], aliases: readonly ArtAlias[] = []) =>
-  planArt(files(...names), DATA, aliases).unknown.map((file) => file.name)
+/** The files neither script uses: unknown to the picture import, which leaves only the assets to the build. */
+const unknownOf = (names: string[], aliases: Aliases = NO_ALIASES) =>
+  plansOf(names, aliases).definitions.unknown.map((file) => file.name)
 
-const aliasesOf = (text: string) => {
-  const result = readAliases(text, DATA)
-  expect(result.errors).toEqual([])
-  return result.aliases
+const aliasesOf = (text: string): Aliases => {
+  const assets = readAliases(text, NO_DEFINITIONS, 'assets')
+  const definitions = readAliases(text, DATA, 'definitions')
+  expect(assets.errors).toEqual([])
+  expect(definitions.errors).toEqual([])
+  return { assets: assets.aliases, definitions: definitions.aliases }
 }
 
 describe('planArt: the matching rules in order', () => {
@@ -181,9 +204,53 @@ describe('planArt: the matching rules in order', () => {
   })
 
   it('10. a file that matches nothing is unknown, and the plan goes on', () => {
-    const plan = planArt(files('zamansgolfc.png', 'abolethseyes.png'), DATA, [])
+    const plan = planArt(files('zamansgolfc.png', 'abolethseyes.png'), DATA, [], 'definitions')
     expect(plan.unknown).toEqual([{ name: 'zamansgolfc.png' }])
     expect(plan.assignments).toHaveLength(1)
+  })
+})
+
+describe('planArt: the stored definitions', () => {
+  it('finds a card the DM renamed by the identity of its old name, before any name', () => {
+    const renamed: ArtData = {
+      ...DATA,
+      legend: [card('Eyes of the Aboleth', 'normal', 'legend-abolethseyes'), card('Mirror')],
+    }
+    const plan = planArt(files('abolethseyes.png'), renamed, [], 'definitions')
+    expect(plan.assignments.map(({ target }) => [target.key, target.label])).toEqual([
+      ['legend-abolethseyes', 'Eyes of the Aboleth'],
+    ])
+  })
+
+  it('finds a card added in the app with a suffixed ID by its name', () => {
+    const added: ArtData = {
+      ...DATA,
+      legend: [...DATA.legend, card("Bard's Encore", 'normal', 'legend-bardsencore-2')],
+    }
+    const plan = planArt(files('bardsencore.png'), added, [], 'definitions')
+    expect(plan.assignments.map(({ target }) => target.key)).toEqual(['legend-bardsencore-2'])
+  })
+
+  it('leaves the asset files to the build, and the build leaves every other file to the import', () => {
+    const names = ['kesqer_cb.png', 'cardmaker_lib.png', 'abolethseyes.png', 'zamansgolfc.png']
+    const { assets, definitions } = plansOf(names)
+
+    expect(definitions.skipped.map(({ name }) => name)).toEqual([
+      'cardmaker_lib.png',
+      'kesqer_cb.png',
+    ])
+    expect(definitions.unknown.map(({ name }) => name)).toEqual(['zamansgolfc.png'])
+    expect(assets.skipped.map(({ name }) => name)).toEqual(['abolethseyes.png', 'zamansgolfc.png'])
+    expect(assets.unknown).toEqual([])
+  })
+
+  it("leaves the files of the other script's alias rows to it", () => {
+    const aliases = aliasesOf(
+      'File,Kind,Name\ncharmingrogue.png,legend,Roguish Charm\npack_galmblers.png,asset,pack_gamblers',
+    )
+    const { assets, definitions } = plansOf(['charmingrogue.png', 'pack_galmblers.png'], aliases)
+    expect(assets.skipped.map(({ name }) => name)).toEqual(['charmingrogue.png'])
+    expect(definitions.skipped.map(({ name }) => name)).toEqual(['pack_galmblers.png'])
   })
 })
 
@@ -195,7 +262,8 @@ describe('planArt: duplicates', () => {
     const plan = planArt(
       files('alazizsurpriseattack.png', 'alazizsurpiseattack.png'),
       DATA,
-      aliases,
+      aliases.definitions,
+      'definitions',
     )
     expect(plan.assignments).toEqual([
       {
@@ -228,8 +296,9 @@ describe('planArt: duplicates', () => {
         { name: 'pandemonium_std.png', from: 'a.7z' },
         { name: 'pandemonium_gold.png', from: 'b.7z' },
       ],
-      DATA,
+      NO_DEFINITIONS,
       [],
+      'assets',
     )
     expect(plan.assignments.map(({ file }) => file)).toEqual([
       { name: 'pandemonium_gold.png', from: 'b.7z' },
@@ -241,22 +310,22 @@ describe('planArt: duplicates', () => {
 })
 
 describe('planArt: coverage', () => {
-  it('counts each kind and names the missing targets', () => {
-    const plan = planArt(
-      files(
-        'abolethseyes.png',
-        'roguishcharm.png',
-        'cursed_mirror.png',
-        'twabyss.png',
-        'kesqer_cb.png',
-        'pack_blood.png',
-        'kesqer_std.png',
-        'cardmaker_lib.png',
-      ),
-      DATA,
-      [],
-    )
-    const { normal, blessed, cursed, word: words, back, pack, setPack, mascot } = plan.coverage
+  it("counts each of its mode's kinds and names the missing targets", () => {
+    const { assets, definitions } = plansOf([
+      'abolethseyes.png',
+      'roguishcharm.png',
+      'cursed_mirror.png',
+      'twabyss.png',
+      'kesqer_cb.png',
+      'pack_blood.png',
+      'kesqer_std.png',
+      'cardmaker_lib.png',
+    ])
+    expect(Object.keys(assets.coverage)).toEqual(['back', 'pack', 'setPack', 'mascot'])
+    expect(Object.keys(definitions.coverage)).toEqual(['normal', 'blessed', 'cursed', 'word'])
+    const { normal, blessed, cursed, word: words } = definitions.coverage
+    const { back, pack, setPack, mascot } = assets.coverage
+    if (!back || !pack || !mascot) throw new Error('The build plans the assets')
     expect(normal).toEqual({
       expected: 4,
       found: 1,
@@ -284,61 +353,92 @@ describe('planArt: coverage', () => {
 })
 
 describe('readAliases', () => {
-  it('reads a valid table with every kind', () => {
-    const result = readAliases(
-      [
-        'File,Kind,Name',
-        'orkolsacquisiton.png,legend,Aboleth’s Eyes',
-        'cursed_spontanous.png,Cursed,Scorched Earth',
-        'twascend_1.png,word,Ascend',
-        'pack_galmblers.png,asset,pack_gamblers',
-        'kesq.png,asset,kesqer_cb',
-      ].join('\n'),
-      DATA,
-    )
+  const TABLE = [
+    'File,Kind,Name',
+    'orkolsacquisiton.png,legend,Aboleth’s Eyes',
+    'cursed_spontanous.png,Cursed,Scorched Earth',
+    'twascend_1.png,word,Ascend',
+    'pack_galmblers.png,asset,pack_gamblers',
+    'kesq.png,asset,kesqer_cb',
+  ].join('\n')
+
+  it('reads the card and word rows for the picture import, and keeps the asset rows without a target', () => {
+    const result = readAliases(TABLE, DATA, 'definitions')
     expect(result.errors).toEqual([])
-    expect(result.aliases.map(({ row, file, target }) => [row, file, target.key])).toEqual([
-      [2, 'orkolsacquisiton.png', 'legend-abolethseyes'],
-      [3, 'cursed_spontanous.png', 'cursed-scorchedearth'],
-      [4, 'twascend_1.png', 'tw-ascend'],
-      [5, 'pack_galmblers.png', "mechanic:Gambler's Gambit"],
-      [6, 'kesq.png', 'Kesqer'],
+    expect(result.aliases.map(({ row, file, target }) => [row, file, target?.key ?? null])).toEqual(
+      [
+        [2, 'orkolsacquisiton.png', 'legend-abolethseyes'],
+        [3, 'cursed_spontanous.png', 'cursed-scorchedearth'],
+        [4, 'twascend_1.png', 'tw-ascend'],
+        [5, 'pack_galmblers.png', null],
+        [6, 'kesq.png', null],
+      ],
+    )
+  })
+
+  it('reads the asset rows for the build, without checking the card and word rows', () => {
+    const result = readAliases(TABLE, NO_DEFINITIONS, 'assets')
+    expect(result.errors).toEqual([])
+    expect(result.aliases.map(({ file, target }) => [file, target?.key ?? null])).toEqual([
+      ['orkolsacquisiton.png', null],
+      ['cursed_spontanous.png', null],
+      ['twascend_1.png', null],
+      ['pack_galmblers.png', "mechanic:Gambler's Gambit"],
+      ['kesq.png', 'Kesqer'],
     ])
   })
 
+  it('finds an aliased card by the identity of its name after a rename', () => {
+    const renamed: ArtData = {
+      ...DATA,
+      legend: [card('Charm of the Rogue', 'blessed', 'legend-roguishcharm')],
+    }
+    const result = readAliases(
+      'File,Kind,Name\ncharmingrogue.png,legend,Roguish Charm',
+      renamed,
+      'definitions',
+    )
+    expect(result.errors).toEqual([])
+    expect(result.aliases[0]?.target?.label).toBe('Charm of the Rogue')
+  })
+
   it('reports an unknown kind with its row number', () => {
-    const result = readAliases('File,Kind,Name\nx.png,legend,Mirror\ny.png,elixir,Zallut', DATA)
+    const result = readAliases(
+      'File,Kind,Name\nx.png,legend,Mirror\ny.png,elixir,Zallut',
+      DATA,
+      'definitions',
+    )
     expect(result.errors).toEqual([{ kind: 'unknown-kind', row: 3, value: 'elixir' }])
     expect(result.aliases).toHaveLength(1)
   })
 
-  it('reports a name that matches no card, word or asset with its row number', () => {
-    const result = readAliases(
-      [
-        'File,Kind,Name',
-        'a.png,legend,Scorched Earth',
-        'b.png,cursed,Nothing Here',
-        'c.png,word,Abyss',
-        'd.png,asset,pack_galmblers',
-      ].join('\n'),
-      DATA,
-    )
-    expect(result.errors).toEqual([
+  it('reports a name that matches no stored card or word, or no asset, with its row number', () => {
+    const table = [
+      'File,Kind,Name',
+      'a.png,legend,Scorched Earth',
+      'b.png,cursed,Nothing Here',
+      'c.png,word,Abyss',
+      'd.png,asset,pack_galmblers',
+    ].join('\n')
+    expect(readAliases(table, DATA, 'definitions').errors).toEqual([
       // Scorched Earth is a Cursed card, not a Legend card.
       { kind: 'unknown-target', row: 2, aliasKind: 'legend', name: 'Scorched Earth' },
       { kind: 'unknown-target', row: 3, aliasKind: 'cursed', name: 'Nothing Here' },
+    ])
+    expect(readAliases(table, NO_DEFINITIONS, 'assets').errors).toEqual([
       { kind: 'unknown-target', row: 5, aliasKind: 'asset', name: 'pack_galmblers' },
     ])
   })
 
   it('reports missing columns, empty cells and a file named twice', () => {
-    expect(readAliases('File,Name\na.png,Mirror', DATA).errors).toEqual([
+    expect(readAliases('File,Name\na.png,Mirror', DATA, 'definitions').errors).toEqual([
       { kind: 'missing-columns', columns: ['kind'] },
     ])
     expect(
       readAliases(
         'File,Kind,Name\n,legend,Mirror\na.png,legend,Mirror\nA.PNG,cursed,Mirror\nb.png,legend,',
         DATA,
+        'definitions',
       ).errors,
     ).toEqual([
       { kind: 'empty-cell', row: 2, column: 'File' },

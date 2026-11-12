@@ -1,6 +1,7 @@
 import { Timestamp } from 'firebase/firestore'
 import { z } from 'zod'
 
+import { picturePathSchema } from '@/features/definitions/picturePath'
 import { DEFINITION_STATUSES } from '@/features/definitions/status'
 import { createConverter } from '@/lib/firestore/converter'
 
@@ -79,6 +80,8 @@ export const trueWordSchema = z
     status: z.enum(DEFINITION_STATUSES),
     /** The change record of the newest definition step; words from before definition editing have none. */
     changeId: z.string().min(1).nullable().default(null),
+    /** Where the word's picture is in Cloud Storage (`words/<id>/<hash>.webp`), or `null` for none, as for cards. */
+    picture: picturePathSchema.nullable().default(null),
   })
   .superRefine((word, ctx) => {
     if (word.status === 'draft') return

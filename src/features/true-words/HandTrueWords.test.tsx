@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { ArtManifest } from '@/features/art/schema'
 import { TABLE_BUSY_NOTE } from '@/features/table/errors'
-import { testArt } from '@/test/artFixtures'
+import { testPicturePath } from '@/test/artFixtures'
 import { ready, testProfile, testUser } from '@/test/fixtures'
 import { stubWideWindow } from '@/test/media'
 import { renderApp } from '@/test/renderApp'
@@ -134,7 +134,12 @@ describe('the True Words tab', () => {
   })
 
   it('shows a word with a picture as its picture alone, its name, cost and text left to screen readers', () => {
-    renderTab({ art: testArt({ words: { [ABYSS.id]: '/art/words/abyss.webp' } }) })
+    const picture = testPicturePath('word', ABYSS.id)
+    renderTab({
+      trueWords: {
+        words: ready(WORDS.map((word) => (word.id === ABYSS.id ? { ...word, picture } : word))),
+      },
+    })
 
     const list = within(main().getByRole('list', { name: 'Bilinen True Words' }))
     const abyss = list.getByRole('article', { name: 'Abyss' })

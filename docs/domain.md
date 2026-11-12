@@ -331,11 +331,14 @@ The new app changes the data tools (`add-card-and-word-editing`):
 
 - **Editing in the app.** The legacy app's "+ Kart ekle", "Düzenle" and "+ True Word ekle" come back as the DM's forms on the Kart kütüphanesi, the Cursed Deck and the True Words screen, with a status filter ("Yayında", "Taslak", "Kaldırıldı", "Hepsi"). "Kartı sil" deletes only a draft; a card in play is retired instead, and stays in the hands that hold it.
 - **Imports.** The CSV files in `data/` are seed data: `npm run import-cards` and `npm run import-true-words` only add what is not stored yet. A new set can still come in through a file, as drafts or active cards.
-- **Pictures.** A card or word added in the app has no picture until its row and picture reach the repository and `npm run build-art` runs again. Uploading a picture in the app is not built.
+- **Pictures.** The legacy card form's "Görsel" field comes back in the DM's card and True Word forms (`upload-card-and-word-pictures`): "Resim seç" uploads a new picture or replaces the current one, "Resmi kaldır" removes it, and "İndir" downloads the stored picture. A picture change is saved with the form, in the same step and İşlem Logu event as the other fields, whatever the status, also while a pack is open. Unlike the legacy app, a single card's picture can be removed. A picture that no longer matches the card's text is the DM's concern: the form does not warn.
 
 ## Pictures
 
-The pictures come from the owner's archives, built into the app by `npm run build-art` (see [data/README.md](../data/README.md#pictures) for the archives and the alias table). Without them, or for a picture that is missing, the app draws the CSS look it had before. They are static files: anyone who knows a picture's address can open it without signing in, which the owner accepted.
+The pictures come from the owner's archives (see [data/README.md](../data/README.md#pictures) for the archives and the alias table). Without them, or for a picture that is missing, the app draws the CSS look it had before. Anyone who knows a picture's address can open it without signing in, which the owner accepted, also for a draft's picture.
+
+- **Card and True Word pictures** live in Cloud Storage, one per card or word, and each definition holds where its picture is (`upload-card-and-word-pictures`). `npm run import-pictures` uploads them from the archives once, matched against the stored cards and words, and the DM uploads, replaces, downloads and removes them in the app. The import only adds: it never replaces a picture, and never brings back one the DM removed.
+- **Cardbacks, pack pictures and the Cardmaker** are static files built into the app by `npm run build-art`.
 
 **File names.** The legacy names are kept: a card's normalized name (`abolethseyes`), `cursed_<name>` for a Cursed card, `tw<name>` for a True Word, `<set>_cb` with `blessed_cb` and `cursed_cb` for the cardbacks, `pack_<mechanic stem>`, `pack_gold` and `pack_cursedgold` for the pack pictures, `<set>_std|prm|crs` for a set's own pack picture, and the `cardmaker_*` names for the Cardmaker. Names that differ from the data go through the alias table. Three Blessed pictures carry older names: `charmingrogue` is Roguish Charm, `drivendiehard` Second Wind, and `durabledwarf` Forgewizard Constitution.
 

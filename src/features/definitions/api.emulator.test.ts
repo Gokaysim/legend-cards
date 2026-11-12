@@ -12,6 +12,7 @@ import {
   setDoc,
   Timestamp,
 } from 'firebase/firestore'
+import { type FirebaseStorage, getBytes, getMetadata, ref, uploadBytes } from 'firebase/storage'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { cardRef } from '@/features/cards/api'
@@ -23,6 +24,7 @@ import { testCard, testCursedCard } from '@/test/cardFixtures'
 import { testTrueWord } from '@/test/trueWordFixtures'
 
 import firestoreRules from '../../../firestore.rules?raw'
+import storageRules from '../../../storage.rules?raw'
 import {
   addCard,
   addWord,
@@ -36,6 +38,7 @@ import {
   setWordStatus,
 } from './api'
 import { DefinitionChangedError, IncompleteDefinitionError, NameTakenError } from './errors'
+import { cloudPictureStore, type PictureStore } from './pictureStore'
 
 let testEnv: RulesTestEnvironment
 
@@ -46,6 +49,15 @@ function firestoreOf(context: RulesTestContext): Firestore {
 
 /** A user's own Firestore under the real rules. Each call is a separate client, like a separate device. */
 const as = (uid: string) => firestoreOf(testEnv.authenticatedContext(uid))
+
+/** The test context's Storage is a compat instance; the modular API takes the instance it wraps. */
+function storageOf(context: RulesTestContext): FirebaseStorage {
+  return (context.storage() as unknown as { _delegate: FirebaseStorage })._delegate
+}
+
+/** A user's picture files under the real storage rules. */
+const picturesOf = (uid: string): PictureStore =>
+  cloudPictureStore(storageOf(testEnv.authenticatedContext(uid)))
 
 const EYES = testCard("Aboleth's Eyes", { changeId: 'c-seed' })
 const OLD = testCard('Old Card', { status: 'retired', changeId: 'c-seed' })
@@ -112,6 +124,7 @@ beforeAll(async () => {
   testEnv = await initializeTestEnvironment({
     projectId: 'demo-legend-cards',
     firestore: { host: '127.0.0.1', port: 8080, rules: firestoreRules },
+    storage: { host: '127.0.0.1', port: 9199, rules: storageRules },
   })
 })
 
@@ -121,6 +134,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await testEnv.clearFirestore()
+  await testEnv.clearStorage()
   await testEnv.withSecurityRulesDisabled(async (admin) => {
     const db = firestoreOf(admin)
     const profile = (role: string) => ({
@@ -388,3 +402,285 @@ describe('True Word steps under the real rules', () => {
     expect(await readAsAdmin(`trueWords/${ECHO.id}`)).toBeUndefined()
   })
 })
+
+/** A prepared picture with a fixed hash: the bytes say which one it is. */
+const pictureOf = (hash: string) => ({
+  kind: 'new' as const,
+  blob: new Blob([new TextEncoder().encode(hash)], { type: 'image/webp' }),
+  hash,
+})
+
+/** Stores a file as the admin, outside the rules. */
+async function seedFile(path: string) {
+  await testEnv.withSecurityRulesDisabled(async (admin) => {
+    await uploadBytes(ref(storageOf(admin), path), new TextEncoder().encode('seeded'), {
+      contentType: 'image/webp',
+    })
+  })
+}
+
+/** The file's metadata, or `null` when there is no file at `path`. */
+async function fileAt(path: string) {
+  let metadata: Awaited<ReturnType<typeof getMetadata>> | null = null
+  await testEnv.withSecurityRulesDisabled(async (admin) => {
+    try {
+      metadata = await getMetadata(ref(storageOf(admin), path))
+    } catch {
+      metadata = null
+    }
+  })
+  return metadata as Awaited<ReturnType<typeof getMetadata>> | null
+}
+
+/** Gives a stored card a picture, as an earlier step or the picture import would have. */
+async function seedCardPicture(card: Card, path: string): Promise<Card> {
+  await seedFile(path)
+  await testEnv.withSecurityRulesDisabled(async (admin) => {
+    await setDoc(doc(firestoreOf(admin), `cards/${card.id}`), { ...stored(card), picture: path })
+  })
+  return { ...card, picture: path }
+}
+
+describe('pictures under the real rules', () => {
+  const EYES_OLD = `cards/${EYES.id}/aaaaaaaaaa.webp`
+
+  it('adds a card with its picture: the file, its metadata, the card and the record', async () => {
+    const id = await addCard(
+      as('dana'),
+      {
+        fields: { ...fieldsOf(EYES), name: 'Lute Song' },
+        publish: false,
+        by: 'dana',
+        existing: CARDS,
+        picture: pictureOf('0123456789'),
+      },
+      picturesOf('dana'),
+    )
+
+    const path = `cards/${id}/0123456789.webp`
+    expect(await fileAt(path)).toMatchObject({
+      contentType: 'image/webp',
+      cacheControl: 'public, max-age=31536000, immutable',
+      contentDisposition: `attachment; filename="${id}.webp"`,
+    })
+    expect((await cardNow(id)).picture).toBe(path)
+    const added = (await records()).find((record) => record.step === 'added')
+    expect(added).toMatchObject({ after: { picture: path } })
+  })
+
+  it('adds a card without a picture field when no picture is chosen', async () => {
+    const id = await addCard(as('dana'), {
+      fields: { ...fieldsOf(EYES), name: 'Lute Song' },
+      publish: false,
+      by: 'dana',
+      existing: CARDS,
+    })
+    expect(await readAsAdmin(`cards/${id}`)).not.toHaveProperty('picture')
+  })
+
+  it('replaces a picture, deleting the old file, and records both paths', async () => {
+    const card = await seedCardPicture(EYES, EYES_OLD)
+
+    await saveCard(
+      as('dana'),
+      {
+        card,
+        fields: fieldsOf(card),
+        publish: false,
+        by: 'dana',
+        existing: CARDS,
+        picture: pictureOf('bbbbbbbbbb'),
+      },
+      picturesOf('dana'),
+    )
+
+    const next = `cards/${EYES.id}/bbbbbbbbbb.webp`
+    expect((await cardNow(EYES.id)).picture).toBe(next)
+    expect(await fileAt(next)).not.toBeNull()
+    expect(await fileAt(EYES_OLD)).toBeNull()
+    const edited = (await records()).find((record) => record.step === 'edited')
+    expect(edited).toMatchObject({ before: { picture: EYES_OLD }, after: { picture: next } })
+  })
+
+  it('removes a picture: the field is null and the file is gone', async () => {
+    const card = await seedCardPicture(EYES, EYES_OLD)
+
+    await saveCard(
+      as('dana'),
+      {
+        card,
+        fields: fieldsOf(card),
+        publish: false,
+        by: 'dana',
+        existing: CARDS,
+        picture: { kind: 'remove' },
+      },
+      picturesOf('dana'),
+    )
+
+    expect(await readAsAdmin(`cards/${EYES.id}`)).toMatchObject({ picture: null })
+    expect(await fileAt(EYES_OLD)).toBeNull()
+  })
+
+  it('keeps the field absent when a card that never had a picture is edited', async () => {
+    const { picture: _none, ...withoutField } = stored(EYES)
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(firestoreOf(admin), `cards/${EYES.id}`), withoutField)
+    })
+
+    await saveCard(
+      as('dana'),
+      {
+        card: EYES,
+        fields: { ...fieldsOf(EYES), cost: '3' },
+        publish: false,
+        by: 'dana',
+        existing: CARDS,
+      },
+      picturesOf('dana'),
+    )
+
+    const now = await readAsAdmin(`cards/${EYES.id}`)
+    expect(now).toMatchObject({ cost: '3' })
+    expect(now).not.toHaveProperty('picture')
+  })
+
+  it('deletes its upload and keeps the stored picture when the save is refused', async () => {
+    const card = await seedCardPicture(EYES, EYES_OLD)
+    // Another device changes the card after this form opened.
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(firestoreOf(admin), `cards/${EYES.id}`), {
+        ...stored(card),
+        cost: '9',
+      })
+    })
+
+    const failure = await failureOf(
+      saveCard(
+        as('dana'),
+        {
+          card,
+          fields: fieldsOf(card),
+          publish: false,
+          by: 'dana',
+          existing: CARDS,
+          picture: pictureOf('cccccccccc'),
+        },
+        picturesOf('dana'),
+      ),
+    )
+
+    expect(failure).toBeInstanceOf(DefinitionChangedError)
+    expect(await fileAt(`cards/${EYES.id}/cccccccccc.webp`)).toBeNull()
+    expect(await fileAt(EYES_OLD)).not.toBeNull()
+    expect((await cardNow(EYES.id)).picture).toBe(EYES_OLD)
+  })
+
+  it('keeps the file when the same picture is saved again', async () => {
+    const card = await seedCardPicture(EYES, EYES_OLD)
+
+    await saveCard(
+      as('dana'),
+      {
+        card,
+        fields: { ...fieldsOf(card), cost: '3' },
+        publish: false,
+        by: 'dana',
+        existing: CARDS,
+        picture: pictureOf('aaaaaaaaaa'),
+      },
+      picturesOf('dana'),
+    )
+
+    expect((await cardNow(EYES.id)).picture).toBe(EYES_OLD)
+    expect(await fileAt(EYES_OLD)).not.toBeNull()
+  })
+
+  it('changes the picture of an active card while a pack is open', async () => {
+    await openPack()
+    await saveCard(
+      as('dana'),
+      {
+        card: EYES,
+        fields: fieldsOf(EYES),
+        publish: false,
+        by: 'dana',
+        existing: CARDS,
+        picture: pictureOf('dddddddddd'),
+      },
+      picturesOf('dana'),
+    )
+    expect((await cardNow(EYES.id)).picture).toBe(`cards/${EYES.id}/dddddddddd.webp`)
+  })
+
+  it('deletes a draft together with its picture file', async () => {
+    const path = `cards/${ENCORE.id}/eeeeeeeeee.webp`
+    const draft = await seedCardPicture(ENCORE, path)
+
+    await deleteCard(as('dana'), { card: draft, by: 'dana' }, picturesOf('dana'))
+
+    expect(await readAsAdmin(`cards/${ENCORE.id}`)).toBeUndefined()
+    expect(await fileAt(path)).toBeNull()
+  })
+
+  it('refuses a player a picture upload, and changes nothing', async () => {
+    const failure = await failureOf(
+      saveCard(
+        as('ayla'),
+        {
+          card: EYES,
+          fields: fieldsOf(EYES),
+          publish: false,
+          by: 'ayla',
+          existing: CARDS,
+          picture: pictureOf('ffffffffff'),
+        },
+        picturesOf('ayla'),
+      ),
+    )
+    expect(failure).toMatchObject({ code: 'storage/unauthorized' })
+    expect((await cardNow(EYES.id)).picture).toBeNull()
+  })
+
+  it('adds a word with a picture, then removes it and deletes the file', async () => {
+    const id = await addWord(
+      as('dana'),
+      {
+        fields: { name: 'Lull', cost: '2', text: 'Rest.' },
+        publish: true,
+        by: 'dana',
+        existing: WORDS,
+        picture: pictureOf('abcdef0123'),
+      },
+      picturesOf('dana'),
+    )
+    const path = `words/${id}/abcdef0123.webp`
+    const word = await wordNow(id)
+    expect(word.picture).toBe(path)
+    expect(new TextDecoder().decode(await bytesAt(path))).toBe('abcdef0123')
+
+    await saveWord(
+      as('dana'),
+      {
+        word,
+        fields: { name: 'Lull', cost: '2', text: 'Rest.' },
+        publish: false,
+        by: 'dana',
+        existing: [...WORDS, word],
+        picture: { kind: 'remove' },
+      },
+      picturesOf('dana'),
+    )
+    expect((await wordNow(id)).picture).toBeNull()
+    expect(await fileAt(path)).toBeNull()
+  })
+})
+
+/** The file's bytes, read as the admin. */
+async function bytesAt(path: string): Promise<ArrayBuffer> {
+  let bytes = new ArrayBuffer(0)
+  await testEnv.withSecurityRulesDisabled(async (admin) => {
+    bytes = await getBytes(ref(storageOf(admin), path))
+  })
+  return bytes
+}

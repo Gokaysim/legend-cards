@@ -201,6 +201,7 @@ Styling uses Tailwind CSS utility classes, written directly in JSX.
 All stored data lives in Firestore and is read in real time.
 
 - **Who imports Firestore.** Only `src/lib/firestore/`, `src/lib/firebase/`, and feature `api.ts` modules import `firebase/firestore`. Components and hooks inside features call the feature's `api.ts`, `useDocument`, or `useCollection`.
+- **Who imports Cloud Storage.** Only `src/lib/firebase/storage.ts` and `src/features/definitions/api.ts` import `firebase/storage`. Components get a stored picture's address from `useArt().pictureUrl(path)`, never from the SDK.
 - **Typed, validated refs.** Every ref and query uses a converter from `createConverter(schema)`. A document that does not match its zod schema never reaches feature code: the subscription reports `invalid-data` instead.
 - **One converter per schema, at module level.** Define the converter once next to its schema. Do not create it inside a component, because refs with different converter instances are never equal and the subscription would restart on every render.
 - **Reading.** Use `useDocument(ref)` for one document and `useCollection(query)` for many. Both return a `Subscription<T>`, and feature code branches on `status`:
@@ -232,10 +233,21 @@ All stored data lives in Firestore and is read in real time.
 
 ## Pictures
 
-The card, cardback, pack, True Word and Cardmaker pictures are static files on Hosting, not data: `npm run build-art` writes them with a manifest to `public/art/` (see [The picture build](#the-picture-build)). Vite serves that folder in development and copies it into `dist/`.
+Pictures come from two places:
 
-- **Read them with `useArt()`** (`src/features/art/`). It gives `cardUrl(id)`, `wordUrl(id)`, `backUrl(key)`, `packUrl(key)` and `mascotUrl(stem)`, each the picture's URL or `null`. Set and pack keys are compared as set names are, so a set code written "The End Is Nigh" in the data finds the picture of "The End is Nigh".
-- **`ArtProvider`** fetches `art/manifest.json` once at start. A failed request, an HTML answer (Vite and Hosting answer a missing file with `index.html`) or an invalid manifest gives `EMPTY_ART`: no pictures.
+- **Card and True Word pictures** are files in Cloud Storage, `cards/<id>/<hash>.webp` and `words/<id>/<hash>.webp`. The definition's `picture` field holds the path (`src/features/definitions/picturePath.ts`). `npm run import-pictures` and the DM's forms store them (see [The picture import](#the-picture-import)).
+- **Cardbacks, pack pictures and the Cardmaker** are static files on Hosting: `npm run build-art` writes them with a manifest to `public/art/` (see [The picture build](#the-picture-build)). Vite serves that folder in development and copies it into `dist/`.
+
+How components use them:
+
+- **Read them with `useArt()`** (`src/features/art/`). It gives:
+  - `pictureUrl(card.picture)` for a card's or word's stored picture
+  - `backUrl(key)`, `packUrl(key)` and `mascotUrl(stem)` for the built pictures
+
+  Each gives the picture's URL or `null`. Set and pack keys are compared as set names are, so a set code written "The End Is Nigh" in the data finds the picture of "The End is Nigh".
+
+- **`ArtProvider`** fetches `art/manifest.json` once at start. A failed request, an HTML answer (Vite and Hosting answer a missing file with `index.html`) or an invalid manifest gives `EMPTY_ART`: no built pictures. A stored picture's address is built from the bucket setting without a request (`storedPictureUrl`), because `storage.rules` let anyone read the pictures. `TestArtProvider` builds `testPictureUrl(path)` instead. Give a test card a picture with `testPicturePath(target, id)`.
+- **A definition's `picture` has three states.** No field means it never had a picture, `null` means the DM removed it, and a path is its picture. The app reads both empty states as `null`, and writes `picture` only when a step changes it, so the picture import can still tell them apart.
 - **Every picture has a CSS fallback.** A component asks for its picture through `usePicture(url)`, and without one (no build, a missing picture, or an image that fails to load) it keeps the look it has without pictures. Never make a feature depend on a picture.
 - **Pictures that repeat the text are decorative.** A card or word picture has the name as its `alt`, and the text it shows stays in the DOM as `sr-only`. A pack picture beside its name and the Cardmaker have `alt=""`.
 - **A face-down card never gives its card away.** Its back comes from the spread (`SpreadBack`: `spreadBackOf(packType, setCode)` for a pack, `NEUTRAL_BACK` or `CURSED_BACK` for a draw), never from the card under it: see [domain.md](domain.md#pictures).
@@ -289,16 +301,19 @@ Firestore is closed by default (`firestore.rules`). Opening a collection or docu
 
 5. **Feature code.** Only now write the feature's `api.ts` and the UI that reads and writes the path.
 
+Cloud Storage is closed the same way (`storage.rules`). A new file path gets its own `match` block there, and tests in `tests/storage.rules.emulator.test.ts` that show the intended access allowed and every other access denied, signed-out requests included. Storage rules cannot call `isDm()` from `firestore.rules`: their own `isDm()` reads the profile through `firestore.get()`, a cross-service read that the emulators support. The card and word pictures are the one path anyone may read without signing in (spec: data-access-control).
+
 ## Scripts
 
-Admin scripts in `scripts/` change data with the Admin SDK, outside the security rules: the roles (`set-role`), the card definitions (`import-cards`) and the True Words (`import-true-words`). They work the same way against the emulators and against a real project, so data work is done once. The picture build (`build-art`) lives there too, but never touches Firebase.
+Admin scripts in `scripts/` change data with the Admin SDK, outside the security rules: the roles (`set-role`), the card definitions (`import-cards`), the True Words (`import-true-words`) and the card and word pictures (`import-pictures`). They work the same way against the emulators and against a real project, so data work is done once. The picture build (`build-art`) lives there too, but never touches Firebase.
 
 - **Layout.**
   - One file per command in `scripts/`, for example `set-role.ts`.
   - Shared code lives in `scripts/lib/`:
-    - `target.ts`: target choice, confirmation, Admin SDK start
+    - `target.ts`: target choice, confirmation, Admin SDK start, and the Cloud Storage bucket (`--bucket`, else `<project>.firebasestorage.app`)
     - `messages.ts`: the Turkish CLI text
-    - one module per task with the logic, for example `setRole.ts`, `cardRows.ts`, `importCards.ts`, `trueWordRows.ts`, `importTrueWords.ts`, `artFiles.ts` and `artWrite.ts`
+    - one module per task with the logic, for example `setRole.ts`, `cardRows.ts`, `importCards.ts`, `trueWordRows.ts`, `importTrueWords.ts`, `artFiles.ts`, `artWrite.ts` and `importPictures.ts`
+    - `archives.ts`: the owner's picture archives, extracted with 7-Zip, shared by `build-art` and `import-pictures`
     - `csv.ts`: reading a CSV file and comparing header names, shared by both imports
     - `cardCatalog.ts`: the official sets and the mechanic packs the import checks against
   - Logic returns results. It does not print and does not exit, so it can be tested. The command file turns results into messages and exit codes.
@@ -341,14 +356,24 @@ Admin scripts in `scripts/` change data with the Admin SDK, outside the security
 
 ### The picture build
 
-`npm run build-art -- --source <folder> [--dry-run]` builds the pictures from the owner's archives (see [data/README.md](../data/README.md#pictures)).
+`npm run build-art -- --source <folder> [--dry-run]` builds the cardbacks, pack pictures and Cardmaker from the owner's archives (see [data/README.md](../data/README.md#pictures)). The card and True Word pictures are left to [the picture import](#the-picture-import).
 
-- **Read only.** It never changes the source folder, and never reads or writes Firestore, so it takes no `--project` and does not use `target.ts`.
-- **7-Zip.** It runs `7zz` (`brew install sevenzip`), and stops without it. Each archive is extracted with `7zz e` into its own folder inside a temporary folder, which is removed at the end, after a failure or Ctrl+C too.
-- **Check first.** The data files and the alias table are read before anything is extracted. An alias row that names nothing stops the run with its row number.
-- **Pure matching.** `artFiles.ts` holds the rules: `planArt(files, data, aliases)` returns the assignments, duplicates, unknown files and coverage, and `readAliases` checks the table. It never touches files. `artWrite.ts` converts with `sharp` and writes the manifest last, so a run that fails halfway leaves no manifest and the app keeps its CSS look.
-- **The manifest's IDs** are the Firestore document IDs (`cardId`, `trueWordId`), computed from the data files, so the build does not read Firestore.
-- **Tests.** `artFiles.test.ts` covers each rule; `artInventory.test.ts` plans the archives' real file names (`artInventory.fixture.ts`) against the repository data, so a data or alias change that loses a picture fails there. Regenerate the fixture from `7zz l` when the archives change.
+- **Read only.** It never changes the source folder, and never reads or writes Firestore or Cloud Storage, so it takes no `--project` and does not use `target.ts`.
+- **7-Zip.** It runs `7zz` (`brew install sevenzip`), and stops without it. `archives.ts` extracts each archive with `7zz e` into its own folder inside a temporary folder, which is removed at the end, after a failure or Ctrl+C too.
+- **Check first.** The alias table's asset rows are checked before anything is extracted. An asset row that names nothing stops the run with its row number.
+- **Pure matching.** `artFiles.ts` holds the rules: `planArt(files, data, aliases, mode)` returns the assignments, duplicates, unknown files, the files left to the other script, and coverage. `readAliases(text, data, mode)` checks the table. It never touches files. The build plans in the `assets` mode, against no definitions: every file that is no asset is left to the picture import. `artWrite.ts` converts with `sharp` and writes the manifest last, so a run that fails halfway leaves no manifest and the app keeps its CSS look.
+- **Tests.** `artFiles.test.ts` covers each rule in both modes. `artInventory.test.ts` plans the archives' real file names (`artInventory.fixture.ts`): the assets against the catalog, and the cards and words against the definitions the repository data would store (`definitionsOfRows`). So a data or alias change that loses a picture fails there. Regenerate the fixture from `7zz l` when the archives change.
+
+### The picture import
+
+`npm run import-pictures -- --source <folder> [--dry-run] [--project <id>] [--yes] [--bucket <name>]` stores the owner's card and True Word pictures in Cloud Storage (design D9 of `upload-card-and-word-pictures`).
+
+- **Against the stored definitions.** It reads every card and word, whatever its status, and plans the archives in the `definitions` mode. A file finds the definition whose ID its name gives (`legend-<name>`, `cursed-<name>`, `tw-<name>`), or else the one with that `nameKey`, so a renamed card keeps its picture and a card added in the app is found. The alias table's card and word rows are checked against the stored definitions before anything is extracted.
+- **It only adds.** A definition gets a picture only while it has no `picture` field. A path means it has one, and `null` means the DM removed it: both are left alone, and the report counts them. The field is set in a transaction that checks it is still absent, so a picture the DM saves meanwhile wins, and the upload is deleted again.
+- **The files.** `importPictures.ts` converts with `convertPicture` (WebP, quality 82, own size), names the file `cards/<id>/<hash>.webp` or `words/<id>/<hash>.webp` with `contentHash`, and stores it with the app's metadata: `image/webp`, a year of immutable caching, and `Content-Disposition` with `<id>.webp` for "İndir".
+- **Records.** At the end, also after a failure halfway, it writes `step: 'imported'`, `what: 'pictures'` records of what it added: for cards and for words, a public one of the active and retired definitions and a DM-only one of the drafts. `changeId` is not changed. A run that stops halfway is completed by running it again.
+- **Dry run.** `--dry-run` plans and reports without converting, storing or writing.
+- **Tests.** `tests/import-pictures.emulator.test.ts`, with small PNG files made by `sharp`.
 
 ## Commits
 

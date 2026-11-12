@@ -2,19 +2,21 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
-import { testArt } from '@/test/artFixtures'
+import { testPicturePath, testPictureUrl } from '@/test/artFixtures'
 import { TestArtProvider } from '@/test/TestArtProvider'
 import { testTrueWord } from '@/test/trueWordFixtures'
 
 import { TrueWordZoomDialog } from './TrueWordZoomDialog'
 
-const BIND = testTrueWord('Bind', { text: 'Hold a creature in place.' })
-const ART = testArt({ words: { [BIND.id]: '/art/words/bind.webp' } })
+const BIND = testTrueWord('Bind', {
+  text: 'Hold a creature in place.',
+  picture: testPicturePath('word', 'tw-bind'),
+})
 
 describe('TrueWordZoomDialog', () => {
   it("shows the word's name and its picture, in the document body", () => {
     render(
-      <TestArtProvider manifest={ART}>
+      <TestArtProvider>
         <TrueWordZoomDialog word={BIND} onClose={vi.fn()} />
       </TestArtProvider>,
     )
@@ -22,7 +24,7 @@ describe('TrueWordZoomDialog', () => {
     const dialog = screen.getByRole('dialog', { name: '✦ Bind' })
     expect(within(dialog).getByRole('img', { name: 'Bind' })).toHaveAttribute(
       'src',
-      '/art/words/bind.webp',
+      testPictureUrl(testPicturePath('word', 'tw-bind')),
     )
     expect(dialog.parentElement).toBe(document.body)
   })
@@ -36,7 +38,7 @@ describe('TrueWordZoomDialog', () => {
 
   it('falls back to the text when the picture fails to load', () => {
     render(
-      <TestArtProvider manifest={ART}>
+      <TestArtProvider>
         <TrueWordZoomDialog word={BIND} onClose={vi.fn()} />
       </TestArtProvider>,
     )

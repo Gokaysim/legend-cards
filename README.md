@@ -33,25 +33,26 @@ npm run dev
 
 ## Scripts
 
-| Script                      | What it does                                                                                                              |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `npm run dev`               | Start the Firebase emulators and the Vite dev server together                                                             |
-| `npm run dev:web`           | Start only the Vite dev server                                                                                            |
-| `npm run emulators`         | Start only the Auth and Firestore emulators, keeping their data between runs                                              |
-| `npm run build`             | Type-check and build the production files into `dist/`                                                                    |
-| `npm run preview`           | Serve the built `dist/` locally                                                                                           |
-| `npm run typecheck`         | Run the TypeScript compiler without emitting files                                                                        |
-| `npm run lint`              | Run ESLint                                                                                                                |
-| `npm run format`            | Format all files with Prettier                                                                                            |
-| `npm run format:check`      | Check formatting without changing files                                                                                   |
-| `npm run test`              | Run the unit tests (no Firebase)                                                                                          |
-| `npm run test:watch`        | Run the unit tests in watch mode                                                                                          |
-| `npm run test:emulator`     | Start the Firebase emulators, run the emulator-backed tests, then stop them                                               |
-| `npm run check`             | Type check, lint, format check and unit tests: run this before every commit                                               |
-| `npm run set-role`          | Set a user's role (`dm` or `player`); see [Making someone the DM](#making-someone-the-dm)                                 |
-| `npm run import-cards`      | Load the card definitions from `data/` into Firestore; see [Loading the cards](#loading-the-cards)                        |
-| `npm run import-true-words` | Load the True Words from `data/true-words.csv` into Firestore; see [Loading the cards](#loading-the-cards)                |
-| `npm run build-art`         | Build the card pictures from the owner's archives into `public/art/`; see [Building the pictures](#building-the-pictures) |
+| Script                      | What it does                                                                                                                               |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `npm run dev`               | Start the Firebase emulators and the Vite dev server together                                                                              |
+| `npm run dev:web`           | Start only the Vite dev server                                                                                                             |
+| `npm run emulators`         | Start only the Auth, Firestore and Storage emulators, keeping their data between runs                                                      |
+| `npm run build`             | Type-check and build the production files into `dist/`                                                                                     |
+| `npm run preview`           | Serve the built `dist/` locally                                                                                                            |
+| `npm run typecheck`         | Run the TypeScript compiler without emitting files                                                                                         |
+| `npm run lint`              | Run ESLint                                                                                                                                 |
+| `npm run format`            | Format all files with Prettier                                                                                                             |
+| `npm run format:check`      | Check formatting without changing files                                                                                                    |
+| `npm run test`              | Run the unit tests (no Firebase)                                                                                                           |
+| `npm run test:watch`        | Run the unit tests in watch mode                                                                                                           |
+| `npm run test:emulator`     | Start the Firebase emulators, run the emulator-backed tests, then stop them                                                                |
+| `npm run check`             | Type check, lint, format check and unit tests: run this before every commit                                                                |
+| `npm run set-role`          | Set a user's role (`dm` or `player`); see [Making someone the DM](#making-someone-the-dm)                                                  |
+| `npm run import-cards`      | Load the card definitions from `data/` into Firestore; see [Loading the cards](#loading-the-cards)                                         |
+| `npm run import-true-words` | Load the True Words from `data/true-words.csv` into Firestore; see [Loading the cards](#loading-the-cards)                                 |
+| `npm run build-art`         | Build the cardbacks, packs and Cardmaker from the owner's archives into `public/art/`; see [Building the pictures](#building-the-pictures) |
+| `npm run import-pictures`   | Store the card and True Word pictures from the owner's archives in Cloud Storage; see [Building the pictures](#building-the-pictures)      |
 
 ## Local Firebase emulators
 
@@ -62,10 +63,11 @@ Development never touches a real Firebase project. Everything runs against local
 | Emulator UI | http://127.0.0.1:4000      |
 | Auth        | 127.0.0.1:9099             |
 | Firestore   | 127.0.0.1:8080             |
+| Storage     | 127.0.0.1:9199             |
 | Hosting     | 127.0.0.1:5002 (on demand) |
 
-- The Emulator UI shows the test users and the Firestore data, and lets you edit them by hand.
-- Emulator data is saved to `.firebase-emulator-data/` when you stop `npm run dev` or `npm run emulators` with Ctrl+C, and loaded again on the next start. Delete that folder to start empty.
+- The Emulator UI shows the test users, the Firestore data and the stored pictures, and lets you edit them by hand.
+- Emulator data, the stored pictures included, is saved to `.firebase-emulator-data/` when you stop `npm run dev` or `npm run emulators` with Ctrl+C, and loaded again on the next start. Delete that folder to start empty.
 - The emulators need a Java 21 or newer runtime (for example Amazon Corretto 21: `brew install --cask corretto@21`).
 - To serve the production build the way Firebase Hosting would: `npm run build`, then `npx firebase emulators:start --only hosting --project demo-legend-cards`, and open http://127.0.0.1:5002.
 
@@ -79,7 +81,7 @@ The app reads its Firebase settings from environment variables. At startup it ch
 | `.env.development`      | yes          | Demo values for the emulators (`VITE_USE_FIREBASE_EMULATORS=true`) |
 | `.env.production.local` | no (ignored) | The real project's values, once a real project exists              |
 
-The settings are `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID`, and `VITE_USE_FIREBASE_EMULATORS`.
+The settings are `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID`, `VITE_FIREBASE_STORAGE_BUCKET`, and `VITE_USE_FIREBASE_EMULATORS`.
 
 **These values are not secrets.** A Firebase web config is a set of public identifiers that ends up in the browser bundle anyway. Data is protected by the Firestore security rules (`firestore.rules`), not by hiding the config. Do not rely on keeping these values private.
 
@@ -112,19 +114,29 @@ npm run import-true-words -- --project <project-id>
 
 ## Building the pictures
 
-The card, cardback, pack, True Word and Cardmaker pictures come from the owner's five `.7z` archives (about 560 MB of PNG). They stay outside the repository. The build script reads them from a folder, converts the pictures to WebP, and writes them with a manifest to `public/art/`, which is not committed:
+The pictures come from the owner's five `.7z` archives (about 560 MB of PNG). They stay outside the repository. Two scripts read them from a folder and convert them to WebP:
+
+- **Cardbacks, pack pictures and the Cardmaker** are static files. `build-art` writes them with a manifest to `public/art/`, which is not committed.
+- **Card and True Word pictures** live in Cloud Storage, and each card or word holds where its picture is. `import-pictures` stores them once, matched against the stored cards and words. After that the DM uploads, replaces, downloads and removes pictures in the card and True Word forms.
 
 ```sh
-npm run build-art -- --source ~/Downloads --dry-run   # report only: what matches, what is missing
-npm run build-art -- --source ~/Downloads             # write public/art/
+npm run build-art -- --source ~/Downloads --dry-run         # report only: what matches, what is missing
+npm run build-art -- --source ~/Downloads                   # write public/art/
+
+npm run import-pictures -- --source ~/Downloads --dry-run   # with the emulators running, after the imports
+npm run import-pictures -- --source ~/Downloads             # store the card and word pictures
 ```
 
-- The script never changes the archives. It extracts them into a temporary folder that it always removes, and takes loose `.png` files in the folder as they are.
-- It matches each file by its name, and by the alias table `data/image-aliases.csv` for names that differ from the data (see [data/README.md](data/README.md#pictures)).
-- The report, in Turkish, counts the pictures per kind, names each card, word, cardback, pack and Cardmaker without one, and lists the duplicate and unknown files. A row of the alias table that names nothing stops the build before anything is written.
-- Run it again after the archives, the card data or the alias table change. It replaces the earlier pictures. A changed picture gets a new address, so browsers never show an old one.
+- Neither script changes the archives. They extract them into a temporary folder that they always remove, and take loose `.png` files in the folder as they are.
+- They match each file by its name, and by the alias table `data/image-aliases.csv` for names that differ from the data (see [data/README.md](data/README.md#pictures)). The picture import matches against the stored cards and words, so a card the DM renamed or added is found too.
+- Each prints a Turkish report:
+  - The build counts the cardbacks, packs and Cardmaker and names the missing ones.
+  - The picture import counts, per kind, the pictures it adds, the cards and words that already have one, and those whose picture the DM removed. It also names every card and word left without a picture, and lists the duplicate and unknown files.
+  - A row of the alias table that names nothing stops the run before anything is written.
+- Run the build again after the archives or the alias table change. It replaces the earlier pictures. A changed picture gets a new address, so browsers never show an old one.
+- The picture import only adds. It never replaces a picture, and never brings back one the DM removed, so running it again adds only new cards' pictures. A run that stops halfway is completed by running it again. Each run that adds pictures is listed in the İşlem Logu.
 
-Without `public/art/`, the app still works and draws every card, back, pack and True Word with CSS. `npm run dev` serves the pictures as soon as they are built; reload the page.
+Without the pictures the app still works and draws every card, back, pack and True Word with CSS. `npm run dev` serves the built pictures as soon as they exist; reload the page. The stored pictures stay in the Storage emulator between runs, with the rest of the emulator data.
 
 ## Making someone the DM
 
@@ -155,17 +167,25 @@ Not needed for development. When the app is ready to go online:
 1. Create a project in the [Firebase console](https://console.firebase.google.com/). Pick a Firestore location in Europe, close to the group.
 2. Under **Authentication → Sign-in method**, enable the **Google** provider.
 3. Under **Project settings → Your apps**, add a **Web app** and copy its config values.
-4. Create `.env.production.local` with those values and `VITE_USE_FIREBASE_EMULATORS=false`.
-5. Link the project and deploy:
+4. Cloud Storage needs the **Blaze** (pay as you go) plan. Since February 2026, a project on the free Spark plan cannot use it. Under **Usage and billing**, switch to Blaze and set a budget alert. The pictures are about 50 MB, well inside Blaze's no-cost usage.
+5. Under **Storage**, create the default bucket, in the same region as Firestore. Its name, usually `<project-id>.firebasestorage.app`, goes into the settings.
+6. Create `.env.production.local` with the web app's values, `VITE_FIREBASE_STORAGE_BUCKET=<the bucket>` and `VITE_USE_FIREBASE_EMULATORS=false`.
+7. Link the project and deploy:
 
    ```sh
    npx firebase login
    npx firebase use --add          # choose the new project, give it an alias such as "prod"
    npm run build-art -- --source <folder with the archives>
    npm run build
-   npx firebase deploy --only hosting,firestore
+   npx firebase deploy --only hosting,firestore,storage
    ```
+
+   `storage.rules` read the DM's role from Firestore. On the first deploy, the Firebase CLI asks to give Cloud Storage access to Firestore: accept it, or the DM cannot upload pictures.
+
+8. Load the data, then the pictures: run `import-cards` and `import-true-words` (see [Loading the cards](#loading-the-cards)), then `npm run import-pictures -- --source <folder> --project <project-id>`. Add `--bucket <name>` when the bucket is not `<project-id>.firebasestorage.app`.
 
 `firebase deploy` publishes the app and the security rules to the real project. Only run it on purpose.
 
-Deploy only from a machine that has built the pictures: `npm run build` copies `public/art/` into `dist/`, and a deploy without it publishes the app without pictures. Hosting serves the pictures to anyone who knows their address, without signing in; the owner accepted this.
+Deploy only from a machine that has built the pictures: `npm run build` copies `public/art/` into `dist/`, and a deploy without it publishes the app without its cardbacks, packs and Cardmaker. Anyone who knows a picture's address can open it without signing in, on Hosting and in Cloud Storage; the owner accepted this.
+
+**If "İndir" opens the picture instead of saving it**, the bucket does not send the `Content-Disposition` header the pictures are stored with. The fallback is to let the app fetch the file: allow the app's address in a CORS file (`[{"origin": ["https://<project-id>.web.app"], "method": ["GET"], "maxAgeSeconds": 3600}]`), apply it with `gcloud storage buckets update gs://<bucket> --cors-file=cors.json`, and change "İndir" to fetch the file and save it under the card's name (design D8 of `upload-card-and-word-pictures`).

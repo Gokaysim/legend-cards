@@ -22,6 +22,7 @@ export function testTrueWord(
     text: `${name} text.`,
     status: 'active',
     changeId: null,
+    picture: null,
     ...overrides,
   }
 }

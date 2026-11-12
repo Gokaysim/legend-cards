@@ -7,6 +7,7 @@ const validEnv = {
   VITE_FIREBASE_AUTH_DOMAIN: 'demo-legend-cards.firebaseapp.com',
   VITE_FIREBASE_PROJECT_ID: 'demo-legend-cards',
   VITE_FIREBASE_APP_ID: 'demo-app-id',
+  VITE_FIREBASE_STORAGE_BUCKET: 'demo-legend-cards.firebasestorage.app',
   VITE_USE_FIREBASE_EMULATORS: 'true',
 }
 
@@ -19,6 +20,7 @@ describe('parseFirebaseSettings', () => {
         authDomain: 'demo-legend-cards.firebaseapp.com',
         projectId: 'demo-legend-cards',
         appId: 'demo-app-id',
+        storageBucket: 'demo-legend-cards.firebasestorage.app',
         useEmulators: true,
       },
     })
@@ -30,6 +32,15 @@ describe('parseFirebaseSettings', () => {
     expect(parseFirebaseSettings(env)).toEqual({
       ok: false,
       problems: [{ key: 'VITE_FIREBASE_PROJECT_ID', kind: 'missing' }],
+    })
+  })
+
+  it('names a missing storage bucket', () => {
+    const { VITE_FIREBASE_STORAGE_BUCKET: _omitted, ...env } = validEnv
+
+    expect(parseFirebaseSettings(env)).toEqual({
+      ok: false,
+      problems: [{ key: 'VITE_FIREBASE_STORAGE_BUCKET', kind: 'missing' }],
     })
   })
 
@@ -52,6 +63,7 @@ describe('parseFirebaseSettings', () => {
       { key: 'VITE_FIREBASE_AUTH_DOMAIN', kind: 'missing' },
       { key: 'VITE_FIREBASE_PROJECT_ID', kind: 'missing' },
       { key: 'VITE_FIREBASE_APP_ID', kind: 'missing' },
+      { key: 'VITE_FIREBASE_STORAGE_BUCKET', kind: 'missing' },
       { key: 'VITE_USE_FIREBASE_EMULATORS', kind: 'invalid' },
     ])
   })

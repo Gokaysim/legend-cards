@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
-import { testArt } from '@/test/artFixtures'
+import { testPicturePath, testPictureUrl } from '@/test/artFixtures'
 import { testCard, testCursedCard } from '@/test/cardFixtures'
 import { TestArtProvider } from '@/test/TestArtProvider'
 
@@ -15,13 +15,12 @@ const ABOLETH = testCard("Aboleth's Eyes", {
   rarity: 'common',
   mechanicPack: 'Arcanus Divine',
   text: 'For the rest of this combat, gain Immune to any Illusion effect.',
+  picture: testPicturePath('card', 'legend-abolethseyes'),
 })
-const ABOLETH_URL = '/art/cards/legend-abolethseyes.0123456789.webp'
-const ART = testArt({ cards: { [ABOLETH.id]: ABOLETH_URL } })
+const ABOLETH_URL = testPictureUrl(testPicturePath('card', 'legend-abolethseyes'))
 
 /** Renders with the test pictures: only Aboleth's Eyes has one. */
-const renderWithArt = (ui: ReactNode) =>
-  render(<TestArtProvider manifest={ART}>{ui}</TestArtProvider>)
+const renderWithArt = (ui: ReactNode) => render(<TestArtProvider>{ui}</TestArtProvider>)
 
 const zoom = (name: string) => screen.getByRole('dialog', { name })
 

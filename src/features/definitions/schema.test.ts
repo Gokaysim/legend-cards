@@ -94,6 +94,31 @@ describe('definitionChangeSchema', () => {
       { ...imported, public: false, items: [{ id: 'tw-echo', name: 'Echo', status: 'draft' }] },
     ],
     ['a step whose server time is pending', { ...edit, at: null }],
+    [
+      'a picture change',
+      {
+        ...edit,
+        before: { ...card, picture: null },
+        after: { ...card, picture: 'cards/legend-abolethseyes/93e6f39a91.webp' },
+      },
+    ],
+    [
+      'a picture import of active and retired cards',
+      {
+        ...imported,
+        what: 'pictures',
+        items: [...imported.items, { id: 'legend-hex', name: 'Hex', status: 'retired' }],
+      },
+    ],
+    [
+      'a picture import of drafts',
+      {
+        ...imported,
+        what: 'pictures',
+        public: false,
+        items: [{ id: 'tw-echo', name: 'Echo', status: 'draft' }],
+      },
+    ],
   ])('accepts %s', (_case, record) => {
     expect(definitionChangeSchema.safeParse(record).success).toBe(true)
   })
@@ -113,7 +138,27 @@ describe('definitionChangeSchema', () => {
     ],
     ['an import naming a user', { ...imported, by: 'dana' }],
     ['an empty import', { ...imported, items: [] }],
+    [
+      'a public definition import listing a retired card',
+      { ...imported, items: [{ ...imported.items[0], status: 'retired' }] },
+    ],
+    [
+      'a public picture import listing a draft',
+      { ...imported, what: 'pictures', items: [{ ...imported.items[0], status: 'draft' }] },
+    ],
+    ['an unknown import kind', { ...imported, what: 'cardbacks' }],
+    [
+      'a snapshot picture that is not a stored path',
+      { ...edit, after: { ...card, picture: 'x.png' } },
+    ],
   ])('rejects %s', (_case, record) => {
     expect(definitionChangeSchema.safeParse(record).success).toBe(false)
+  })
+
+  it('reads an older record without pictures or an import kind', () => {
+    const step = definitionChangeSchema.parse(edit)
+    expect(step.step === 'edited' && step.before?.picture).toBeNull()
+    const run = definitionChangeSchema.parse(imported)
+    expect(run.step === 'imported' && run.what).toBe('definitions')
   })
 })

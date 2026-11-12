@@ -39,6 +39,27 @@ const cursed = {
 }
 
 describe('cardSchema', () => {
+  it('reads a card without a picture field as having no picture', () => {
+    expect(cardSchema.parse(normal).picture).toBeNull()
+  })
+
+  it.each([
+    ['a removed picture', null],
+    ['a stored picture', 'cards/legend-abolethseyes/93e6f39a91.webp'],
+  ])('accepts %s', (_case, picture) => {
+    expect(cardSchema.parse({ ...normal, picture }).picture).toBe(picture)
+  })
+
+  it.each([
+    ['an address', 'https://example.com/aboleth.webp'],
+    ['a PNG', 'cards/legend-abolethseyes/93e6f39a91.png'],
+    ['a short hash', 'cards/legend-abolethseyes/93e6f39a9.webp'],
+    ['another folder', 'backs/legend-abolethseyes/93e6f39a91.webp'],
+    ['an empty path', ''],
+  ])('rejects %s as a picture', (_case, picture) => {
+    expect(cardSchema.safeParse({ ...normal, picture }).success).toBe(false)
+  })
+
   it.each([
     ['normal', normal],
     ['Blessed', blessed],

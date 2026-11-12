@@ -39,7 +39,7 @@ Both must pass before a task counts as done.
 - `reference/legacy/Legend_Card_Manager_v2.2.8.html` is the design and behavior reference. `Legend_Card_Manager_v2.1.15.html` next to it is kept as the earlier version. Do not edit either file, and do not port their code.
 - Legacy rules that look odd are deliberate decisions by the DM and the owner (see `docs/domain.md`). Do not "fix" them unless asked.
 - Do not commit unless the user asks.
-- When your work is done, every time, stop all processes that use the project's ports, including ones that were already running: the dev server and the emulators (`npm run dev`, `npm run dev:web`, `npm run emulators`, `firebase emulators:*`), `npm run preview`, and anything else listening on 5173, 4173, 8080, 9099, 4000, 4400, 4500, 9150 or 5002.
+- When your work is done, every time, stop all processes that use the project's ports, including ones that were already running: the dev server and the emulators (`npm run dev`, `npm run dev:web`, `npm run emulators`, `firebase emulators:*`), `npm run preview`, and anything else listening on 5173, 4173, 8080, 9099, 4000, 4400, 4500, 9150, 9199 or 5002.
   - Stop `npm run dev` and the emulators like Ctrl+C (SIGINT to the whole process group, `kill -INT -<pgid>`), so the emulators export their data to `.firebase-emulator-data/`. Wait for the export, and use `kill -TERM` only if a process does not exit.
   - Then confirm with `lsof -nP -iTCP -sTCP:LISTEN` that no process still holds those ports.
 

@@ -1,14 +1,16 @@
 import { normalize, OFFICIAL_SETS, type OfficialSet } from './cardCatalog.ts'
-import type { CardDefinition } from './cardRows.ts'
+import type { CardDefinition, CardKind } from './cardRows.ts'
 import { normalizeHeader, readRecords } from './csv.ts'
 import { cardId } from './importCards.ts'
 import { trueWordId } from './importTrueWords.ts'
 import type { TrueWordDefinition } from './trueWordRows.ts'
 
-// Matching the owner's picture files to cards, True Words, cardbacks, packs and the Cardmaker (design D2, D3).
-// Pure: no files, no Firebase. The build script reads the files and the data, and writes what the plan says.
+// Matching the owner's picture files to cards, True Words, cardbacks, packs and the Cardmaker (design D2, D3 of
+// add-card-images). Pure: no files, no Firebase. Two scripts plan with it (design D9, D10 of
+// upload-card-and-word-pictures): `build-art` plans the assets (cardbacks, packs, Cardmaker) and leaves the other
+// files to `import-pictures`, which plans the cards and True Words against the stored definitions.
 
-/** The manifest's sections (design D4). Keep in step with `src/features/art/schema.ts`. */
+/** Where each group's pictures go: the manifest's sections for the built ones, and the card and word pictures. */
 export type ArtSection = 'cards' | 'words' | 'cardbacks' | 'packs' | 'mascots'
 
 /** What the report counts, in its order. A group belongs to one section. */
@@ -44,13 +46,57 @@ export type ArtTarget = { group: ArtGroup; key: string; label: string }
 /** A picture file. `name` is the file name with its extension; the rest is the caller's (its path, its archive). */
 export type ArtFile = { name: string }
 
-/** The data the pictures are matched against, as the imports read it. */
+/** A stored definition as pictures are matched against it: its document ID, its name and its normalized name. */
+export type ArtDefinition = { id: string; name: string; nameKey: string }
+
+/** A stored card: a definition with its kind. */
+export type ArtCard = ArtDefinition & { kind: CardKind }
+
+/** The stored definitions the card and word pictures are matched against, whatever their status. */
 export type ArtData = {
-  /** Normal and Blessed cards (`data/legend-cards.csv`). */
-  legend: readonly CardDefinition[]
-  /** Cursed cards (`data/cursed-cards.csv`). */
-  cursed: readonly CardDefinition[]
-  words: readonly TrueWordDefinition[]
+  /** Normal and Blessed cards (`legend-…`). */
+  legend: readonly ArtCard[]
+  /** Cursed cards (`cursed-…`). */
+  cursed: readonly ArtCard[]
+  words: readonly ArtDefinition[]
+}
+
+/** No definitions: what the picture build plans against, since it builds no card or word picture. */
+export const NO_DEFINITIONS: ArtData = { legend: [], cursed: [], words: [] }
+
+/**
+ * The definitions the repository's files would store, with the IDs an import gives them. Tests plan the archives
+ * against these, as a stand-in for the stored ones.
+ */
+export function definitionsOfRows(
+  legend: readonly CardDefinition[],
+  cursed: readonly CardDefinition[],
+  words: readonly TrueWordDefinition[],
+): ArtData {
+  const card = (deck: 'legend' | 'cursed') => (row: CardDefinition) => ({
+    id: cardId(deck, row.nameKey),
+    kind: row.kind,
+    name: row.name,
+    nameKey: row.nameKey,
+  })
+  return {
+    legend: legend.map(card('legend')),
+    cursed: cursed.map(card('cursed')),
+    words: words.map((row) => ({
+      id: trueWordId(row.nameKey),
+      name: row.name,
+      nameKey: row.nameKey,
+    })),
+  }
+}
+
+/** What a script plans: `build-art` the assets, `import-pictures` the card and word definitions. */
+export type ArtPlanMode = 'assets' | 'definitions'
+
+/** The groups each mode plans; the files of the other groups are left to the other script. */
+export const GROUPS_OF_MODE: Readonly<Record<ArtPlanMode, readonly ArtGroup[]>> = {
+  assets: ['back', 'pack', 'setPack', 'mascot'],
+  definitions: ['normal', 'blessed', 'cursed', 'word'],
 }
 
 /**
@@ -147,38 +193,67 @@ function recognizeSet(value: string): OfficialSet | undefined {
 }
 
 /** Lookups for the targets that exist, built once per plan. */
+/**
+ * One deck's or the words' definitions, found by a normalized name: first the definition whose identity that name gives
+ * (its ID is the prefix plus the name), then the one whose current name it is. So a card the DM renamed keeps the
+ * pictures of its old name, and a card added in the app is found by its own name.
+ */
+type DefinitionIndex = {
+  byIdentity: ReadonlyMap<string, ArtTarget>
+  byName: ReadonlyMap<string, ArtTarget>
+  targets: readonly ArtTarget[]
+}
+
+function indexDefinitions(
+  definitions: readonly ArtDefinition[],
+  prefix: string,
+  toTarget: (definition: ArtDefinition) => ArtTarget,
+): DefinitionIndex {
+  const pairs = definitions.map((definition) => [definition, toTarget(definition)] as const)
+  return {
+    byIdentity: new Map(
+      pairs
+        .filter(([definition]) => definition.id.startsWith(prefix))
+        .map(([definition, target]) => [definition.id.slice(prefix.length), target]),
+    ),
+    byName: new Map(pairs.map(([definition, target]) => [definition.nameKey, target])),
+    targets: pairs.map(([, target]) => target),
+  }
+}
+
+const find = (index: DefinitionIndex, key: string): ArtTarget | null =>
+  index.byIdentity.get(key) ?? index.byName.get(key) ?? null
+
 type TargetIndex = {
-  legend: ReadonlyMap<string, ArtTarget>
-  cursed: ReadonlyMap<string, ArtTarget>
-  words: ReadonlyMap<string, ArtTarget>
+  legend: DefinitionIndex
+  cursed: DefinitionIndex
+  words: DefinitionIndex
   /** Every target the report expects, by group: the ones without a picture are missing. */
   expected: Readonly<Record<ArtGroup, readonly ArtTarget[]>>
 }
 
 function indexTargets(data: ArtData): TargetIndex {
-  const cardTarget = (deck: 'legend' | 'cursed', card: CardDefinition): ArtTarget => ({
-    group: card.kind,
-    key: cardId(deck, card.nameKey),
-    label: card.name,
+  const cardTarget = (definition: ArtDefinition): ArtTarget => ({
+    group: (definition as ArtCard).kind,
+    key: definition.id,
+    label: definition.name,
   })
-  const legend = new Map(data.legend.map((card) => [card.nameKey, cardTarget('legend', card)]))
-  const cursed = new Map(data.cursed.map((card) => [card.nameKey, cardTarget('cursed', card)]))
-  const words = new Map(
-    data.words.map((word) => [
-      word.nameKey,
-      { group: 'word' as const, key: trueWordId(word.nameKey), label: word.name },
-    ]),
-  )
-  const legendTargets = [...legend.values()]
+  const legend = indexDefinitions(data.legend, 'legend-', cardTarget)
+  const cursed = indexDefinitions(data.cursed, 'cursed-', cardTarget)
+  const words = indexDefinitions(data.words, 'tw-', (word) => ({
+    group: 'word',
+    key: word.id,
+    label: word.name,
+  }))
   return {
     legend,
     cursed,
     words,
     expected: {
-      normal: legendTargets.filter((target) => target.group === 'normal'),
-      blessed: legendTargets.filter((target) => target.group === 'blessed'),
-      cursed: [...cursed.values()],
-      word: [...words.values()],
+      normal: legend.targets.filter((target) => target.group === 'normal'),
+      blessed: legend.targets.filter((target) => target.group === 'blessed'),
+      cursed: [...cursed.targets],
+      word: [...words.targets],
       back: [
         ...OFFICIAL_SETS.map((set) => backTarget(set)),
         backTarget('blessed'),
@@ -238,22 +313,19 @@ function matchAsset(stem: string): ArtTarget | null {
   return null
 }
 
-/** Rules 2 to 9 of design D2, without the alias table: the target a file's name gives, or `null`. */
-function matchByName(stem: string, index: TargetIndex): ArtTarget | null {
-  const asset = matchAsset(stem)
-  if (asset) return asset
-
+/** Rules 6 to 9 of design D2, for a file that is no asset: the card or word its name gives, or `null`. */
+function matchDefinition(stem: string, index: TargetIndex): ArtTarget | null {
   if (/^tw/i.test(stem)) {
-    const word = index.words.get(normalize(stem.slice(2)))
+    const word = find(index.words, normalize(stem.slice(2)))
     if (word) return word
   }
   const prefixed = /^cursed[_\s-]+(.+)$/i.exec(stem)
   if (prefixed) {
-    const card = index.cursed.get(normalize(prefixed[1] ?? ''))
+    const card = find(index.cursed, normalize(prefixed[1] ?? ''))
     if (card) return card
   }
   const key = normalize(stem)
-  return index.legend.get(key) ?? index.cursed.get(key) ?? null
+  return find(index.legend, key) ?? find(index.cursed, key)
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -266,8 +338,11 @@ export type AliasKind = (typeof ALIAS_KINDS)[number]
 /** The table's columns, by their normalized header names. */
 export const ALIAS_COLUMNS: readonly string[] = ['file', 'kind', 'name']
 
-/** One row of `data/image-aliases.csv`, checked: its file becomes the picture of `target`. */
-export type ArtAlias = { row: number; file: string; target: ArtTarget }
+/**
+ * One row of `data/image-aliases.csv`, checked: its file becomes the picture of `target`. `target` is `null` for a row
+ * the other script plans: its file is left to that script, and the row is not checked here.
+ */
+export type ArtAlias = { row: number; file: string; target: ArtTarget | null }
 
 /** A problem that stops the build. `row` is the spreadsheet row number: the header is row 1. */
 export type AliasError =
@@ -281,28 +356,36 @@ export type AliasError =
 const isAliasKind = (value: string): value is AliasKind =>
   (ALIAS_KINDS as readonly string[]).includes(value)
 
-/** The target an alias row names, if it exists in the data or among the known assets. */
+/** The target an alias row names, if it exists among the definitions or the known assets. */
 function aliasTarget(kind: AliasKind, name: string, index: TargetIndex): ArtTarget | null {
   switch (kind) {
     case 'legend':
-      return index.legend.get(normalize(name)) ?? null
+      return find(index.legend, normalize(name))
     case 'cursed':
-      return index.cursed.get(normalize(name)) ?? null
+      return find(index.cursed, normalize(name))
     case 'word':
-      return index.words.get(normalize(name)) ?? null
+      return find(index.words, normalize(name))
     case 'asset':
       return matchAsset(stemOf(name))
   }
 }
 
+/** The alias kinds each mode checks and uses. */
+const ALIAS_KINDS_OF_MODE: Readonly<Record<ArtPlanMode, readonly AliasKind[]>> = {
+  assets: ['asset'],
+  definitions: ['legend', 'cursed', 'word'],
+}
+
 /**
- * Reads the alias table (columns `File,Kind,Name`) and checks each row against the data (spec: card-images,
- * "Picture aliases"). A row naming nothing that exists is an error with its row number; the caller writes nothing
- * if there is an error.
+ * Reads the alias table (columns `File,Kind,Name`) and checks each row of the mode's kinds against the data (spec:
+ * card-images, "Picture aliases"): the build checks the asset rows, the picture import the card and word rows against
+ * the stored definitions. A row naming nothing that exists is an error with its row number; the caller writes nothing
+ * if there is an error. The other rows are kept without a target, so their files are left to the other script.
  */
 export function readAliases(
   text: string,
   data: ArtData,
+  mode: ArtPlanMode,
 ): { aliases: ArtAlias[]; errors: AliasError[] } {
   const records = readRecords(text)
   if (!Array.isArray(records)) {
@@ -343,6 +426,10 @@ export function readAliases(
       return
     }
     firstRowByFile.set(fileKey, row)
+    if (!ALIAS_KINDS_OF_MODE[mode].includes(kind)) {
+      aliases.push({ row, file, target: null })
+      return
+    }
     const target = aliasTarget(kind, name, index)
     if (target === null) {
       errors.push({ kind: 'unknown-target', row, aliasKind: kind, name })
@@ -374,12 +461,16 @@ export type ArtCoverage = {
 }
 
 export type ArtPlan<F extends ArtFile> = {
+  mode: ArtPlanMode
   /** One per target with a picture, in report order. */
   assignments: ArtAssignment<F>[]
   duplicates: ArtDuplicate<F>[]
   /** The files that match nothing, by name. */
   unknown: F[]
-  coverage: Record<ArtGroup, ArtCoverage>
+  /** The files the other script plans, by name. */
+  skipped: F[]
+  /** The mode's groups only. */
+  coverage: Partial<Record<ArtGroup, ArtCoverage>>
 }
 
 /** File order: by name, then by the caller's own order, so the same files always plan the same way. */
@@ -389,30 +480,45 @@ const targetId = (target: ArtTarget) => `${SECTION_OF_GROUP[target.group]}:${tar
 
 /**
  * Matches each file to what it shows (design D2) and settles the duplicates (D3): a file matched by its name beats
- * an alias, and otherwise the first by file name wins. Pure: the files are only names to it.
+ * an alias, and otherwise the first by file name wins. Plans only the mode's groups: `assets` leaves every other file
+ * to the picture import, without asking what it is, and `definitions` leaves the asset files to the build and calls a
+ * file that matches no definition unknown. Pure: the files are only names to it.
  */
 export function planArt<F extends ArtFile>(
   files: readonly F[],
   data: ArtData,
   aliases: readonly ArtAlias[],
+  mode: ArtPlanMode,
 ): ArtPlan<F> {
   const index = indexTargets(data)
   const aliasByFile = new Map(aliases.map((alias) => [alias.file.toLowerCase(), alias]))
   const candidates = new Map<string, ArtAssignment<F>[]>()
   const unknown: F[] = []
+  const skipped: F[] = []
 
   for (const file of [...files].sort(byName)) {
     const alias = aliasByFile.get(file.name.toLowerCase())
-    const match: ArtAssignment<F> | null = alias
-      ? { target: alias.target, file, via: 'alias' }
-      : (() => {
-          const target = matchByName(stemOf(file.name), index)
-          return target ? { target, file, via: 'name' } : null
-        })()
-    if (match === null) {
-      unknown.push(file)
+    if (alias && alias.target === null) {
+      skipped.push(file)
       continue
     }
+    if (alias && alias.target !== null) {
+      const id = targetId(alias.target)
+      candidates.set(id, [
+        ...(candidates.get(id) ?? []),
+        { target: alias.target, file, via: 'alias' },
+      ])
+      continue
+    }
+    const stem = stemOf(file.name)
+    const asset = matchAsset(stem)
+    const target = mode === 'assets' ? asset : asset !== null ? null : matchDefinition(stem, index)
+    if (target === null) {
+      if (mode === 'assets' || asset !== null) skipped.push(file)
+      else unknown.push(file)
+      continue
+    }
+    const match: ArtAssignment<F> = { target, file, via: 'name' }
     const id = targetId(match.target)
     candidates.set(id, [...(candidates.get(id) ?? []), match])
   }
@@ -441,7 +547,7 @@ export function planArt<F extends ArtFile>(
 
   const assigned = new Set(assignments.map(({ target }) => targetId(target)))
   const coverage = Object.fromEntries(
-    ART_GROUPS.map((group) => {
+    GROUPS_OF_MODE[mode].map((group) => {
       const expected = index.expected[group]
       const missing = expected.filter((target) => !assigned.has(targetId(target)))
       const found =
@@ -453,7 +559,7 @@ export function planArt<F extends ArtFile>(
         { expected: expected.length, found, missing: missing.map(({ label }) => label) },
       ]
     }),
-  ) as Record<ArtGroup, ArtCoverage>
+  ) as Partial<Record<ArtGroup, ArtCoverage>>
 
-  return { assignments, duplicates, unknown, coverage }
+  return { mode, assignments, duplicates, unknown, skipped, coverage }
 }

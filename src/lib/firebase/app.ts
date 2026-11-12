@@ -21,9 +21,11 @@ export const firebaseApp = getApps().length
       authDomain: firebaseSettings.authDomain,
       projectId: firebaseSettings.projectId,
       appId: firebaseSettings.appId,
+      storageBucket: firebaseSettings.storageBucket,
     })
 
 /** Where the local emulators listen. Must match firebase.json. */
 export const EMULATOR_HOST = '127.0.0.1'
 export const AUTH_EMULATOR_PORT = 9099
 export const FIRESTORE_EMULATOR_PORT = 8080
+export const STORAGE_EMULATOR_PORT = 9199

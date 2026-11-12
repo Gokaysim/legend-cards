@@ -1,12 +1,15 @@
 import { type ReactNode, useEffect, useMemo, useState } from 'react'
 
+import { storedPictureUrl } from '@/lib/firebase/storage'
+
 import { ArtContext, artLookup } from './artContext'
 import { loadArtManifest } from './loadArtManifest'
 import { type ArtManifest, EMPTY_ART } from './schema'
 
 /**
- * Shares the built pictures: fetches `art/manifest.json` once at start (design D4). Until it arrives, and when there
- * is none, every component keeps its look without pictures. Not Firestore: the pictures are static files.
+ * Shares the pictures. The built cardbacks, packs and Cardmaker come from `art/manifest.json`, fetched once at start:
+ * until it arrives, and when there is none, they keep their look without pictures. The card and word pictures are in
+ * Cloud Storage, and their addresses are built from the paths the definitions hold, without a request.
  */
 export function ArtProvider({ children }: { children: ReactNode }) {
   const [manifest, setManifest] = useState<ArtManifest>(EMPTY_ART)
@@ -24,6 +27,9 @@ export function ArtProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const value = useMemo(() => artLookup(manifest, import.meta.env.BASE_URL), [manifest])
+  const value = useMemo(
+    () => artLookup(manifest, import.meta.env.BASE_URL, storedPictureUrl),
+    [manifest],
+  )
   return <ArtContext value={value}>{children}</ArtContext>
 }

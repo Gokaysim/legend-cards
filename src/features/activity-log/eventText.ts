@@ -174,14 +174,26 @@ function shownValue(field: string, value: string | null | undefined): string {
 }
 
 /**
+ * A picture change in Turkish (spec: activity-log, "Picture changes in the log"), never with the picture's address:
+ * `null` when the picture stayed the same.
+ */
+function pictureLine(before: string | null, after: string | null): string | null {
+  if (before === after) return null
+  if (before === null) return 'Resim: eklendi'
+  return after === null ? 'Resim: kaldırıldı' : 'Resim: değişti'
+}
+
+/**
  * Each changed field as "Cost: 2 → 3" (spec: activity-log, "Definition changes are events"). A text is compared by its
  * visible part; when only the bracket text changed, the line says so and shows none of it ("Text changes in the log").
+ * A picture change comes last.
  */
 function changedLines(change: DefinitionStepRecord): string[] {
   const { before, after } = change
   if (before === null || after === null) return []
   const fields = change.target === 'card' ? CARD_FIELDS : WORD_FIELDS
-  return fields.flatMap(([field, label]) => {
+  const picture = pictureLine(before.picture, after.picture)
+  const lines = fields.flatMap(([field, label]) => {
     // Every field a log line names is text or empty.
     const old = (before as Record<string, string | null>)[field] ?? null
     const next = (after as Record<string, string | null>)[field] ?? null
@@ -195,10 +207,20 @@ function changedLines(change: DefinitionStepRecord): string[] {
     }
     return [`${label}: ${shownValue(field, old)} → ${shownValue(field, next)}`]
   })
+  return picture === null ? lines : [...lines, picture]
 }
 
-/** A definition as a publish shows it: its set, rarity, mechanic pack and cost, then its visible text. */
+/**
+ * A definition as a publish shows it: its set, rarity, mechanic pack and cost, then its visible text, and "Resimli"
+ * when it has a picture.
+ */
 function definitionLines(change: DefinitionStepRecord): string[] {
+  const { after } = change
+  if (after === null) return []
+  return after.picture === null ? fieldLines(change) : [...fieldLines(change), 'Resimli']
+}
+
+function fieldLines(change: DefinitionStepRecord): string[] {
   const { after } = change
   if (after === null) return []
   const text = visibleText(after.text) || NONE
@@ -241,12 +263,20 @@ function definitionSentence(change: DefinitionStepRecord): EventSentence {
   }
 }
 
-/** An import: "742 kart ekledi." or "3 taslak kart ekledi.", with the names it added. */
+/**
+ * An import: "742 kart ekledi." or "3 taslak kart ekledi.", with the names it added. A picture import: "700 karta resim
+ * ekledi." or "1 taslak True Word'e resim ekledi.", with the names that got one.
+ */
 function importSentence(change: ImportRecord): EventSentence {
-  const what = change.target === 'word' ? 'True Word' : 'kart'
+  const isWord = change.target === 'word'
   const draft = change.public ? '' : 'taslak '
+  const count = formatAmount(change.items.length)
+  const sentence =
+    change.what === 'pictures'
+      ? `${count} ${draft}${isWord ? "True Word'e" : 'karta'} resim ekledi.`
+      : `${count} ${draft}${isWord ? 'True Word' : 'kart'} ekledi.`
   return {
-    parts: [`${formatAmount(change.items.length)} ${draft}${what} ekledi.`],
+    parts: [sentence],
     reason: null,
     names: change.items.map((item) => item.name),
   }

@@ -6,6 +6,8 @@ export type FirebaseSettings = {
   authDomain: string
   projectId: string
   appId: string
+  /** The Cloud Storage bucket of the card and word pictures, for example `<project-id>.firebasestorage.app`. */
+  storageBucket: string
   useEmulators: boolean
 }
 
@@ -25,6 +27,7 @@ const envSchema = z.object({
   VITE_FIREBASE_AUTH_DOMAIN: requiredText,
   VITE_FIREBASE_PROJECT_ID: requiredText,
   VITE_FIREBASE_APP_ID: requiredText,
+  VITE_FIREBASE_STORAGE_BUCKET: requiredText,
   VITE_USE_FIREBASE_EMULATORS: z
     .enum(['true', 'false'])
     .default('false')
@@ -50,6 +53,7 @@ export function parseFirebaseSettings(env: Record<string, unknown>): ConfigResul
         authDomain: data.VITE_FIREBASE_AUTH_DOMAIN,
         projectId: data.VITE_FIREBASE_PROJECT_ID,
         appId: data.VITE_FIREBASE_APP_ID,
+        storageBucket: data.VITE_FIREBASE_STORAGE_BUCKET,
         useEmulators: data.VITE_USE_FIREBASE_EMULATORS,
       },
     }

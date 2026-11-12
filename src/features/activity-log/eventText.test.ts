@@ -331,4 +331,64 @@ describe('describing definition changes', () => {
       ),
     ).toBe('1 taslak kart ekledi.')
   })
+
+  describe('pictures', () => {
+    const PICTURE = 'cards/legend-abolethseyes/0123456789.webp'
+    const NEXT = 'cards/legend-abolethseyes/abcdef0123.webp'
+    const withPicture = { ...eyesBefore, picture: PICTURE }
+
+    it.each([
+      ['added', eyesBefore, withPicture, 'Resim: eklendi'],
+      ['replaced', withPicture, { ...eyesBefore, picture: NEXT }, 'Resim: değişti'],
+      ['removed', withPicture, eyesBefore, 'Resim: kaldırıldı'],
+    ])('names a picture %s, without its address', (_case, before, after, line) => {
+      const sentence = describe_([testCardChange('c1', before, after)])
+      expect(sentence.lines).toEqual([line])
+      expect(JSON.stringify(sentence)).not.toContain('.webp')
+    })
+
+    it('lists a picture change after the other changed fields', () => {
+      const sentence = describe_([testCardChange('c1', withPicture, { ...eyesBefore, cost: '3' })])
+      expect(sentence.lines).toEqual(['Cost: 2 → 3', 'Resim: kaldırıldı'])
+    })
+
+    it('shows no picture line for a record from before pictures were stored', () => {
+      const { picture: _none, ...older } = eyesBefore
+      const sentence = describe_([
+        testCardChange('c1', older as typeof eyesBefore, {
+          ...(older as typeof eyesBefore),
+          cost: '3',
+        }),
+      ])
+      expect(sentence.lines).toEqual(['Cost: 2 → 3'])
+    })
+
+    it('says a published definition has a picture', () => {
+      const draft = { ...withPicture, status: 'draft' as const }
+      const sentence = describe_([testCardChange('c1', draft, withPicture, { step: 'published' })])
+      expect(sentence.lines).toEqual([
+        'Kesqerian Nights · Common · Arcanus Divine · Cost 2',
+        "Aboleth's Eyes text.",
+        'Resimli',
+      ])
+    })
+
+    it('describes a picture import of cards and of draft words', () => {
+      expect(sentenceText(describe_([testImportRecord('i1', 700, { what: 'pictures' })]))).toBe(
+        '700 karta resim ekledi.',
+      )
+      expect(
+        sentenceText(
+          describe_([
+            testImportRecord('i2', 1, {
+              what: 'pictures',
+              target: 'word',
+              public: false,
+              items: [{ id: 'tw-echo', name: 'Echo', status: 'draft' }],
+            }),
+          ]),
+        ),
+      ).toBe("1 taslak True Word'e resim ekledi.")
+    })
+  })
 })

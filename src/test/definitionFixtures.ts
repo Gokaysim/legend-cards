@@ -22,6 +22,7 @@ export function testCardSnapshot(
     mechanicPack: 'Arcanus Divine',
     text: `${name} text.`,
     status: 'active',
+    picture: null,
     ...overrides,
   }
 }
@@ -37,6 +38,7 @@ export function testWordSnapshot(
     cost: '1',
     text: `${name} text.`,
     status: 'active',
+    picture: null,
     ...overrides,
   }
 }
@@ -95,6 +97,7 @@ export function testImportRecord(
     id,
     target: 'card',
     step: 'imported',
+    what: 'definitions',
     items: Array.from({ length: count }, (_, index) => ({
       id: `legend-card${index}`,
       name: `Card ${index}`,

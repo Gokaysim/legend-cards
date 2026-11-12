@@ -126,6 +126,7 @@ export function knownWordEntries(
       text: '',
       status: 'retired',
       changeId: null,
+      picture: null,
     },
   }))
 }

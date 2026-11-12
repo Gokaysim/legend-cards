@@ -9,11 +9,14 @@ import {
   type TrueWord,
 } from '@/features/true-words/schema'
 import { useTrueWords } from '@/features/true-words/trueWordsContext'
+import { useOnlineStatus } from '@/lib/useOnlineStatus'
 
 import { isNameTaken, type WordFields } from './api'
 import { useDefinitionActions } from './definitionsContext'
 import { DefinitionForm, FormField } from './DefinitionForm'
 import { FIELD_CLASSES } from './fieldClasses'
+import { PictureField } from './PictureField'
+import { choiceOf, KEEP_DRAFT, type PictureDraft } from './pictureDraft'
 
 type FormValues = { name: string; cost: string; text: string }
 
@@ -59,6 +62,8 @@ export function WordFormDialog({ wordId, onClose }: WordFormDialogProps) {
   )
   const set = (key: keyof FormValues, value: string) =>
     setValues((current) => ({ ...current, [key]: value }))
+  const [picture, setPicture] = useState<PictureDraft>(KEEP_DRAFT)
+  const isOnline = useOnlineStatus()
 
   const fields = fieldsOf(values)
   const nameKey = normalize(fields.name)
@@ -82,9 +87,10 @@ export function WordFormDialog({ wordId, onClose }: WordFormDialogProps) {
   ]
   const missing = missingWordFields(fields).map((field) => MISSING_LABELS[field])
 
+  const title = base === null ? 'Yeni True Word' : `Düzenle: ${base.name}`
   return (
     <DefinitionForm
-      title={base === null ? 'Yeni True Word' : `Düzenle: ${base.name}`}
+      title={title}
       what="True Word"
       status={base?.status ?? null}
       missing={missing}
@@ -92,8 +98,15 @@ export function WordFormDialog({ wordId, onClose }: WordFormDialogProps) {
       isGone={wordId !== null && words.status === 'ready' && live === null}
       onSave={(publish) =>
         base === null
-          ? actions.addWord({ fields, publish, by: uid, existing })
-          : actions.saveWord({ word: base, fields, publish, by: uid, existing })
+          ? actions.addWord({ fields, publish, by: uid, existing, picture: choiceOf(picture) })
+          : actions.saveWord({
+              word: base,
+              fields,
+              publish,
+              by: uid,
+              existing,
+              picture: choiceOf(picture),
+            })
       }
       onSetStatus={(next) =>
         base === null
@@ -107,6 +120,7 @@ export function WordFormDialog({ wordId, onClose }: WordFormDialogProps) {
         if (live === null) return
         setBase(live)
         setValues(valuesOf(live))
+        setPicture(KEEP_DRAFT)
       }}
       onClose={onClose}
     >
@@ -140,6 +154,15 @@ export function WordFormDialog({ wordId, onClose }: WordFormDialogProps) {
               className={FIELD_CLASSES}
             />
           </FormField>
+        </div>
+        <div className="sm:col-span-2">
+          <PictureField
+            stored={base?.picture ?? null}
+            draft={picture}
+            onChange={setPicture}
+            name={fields.name || title}
+            disabled={!isOnline}
+          />
         </div>
       </div>
     </DefinitionForm>

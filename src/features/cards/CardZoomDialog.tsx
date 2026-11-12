@@ -29,7 +29,7 @@ export type CardZoomDialogProps = {
  * still treats it as the face's child, so it closes when the face leaves the screen.
  */
 export function CardZoomDialog({ card, handCost, onClose }: CardZoomDialogProps) {
-  const picture = usePicture(useArt().cardUrl(card.id))
+  const picture = usePicture(useArt().pictureUrl(card.picture))
   const isInHand = handCost !== undefined
   const cost = (isInHand ? handCost : card.cost) ?? NO_VALUE
   const change = isInHand ? costChange(card.cost, handCost) : null

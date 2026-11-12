@@ -1,0 +1,39 @@
+rules_version = '2';
+
+// Cloud Storage access rules (design D5 of upload-card-and-word-pictures). Closed by default: a path is opened on
+// purpose, with tests in tests/storage.rules.emulator.test.ts.
+//
+// The card and True Word pictures are the one thing anyone may read without signing in, as the built pictures on
+// Hosting are (spec: data-access-control). Only the DM stores and deletes them. A picture is a WebP file of at most
+// 1 MB, named by its content hash, under its definition's ID. The rules do not ask whether the definition exists:
+// a new definition's picture is uploaded before the definition is created.
+service firebase.storage {
+  match /b/{bucket}/o {
+    // The DM's role, read from the profile in Firestore (cross-service rules).
+    function isDm() {
+      return request.auth != null
+        && firestore.exists(/databases/(default)/documents/users/$(request.auth.uid))
+        && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == 'dm';
+    }
+
+    // A stored picture: `<10 hex digits>.webp`, WebP, at most 1 MB. Keep in step with the limits in
+    // src/features/definitions/picture.ts.
+    function validPicture(file) {
+      return file.matches('[0-9a-f]{10}[.]webp')
+        && request.resource.contentType == 'image/webp'
+        && request.resource.size <= 1024 * 1024;
+    }
+
+    match /cards/{cardId}/{file} {
+      allow read: if true;
+      allow create, update: if cardId.matches('(legend|cursed)-.+') && validPicture(file) && isDm();
+      allow delete: if isDm();
+    }
+
+    match /words/{wordId}/{file} {
+      allow read: if true;
+      allow create, update: if wordId.matches('tw-.+') && validPicture(file) && isDm();
+      allow delete: if isDm();
+    }
+  }
+}

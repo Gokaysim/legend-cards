@@ -22,6 +22,8 @@ import { TRUE_WORDS_COLLECTION } from '@/features/true-words/api'
 import { isWordComplete, type TrueWord } from '@/features/true-words/schema'
 
 import { DefinitionChangedError, IncompleteDefinitionError, NameTakenError } from './errors'
+import { picturePath, type PictureTarget } from './picturePath'
+import { NO_PICTURE_STORE, type PictureStore } from './pictureStore'
 import {
   type CardSnapshot,
   type DefinitionChange,
@@ -112,6 +114,7 @@ const CARD_SNAPSHOT_KEYS = [
   'mechanicPack',
   'text',
   'status',
+  'picture',
 ] as const satisfies readonly (keyof CardSnapshot)[]
 
 const WORD_SNAPSHOT_KEYS = [
@@ -120,10 +123,14 @@ const WORD_SNAPSHOT_KEYS = [
   'cost',
   'text',
   'status',
+  'picture',
 ] as const satisfies readonly (keyof WordSnapshot)[]
 
+/** What a definition's picture is in a snapshot: its path, or `null` for none (design D3). */
+type WithPicture = { status: DefinitionStatus; picture?: string | null }
+
 /** A card's definition and status, as a change record keeps it. */
-export function cardSnapshotOf(card: CardFields & { status: DefinitionStatus }): CardSnapshot {
+export function cardSnapshotOf(card: CardFields & WithPicture): CardSnapshot {
   return {
     kind: card.kind,
     name: card.name,
@@ -134,17 +141,19 @@ export function cardSnapshotOf(card: CardFields & { status: DefinitionStatus }):
     mechanicPack: card.mechanicPack,
     text: card.text,
     status: card.status,
+    picture: card.picture ?? null,
   }
 }
 
 /** A word's definition and status, as a change record keeps it. */
-export function wordSnapshotOf(word: WordFields & { status: DefinitionStatus }): WordSnapshot {
+export function wordSnapshotOf(word: WordFields & WithPicture): WordSnapshot {
   return {
     name: word.name,
     nameKey: normalize(word.name),
     cost: word.cost,
     text: word.text,
     status: word.status,
+    picture: word.picture ?? null,
   }
 }
 
@@ -210,12 +219,15 @@ async function runStep(db: Firestore, step: Step): Promise<string> {
         transaction.delete(definitionDoc)
       } else if (step.before === null) {
         transaction.set(definitionDoc, {
-          ...step.after,
+          ...withoutUnchangedPicture(step.after, null),
           changeId: recordDoc.id,
           ...(step.target === 'card' ? { holder: null } : {}),
         })
       } else {
-        transaction.update(definitionDoc, { ...step.after, changeId: recordDoc.id })
+        transaction.update(definitionDoc, {
+          ...withoutUnchangedPicture(step.after, step.before.picture),
+          changeId: recordDoc.id,
+        })
       }
       transaction.set(recordDoc, {
         target: step.target,
@@ -235,6 +247,83 @@ async function runStep(db: Firestore, step: Step): Promise<string> {
   }
 }
 
+/**
+ * The definition to write, without its picture when the picture does not change: a stored definition that never had a
+ * picture keeps the field absent, so the picture import can tell it from one whose picture the DM removed, which is
+ * `null` (design D3 of upload-card-and-word-pictures). A new definition without a picture is created without the field.
+ */
+function withoutUnchangedPicture<T extends { picture: string | null }>(
+  after: T,
+  before: string | null,
+): Omit<T, 'picture'> | T {
+  if (after.picture !== before) return after
+  const { picture: _unchanged, ...rest } = after
+  return rest
+}
+
+/**
+ * What a save does with the definition's picture (spec: definition-editing, "The picture in the forms"): keep it,
+ * replace it with a prepared one (`preparePicture`), or remove it.
+ */
+export type PictureChoice =
+  { kind: 'keep' } | { kind: 'new'; blob: Blob; hash: string } | { kind: 'remove' }
+
+export const KEEP_PICTURE: PictureChoice = { kind: 'keep' }
+
+/** Runs a store call whose failure must not undo or fail a step: an unused file is all it leaves (design D6). */
+async function forget(call: Promise<void>): Promise<void> {
+  try {
+    await call
+  } catch (error) {
+    if (import.meta.env.DEV) console.warn('A picture file was not deleted:', error)
+  }
+}
+
+/**
+ * Runs a step that may change the definition's picture (design D6): uploads a new picture first, runs the step, then
+ * deletes the file the definition no longer uses. When the step fails, the new upload is deleted again and the error
+ * is thrown. The same picture uploaded again has the same path: nothing is uploaded, and its file is never deleted.
+ */
+async function runPictureStep(
+  db: Firestore,
+  pictures: PictureStore,
+  step: Omit<Step, 'after'> & { after: CardSnapshot | WordSnapshot },
+  current: string | null,
+  choice: PictureChoice,
+): Promise<string> {
+  const target: PictureTarget = step.target
+  const next =
+    choice.kind === 'keep'
+      ? current
+      : choice.kind === 'remove'
+        ? null
+        : picturePath(target, step.id, choice.hash)
+  const uploaded = choice.kind === 'new' && next !== current ? next : null
+  if (choice.kind === 'new' && uploaded !== null) {
+    await pictures.upload(uploaded, choice.blob, `${step.id}.webp`)
+  }
+  let recordId: string
+  try {
+    recordId = await runStep(db, { ...step, after: { ...step.after, picture: next } })
+  } catch (error) {
+    if (uploaded !== null) await forget(pictures.remove(uploaded))
+    throw error
+  }
+  if (current !== null && current !== next) await forget(pictures.remove(current))
+  return recordId
+}
+
+/** Deletes a draft, then its picture file (spec: definition-editing, "Deleting a draft"). */
+async function runDeleteStep(
+  db: Firestore,
+  pictures: PictureStore,
+  step: Step,
+  current: string | null,
+): Promise<void> {
+  await runStep(db, step)
+  if (current !== null) await forget(pictures.remove(current))
+}
+
 /** The status a save leaves: active when publishing, else the definition's own (draft for a new one). */
 function savedStatus(before: DefinitionStatus | null, publish: boolean): DefinitionStatus {
   return publish ? 'active' : (before ?? 'draft')
@@ -248,20 +337,33 @@ export type AddCardInput = {
   by: string
   /** Every card the DM's device holds, to check the name and choose a free ID. */
   existing: readonly Card[]
+  /** The new card's picture: none (`keep`), or a prepared one. */
+  picture?: PictureChoice
 }
 
 /**
- * Adds a card as a draft, or as active when publishing (spec: "Adding a card"). Throws `NameTakenError`,
- * `IncompleteDefinitionError` and `TableBusyError`. Returns the new card's ID.
+ * Adds a card as a draft, or as active when publishing (spec: "Adding a card"), with its picture. Throws
+ * `NameTakenError`, `IncompleteDefinitionError`, `TableBusyError` and the store's upload errors. Returns the new card's
+ * ID.
  */
-export async function addCard(db: Firestore, input: AddCardInput): Promise<string> {
+export async function addCard(
+  db: Firestore,
+  input: AddCardInput,
+  pictures: PictureStore = NO_PICTURE_STORE,
+): Promise<string> {
   const after = cardSnapshotOf({ ...input.fields, status: savedStatus(null, input.publish) })
   const deck = deckOfKind(after.kind)
   const sameDeck = input.existing.filter((card) => deckOfKind(card.kind) === deck)
   if (isNameTaken(after.nameKey, sameDeck, null)) throw new NameTakenError()
   if (after.status !== 'draft' && !isComplete(after)) throw new IncompleteDefinitionError()
   const id = newDefinitionId(deck, after.nameKey, new Set(input.existing.map((card) => card.id)))
-  await runStep(db, { target: 'card', id, before: null, after, beforeChangeId: null, by: input.by })
+  await runPictureStep(
+    db,
+    pictures,
+    { target: 'card', id, before: null, after, beforeChangeId: null, by: input.by },
+    null,
+    input.picture ?? KEEP_PICTURE,
+  )
   return id
 }
 
@@ -273,30 +375,44 @@ export type SaveCardInput = {
   publish: boolean
   by: string
   existing: readonly Card[]
+  /** Keep the card's picture, replace it, or remove it. */
+  picture?: PictureChoice
 }
 
 /**
- * Saves the DM's changes to a card, and publishes a draft when asked (spec: "Editing a definition", "Publishing a
- * draft"). Throws `NameTakenError`, `IncompleteDefinitionError`, `DefinitionChangedError` and `TableBusyError`.
+ * Saves the DM's changes to a card, its picture included, and publishes a draft when asked (spec: "Editing a
+ * definition", "Publishing a draft", "Picture changes are definition steps"). Throws `NameTakenError`,
+ * `IncompleteDefinitionError`, `DefinitionChangedError`, `TableBusyError` and the store's upload errors.
  */
-export async function saveCard(db: Firestore, input: SaveCardInput): Promise<void> {
+export async function saveCard(
+  db: Firestore,
+  input: SaveCardInput,
+  pictures: PictureStore = NO_PICTURE_STORE,
+): Promise<void> {
   const before = cardSnapshotOf(input.card)
   const after = cardSnapshotOf({
     ...input.fields,
     status: savedStatus(input.card.status, input.publish),
+    picture: input.card.picture,
   })
   const deck = deckOfKind(input.card.kind)
   const sameDeck = input.existing.filter((card) => deckOfKind(card.kind) === deck)
   if (isNameTaken(after.nameKey, sameDeck, input.card.id)) throw new NameTakenError()
   if (after.status !== 'draft' && !isComplete(after)) throw new IncompleteDefinitionError()
-  await runStep(db, {
-    target: 'card',
-    id: input.card.id,
-    before: { ...before, nameKey: input.card.nameKey },
-    after,
-    beforeChangeId: input.card.changeId,
-    by: input.by,
-  })
+  await runPictureStep(
+    db,
+    pictures,
+    {
+      target: 'card',
+      id: input.card.id,
+      before: { ...before, nameKey: input.card.nameKey },
+      after,
+      beforeChangeId: input.card.changeId,
+      by: input.by,
+    },
+    input.card.picture,
+    input.picture ?? KEEP_PICTURE,
+  )
 }
 
 export type SetCardStatusInput = {
@@ -319,16 +435,28 @@ export async function setCardStatus(db: Firestore, input: SetCardStatusInput): P
   })
 }
 
-/** Deletes a draft card ("Sil"); its records stay. Throws `DefinitionChangedError` and `TableBusyError`. */
-export async function deleteCard(db: Firestore, input: { card: Card; by: string }): Promise<void> {
-  await runStep(db, {
-    target: 'card',
-    id: input.card.id,
-    before: { ...cardSnapshotOf(input.card), nameKey: input.card.nameKey },
-    after: null,
-    beforeChangeId: input.card.changeId,
-    by: input.by,
-  })
+/**
+ * Deletes a draft card ("Sil") and its picture file; its records stay. Throws `DefinitionChangedError` and
+ * `TableBusyError`.
+ */
+export async function deleteCard(
+  db: Firestore,
+  input: { card: Card; by: string },
+  pictures: PictureStore = NO_PICTURE_STORE,
+): Promise<void> {
+  await runDeleteStep(
+    db,
+    pictures,
+    {
+      target: 'card',
+      id: input.card.id,
+      before: { ...cardSnapshotOf(input.card), nameKey: input.card.nameKey },
+      after: null,
+      beforeChangeId: input.card.changeId,
+      by: input.by,
+    },
+    input.card.picture,
+  )
 }
 
 export type AddWordInput = {
@@ -336,15 +464,29 @@ export type AddWordInput = {
   publish: boolean
   by: string
   existing: readonly TrueWord[]
+  picture?: PictureChoice
 }
 
-/** Adds a True Word as a draft, or as active when publishing (spec: "Adding a True Word"). Throws as `addCard`. */
-export async function addWord(db: Firestore, input: AddWordInput): Promise<string> {
+/**
+ * Adds a True Word as a draft, or as active when publishing (spec: "Adding a True Word"), with its picture. Throws as
+ * `addCard`.
+ */
+export async function addWord(
+  db: Firestore,
+  input: AddWordInput,
+  pictures: PictureStore = NO_PICTURE_STORE,
+): Promise<string> {
   const after = wordSnapshotOf({ ...input.fields, status: savedStatus(null, input.publish) })
   if (isNameTaken(after.nameKey, input.existing, null)) throw new NameTakenError()
   if (after.status !== 'draft' && !isWordComplete(after)) throw new IncompleteDefinitionError()
   const id = newDefinitionId('tw', after.nameKey, new Set(input.existing.map((word) => word.id)))
-  await runStep(db, { target: 'word', id, before: null, after, beforeChangeId: null, by: input.by })
+  await runPictureStep(
+    db,
+    pictures,
+    { target: 'word', id, before: null, after, beforeChangeId: null, by: input.by },
+    null,
+    input.picture ?? KEEP_PICTURE,
+  )
   return id
 }
 
@@ -354,24 +496,36 @@ export type SaveWordInput = {
   publish: boolean
   by: string
   existing: readonly TrueWord[]
+  picture?: PictureChoice
 }
 
-/** Saves the DM's changes to a word, and publishes a draft when asked. Throws as `saveCard`. */
-export async function saveWord(db: Firestore, input: SaveWordInput): Promise<void> {
+/** Saves the DM's changes to a word, its picture included, and publishes a draft when asked. Throws as `saveCard`. */
+export async function saveWord(
+  db: Firestore,
+  input: SaveWordInput,
+  pictures: PictureStore = NO_PICTURE_STORE,
+): Promise<void> {
   const after = wordSnapshotOf({
     ...input.fields,
     status: savedStatus(input.word.status, input.publish),
+    picture: input.word.picture,
   })
   if (isNameTaken(after.nameKey, input.existing, input.word.id)) throw new NameTakenError()
   if (after.status !== 'draft' && !isWordComplete(after)) throw new IncompleteDefinitionError()
-  await runStep(db, {
-    target: 'word',
-    id: input.word.id,
-    before: { ...wordSnapshotOf(input.word), nameKey: input.word.nameKey },
-    after,
-    beforeChangeId: input.word.changeId,
-    by: input.by,
-  })
+  await runPictureStep(
+    db,
+    pictures,
+    {
+      target: 'word',
+      id: input.word.id,
+      before: { ...wordSnapshotOf(input.word), nameKey: input.word.nameKey },
+      after,
+      beforeChangeId: input.word.changeId,
+      by: input.by,
+    },
+    input.word.picture,
+    input.picture ?? KEEP_PICTURE,
+  )
 }
 
 /** Retires an active word or brings a retired one back. Throws as `saveCard`. */
@@ -390,17 +544,23 @@ export async function setWordStatus(
   })
 }
 
-/** Deletes a draft word; its records stay. Throws `DefinitionChangedError` and `TableBusyError`. */
+/** Deletes a draft word and its picture file; its records stay. Throws `DefinitionChangedError` and `TableBusyError`. */
 export async function deleteWord(
   db: Firestore,
   input: { word: TrueWord; by: string },
+  pictures: PictureStore = NO_PICTURE_STORE,
 ): Promise<void> {
-  await runStep(db, {
-    target: 'word',
-    id: input.word.id,
-    before: { ...wordSnapshotOf(input.word), nameKey: input.word.nameKey },
-    after: null,
-    beforeChangeId: input.word.changeId,
-    by: input.by,
-  })
+  await runDeleteStep(
+    db,
+    pictures,
+    {
+      target: 'word',
+      id: input.word.id,
+      before: { ...wordSnapshotOf(input.word), nameKey: input.word.nameKey },
+      after: null,
+      beforeChangeId: input.word.changeId,
+      by: input.by,
+    },
+    input.word.picture,
+  )
 }

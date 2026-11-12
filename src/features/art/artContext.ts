@@ -7,10 +7,11 @@ import { type ArtManifest, EMPTY_ART } from './schema'
 
 /** Where each picture is, or `null` when there is none: the caller then keeps its look without pictures. */
 export type ArtLookup = {
-  /** A card's picture, by its document ID. */
-  cardUrl: (cardId: string) => string | null
-  /** A True Word's picture, by its document ID. */
-  wordUrl: (wordId: string) => string | null
+  /**
+   * A card's or True Word's picture, by the Cloud Storage path its definition holds (`card.picture`), or `null`
+   * for none (design D4 of upload-card-and-word-pictures).
+   */
+  pictureUrl: (path: string | null) => string | null
   /** A cardback, by set code (any spelling the set is known by), `blessed` or `cursed`. */
   backUrl: (key: string) => string | null
   /** A pack's picture, by its `PackDef.key`. */
@@ -28,11 +29,18 @@ function packKey(key: string): string {
   return colon < 0 ? key : `${key.slice(0, colon)}:${setKey(key.slice(colon + 1))}`
 }
 
+/** How a stored picture's path becomes its address: `storedPictureUrl` in the app, a fake in tests. */
+export type StoredPictureUrl = (path: string) => string
+
 /**
- * The lookups of a manifest. Its addresses are written for the site's root; `base` is where the app is served
- * (`import.meta.env.BASE_URL`).
+ * The lookups of a manifest and of the stored pictures. The manifest's addresses are written for the site's root;
+ * `base` is where the app is served (`import.meta.env.BASE_URL`). Without `storedUrl`, no card or word has a picture.
  */
-export function artLookup(manifest: ArtManifest, base = '/'): ArtLookup {
+export function artLookup(
+  manifest: ArtManifest,
+  base = '/',
+  storedUrl: StoredPictureUrl | null = null,
+): ArtLookup {
   const at = (path: string) => `${base}${path.replace(/^\//, '')}`
   const table = (
     pictures: Record<string, string>,
@@ -42,8 +50,7 @@ export function artLookup(manifest: ArtManifest, base = '/'): ArtLookup {
     return (key: string) => urls.get(toKey(key)) ?? null
   }
   return {
-    cardUrl: table(manifest.cards),
-    wordUrl: table(manifest.words),
+    pictureUrl: (path) => (path === null || storedUrl === null ? null : storedUrl(path)),
     backUrl: table(manifest.cardbacks, setKey),
     packUrl: table(manifest.packs, packKey),
     mascotUrl: table(manifest.mascots),
@@ -55,7 +62,10 @@ export const NO_ART: ArtLookup = artLookup(EMPTY_ART)
 
 export const ArtContext = createContext<ArtLookup>(NO_ART)
 
-/** The built pictures (`ArtProvider`). Outside a provider, or before the manifest loads, there are none. */
+/**
+ * The pictures (`ArtProvider`): the built cardbacks, packs and Cardmaker, and the stored card and word pictures.
+ * Outside a provider there are none, and before the manifest loads there are no built ones.
+ */
 export function useArt(): ArtLookup {
   return useContext(ArtContext)
 }

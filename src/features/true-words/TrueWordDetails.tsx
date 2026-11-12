@@ -37,7 +37,7 @@ export function TrueWordDetails({ entry, holderName, onDone }: TrueWordDetailsPr
   const isTableBusy = useIsTableBusy()
   const isOnline = useOnlineStatus()
   const actions = useTrueWordActions()
-  const picture = usePicture(useArt().wordUrl(word.id))
+  const picture = usePicture(useArt().pictureUrl(word.picture))
   const [isConfirming, setIsConfirming] = useState(false)
   const [isBusy, setIsBusy] = useState(false)
   const [failure, setFailure] = useState<WordFailure | null>(null)

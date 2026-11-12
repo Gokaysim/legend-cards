@@ -38,28 +38,29 @@ const assign = (target: ArtTarget, file: SourceFile): ArtAssignment<SourceFile> 
 })
 
 const CARD: ArtTarget = { group: 'normal', key: 'legend-abolethseyes', label: "Aboleth's Eyes" }
+const BACK: ArtTarget = { group: 'back', key: 'Kesqer', label: 'Kesqerian Nights' }
 const MASCOT: ArtTarget = { group: 'mascot', key: 'cardmaker_lib', label: 'cardmaker_lib' }
 
 describe('writeArt', () => {
   it('writes WebP pictures with hashed names, a shrunk Cardmaker, and the manifest', async () => {
-    const card = await png('abolethseyes.png', 30, 42, 112)
+    const back = await png('kesqer_cb.png', 30, 42, 112)
     const mascot = await png('cardmaker_lib.png', 100, 1000, 192, 0.5)
     const out = join(root, 'art')
 
-    const manifest = await writeArt([assign(CARD, card), assign(MASCOT, mascot)], out)
+    const manifest = await writeArt([assign(BACK, back), assign(MASCOT, mascot)], out)
 
-    const [cardFile] = await readdir(join(out, 'cards'))
+    const [backFile] = await readdir(join(out, 'backs'))
     const [mascotFile] = await readdir(join(out, 'mascots'))
-    expect(cardFile).toMatch(/^legend-abolethseyes\.[0-9a-f]{10}\.webp$/)
+    expect(backFile).toMatch(/^kesqer\.[0-9a-f]{10}\.webp$/)
     expect(mascotFile).toMatch(/^cardmaker_lib\.[0-9a-f]{10}\.webp$/)
 
-    const cardBytes = await readFile(join(out, 'cards', cardFile ?? ''))
+    const backBytes = await readFile(join(out, 'backs', backFile ?? ''))
     const mascotBytes = await readFile(join(out, 'mascots', mascotFile ?? ''))
-    expect(cardFile).toBe(`legend-abolethseyes.${contentHash(cardBytes)}.webp`)
+    expect(backFile).toBe(`kesqer.${contentHash(backBytes)}.webp`)
     expect(mascotFile).toBe(`cardmaker_lib.${contentHash(mascotBytes)}.webp`)
 
-    // A card keeps its own size; a Cardmaker is at most 480 px high and keeps its transparency.
-    expect(await sharp(cardBytes).metadata()).toMatchObject({
+    // A cardback keeps its own size; a Cardmaker is at most 480 px high and keeps its transparency.
+    expect(await sharp(backBytes).metadata()).toMatchObject({
       format: 'webp',
       width: 30,
       height: 42,
@@ -73,9 +74,7 @@ describe('writeArt', () => {
 
     const expected = {
       version: 1,
-      cards: { 'legend-abolethseyes': `/art/cards/${cardFile}` },
-      words: {},
-      cardbacks: {},
+      cardbacks: { Kesqer: `/art/backs/${backFile}` },
       packs: {},
       mascots: { cardmaker_lib: `/art/mascots/${mascotFile}` },
     }
@@ -83,24 +82,30 @@ describe('writeArt', () => {
     expect(JSON.parse(await readFile(join(out, 'manifest.json'), 'utf8'))).toEqual(expected)
   })
 
-  it('replaces an earlier build, and only a changed picture gets a new address', async () => {
+  it('replaces an earlier build, its card and word folders too, and only a changed picture gets a new address', async () => {
     const out = join(root, 'art')
     await mkdir(join(out, 'cards'), { recursive: true })
-    await writeFile(join(out, 'cards', 'stale.webp'), 'old')
+    await writeFile(join(out, 'cards', 'legend-abolethseyes.0123456789.webp'), 'old')
 
-    const card = await png('abolethseyes.png', 30, 42, 112)
     const back = await png('kesqer_cb.png', 30, 42, 32)
-    const backTarget: ArtTarget = { group: 'back', key: 'Kesqer', label: 'Kesqerian Nights' }
-    const first = await writeArt([assign(CARD, card), assign(backTarget, back)], out)
-    expect(await readdir(join(out, 'cards'))).toHaveLength(1)
+    const mascot = await png('cardmaker_lib.png', 30, 42, 112)
+    const first = await writeArt([assign(BACK, back), assign(MASCOT, mascot)], out)
+    expect(await readdir(out)).toEqual(['backs', 'manifest.json', 'mascots', 'packs'])
 
-    await png('abolethseyes.png', 30, 42, 160)
-    const second = await writeArt([assign(CARD, card), assign(backTarget, back)], out)
+    await png('cardmaker_lib.png', 30, 42, 160)
+    const second = await writeArt([assign(BACK, back), assign(MASCOT, mascot)], out)
 
-    expect(second.cards['legend-abolethseyes']).not.toBe(first.cards['legend-abolethseyes'])
+    expect(second.mascots.cardmaker_lib).not.toBe(first.mascots.cardmaker_lib)
     expect(second.cardbacks.Kesqer).toBe(first.cardbacks.Kesqer)
     expect(second.cardbacks.Kesqer).toMatch(/^\/art\/backs\/kesqer\.[0-9a-f]{10}\.webp$/)
-    expect(await readdir(join(out, 'cards'))).toHaveLength(1)
+    expect(await readdir(join(out, 'mascots'))).toHaveLength(1)
+  })
+
+  it('builds no card or word picture', async () => {
+    const card = await png('abolethseyes.png', 30, 42, 112)
+    await expect(writeArt([assign(CARD, card)], join(root, 'art'))).rejects.toThrow(
+      "Not a built picture: Aboleth's Eyes",
+    )
   })
 })
 

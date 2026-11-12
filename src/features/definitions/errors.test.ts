@@ -23,6 +23,8 @@ describe('toDefinitionFailure', () => {
     [new TableBusyError('p1'), 'table-busy'],
     [firestoreError('permission-denied'), 'permission-denied'],
     [firestoreError('unavailable'), 'offline'],
+    [firestoreError('storage/unauthorized'), 'permission-denied'],
+    [firestoreError('storage/retry-limit-exceeded'), 'offline'],
     [new Error('other'), 'unknown'],
   ])('maps %o to %s', (error, kind) => {
     expect(toDefinitionFailure(error).kind).toBe(kind)

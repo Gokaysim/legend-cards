@@ -25,7 +25,16 @@ type Step = 'idle' | 'skip' | 'cancel'
 
 /** A shown word that is no longer in the list: drawn by its ID until the data says more. */
 function missingWord(id: string): TrueWord {
-  return { id, name: id, nameKey: id, cost: '?', text: '', status: 'retired', changeId: null }
+  return {
+    id,
+    name: id,
+    nameKey: id,
+    cost: '?',
+    text: '',
+    status: 'retired',
+    changeId: null,
+    picture: null,
+  }
 }
 
 /**

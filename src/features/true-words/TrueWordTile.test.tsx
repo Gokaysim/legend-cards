@@ -2,16 +2,19 @@ import { render, screen, within } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { describe, expect, it } from 'vitest'
 
-import { testArt } from '@/test/artFixtures'
+import { testPicturePath } from '@/test/artFixtures'
 import { TestArtProvider } from '@/test/TestArtProvider'
 import { testTrueWord } from '@/test/trueWordFixtures'
 
 import { TrueWordTile } from './TrueWordTile'
 
-const ABYSS = testTrueWord('Abyss', { cost: '5', text: 'A random card is free.' })
-const ART = testArt({ words: { [ABYSS.id]: '/art/words/abyss.webp' } })
+const ABYSS = testTrueWord('Abyss', {
+  cost: '5',
+  text: 'A random card is free.',
+  picture: testPicturePath('word', 'tw-abyss'),
+})
 
-const withArt = (ui: ReactNode) => render(<TestArtProvider manifest={ART}>{ui}</TestArtProvider>)
+const withArt = (ui: ReactNode) => render(<TestArtProvider>{ui}</TestArtProvider>)
 const tile = () => screen.getByRole('article', { name: 'Abyss' })
 
 describe('TrueWordTile as a picture alone', () => {
@@ -58,7 +61,7 @@ describe('TrueWordTile as a picture alone', () => {
     expect(tile()).toHaveClass('drop-shadow-glow-selected')
 
     rerender(
-      <TestArtProvider manifest={ART}>
+      <TestArtProvider>
         <TrueWordTile word={ABYSS} isPictureOnly isSelected isActive />
       </TestArtProvider>,
     )

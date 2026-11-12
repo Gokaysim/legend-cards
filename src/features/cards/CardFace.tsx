@@ -151,7 +151,7 @@ export function CardFace({
   onOpen,
   openLabel,
 }: CardFaceProps) {
-  const picture = usePicture(useArt().cardUrl(card.id))
+  const picture = usePicture(useArt().pictureUrl(card.picture))
   const infoId = useId()
   // A tap shows the set symbol's note until the symbol loses the focus; a pointer resting on it shows it too (CSS).
   const [isInfoShown, setIsInfoShown] = useState(false)

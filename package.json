@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "concurrently -k -n emu,web -c yellow,cyan \"npm:emulators\" \"npm:dev:web\"",
     "dev:web": "vite",
-    "emulators": "node -e \"require('fs').mkdirSync('.firebase-emulator-data',{recursive:true})\" && firebase emulators:start --only auth,firestore --project demo-legend-cards --import .firebase-emulator-data --export-on-exit",
+    "emulators": "node -e \"require('fs').mkdirSync('.firebase-emulator-data',{recursive:true})\" && firebase emulators:start --only auth,firestore,storage --project demo-legend-cards --import .firebase-emulator-data --export-on-exit",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b --pretty",
@@ -19,11 +19,12 @@
     "format:check": "prettier --check .",
     "test": "vitest run --project unit",
     "test:watch": "vitest --project unit",
-    "test:emulator": "firebase emulators:exec --only auth,firestore --project demo-legend-cards \"vitest run --project emulator\"",
+    "test:emulator": "firebase emulators:exec --only auth,firestore,storage --project demo-legend-cards \"vitest run --project emulator\"",
     "set-role": "node scripts/set-role.ts",
     "import-cards": "node scripts/import-cards.ts",
     "import-true-words": "node scripts/import-true-words.ts",
     "build-art": "node scripts/build-art.ts",
+    "import-pictures": "node scripts/import-pictures.ts",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm run test"
   },
   "dependencies": {

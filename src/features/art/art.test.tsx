@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { testArt } from '@/test/artFixtures'
+import { testArt, testPictureUrl } from '@/test/artFixtures'
 import { TestArtProvider } from '@/test/TestArtProvider'
 
 import { artLookup, useArt } from './artContext'
@@ -9,9 +9,14 @@ import { ArtProvider } from './ArtProvider'
 import { loadArtManifest } from './loadArtManifest'
 import { EMPTY_ART } from './schema'
 
+// The app's stored picture addresses need the Firebase settings; here they are a fixed fake.
+vi.mock('@/lib/firebase/storage', () => ({
+  storedPictureUrl: (path: string) => `https://storage.test/${path}`,
+}))
+
+const ABOLETH_PICTURE = 'cards/legend-abolethseyes/0123456789.webp'
+
 const MANIFEST = testArt({
-  cards: { 'legend-abolethseyes': '/art/cards/legend-abolethseyes.0123456789.webp' },
-  words: { 'tw-abyss': '/art/words/tw-abyss.0123456789.webp' },
   cardbacks: {
     Kesqer: '/art/backs/kesqer.0123456789.webp',
     'The End is Nigh': '/art/backs/the-end-is-nigh.0123456789.webp',
@@ -30,14 +35,11 @@ const answer = (body: string, status = 200) =>
   vi.fn<typeof fetch>(() => Promise.resolve(new Response(body, { status })))
 
 describe('artLookup', () => {
-  const art = artLookup(MANIFEST)
+  const art = artLookup(MANIFEST, '/', testPictureUrl)
 
   it('gives the URL of each kind of picture, and null without one', () => {
-    expect(art.cardUrl('legend-abolethseyes')).toBe(
-      '/art/cards/legend-abolethseyes.0123456789.webp',
-    )
-    expect(art.cardUrl('legend-scorchedearth')).toBeNull()
-    expect(art.wordUrl('tw-abyss')).toBe('/art/words/tw-abyss.0123456789.webp')
+    expect(art.pictureUrl(ABOLETH_PICTURE)).toBe(testPictureUrl(ABOLETH_PICTURE))
+    expect(art.pictureUrl(null)).toBeNull()
     expect(art.backUrl('cursed')).toBe('/art/backs/cursed.0123456789.webp')
     expect(art.backUrl('blessed')).toBeNull()
     expect(art.packUrl('golden')).toBe('/art/packs/golden.0123456789.webp')
@@ -59,9 +61,13 @@ describe('artLookup', () => {
     expect(art.packUrl('premium:The End Is Nigh')).toBeNull()
   })
 
-  it('serves the pictures under the base URL the app is served at', () => {
-    expect(artLookup(MANIFEST, '/cards/').cardUrl('legend-abolethseyes')).toBe(
-      '/cards/art/cards/legend-abolethseyes.0123456789.webp',
+  it('gives no card or word picture without a way to build its address', () => {
+    expect(artLookup(MANIFEST).pictureUrl(ABOLETH_PICTURE)).toBeNull()
+  })
+
+  it('serves the built pictures under the base URL the app is served at', () => {
+    expect(artLookup(MANIFEST, '/cards/').backUrl('cursed')).toBe(
+      '/cards/art/backs/cursed.0123456789.webp',
     )
   })
 })
@@ -73,6 +79,17 @@ describe('loadArtManifest', () => {
     expect(fetcher).toHaveBeenCalledWith('/art/manifest.json')
   })
 
+  it('keeps the built pictures of an older manifest that still lists cards and words', async () => {
+    const older = {
+      ...MANIFEST,
+      cards: { 'legend-abolethseyes': '/art/cards/legend-abolethseyes.0123456789.webp' },
+      words: { 'tw-abyss': '/art/words/tw-abyss.0123456789.webp' },
+    }
+    await expect(
+      loadArtManifest('/art/manifest.json', answer(JSON.stringify(older))),
+    ).resolves.toEqual(MANIFEST)
+  })
+
   it.each([
     ['a failed request', vi.fn<typeof fetch>(() => Promise.reject(new TypeError('offline')))],
     ['a missing file', answer('Not found', 404)],
@@ -81,7 +98,7 @@ describe('loadArtManifest', () => {
     ['an invalid manifest', answer(JSON.stringify({ version: 2, cards: {} }))],
     [
       'a picture outside /art/',
-      answer(JSON.stringify(testArt({ cards: { x: 'https://example.com/x.webp' } }))),
+      answer(JSON.stringify(testArt({ cardbacks: { x: 'https://example.com/x.webp' } }))),
     ],
   ])('gives EMPTY_ART for %s, and says why', async (_case, fetcher) => {
     const report = vi.fn()
@@ -90,8 +107,14 @@ describe('loadArtManifest', () => {
   })
 })
 
-function CardPictureUrl() {
-  return <p>{useArt().cardUrl('legend-abolethseyes') ?? 'none'}</p>
+function PictureUrls() {
+  const art = useArt()
+  return (
+    <>
+      <p>{art.backUrl('cursed') ?? 'no back'}</p>
+      <p>{art.pictureUrl(ABOLETH_PICTURE) ?? 'no card picture'}</p>
+    </>
+  )
 }
 
 describe('ArtProvider', () => {
@@ -105,15 +128,24 @@ describe('ArtProvider', () => {
     vi.stubGlobal('fetch', fetcher)
     render(
       <ArtProvider>
-        <CardPictureUrl />
+        <PictureUrls />
       </ArtProvider>,
     )
-    expect(screen.getByText('none')).toBeInTheDocument()
-    expect(
-      await screen.findByText('/art/cards/legend-abolethseyes.0123456789.webp'),
-    ).toBeInTheDocument()
+    expect(screen.getByText('no back')).toBeInTheDocument()
+    expect(await screen.findByText('/art/backs/cursed.0123456789.webp')).toBeInTheDocument()
     expect(fetcher).toHaveBeenCalledOnce()
     expect(fetcher).toHaveBeenCalledWith('/art/manifest.json')
+  })
+
+  it("builds the stored pictures' addresses without a request", () => {
+    vi.stubGlobal('fetch', answer('<!doctype html>'))
+    vi.spyOn(console, 'info').mockImplementation(() => {})
+    render(
+      <ArtProvider>
+        <PictureUrls />
+      </ArtProvider>,
+    )
+    expect(screen.getByText(`https://storage.test/${ABOLETH_PICTURE}`)).toBeInTheDocument()
   })
 
   it('keeps no pictures when there is no manifest', async () => {
@@ -122,27 +154,29 @@ describe('ArtProvider', () => {
     const info = vi.spyOn(console, 'info').mockImplementation(() => {})
     render(
       <ArtProvider>
-        <CardPictureUrl />
+        <PictureUrls />
       </ArtProvider>,
     )
     await waitFor(() => expect(info).toHaveBeenCalledOnce())
     expect(fetcher).toHaveBeenCalledOnce()
-    expect(screen.getByText('none')).toBeInTheDocument()
+    expect(screen.getByText('no back')).toBeInTheDocument()
   })
 })
 
 describe('useArt', () => {
   it('has no pictures outside a provider', () => {
-    render(<CardPictureUrl />)
-    expect(screen.getByText('none')).toBeInTheDocument()
+    render(<PictureUrls />)
+    expect(screen.getByText('no back')).toBeInTheDocument()
+    expect(screen.getByText('no card picture')).toBeInTheDocument()
   })
 
-  it('gives the test manifest inside TestArtProvider', () => {
+  it('gives the test manifest and the test addresses inside TestArtProvider', () => {
     render(
       <TestArtProvider manifest={MANIFEST}>
-        <CardPictureUrl />
+        <PictureUrls />
       </TestArtProvider>,
     )
-    expect(screen.getByText('/art/cards/legend-abolethseyes.0123456789.webp')).toBeInTheDocument()
+    expect(screen.getByText('/art/backs/cursed.0123456789.webp')).toBeInTheDocument()
+    expect(screen.getByText(testPictureUrl(ABOLETH_PICTURE))).toBeInTheDocument()
   })
 })

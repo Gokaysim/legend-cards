@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
-import { testArt } from '@/test/artFixtures'
+import { testPicturePath, testPictureUrl } from '@/test/artFixtures'
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 import { TestArtProvider } from '@/test/TestArtProvider'
 
@@ -313,18 +313,13 @@ const ABOLETH = testCard("Aboleth's Eyes", {
   rarity: 'common',
   mechanicPack: 'Arcanus Divine',
   text: 'For the rest of this combat, gain Immune to any Illusion effect.',
+  picture: testPicturePath('card', 'legend-abolethseyes'),
 })
-const ABOLETH_URL = '/art/cards/legend-abolethseyes.0123456789.webp'
-const ART = testArt({
-  cards: {
-    [ABOLETH.id]: ABOLETH_URL,
-    'cursed-hex': '/art/cards/cursed-hex.0123456789.webp',
-  },
-})
+const ABOLETH_URL = testPictureUrl(testPicturePath('card', 'legend-abolethseyes'))
+const HEX_WITH_PICTURE = testCursedCard('Hex', { picture: testPicturePath('card', 'cursed-hex') })
 
 /** Renders with the test pictures: Aboleth's Eyes and the Cursed card Hex have one. */
-const renderWithArt = (ui: ReactNode) =>
-  render(<TestArtProvider manifest={ART}>{ui}</TestArtProvider>)
+const renderWithArt = (ui: ReactNode) => render(<TestArtProvider>{ui}</TestArtProvider>)
 
 describe('CardFace with a picture', () => {
   it('shows the picture without a frame of its own, with no text under it', () => {
@@ -383,7 +378,7 @@ describe('CardFace with a picture', () => {
   })
 
   it('gives a Cursed card no note on its symbol', () => {
-    renderWithArt(<CardFace card={testCursedCard('Hex')} />)
+    renderWithArt(<CardFace card={HEX_WITH_PICTURE} />)
 
     const card = face('Hex')
     expect(within(card).getByRole('img', { name: 'Hex' })).toBeInTheDocument()
@@ -558,7 +553,7 @@ describe('CardFace glow', () => {
     expect(glowOf(face("Aboleth's Eyes"))).toBeNull()
 
     rerender(
-      <TestArtProvider manifest={ART}>
+      <TestArtProvider>
         <CardFace card={ABOLETH} handCost="3" isActive />
       </TestArtProvider>,
     )

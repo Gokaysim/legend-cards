@@ -11,7 +11,7 @@ import { TrueWordZoomDialog } from './TrueWordZoomDialog'
 
 /** One active word peeking out above the hand: its picture, or v2.2.8's placeholder with ✦ and its name. */
 function PeekWord({ word, onOpen }: { word: TrueWord; onOpen: () => void }) {
-  const picture = usePicture(useArt().wordUrl(word.id))
+  const picture = usePicture(useArt().pictureUrl(word.picture))
   return (
     <button
       type="button"

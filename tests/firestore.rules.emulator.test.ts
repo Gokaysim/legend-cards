@@ -454,6 +454,11 @@ describe('definition steps (cards, trueWords and definitionChanges)', () => {
 
   const pick = (keys: readonly string[], data: Definition) =>
     Object.fromEntries(keys.map((key) => [key, data[key]]))
+  /** A definition as a record keeps it: its fields, and its picture, `null` when it has none. */
+  const snapshot = (keys: readonly string[], data: Definition): Definition => ({
+    ...pick(keys, data),
+    picture: data.picture ?? null,
+  })
   const statusOf = (data: Definition | null): Status => (data?.status as Status) ?? null
   const stepName = (before: Status, after: Status) =>
     before === null
@@ -481,7 +486,8 @@ describe('definition steps (cards, trueWords and definitionChanges)', () => {
 
   /**
    * One DM step as the app writes it: the definition (created, merged or deleted) with its change record, in one
-   * batch. `changes` are merged into the stored definition; `null` deletes it.
+   * batch. `changes` are merged into the stored definition; `null` deletes it. The picture is written only when
+   * `changes` names it, so a definition without the field keeps it absent.
    */
   async function step(
     uid: string,
@@ -493,15 +499,20 @@ describe('definition steps (cards, trueWords and definitionChanges)', () => {
     const path = `${target === 'card' ? 'cards' : 'trueWords'}/${id}`
     const keys = target === 'card' ? CARD_KEYS : WORD_KEYS
     const stored = (await readAsAdmin(path)) as Definition | undefined
-    const before = stored ? pick(keys, stored) : null
-    const after = changes === null ? null : pick(keys, { ...stored, ...changes })
+    const merged = { ...stored, ...changes }
+    const before = stored ? snapshot(keys, stored) : null
+    const after = changes === null ? null : snapshot(keys, merged)
+    const written =
+      changes === null
+        ? null
+        : { ...pick(keys, merged), ...('picture' in changes ? { picture: changes.picture } : {}) }
     const changeId =
       spec.changeId ?? (after === null ? `del-${id}-${String(stored?.changeId)}` : 'c-new')
     const db = asUser(uid)
     const batch = writeBatch(db)
     if (!spec.withoutChange) {
-      if (after === null) batch.delete(doc(db, path))
-      else batch.set(doc(db, path), { ...after, changeId }, { merge: true })
+      if (written === null) batch.delete(doc(db, path))
+      else batch.set(doc(db, path), { ...written, changeId }, { merge: true })
     }
     if (!spec.withoutRecord) {
       batch.set(doc(db, `definitionChanges/${changeId}`), {
@@ -616,6 +627,77 @@ describe('definition steps (cards, trueWords and definitionChanges)', () => {
       await assertSucceeds(step('dana', 'card', EYES, { text: 'Typo fixed.' }))
     })
 
+    describe('pictures', () => {
+      const EYES_PICTURE = `cards/${EYES}/93e6f39a91.webp`
+
+      it.each([
+        ['a picture', 'cards/legend-lutesong/93e6f39a91.webp'],
+        ['a removed picture', null],
+      ])('lets the DM add a card with %s', async (_case, picture) => {
+        await assertSucceeds(
+          step('dana', 'card', 'legend-lutesong', card('Lute Song', { status: 'draft', picture })),
+        )
+        expect(await readAsAdmin('cards/legend-lutesong')).toMatchObject({ picture })
+        expect(await readAsAdmin('definitionChanges/c-new')).toMatchObject({
+          after: { picture },
+        })
+      })
+
+      it('lets the DM give an active card a picture while a pack is open, then replace and remove it', async () => {
+        await openPack()
+        await assertSucceeds(
+          step('dana', 'card', EYES, { picture: EYES_PICTURE }, { changeId: 'c-1' }),
+        )
+        expect(await readAsAdmin('definitionChanges/c-1')).toMatchObject({
+          step: 'edited',
+          before: { picture: null },
+          after: { picture: EYES_PICTURE },
+        })
+        const next = `cards/${EYES}/0123456789.webp`
+        await assertSucceeds(step('dana', 'card', EYES, { picture: next }, { changeId: 'c-2' }))
+        await assertSucceeds(step('dana', 'card', EYES, { picture: null }, { changeId: 'c-3' }))
+        expect(await readAsAdmin(`cards/${EYES}`)).toMatchObject({ picture: null })
+        expect(await readAsAdmin('definitionChanges/c-3')).toMatchObject({
+          before: { picture: next },
+          after: { picture: null },
+        })
+      })
+
+      it('keeps the field absent when the DM edits a card that never had a picture', async () => {
+        await assertSucceeds(step('dana', 'card', EYES, { text: 'Other.' }))
+        expect(await readAsAdmin(`cards/${EYES}`)).not.toHaveProperty('picture')
+      })
+
+      it('lets the DM publish a draft together with its picture', async () => {
+        await assertSucceeds(
+          step('dana', 'card', ENCORE, {
+            status: 'active',
+            picture: `cards/${ENCORE}/abcdef0123.webp`,
+          }),
+        )
+      })
+
+      it('lets the DM give a retired word a picture and keep it when bringing the word back', async () => {
+        const picture = 'words/tw-old/abcdef0123.webp'
+        await assertSucceeds(step('dana', 'word', 'tw-old', { picture }, { changeId: 'c-1' }))
+        await assertSucceeds(
+          step('dana', 'word', 'tw-old', { status: 'active' }, { changeId: 'c-2' }),
+        )
+        expect(await readAsAdmin('trueWords/tw-old')).toMatchObject({ picture, status: 'active' })
+      })
+
+      it('lets the DM add a word with a picture', async () => {
+        await assertSucceeds(
+          step(
+            'dana',
+            'word',
+            'tw-lull',
+            word('Lull', { picture: 'words/tw-lull/abcdef0123.webp' }),
+          ),
+        )
+      })
+    })
+
     it('lets the DM add, edit, publish, retire, bring back and delete True Words', async () => {
       await assertSucceeds(
         step('dana', 'word', 'tw-lull', word('Lull', { status: 'draft', cost: null }), {
@@ -722,6 +804,55 @@ describe('definition steps (cards, trueWords and definitionChanges)', () => {
       ['publishing an incomplete word', 'word', 'tw-echo', { status: 'active' }],
       ['retiring a draft word', 'word', 'tw-echo', { status: 'retired' }],
       ['a word under a card ID', 'word', 'legend-lull', word('Lull')],
+      ['a picture of another card', 'card', EYES, { picture: 'cards/legend-hex/93e6f39a91.webp' }],
+      ['a picture in the words folder', 'card', EYES, { picture: `words/${EYES}/93e6f39a91.webp` }],
+      [
+        'a picture with an uppercase hash',
+        'card',
+        EYES,
+        { picture: `cards/${EYES}/93E6F39A91.webp` },
+      ],
+      ['a picture that is not WebP', 'card', EYES, { picture: `cards/${EYES}/93e6f39a91.png` }],
+      ['a picture that is an address', 'card', EYES, { picture: 'https://example.com/a.webp' }],
+      ['a picture that is not text', 'card', EYES, { picture: 7 }],
+      [
+        'a new card with a picture of another card',
+        'card',
+        'legend-lutesong',
+        card('Lute Song', { status: 'draft', picture: `cards/${EYES}/93e6f39a91.webp` }),
+      ],
+      [
+        'retiring with a change of picture',
+        'card',
+        EYES,
+        { status: 'retired', picture: `cards/${EYES}/93e6f39a91.webp` },
+      ],
+      [
+        'a record whose picture disagrees with the card',
+        'card',
+        EYES,
+        { picture: `cards/${EYES}/93e6f39a91.webp` },
+        { record: { after: card("Aboleth's Eyes", { picture: null }) } },
+      ],
+      [
+        'a record that leaves out a picture change',
+        'card',
+        EYES,
+        { picture: `cards/${EYES}/93e6f39a91.webp` },
+        { record: { after: card("Aboleth's Eyes") } },
+      ],
+      [
+        'a word picture in the cards folder',
+        'word',
+        'tw-abyss',
+        { picture: 'cards/tw-abyss/abcdef0123.webp' },
+      ],
+      [
+        'retiring a word with a change of picture',
+        'word',
+        'tw-abyss',
+        { status: 'retired', picture: 'words/tw-abyss/abcdef0123.webp' },
+      ],
     ])('denies %s', async (_case, target, id, changes, spec) => {
       await assertFails(step('dana', target as 'card' | 'word', id, changes, spec))
     })
@@ -758,6 +889,8 @@ describe('definition steps (cards, trueWords and definitionChanges)', () => {
       await assertFails(step('ayla', 'card', EYES, { text: 'Mine now.' }))
       await assertFails(step('ayla', 'card', ENCORE, null))
       await assertFails(step('ayla', 'word', 'tw-abyss', { cost: '0' }))
+      await assertFails(step('ayla', 'card', EYES, { picture: `cards/${EYES}/93e6f39a91.webp` }))
+      await assertFails(step('ayla', 'word', 'tw-abyss', { picture: null }))
     })
 
     it('denies changing or deleting a record', async () => {

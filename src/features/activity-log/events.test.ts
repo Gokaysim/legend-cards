@@ -296,6 +296,21 @@ describe('definition changes', () => {
     ])
   })
 
+  it('makes one import event of each picture import record, public or DM-only', () => {
+    const shown = testImportRecord('p1', 700, { what: 'pictures', at: Timestamp.fromMillis(2000) })
+    const drafts = testImportRecord('p2', 1, {
+      what: 'pictures',
+      public: false,
+      items: [{ id: 'legend-thecartographer', name: 'The Cartographer', status: 'draft' }],
+      at: Timestamp.fromMillis(2000),
+    })
+    const events = deriveEvents(records({ changes: [shown, drafts] }))
+    expect(events.map((event) => [event.kind, event.key, event.by])).toEqual([
+      ['import', 'definition:p1', null],
+      ['import', 'definition:p2', null],
+    ])
+  })
+
   it('counts the changes when deciding whether older events may exist', () => {
     const changes = [testCardChange('c1', eyes, eyes), testCardChange('c2', eyes, eyes)]
     expect(newestEvents(records({ changes }), 2).mayHaveMore).toBe(true)

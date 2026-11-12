@@ -22,7 +22,7 @@ export type TrueWordZoomDialogProps = {
  * Rendered into `document.body`, so no style of what opened it reaches it.
  */
 export function TrueWordZoomDialog({ word, onClose }: TrueWordZoomDialogProps) {
-  const picture = usePicture(useArt().wordUrl(word.id))
+  const picture = usePicture(useArt().pictureUrl(word.picture))
   const text = visibleText(word.text)
   return createPortal(
     <Dialog title={`✦ ${word.name}`} onClose={onClose} className="sm:max-w-fit" closeOnBackdrop>

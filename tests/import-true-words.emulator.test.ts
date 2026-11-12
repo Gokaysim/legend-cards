@@ -9,14 +9,23 @@ import {
   trueWordId,
   type WordRow,
 } from '../scripts/lib/importTrueWords.ts'
-import { type AdminHandle, DEMO_PROJECT_ID, openAdmin } from '../scripts/lib/target.ts'
+import {
+  type AdminHandle,
+  defaultBucket,
+  DEMO_PROJECT_ID,
+  openAdmin,
+} from '../scripts/lib/target.ts'
 import { parseTrueWordFile } from '../scripts/lib/trueWordRows.ts'
 
 // `firebase emulators:exec` sets FIRESTORE_EMULATOR_HOST and FIREBASE_AUTH_EMULATOR_HOST for this run.
 let admin: AdminHandle
 
 beforeAll(() => {
-  admin = openAdmin({ kind: 'emulator', projectId: DEMO_PROJECT_ID })
+  admin = openAdmin({
+    kind: 'emulator',
+    projectId: DEMO_PROJECT_ID,
+    bucket: defaultBucket(DEMO_PROJECT_ID),
+  })
 })
 
 afterAll(async () => {

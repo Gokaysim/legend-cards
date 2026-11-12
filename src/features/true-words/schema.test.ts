@@ -38,6 +38,8 @@ describe('trueWordSchema', () => {
     ['a retired word', { ...abyss, status: 'retired' }],
     ['a draft without a cost or a text', { ...abyss, status: 'draft', cost: null, text: '' }],
     ['a change record', { ...abyss, changeId: 'c1' }],
+    ['a picture', { ...abyss, picture: 'words/tw-abyss/abcdef0123.webp' }],
+    ['a removed picture', { ...abyss, picture: null }],
   ])('accepts %s', (_case, word) => {
     expect(trueWordSchema.safeParse(word).success).toBe(true)
   })
@@ -50,8 +52,13 @@ describe('trueWordSchema', () => {
     ['a retired word without a cost', { ...abyss, status: 'retired', cost: null }],
     ['a missing status', { ...abyss, status: undefined }],
     ['the old retired flag in place of a status', { ...abyss, status: undefined, retired: false }],
+    ['a picture that is not a stored path', { ...abyss, picture: 'twabyss.png' }],
   ])('rejects %s', (_case, word) => {
     expect(trueWordSchema.safeParse(word).success).toBe(false)
+  })
+
+  it('reads a word without a picture field as having no picture', () => {
+    expect(trueWordSchema.parse(abyss).picture).toBeNull()
   })
 })
 

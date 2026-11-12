@@ -5,6 +5,8 @@ import { CARD_KINDS, CARD_LIMITS, RARITIES } from '@/features/cards/schema'
 import { TRUE_WORD_LIMITS } from '@/features/true-words/schema'
 import { createConverter } from '@/lib/firestore/converter'
 
+import { picturePathSchema } from './picturePath'
+
 import { DEFINITION_STATUSES, type DefinitionStatus } from './status'
 
 /** What a change record is about. Keep in step with `firestore.rules`. */
@@ -52,6 +54,12 @@ const status = z.enum(DEFINITION_STATUSES)
 /** A server timestamp. `null` only in the local snapshot while the server time is pending. */
 const serverTime = z.instanceof(Timestamp).nullable()
 
+/**
+ * A definition's picture in a snapshot: its path, or `null` for none, whether the definition never had a picture or
+ * the DM removed it. Records from before pictures were stored have no field, which reads as `null`.
+ */
+const snapshotPicture = picturePathSchema.nullable().default(null)
+
 /** A card's definition at one moment: every field the definition steps change, and its status. */
 export const cardSnapshotSchema = z.object({
   kind: z.enum(CARD_KINDS),
@@ -63,6 +71,7 @@ export const cardSnapshotSchema = z.object({
   mechanicPack: z.string().min(1).max(CARD_LIMITS.mechanicPack).nullable(),
   text: z.string().max(CARD_LIMITS.text),
   status,
+  picture: snapshotPicture,
 })
 export type CardSnapshot = z.infer<typeof cardSnapshotSchema>
 
@@ -73,6 +82,7 @@ export const wordSnapshotSchema = z.object({
   cost: z.string().min(1).max(TRUE_WORD_LIMITS.cost).nullable(),
   text: z.string().max(TRUE_WORD_LIMITS.text),
   status,
+  picture: snapshotPicture,
 })
 export type WordSnapshot = z.infer<typeof wordSnapshotSchema>
 
@@ -102,17 +112,27 @@ const wordStepSchema = z.object({
   after: wordSnapshotSchema.nullable(),
 })
 
-/** One definition an import added. */
+/** One definition an import added, or gave a picture. */
 export const importItemSchema = z.object({ id, name: z.string().min(1), status })
 export type ImportItem = z.infer<typeof importItemSchema>
 
 /**
- * An import run's summary, written by the import script (design D7): one public record of the active additions and
- * one DM-only record of the drafts. It names the import, not a user.
+ * What an import brought: new definitions (`import-cards`, `import-true-words`), or pictures for stored ones
+ * (`import-pictures`). Records from before the picture import have no field, which reads as `definitions`.
+ */
+export const IMPORT_KINDS = ['definitions', 'pictures'] as const
+export type ImportKind = (typeof IMPORT_KINDS)[number]
+
+/**
+ * An import run's summary, written by an import script (design D7 of add-card-and-word-editing, D9 of
+ * upload-card-and-word-pictures): one public record and one DM-only record of the drafts. The public record of a
+ * definition import lists its active additions; that of a picture import the active and retired definitions that got
+ * a picture. It names the import, not a user.
  */
 const importRecordSchema = z.object({
   target: z.enum(DEFINITION_TARGETS),
   step: z.literal('imported'),
+  what: z.enum(IMPORT_KINDS).default('definitions'),
   items: z.array(importItemSchema).min(1),
   public: z.boolean(),
   by: z.null(),
@@ -154,7 +174,9 @@ export const definitionChangeSchema = z.union([
   cardStepSchema.superRefine(checkStep),
   wordStepSchema.superRefine(checkStep),
   importRecordSchema.superRefine((record, ctx) => {
-    const isPublic = record.items.every((item) => item.status === 'active')
+    const isPublic = record.items.every((item) =>
+      record.what === 'pictures' ? item.status !== 'draft' : item.status === 'active',
+    )
     const isDraft = record.items.every((item) => item.status === 'draft')
     if (record.public ? !isPublic : !isDraft) {
       ctx.addIssue({

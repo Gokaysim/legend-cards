@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type { ArtManifest } from '@/features/art/schema'
 import { TABLE_BUSY_NOTE } from '@/features/table/errors'
-import { testArt } from '@/test/artFixtures'
+import { testPicturePath, testPictureUrl } from '@/test/artFixtures'
 import { ready, testProfile, testUser } from '@/test/fixtures'
 import { renderApp } from '@/test/renderApp'
 import { testLearnedWord, testTrueWord, testWordDraft } from '@/test/trueWordFixtures'
@@ -92,17 +92,17 @@ describe('the open draft panel', () => {
   })
 
   it('shows a word with its picture in place of its text, with its name, cost and control', () => {
-    const abyss = { ...ABYSS, cost: '5', text: 'Once per turn a random card of yours is free.' }
-    const { panel } = watch({
-      words: [abyss, AID, DRAGON],
-      art: testArt({ words: { [ABYSS.id]: '/art/words/tw-abyss.0123456789.webp' } }),
-    })
+    const picture = testPicturePath('word', ABYSS.id)
+    const abyss = {
+      ...ABYSS,
+      cost: '5',
+      text: 'Once per turn a random card of yours is free.',
+      picture,
+    }
+    const { panel } = watch({ words: [abyss, AID, DRAGON] })
 
     const tile = within(panel.getByRole('article', { name: 'Abyss' }))
-    expect(tile.getByRole('img', { name: 'Abyss' })).toHaveAttribute(
-      'src',
-      '/art/words/tw-abyss.0123456789.webp',
-    )
+    expect(tile.getByRole('img', { name: 'Abyss' })).toHaveAttribute('src', testPictureUrl(picture))
     expect(tile.getByRole('heading', { name: 'Abyss' })).toBeInTheDocument()
     expect(tile.getByText('5 LP')).toBeInTheDocument()
     expect(tile.getByText(/a random card of yours is free/)).toHaveClass('sr-only')

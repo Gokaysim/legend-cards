@@ -96,6 +96,16 @@ service cloud.firestore {
       return value is string && value.size() >= 1 && value.size() <= max;
     }
 
+    // A definition's picture (design D3 of upload-card-and-word-pictures): no field (it never had one), null (the DM
+    // removed it), or the Cloud Storage path of a picture of this very definition, `<folder>/<id>/<hash>.webp`.
+    // Keep in step with src/features/definitions/picturePath.ts and storage.rules.
+    function validPicture(data, folder, id) {
+      return !('picture' in data)
+        || data.picture == null
+        || (data.picture is string
+          && data.picture.matches(folder + '/' + id + '/[0-9a-f]{10}[.]webp'));
+    }
+
     // A card's definition with its status, as a change record keeps it (CardSnapshot in the definitions schema).
     function cardSnapshot(data) {
       return {
@@ -107,7 +117,8 @@ service cloud.firestore {
         'rarity': data.rarity,
         'mechanicPack': data.mechanicPack,
         'text': data.text,
-        'status': data.status
+        'status': data.status,
+        'picture': data.get('picture', null)
       };
     }
 
@@ -118,7 +129,8 @@ service cloud.firestore {
         'nameKey': data.nameKey,
         'cost': data.cost,
         'text': data.text,
-        'status': data.status
+        'status': data.status,
+        'picture': data.get('picture', null)
       };
     }
 
@@ -470,11 +482,12 @@ service cloud.firestore {
         return ['kind', 'name', 'nameKey', 'setCode', 'cost', 'rarity', 'mechanicPack', 'text', 'status', 'changeId'];
       }
 
-      // A card's shape: the limits of CARD_LIMITS, a status, and the fields its kind has. A normal draft may still
-      // lack its set, rarity and mechanic pack; completeCard decides when it may be active. Only a normal card has a
-      // holder.
+      // A card's shape: the limits of CARD_LIMITS, a status, the fields its kind has, and its picture. A normal draft
+      // may still lack its set, rarity and mechanic pack; completeCard decides when it may be active. Only a normal
+      // card has a holder.
       function validCard(data) {
         return textOfSize(data.name, 200)
+          && validPicture(data, 'cards', cardId)
           && textOfSize(data.nameKey, 200)
           && (data.cost == null || textOfSize(data.cost, 10))
           && data.text is string
@@ -516,7 +529,7 @@ service cloud.firestore {
       // the pool, without a holder.
       function addedByDm() {
         let data = request.resource.data;
-        return data.keys().hasOnly(definitionKeys().concat(['holder']))
+        return data.keys().hasOnly(definitionKeys().concat(['holder', 'picture']))
           && data.keys().hasAll(definitionKeys())
           && validCard(data)
           && inDeck(data.kind)
@@ -530,11 +543,11 @@ service cloud.firestore {
       // retired card complete, a kind that changes only on a draft (also as it is published) and only between normal
       // and Blessed, retiring and bringing back
       // that change nothing but the status, a free table for every status change, and the step's new record. The
-      // holder never changes here.
+      // holder never changes here. The picture changes with the other fields, never with retiring or bringing back.
       function changedByDm() {
         let before = resource.data;
         let after = request.resource.data;
-        return onlyChanges(definitionKeys())
+        return onlyChanges(definitionKeys().concat(['picture']))
           && validCard(after)
           && inDeck(after.kind)
           && allowedStatusStep(before.status, after.status)
@@ -1145,9 +1158,11 @@ service cloud.firestore {
         return ['name', 'nameKey', 'cost', 'text', 'status', 'changeId'];
       }
 
-      // A word's shape: the limits of TRUE_WORD_LIMITS and a status. A draft may still lack its cost or text.
+      // A word's shape: the limits of TRUE_WORD_LIMITS, a status and its picture. A draft may still lack its cost or
+      // text.
       function validWord(data) {
         return wordId.matches('tw-.+')
+          && validPicture(data, 'words', wordId)
           && textOfSize(data.name, 200)
           && textOfSize(data.nameKey, 200)
           && (data.cost == null || textOfSize(data.cost, 10))
@@ -1164,7 +1179,7 @@ service cloud.firestore {
 
       function wordAddedByDm() {
         let data = request.resource.data;
-        return data.keys().hasOnly(wordKeys())
+        return data.keys().hasOnly(wordKeys().concat(['picture']))
           && data.keys().hasAll(wordKeys())
           && validWord(data)
           && (data.status == 'draft' || (data.status == 'active' && completeWord(data) && tableFree()))
@@ -1177,7 +1192,7 @@ service cloud.firestore {
       function wordChangedByDm() {
         let before = resource.data;
         let after = request.resource.data;
-        return onlyChanges(wordKeys())
+        return onlyChanges(wordKeys().concat(['picture']))
           && validWord(after)
           && allowedStatusStep(before.status, after.status)
           && (after.status == 'draft' || completeWord(after))

@@ -67,12 +67,19 @@ describe('reading the cards under the real rules', () => {
     )
 
     expect(snapshot.docs.map((document) => document.data())).toEqual([
-      { id: 'cursed-hex', ...storedCard('Hex', 'hex', 'active'), holder: null, changeId: null },
+      {
+        id: 'cursed-hex',
+        ...storedCard('Hex', 'hex', 'active'),
+        holder: null,
+        changeId: null,
+        picture: null,
+      },
       {
         id: 'cursed-oldcurse',
         ...storedCard('Old Curse', 'oldcurse', 'retired'),
         holder: null,
         changeId: null,
+        picture: null,
       },
     ])
   })

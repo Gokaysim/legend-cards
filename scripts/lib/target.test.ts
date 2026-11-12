@@ -36,17 +36,37 @@ describe('chooseTarget', () => {
   it('targets the emulators of the demo project by default', () => {
     expect(chooseTarget({}, {})).toEqual({
       ok: true,
-      target: { kind: 'emulator', projectId: DEMO_PROJECT_ID },
+      target: {
+        kind: 'emulator',
+        projectId: DEMO_PROJECT_ID,
+        bucket: 'demo-legend-cards.firebasestorage.app',
+      },
     })
   })
 
   it('targets a real project only when --project names one', () => {
     expect(chooseTarget({ project: 'legend-prod' }, {})).toEqual({
       ok: true,
-      target: { kind: 'project', projectId: 'legend-prod', skipConfirmation: false },
+      target: {
+        kind: 'project',
+        projectId: 'legend-prod',
+        skipConfirmation: false,
+        bucket: 'legend-prod.firebasestorage.app',
+      },
     })
     expect(chooseTarget({ project: 'legend-prod', yes: true }, {})).toMatchObject({
       target: { skipConfirmation: true },
+    })
+  })
+
+  it('uses the bucket --bucket names', () => {
+    expect(
+      chooseTarget({ project: 'legend-prod', bucket: 'legend-prod.appspot.com' }, {}),
+    ).toMatchObject({
+      target: { bucket: 'legend-prod.appspot.com' },
+    })
+    expect(chooseTarget({ bucket: 'pictures' }, {})).toMatchObject({
+      target: { kind: 'emulator', bucket: 'pictures' },
     })
   })
 
@@ -61,6 +81,12 @@ describe('chooseTarget', () => {
     expect(
       chooseTarget({ project: 'legend-prod' }, { FIRESTORE_EMULATOR_HOST: '127.0.0.1:8080' }),
     ).toMatchObject({ ok: false, reason: 'mixed-environment' })
+    expect(
+      chooseTarget(
+        { project: 'legend-prod' },
+        { FIREBASE_STORAGE_EMULATOR_HOST: '127.0.0.1:9199' },
+      ),
+    ).toMatchObject({ ok: false, reason: 'mixed-environment' })
   })
 })
 
@@ -71,12 +97,18 @@ describe('connect', () => {
     const result = await connect({}, d)
 
     expect(result.ok).toBe(true)
-    expect(open).toHaveBeenCalledWith({ kind: 'emulator', projectId: DEMO_PROJECT_ID })
+    expect(open).toHaveBeenCalledWith({
+      kind: 'emulator',
+      projectId: DEMO_PROJECT_ID,
+      bucket: 'demo-legend-cards.firebasestorage.app',
+    })
     expect(d.env).toEqual({
       FIRESTORE_EMULATOR_HOST: '127.0.0.1:8080',
       FIREBASE_AUTH_EMULATOR_HOST: '127.0.0.1:9099',
+      FIREBASE_STORAGE_EMULATOR_HOST: '127.0.0.1:9199',
       METADATA_SERVER_DETECTION: 'none',
     })
+    expect(d.fetch).toHaveBeenCalledWith('http://127.0.0.1:9199/', expect.anything())
   })
 
   it('keeps emulator addresses that are already set, for example by emulators:exec', async () => {
@@ -109,6 +141,7 @@ describe('connect', () => {
       kind: 'project',
       projectId: 'legend-prod',
       skipConfirmation: false,
+      bucket: 'legend-prod.firebasestorage.app',
     })
     expect(printed()).toContain('legend-prod')
   })

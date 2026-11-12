@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { StatusFilterValue } from '@/features/definitions/statusFilterOptions'
 import type { Subscription } from '@/lib/firestore/subscription'
-import { testArt } from '@/test/artFixtures'
+import { testPicturePath, testPictureUrl } from '@/test/artFixtures'
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 import { ready } from '@/test/fixtures'
 import { TestArtProvider } from '@/test/TestArtProvider'
@@ -310,10 +310,14 @@ describe('CardBrowser for the Cursed deck', () => {
 
   it('zooms a Cursed card to its picture, named Cursed with its cost', async () => {
     const user = userEvent.setup()
-    const url = '/art/cards/cursed-visionsofdeath.0123456789.webp'
+    const picture = testPicturePath('card', 'cursed-visionsofdeath')
+    const url = testPictureUrl(picture)
+    const withPicture = CURSED.map((card) =>
+      card.id === 'cursed-visionsofdeath' ? { ...card, picture } : card,
+    )
     render(
-      <TestArtProvider manifest={testArt({ cards: { 'cursed-visionsofdeath': url } })}>
-        <CardBrowser deck="cursed" cards={cursed} />
+      <TestArtProvider>
+        <CardBrowser deck="cursed" cards={ready(withPicture)} />
       </TestArtProvider>,
     )
     expect(screen.getAllByRole('button', { name: /: büyüt$/ })).toHaveLength(2)

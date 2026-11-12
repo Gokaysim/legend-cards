@@ -5,6 +5,7 @@ import type { Readable, Writable } from 'node:stream'
 import { applicationDefault, deleteApp, initializeApp } from 'firebase-admin/app'
 import { type Auth, getAuth } from 'firebase-admin/auth'
 import { type Firestore, getFirestore } from 'firebase-admin/firestore'
+import { getStorage, type Storage } from 'firebase-admin/storage'
 
 import { messages } from './messages.ts'
 
@@ -15,7 +16,14 @@ export const DEMO_PROJECT_ID = 'demo-legend-cards'
 export const EMULATOR_DEFAULTS = {
   FIRESTORE_EMULATOR_HOST: '127.0.0.1:8080',
   FIREBASE_AUTH_EMULATOR_HOST: '127.0.0.1:9099',
+  FIREBASE_STORAGE_EMULATOR_HOST: '127.0.0.1:9199',
 } as const
+
+/**
+ * A project's Cloud Storage bucket of the pictures, unless `--bucket` names another: the default bucket of a project
+ * created today. Development uses `demo-legend-cards.firebasestorage.app`, as `.env.development` does.
+ */
+export const defaultBucket = (projectId: string) => `${projectId}.firebasestorage.app`
 
 const EMULATOR_VARIABLES = Object.keys(EMULATOR_DEFAULTS) as (keyof typeof EMULATOR_DEFAULTS)[]
 
@@ -23,13 +31,19 @@ const EMULATOR_VARIABLES = Object.keys(EMULATOR_DEFAULTS) as (keyof typeof EMULA
 export const TARGET_OPTIONS = {
   project: { type: 'string' },
   yes: { type: 'boolean', default: false },
+  bucket: { type: 'string' },
 } as const
 
-export type TargetValues = { project?: string | undefined; yes?: boolean | undefined }
+export type TargetValues = {
+  project?: string | undefined
+  yes?: boolean | undefined
+  bucket?: string | undefined
+}
 
+/** Where a script acts: the emulators or a real project, and the bucket of its pictures. */
 export type Target =
-  | { kind: 'emulator'; projectId: typeof DEMO_PROJECT_ID }
-  | { kind: 'project'; projectId: string; skipConfirmation: boolean }
+  | { kind: 'emulator'; projectId: typeof DEMO_PROJECT_ID; bucket: string }
+  | { kind: 'project'; projectId: string; skipConfirmation: boolean; bucket: string }
 
 export type TargetFailure =
   | { reason: 'demo-project'; message: string }
@@ -49,7 +63,13 @@ export function chooseTarget(
   env: Env,
 ): { ok: true; target: Target } | ({ ok: false } & TargetFailure) {
   const projectId = values.project?.trim()
-  if (!projectId) return { ok: true, target: { kind: 'emulator', projectId: DEMO_PROJECT_ID } }
+  const bucketOf = (id: string) => values.bucket?.trim() || defaultBucket(id)
+  if (!projectId) {
+    return {
+      ok: true,
+      target: { kind: 'emulator', projectId: DEMO_PROJECT_ID, bucket: bucketOf(DEMO_PROJECT_ID) },
+    }
+  }
   if (projectId.startsWith('demo-')) {
     return { ok: false, reason: 'demo-project', message: messages.demoProject(projectId) }
   }
@@ -63,7 +83,12 @@ export function chooseTarget(
   }
   return {
     ok: true,
-    target: { kind: 'project', projectId, skipConfirmation: values.yes === true },
+    target: {
+      kind: 'project',
+      projectId,
+      skipConfirmation: values.yes === true,
+      bucket: bucketOf(projectId),
+    },
   }
 }
 
@@ -108,6 +133,8 @@ export type AdminHandle = {
   target: Target
   auth: Auth
   db: Firestore
+  /** Cloud Storage; its default bucket is the target's `bucket`. */
+  storage: Storage
   close: () => Promise<void>
 }
 
@@ -115,11 +142,24 @@ export type AdminHandle = {
 export function openAdmin(target: Target): AdminHandle {
   const app = initializeApp(
     target.kind === 'project'
-      ? { projectId: target.projectId, credential: applicationDefault() }
-      : { projectId: target.projectId },
+      ? {
+          projectId: target.projectId,
+          storageBucket: target.bucket,
+          credential: applicationDefault(),
+        }
+      : { projectId: target.projectId, storageBucket: target.bucket },
     `legend-cards-script-${randomUUID()}`,
   )
-  return { target, auth: getAuth(app), db: getFirestore(app), close: () => deleteApp(app) }
+  return {
+    target,
+    auth: getAuth(app),
+    db: getFirestore(app),
+    // Only the picture import uses Cloud Storage: the other scripts never start its client.
+    get storage() {
+      return getStorage(app)
+    },
+    close: () => deleteApp(app),
+  }
 }
 
 export type ConnectDeps = {

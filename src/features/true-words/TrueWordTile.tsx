@@ -40,7 +40,7 @@ export function TrueWordTile({
   children,
   className,
 }: TrueWordTileProps) {
-  const picture = usePicture(useArt().wordUrl(word.id))
+  const picture = usePicture(useArt().pictureUrl(word.picture))
   const text = visibleText(word.text)
   const isBare = isPictureOnly && picture.src !== null
   const glow = isActive ? 'word' : isSelected ? 'selected' : undefined

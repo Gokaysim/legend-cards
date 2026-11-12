@@ -42,11 +42,14 @@ The pictures are not here. They are the owner's five `.7z` archives, about 560 M
 | `true words.7z`         | the True Words                                                    |
 | `otherassets.7z`        | the cardbacks, the pack pictures, the Cardmaker, and a few extras |
 
-`npm run build-art -- --source <folder>` builds them into `public/art/` (see the [README](../README.md#building-the-pictures)).
+Two scripts read the same folder (see the [README](../README.md#building-the-pictures)):
+
+- `npm run build-art -- --source <folder>` builds the cardbacks, the pack pictures and the Cardmaker into `public/art/`.
+- `npm run import-pictures -- --source <folder>` stores the card and True Word pictures in Cloud Storage, for the stored cards and words that never had a picture. After that, the DM changes pictures in the app, and the import never replaces or brings back a picture.
 
 ### File names
 
-The script matches a file by its name without the extension, compared as card names are (case, accents, spaces and punctuation ignored). These are the legacy app's names. The first rule that matches wins:
+The scripts match a file by its name without the extension, compared as card names are (case, accents, spaces and punctuation ignored). These are the legacy app's names. The first rule that matches wins:
 
 1. a row of `image-aliases.csv` for the file
 2. a Cardmaker: `card_info` or one of the legacy `cardmaker_*` names, for example `cardmaker_lib`, `cardmaker_kesqer` or `cardmaker_shockl`
@@ -58,7 +61,9 @@ The script matches a file by its name without the extension, compared as card na
 8. a Legend card, normal or Blessed, with that name, for example `abolethseyes`
 9. a Cursed card with that name
 
-A file that matches nothing is listed as unknown and skipped. When two files match the same thing, the one matched by its name wins over an alias, and otherwise the first by file name; the other is listed as a duplicate.
+Rules 2 to 5 are the build's. The build leaves every other file to the picture import, which uses rules 6 to 9 against the stored cards and words. A name finds the card or word whose ID it gives (`abolethseyes` finds `legend-abolethseyes`, even after the DM renamed it), or else the one with that name now, such as a card the DM added in the app.
+
+A file that matches nothing is listed as unknown by the picture import, and skipped. When two files match the same thing, the one matched by its name wins over an alias, and otherwise the first by file name; the other is listed as a duplicate.
 
 ### The alias table
 
@@ -70,6 +75,6 @@ A file that matches nothing is listed as unknown and skipped. When two files mat
 | Kind   | `legend` (a normal or Blessed card), `cursed`, `word` (a True Word), or `asset`                                       |
 | Name   | the card or word name as the data files write it, or for an asset the stem it stands for, for example `pack_gamblers` |
 
-A row whose Kind or Name matches nothing stops the build with its row number, before anything is written. Three Blessed pictures carry older names, as the owner confirmed: `charmingrogue` is Roguish Charm, `drivendiehard` is Second Wind, and `durabledwarf` is Forgewizard Constitution. For Kyaro's Yielding Faith and Lord Falaraen's Fordmidability, the archive has two misspelled files; the table picks one, and the build lists the other as unknown. Swap the File in the table to use the other.
+A row whose Kind matches nothing stops both scripts with its row number, before anything is written. An `asset` row whose Name matches nothing stops the build, and a `legend`, `cursed` or `word` row whose Name matches no stored card or word stops the picture import. Three Blessed pictures carry older names, as the owner confirmed: `charmingrogue` is Roguish Charm, `drivendiehard` is Second Wind, and `durabledwarf` is Forgewizard Constitution. For Kyaro's Yielding Faith and Lord Falaraen's Fordmidability, the archive has two misspelled files; the table picks one, and the picture import lists the other as unknown. Swap the File in the table to use the other.
 
 The archives have no picture for Scorched Earth, `card_info`, `cardmaker_custom` and `cardmaker_keep`. The owner added `cardmaker_keep.png` on 2026-11-11 as a loose file in the source folder, next to the archives, so a build from that folder finds it. `zallut_shop.png` is for the Elixir Shop and waits for that feature.

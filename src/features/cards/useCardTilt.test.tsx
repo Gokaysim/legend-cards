@@ -1,14 +1,13 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { testArt } from '@/test/artFixtures'
+import { testPicturePath } from '@/test/artFixtures'
 import { testCard } from '@/test/cardFixtures'
 import { TestArtProvider } from '@/test/TestArtProvider'
 
 import { CardFace } from './CardFace'
 
-const OWL = testCard('Night Owl')
-const ART = testArt({ cards: { [OWL.id]: '/art/cards/legend-nightowl.0123456789.webp' } })
+const OWL = testCard('Night Owl', { picture: testPicturePath('card', 'legend-nightowl') })
 
 const stubMotion = (reduce: boolean) =>
   vi.stubGlobal('matchMedia', () => ({
@@ -63,7 +62,7 @@ describe('the card tilt', () => {
 
   it("tilts a picture's box, also under the whole-face control on top of it", () => {
     render(
-      <TestArtProvider manifest={ART}>
+      <TestArtProvider>
         <CardFace card={OWL} handCost="1" isTiltable onOpen={() => undefined} openLabel="Aç" />
       </TestArtProvider>,
     )
@@ -134,7 +133,7 @@ describe('the card tilt', () => {
 
   it('leaves a face without isTiltable still, as inside a dialog', () => {
     render(
-      <TestArtProvider manifest={ART}>
+      <TestArtProvider>
         <CardFace card={OWL} />
       </TestArtProvider>,
     )

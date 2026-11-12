@@ -24,6 +24,7 @@ export function testCard(
     text: `${name} text.`,
     status: 'active',
     changeId: null,
+    picture: null,
     holder: null,
     ...overrides,
   }
@@ -46,6 +47,7 @@ export function testBlessedCard(
     text: `${name} text.`,
     status: 'active',
     changeId: null,
+    picture: null,
     holder: null,
     ...overrides,
   }
@@ -68,6 +70,7 @@ export function testCursedCard(
     text: `${name} text.`,
     status: 'active',
     changeId: null,
+    picture: null,
     holder: null,
     ...overrides,
   }

@@ -1,10 +1,12 @@
-import { render, screen, within } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Card } from '@/features/cards/schema'
+import { testPicturePath, testPictureUrl } from '@/test/artFixtures'
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 import { ready, testUser } from '@/test/fixtures'
+import { TestArtProvider } from '@/test/TestArtProvider'
 import { TestAuthProvider } from '@/test/TestAuthProvider'
 import { TestCardsProvider } from '@/test/TestCardsProvider'
 import { TestDefinitionsProvider } from '@/test/TestDefinitionsProvider'
@@ -13,7 +15,16 @@ import { TestTableProvider } from '@/test/TestTableProvider'
 import type { CardFields } from './api'
 import { CardFormDialog } from './CardFormDialog'
 import type { DefinitionActions } from './definitionsContext'
-import { DefinitionChangedError } from './errors'
+import { DefinitionChangedError, PictureTypeError, PictureUnsupportedError } from './errors'
+import type * as PictureModule from './picture'
+import type { PreparedPicture } from './picture'
+
+// jsdom has no canvas: the form's picture preparation is a fake here, and object URLs are made up.
+const preparePicture = vi.hoisted(() => vi.fn<(file: Blob) => Promise<PreparedPicture>>())
+vi.mock('./picture', async (importOriginal) => ({
+  ...(await importOriginal<typeof PictureModule>()),
+  preparePicture,
+}))
 
 const eyes = testCard("Aboleth's Eyes", { cost: '2' })
 const hornswaggle = testCard("Hrolf's Hornswaggle", {
@@ -24,7 +35,22 @@ const draft = testCard("Bard's Encore", { status: 'draft', mechanicPack: null })
 const retired = testCard('Old Card', { status: 'retired' })
 const hex = testCursedCard('Hex')
 const halo = testBlessedCard('Halo')
-const CARDS: Card[] = [eyes, hornswaggle, draft, retired, hex, halo]
+const EYES_PICTURE = testPicturePath('card', 'legend-orbofseeing')
+const orb = testCard('Orb of Seeing', { picture: EYES_PICTURE })
+const CARDS: Card[] = [eyes, hornswaggle, draft, retired, hex, halo, orb]
+
+/** A picture as `preparePicture` gives it. */
+const PREPARED: PreparedPicture = {
+  blob: new Blob(['webp'], { type: 'image/webp' }),
+  hash: 'abcdef0123',
+  width: 563,
+  height: 788,
+}
+
+beforeEach(() => {
+  preparePicture.mockResolvedValue(PREPARED)
+  Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:preview'), revokeObjectURL: vi.fn() })
+})
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -54,13 +80,15 @@ function setup({
   const onClose = vi.fn()
   const tree = (current: Card[]) => (
     <TestAuthProvider state={{ status: 'signedIn', user: testUser }}>
-      <TestCardsProvider cards={ready(current)}>
-        <TestTableProvider openPackId={openPackId}>
-          <TestDefinitionsProvider actions={fakes}>
-            <CardFormDialog deck={deck} cardId={cardId} onClose={onClose} />
-          </TestDefinitionsProvider>
-        </TestTableProvider>
-      </TestCardsProvider>
+      <TestArtProvider>
+        <TestCardsProvider cards={ready(current)}>
+          <TestTableProvider openPackId={openPackId}>
+            <TestDefinitionsProvider actions={fakes}>
+              <CardFormDialog deck={deck} cardId={cardId} onClose={onClose} />
+            </TestDefinitionsProvider>
+          </TestTableProvider>
+        </TestCardsProvider>
+      </TestArtProvider>
     </TestAuthProvider>
   )
   const view = render(tree(cards))
@@ -280,5 +308,150 @@ describe('CardFormDialog: editing', () => {
     expect(dialog().getByText('Bağlantı yok: değişiklikler kaydedilemez.')).toBeVisible()
     expect(button('Kaydet')).toBeDisabled()
     expect(button('Kaldır')).toBeDisabled()
+    expect(button('Resim seç')).toBeDisabled()
+  })
+})
+
+describe('CardFormDialog: the picture', () => {
+  const pictureInput = () => dialog().getByLabelText('Resim dosyası')
+  const pngFile = () => new File(['png'], 'bardsencore.png', { type: 'image/png' })
+  const preview = (name: string) => dialog().getByRole('img', { name })
+
+  it('adds a card with a chosen picture, shown before it is saved', async () => {
+    const { user, fakes } = setup()
+    expect(dialog().getByText('Resim yok')).toBeVisible()
+    await user.type(field('Kart adı'), "Bard's Song")
+
+    await user.upload(pictureInput(), pngFile())
+
+    expect(preparePicture).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'bardsencore.png' }),
+    )
+    expect(preview("Bard's Song")).toHaveAttribute('src', 'blob:preview')
+    expect(dialog().getByText('Kaydedince bu resim yüklenir.')).toBeVisible()
+    await user.click(button('Kaydet'))
+    expect(fakes.addCard).toHaveBeenCalledWith(
+      expect.objectContaining({
+        publish: false,
+        picture: { kind: 'new', blob: PREPARED.blob, hash: PREPARED.hash },
+      }),
+    )
+  })
+
+  it('saves a card without a picture change as keeping its picture', async () => {
+    const { user, fakes } = setup({ cardId: orb.id })
+    await user.click(button('Kaydet'))
+    expect(fakes.saveCard).toHaveBeenCalledWith(
+      expect.objectContaining({ picture: { kind: 'keep' } }),
+    )
+  })
+
+  it('shows the stored picture, and offers "İndir" for it', () => {
+    setup({ cardId: orb.id })
+    expect(preview('Orb of Seeing')).toHaveAttribute('src', testPictureUrl(EYES_PICTURE))
+    expect(dialog().getByRole('link', { name: 'İndir' })).toHaveAttribute(
+      'href',
+      testPictureUrl(EYES_PICTURE),
+    )
+  })
+
+  it('offers no "İndir" or "Resmi kaldır" for a card without a picture', () => {
+    setup({ cardId: eyes.id })
+    expect(dialog().queryByRole('link', { name: 'İndir' })).toBeNull()
+    expect(dialog().queryByRole('button', { name: 'Resmi kaldır' })).toBeNull()
+  })
+
+  it('replaces a stored picture, offering no download of the unsaved one', async () => {
+    const { user, fakes } = setup({ cardId: orb.id })
+
+    await user.upload(pictureInput(), pngFile())
+
+    expect(preview('Orb of Seeing')).toHaveAttribute('src', 'blob:preview')
+    expect(dialog().queryByRole('link', { name: 'İndir' })).toBeNull()
+    await user.click(button('Kaydet'))
+    expect(vi.mocked(fakes.saveCard).mock.calls[0]?.[0]).toMatchObject({
+      card: orb,
+      picture: { kind: 'new' },
+    })
+  })
+
+  it('removes a stored picture with "Resmi kaldır", and "Vazgeç" brings it back', async () => {
+    const { user, fakes } = setup({ cardId: orb.id })
+
+    await user.click(button('Resmi kaldır'))
+    expect(dialog().getByText('Resim yok')).toBeVisible()
+    expect(dialog().getByText('Kaydedince resim kaldırılır.')).toBeVisible()
+    await user.click(button('Vazgeç'))
+    expect(preview('Orb of Seeing')).toHaveAttribute('src', testPictureUrl(EYES_PICTURE))
+
+    await user.click(button('Resmi kaldır'))
+    await user.click(button('Kaydet'))
+    expect(fakes.saveCard).toHaveBeenCalledWith(
+      expect.objectContaining({ picture: { kind: 'remove' } }),
+    )
+  })
+
+  it('drops a chosen picture of a new card with "Resmi kaldır"', async () => {
+    const { user, fakes } = setup()
+    await user.type(field('Kart adı'), "Bard's Song")
+    await user.upload(pictureInput(), pngFile())
+
+    await user.click(button('Resmi kaldır'))
+
+    expect(dialog().getByText('Resim yok')).toBeVisible()
+    await user.click(button('Kaydet'))
+    expect(fakes.addCard).toHaveBeenCalledWith(
+      expect.objectContaining({ picture: { kind: 'keep' } }),
+    )
+  })
+
+  it('changes nothing when closed without saving', async () => {
+    const { user, fakes, onClose } = setup({ cardId: orb.id })
+    await user.upload(pictureInput(), pngFile())
+
+    // Escape does not close a native dialog in jsdom; closing it fires `close` as Escape would.
+    act(() => screen.getByRole<HTMLDialogElement>('dialog').close())
+
+    expect(onClose).toHaveBeenCalled()
+    expect(fakes.saveCard).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    [new PictureTypeError(), 'Yalnızca PNG, JPEG ya da WebP bir resim kullanılabilir.'],
+    [
+      new PictureUnsupportedError(),
+      'Bu tarayıcı resmi hazırlayamıyor. Resim yüklemek için Chrome kullan.',
+    ],
+  ])('keeps the picture and explains %s', async (error, message) => {
+    preparePicture.mockRejectedValue(error)
+    const { user, fakes } = setup({ cardId: orb.id })
+
+    await user.upload(pictureInput(), new File(['pdf'], 'rules.pdf', { type: 'image/png' }))
+
+    expect(dialog().getByRole('alert')).toHaveTextContent(message)
+    expect(preview('Orb of Seeing')).toHaveAttribute('src', testPictureUrl(EYES_PICTURE))
+    await user.click(button('Kaydet'))
+    expect(fakes.saveCard).toHaveBeenCalledWith(
+      expect.objectContaining({ picture: { kind: 'keep' } }),
+    )
+  })
+
+  it('drops the chosen picture when the card changed on another device', async () => {
+    const changed = { ...orb, text: 'From the laptop.' }
+    const { user, fakes, rerenderWith } = setup({
+      cardId: orb.id,
+      actions: {
+        saveCard: vi.fn<DefinitionActions['saveCard']>(() =>
+          Promise.reject(new DefinitionChangedError()),
+        ),
+      },
+    })
+    await user.upload(pictureInput(), pngFile())
+    rerenderWith(CARDS.map((card) => (card.id === orb.id ? changed : card)))
+
+    await user.click(button('Kaydet'))
+
+    expect(fakes.saveCard).toHaveBeenCalled()
+    expect(preview('Orb of Seeing')).toHaveAttribute('src', testPictureUrl(EYES_PICTURE))
   })
 })

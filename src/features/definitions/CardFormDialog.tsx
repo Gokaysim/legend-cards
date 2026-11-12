@@ -12,11 +12,14 @@ import {
 } from '@/features/cards/schema'
 import { MECHANIC_PACKS, OFFICIAL_SETS } from '@/features/cards/sets'
 import { normalize } from '@/features/cards/text'
+import { useOnlineStatus } from '@/lib/useOnlineStatus'
 
 import { type CardFields, deckOfKind, isNameTaken } from './api'
 import { useDefinitionActions } from './definitionsContext'
 import { DefinitionForm, FormField } from './DefinitionForm'
 import { FIELD_CLASSES } from './fieldClasses'
+import { PictureField } from './PictureField'
+import { choiceOf, KEEP_DRAFT, type PictureDraft } from './pictureDraft'
 
 /** The form's values as typed: empty strings for "not chosen". */
 type FormValues = {
@@ -123,6 +126,8 @@ export function CardFormDialog({ deck, cardId, onClose }: CardFormDialogProps) {
   )
   const set = <K extends keyof FormValues>(key: K, value: FormValues[K]) =>
     setValues((current) => ({ ...current, [key]: value }))
+  const [picture, setPicture] = useState<PictureDraft>(KEEP_DRAFT)
+  const isOnline = useOnlineStatus()
 
   const fields = fieldsOf(values)
   const status = base?.status ?? null
@@ -173,8 +178,15 @@ export function CardFormDialog({ deck, cardId, onClose }: CardFormDialogProps) {
       isGone={isGone}
       onSave={(publish) =>
         base === null
-          ? actions.addCard({ fields, publish, by: uid, existing })
-          : actions.saveCard({ card: base, fields, publish, by: uid, existing })
+          ? actions.addCard({ fields, publish, by: uid, existing, picture: choiceOf(picture) })
+          : actions.saveCard({
+              card: base,
+              fields,
+              publish,
+              by: uid,
+              existing,
+              picture: choiceOf(picture),
+            })
       }
       onSetStatus={(next) =>
         base === null
@@ -188,6 +200,7 @@ export function CardFormDialog({ deck, cardId, onClose }: CardFormDialogProps) {
         if (live === null) return
         setBase(live)
         setValues(valuesOf(live))
+        setPicture(KEEP_DRAFT)
       }}
       onClose={onClose}
     >
@@ -299,6 +312,15 @@ export function CardFormDialog({ deck, cardId, onClose }: CardFormDialogProps) {
           <p className="mt-1 text-xs text-ink-muted">
             [Köşeli parantez] içindeki metin oyunculara gösterilmez, aramada bulunur.
           </p>
+        </div>
+        <div className="sm:col-span-2">
+          <PictureField
+            stored={base?.picture ?? null}
+            draft={picture}
+            onChange={setPicture}
+            name={fields.name || title}
+            disabled={!isOnline}
+          />
         </div>
       </div>
     </DefinitionForm>

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { picturePathSchema } from '@/features/definitions/picturePath'
 import { DEFINITION_STATUSES } from '@/features/definitions/status'
 import { createConverter } from '@/lib/firestore/converter'
 
@@ -49,6 +50,12 @@ const common = {
    * ledger entry. Cards from before definition editing have none.
    */
   changeId: z.string().min(1).nullable().default(null),
+  /**
+   * Where the card's picture is in Cloud Storage (`cards/<id>/<hash>.webp`), or `null` for none. A stored card may
+   * lack the field (it never had a picture) or hold `null` (the DM removed it): both read as `null` here, and the
+   * difference matters only to the picture import (design D3 of upload-card-and-word-pictures).
+   */
+  picture: picturePathSchema.nullable().default(null),
 }
 
 /** A normal card's set, rarity and mechanic pack may be empty only in a draft (see `isComplete`). */

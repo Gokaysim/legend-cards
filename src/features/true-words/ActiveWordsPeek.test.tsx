@@ -3,18 +3,18 @@ import userEvent from '@testing-library/user-event'
 import { Timestamp } from 'firebase/firestore'
 import { describe, expect, it } from 'vitest'
 
-import { testArt } from '@/test/artFixtures'
+import { testPicturePath, testPictureUrl } from '@/test/artFixtures'
 import { ready, testProfile } from '@/test/fixtures'
 import { renderApp } from '@/test/renderApp'
 import { testLearnedWord, testTrueWord } from '@/test/trueWordFixtures'
 
-const AID = testTrueWord('Aid')
-const ABYSS = testTrueWord('Abyss', { text: 'A random card is free.' })
+const AID = testTrueWord('Aid', { picture: testPicturePath('word', 'tw-aid') })
+const ABYSS = testTrueWord('Abyss', {
+  text: 'A random card is free.',
+  picture: testPicturePath('word', 'tw-abyss'),
+})
 const BIND = testTrueWord('Bind', { text: 'Hold a creature in place.' })
 const WORDS = [AID, ABYSS, BIND]
-const ART = testArt({
-  words: { [AID.id]: '/art/words/aid.webp', [ABYSS.id]: '/art/words/abyss.webp' },
-})
 
 const ayla = testProfile({ id: 'ayla', displayName: 'Ayla' })
 
@@ -34,7 +34,6 @@ function renderHand({
     path,
     users: { profiles: ready([testProfile(), ayla]) },
     trueWords: { words: ready(WORDS), knownWords: ready(known) },
-    art: ART,
   })
 }
 
@@ -58,7 +57,10 @@ describe('the active True Words above the hand', () => {
     renderHand()
 
     const aid = within(strip()!).getByRole('button', { name: 'Aid: büyüt' })
-    expect(aid.querySelector('img')).toHaveAttribute('src', '/art/words/aid.webp')
+    expect(aid.querySelector('img')).toHaveAttribute(
+      'src',
+      testPictureUrl(testPicturePath('word', 'tw-aid')),
+    )
     const bind = within(strip()!).getByRole('button', { name: 'Bind: büyüt' })
     expect(bind.querySelector('img')).toBeNull()
     expect(bind).toHaveTextContent('✦Bind')
