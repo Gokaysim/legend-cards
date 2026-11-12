@@ -59,35 +59,58 @@ Selecting the magnifier SHALL open that card's zoom view. In the hand's card vie
 - **WHEN** Ayla's pack is open, and Bora selects the magnifier of a turned card in it
 - **THEN** Bora sees the zoom view, and Ayla's screen does not change
 
+### Requirement: Double click opens the zoom view
+With a mouse, a double click on a card face, outside its controls, SHALL open the card's zoom view, as its magnifier does. In the hand's card view the first click still selects the card: on a wide window the zoom view opens over the details beside the hand, and on a narrower window only the card details dialog opens. A double tap on a touch screen, and a double click that turns a face-down card, SHALL NOT open it.
+
+#### Scenario: Zooming in the library
+- **WHEN** a user double-clicks "Aboleth's Eyes" in the library's card view
+- **THEN** the zoom view of "Aboleth's Eyes" opens
+
+#### Scenario: A hand on a wide window
+- **WHEN** Ayla double-clicks a card in her hand on a 1280 CSS pixel wide window
+- **THEN** the card's details show beside the hand, and its zoom view opens over them
+
+#### Scenario: A hand on a narrower window
+- **WHEN** Ayla double-clicks a card in her hand with a mouse on an 800 CSS pixel wide window
+- **THEN** the card details dialog opens, the zoom view does not, and the face's magnifier still opens it
+
+#### Scenario: Turning a card
+- **WHEN** Ayla double-clicks a face-down card of her draw
+- **THEN** the card turns over, and no zoom view opens
+
+#### Scenario: A double tap
+- **WHEN** Ayla double-taps a card in the library on a phone
+- **THEN** no zoom view opens, and its magnifier still opens it
+
 ### Requirement: Zoom view contents
-The zoom view SHALL be titled with the card's name. One line under the title SHALL name, in this order and joined by " · ", the card's set, its cost as "Cost <cost>", and its rarity, leaving out a cost or rarity the card does not have. The set is the official name, or "Blessed" or "Cursed" for those kinds. The view SHALL show the card's picture as large as the screen allows, up to the picture's own size, and nothing else.
+The zoom view SHALL show only the card: its picture as large as the screen allows, up to the picture's own size, and a small round close button in a corner. It SHALL show no title, no line with the set, cost and rarity, and no other text. Screen readers SHALL hear the view named after the card.
 
 #### Scenario: A Legend card
-- **WHEN** a user zooms "Aboleth's Eyes", a Common card of Kesqerian Nights that costs 1
-- **THEN** the view is titled "Aboleth's Eyes", the line reads "Kesqerian Nights · Cost 1 · Common", and the card's picture fills the view
+- **WHEN** a user zooms "Aboleth's Eyes"
+- **THEN** the view shows the card's picture and a small round close button, with no title and no line under it, and a screen reader names the view "Aboleth's Eyes"
 
 #### Scenario: A Blessed card
-- **WHEN** a user zooms the Blessed card "Second Wind", which has no cost and no rarity
-- **THEN** the line reads "Blessed"
+- **WHEN** a user zooms the Blessed card "Second Wind"
+- **THEN** the view shows its picture alone, with no "Blessed" line
 
 #### Scenario: A Cursed card
 - **WHEN** a user zooms the Cursed card "Abandon All Hope", which costs 1
-- **THEN** the line reads "Cursed · Cost 1"
+- **THEN** the view shows its picture alone, with no "Cursed · Cost 1" line
 
 #### Scenario: A marked hand card
 - **WHEN** Ayla zooms her active card that has a note
-- **THEN** the view shows the picture and the line, without the "● Aktif" mark, the note icon, the note's text, or any card control
+- **THEN** the view shows the picture, without the "● Aktif" mark, the note icon, the note's text, or any card control
 
 ### Requirement: Hand cost in the zoom view
-When the zoom view is opened from a hand where the card's cost differs from its own cost, the line SHALL show the hand cost followed by the card's own cost, as "Cost 1 (temel: 3)", with "—" for a card without a cost. The picture SHALL show the same hand cost badge as the card's face in the hand.
+When the zoom view is opened from a hand where the card's cost differs from its own cost, the picture SHALL show the same hand cost badge as the card's face in the hand, marked lower or higher in the same way.
 
 #### Scenario: A cheaper card
-- **WHEN** the DM has set the cost of Ayla's 3-cost Common card of Kesqerian Nights to "1", and Ayla zooms it from her hand
-- **THEN** the line reads "Kesqerian Nights · Cost 1 (temel: 3) · Common", and the picture shows a badge "1" marked as lower
+- **WHEN** the DM has set the cost of Ayla's 3-cost card to "1", and Ayla zooms it from her hand
+- **THEN** the picture shows a badge "1" marked as lower
 
 #### Scenario: The same card in the library
 - **WHEN** a user zooms that card from the library
-- **THEN** the line reads "Kesqerian Nights · Cost 3 · Common", and the picture has no badge
+- **THEN** the picture has no badge
 
 ### Requirement: Zoom view without a picture
 For a card without a picture, or whose picture fails to load, the zoom view SHALL show the card's face without pictures in place of the picture, larger than a face in the library. The face SHALL show its cost, name and visible text, and its set, rarity and mechanic pack unless it is a Cursed card.
@@ -101,22 +124,26 @@ For a card without a picture, or whose picture fails to load, the zoom view SHAL
 - **THEN** the view shows its face with its cost, name and text, and no set, rarity or mechanic pack
 
 ### Requirement: Closing the zoom view
-The zoom view SHALL close with its "✕ Kapat" button, with Escape, or with a click or tap outside it, and the focus SHALL return to the magnifier that opened it. A press that starts inside the view SHALL NOT close it. Opened inside the card details, a draw or an open pack, closing it SHALL leave that dialog open as it was. It SHALL also close when the face it was opened from leaves the screen.
+The zoom view SHALL close with its close button, named "Kapat" for screen readers, with Escape, or with a click or tap outside the card, and the focus SHALL return to the magnifier of the face it was opened from. A press that starts on the card SHALL NOT close it. Opened inside the card details, a draw or an open pack, closing it SHALL leave that dialog open as it was. It SHALL also close when the face it was opened from leaves the screen.
 
 #### Scenario: Closing with the button
-- **WHEN** a user selects "✕ Kapat" in the zoom view of a library card
+- **WHEN** a user selects the close button in the zoom view of a library card
+- **THEN** the view closes, and the focus is on that card's magnifier
+
+#### Scenario: Closing after a double click
+- **WHEN** a user opened the zoom view of a library card with a double click, and presses Escape
 - **THEN** the view closes, and the focus is on that card's magnifier
 
 #### Scenario: Closing with a click outside
-- **WHEN** a user clicks or taps outside the zoom view of a library card
+- **WHEN** a user clicks or taps anywhere outside the card in the zoom view of a library card
 - **THEN** the view closes
 
 #### Scenario: A click on the card
-- **WHEN** a user clicks the picture in the zoom view, or starts a press on it and releases it outside the view
+- **WHEN** a user clicks the picture in the zoom view, or starts a press on it and releases it outside the card
 - **THEN** the view stays open
 
 #### Scenario: A click outside inside the card details
-- **WHEN** Ayla zooms the face in a card's details and clicks outside the zoom view
+- **WHEN** Ayla zooms the face in a card's details and clicks outside the card
 - **THEN** only the zoom view closes, and the card details stay open
 
 #### Scenario: Escape inside the card details
