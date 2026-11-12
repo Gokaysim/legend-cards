@@ -3,7 +3,10 @@ import { useCallback, useDeferredValue, useId, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Spinner } from '@/components/ui/Spinner'
 import { StatusFilter } from '@/features/definitions/StatusFilter'
-import type { StatusFilterValue } from '@/features/definitions/statusFilterOptions'
+import {
+  CARD_FILTER_OPTIONS,
+  type CardFilterValue,
+} from '@/features/definitions/statusFilterOptions'
 import { STATUS_LABELS } from '@/features/definitions/status'
 import type { SubscriptionError } from '@/lib/firestore/errors'
 import type { Subscription } from '@/lib/firestore/subscription'
@@ -73,7 +76,7 @@ export type CardBrowserProps = {
    * For the DM: the status filter (spec: card-library, "The DM's status filter"). Outside "Yayında", each face and row
    * shows its definition status. With it, the toolbar stays even when the filter keeps no card.
    */
-  statusFilter?: { value: StatusFilterValue; onChange: (value: StatusFilterValue) => void }
+  statusFilter?: { value: CardFilterValue; onChange: (value: CardFilterValue) => void }
   /** For the DM: each card's "✎ Düzenle" control. */
   onEdit?: (card: Card) => void
 }
@@ -197,7 +200,11 @@ function LoadedCardBrowser({
           className={`${fieldClasses} min-w-0 flex-1 basis-56`}
         />
         {statusFilter ? (
-          <StatusFilter value={statusFilter.value} onChange={statusFilter.onChange} />
+          <StatusFilter
+            value={statusFilter.value}
+            onChange={statusFilter.onChange}
+            options={CARD_FILTER_OPTIONS}
+          />
         ) : null}
         {deck === 'legend' ? (
           <>
@@ -295,6 +302,7 @@ function LoadedCardBrowser({
                   cardStatus && isMarkedHeld(card, cardStatus) ? cardStatus.holderNames : undefined
                 }
                 statusMark={showsStatus ? STATUS_LABELS[card.status] : undefined}
+                isDmOnlyMarked={statusFilter !== undefined && card.dmOnly}
                 onEdit={onEdit ? () => onEdit(card) : undefined}
               />
             )
@@ -308,6 +316,7 @@ function LoadedCardBrowser({
           onSort={changeSort}
           statusText={statusText}
           onEdit={onEdit}
+          marksDmOnly={statusFilter !== undefined}
         />
       )}
     </div>

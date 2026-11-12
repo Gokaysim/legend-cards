@@ -14,6 +14,7 @@ import {
   type PackDef,
   packCatalog,
   packDefOf,
+  packPools,
   packShortName,
   packStatus,
   packTitle,
@@ -198,6 +199,33 @@ describe('packStatus', () => {
       testCard('Draft', { status: 'draft' }),
     ]
     expect(packStatus(kesqer('standard'), cards).canOpen).toBe(false)
+  })
+
+  it('never offers a DM-only card, and does not count one', () => {
+    const secret = { dmOnly: true }
+    const cards = [
+      ...cardsOf('K', 8),
+      testCard('Secret Rare', { ...secret, rarity: 'rare' }),
+      testCard('Secret Pandemonium', { ...secret, setCode: 'Pandemonium', rarity: 'rare' }),
+      testBlessedCard('Secret Blessing', secret),
+      testCursedCard('Crown of Ash', secret),
+      ...CURSED_DECK,
+    ]
+    expect(packStatus(kesqer('standard'), cards).canOpen).toBe(false)
+    const defs = [
+      kesqer('standard'),
+      kesqer('premium'),
+      kesqer('cursed'),
+      pandemonium('pandemonium'),
+      pandemonium('pandemoniumCursed'),
+      cursedGolden,
+      ...packCatalog(cards).mechanicPacks,
+    ]
+    for (const def of defs) {
+      const pools = packPools(def, cards)
+      const offered = [...pools.cards, ...(pools.slot ?? []), ...(pools.cursed ?? [])]
+      expect(offered.filter((card) => card.dmOnly)).toEqual([])
+    }
   })
 
   it('opens a Premium Pack at 9 cards with 3 Rares, and not with 2', () => {

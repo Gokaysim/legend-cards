@@ -93,6 +93,17 @@ describe('CardFace', () => {
   })
 })
 
+describe("CardFace in the DM's library", () => {
+  it('marks a DM-only card "🔒 DM" when asked', () => {
+    const view = render(
+      <CardFace card={testCard('The Last Wish', { dmOnly: true })} isDmOnlyMarked />,
+    )
+    expect(face('The Last Wish')).toHaveTextContent('🔒 DM')
+    view.rerender(<CardFace card={testCard('The Last Wish', { dmOnly: true })} />)
+    expect(face('The Last Wish')).not.toHaveTextContent('🔒 DM')
+  })
+})
+
 describe('CardFace in a hand', () => {
   const cost = (name: string) => within(face(name)).getByText(/^Cost:/).parentElement
 

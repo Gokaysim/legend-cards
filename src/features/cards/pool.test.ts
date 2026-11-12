@@ -25,6 +25,9 @@ const retiredCursed = testCursedCard('Old Curse', { status: 'retired' })
 const draft = testCard('New Card', { status: 'draft' })
 const draftBlessed = testBlessedCard('New Blessing', { status: 'draft' })
 const draftCursed = testCursedCard('New Curse', { status: 'draft' })
+const dmOnly = testCard('The Last Wish', { dmOnly: true })
+const dmOnlyBlessed = testBlessedCard('Secret Blessing', { dmOnly: true })
+const dmOnlyCursed = testCursedCard('Crown of Ash', { dmOnly: true })
 
 const filtered = (filters: Partial<DrawFilters>) => (card: Card) =>
   matchesFilters(card, { ...NO_FILTERS, ...filters })
@@ -60,6 +63,13 @@ describe('the pool', () => {
 
   it('gives the Cursed Deck its active Cursed cards', () => {
     expect(cursedPool([pool, blessed, cursed, retiredCursed, draftCursed])).toEqual([cursed])
+  })
+
+  it('never holds a DM-only card, of any kind', () => {
+    expect(isDrawable(dmOnly)).toBe(false)
+    expect(isDrawable(dmOnlyBlessed)).toBe(false)
+    expect(drawablePool([pool, dmOnly, blessed, dmOnlyBlessed])).toEqual([pool, blessed])
+    expect(cursedPool([cursed, dmOnlyCursed])).toEqual([cursed])
   })
 })
 
@@ -138,6 +148,7 @@ describe('drawFilterOptions', () => {
       }),
       testBlessedCard('H', { mechanicPack: 'Zen' }),
       testCursedCard('I', { cost: '5' }),
+      testCard('J', { cost: '9', mechanicPack: 'Secret Pack', dmOnly: true }),
     ]
     expect(drawFilterOptions(cards)).toEqual({
       costs: ['0', '2', '10', 'd6', 'X'],
@@ -209,5 +220,9 @@ describe('poolDistribution', () => {
 
   it('is empty for an empty pool', () => {
     expect(poolDistribution([held, retired, cursed])).toEqual({ total: 0, rarities: [], sets: [] })
+  })
+
+  it('leaves the DM-only cards out', () => {
+    expect(poolDistribution([pool, dmOnly, dmOnlyBlessed]).total).toBe(1)
   })
 })

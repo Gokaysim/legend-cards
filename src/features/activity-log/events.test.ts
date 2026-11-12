@@ -301,7 +301,9 @@ describe('definition changes', () => {
     const drafts = testImportRecord('p2', 1, {
       what: 'pictures',
       public: false,
-      items: [{ id: 'legend-thecartographer', name: 'The Cartographer', status: 'draft' }],
+      items: [
+        { id: 'legend-thecartographer', name: 'The Cartographer', status: 'draft', dmOnly: false },
+      ],
       at: Timestamp.fromMillis(2000),
     })
     const events = deriveEvents(records({ changes: [shown, drafts] }))

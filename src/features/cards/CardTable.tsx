@@ -4,6 +4,7 @@ import { cn } from '@/lib/cn'
 import type { Deck } from './cardsContext'
 import { NO_VALUE, rarityLabel, setLabel } from './display'
 import type { Card } from './schema'
+import { DM_ONLY_MARK } from './status'
 import type { CardSort, SortKey, StatusText } from './sort'
 import { visibleText } from './text'
 
@@ -56,6 +57,8 @@ export type CardTableProps = {
   statusText?: StatusText
   /** For the DM: an İşlem column with each card's "✎ Düzenle". */
   onEdit?: (card: Card) => void
+  /** For the DM: marks a DM-only card's row "🔒 DM" beside its name. */
+  marksDmOnly?: boolean
 }
 
 /** The list view: one row per card. Only the table scrolls sideways at narrow widths, never the page. */
@@ -66,6 +69,7 @@ export function CardTable({
   onSort,
   statusText = () => null,
   onEdit,
+  marksDmOnly = false,
 }: CardTableProps) {
   const columns = DECK_COLUMNS[deck].map((key) => COLUMNS[key])
 
@@ -124,6 +128,11 @@ export function CardTable({
                 column.key === 'name' ? (
                   <th key={column.key} scope="row" className="px-3 py-2 font-semibold text-ink">
                     {column.cell(card, statusText)}
+                    {marksDmOnly && card.dmOnly ? (
+                      <span className="ml-2 rounded-full border border-ink-muted px-1.5 py-0.5 text-xs font-normal whitespace-nowrap text-ink-muted">
+                        {DM_ONLY_MARK}
+                      </span>
+                    ) : null}
                   </th>
                 ) : (
                   <td

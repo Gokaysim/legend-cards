@@ -397,6 +397,8 @@ describe('definition steps (cards, trueWords and definitionChanges)', () => {
   const ENCORE = 'legend-bardsencore'
   const MAP = 'legend-thecartographer'
   const HEX = 'cursed-hex'
+  /** An active DM-only card. */
+  const WISH = 'legend-thelastwish'
 
   beforeEach(async () => {
     await testEnv.withSecurityRulesDisabled(async (admin) => {
@@ -427,6 +429,10 @@ describe('definition steps (cards, trueWords and definitionChanges)', () => {
         doc(db, `cards/${HEX}`),
         card('Hex', { kind: 'cursed', setCode: null, rarity: null, mechanicPack: null }),
       )
+      await setDoc(
+        doc(db, `cards/${WISH}`),
+        card('The Last Wish', { dmOnly: true, holder: null, changeId: 'c-wish' }),
+      )
       await setDoc(doc(db, 'trueWords/tw-abyss'), word('Abyss'))
       await setDoc(doc(db, 'trueWords/tw-old'), word('Old', { status: 'retired' }))
       await setDoc(
@@ -454,10 +460,14 @@ describe('definition steps (cards, trueWords and definitionChanges)', () => {
 
   const pick = (keys: readonly string[], data: Definition) =>
     Object.fromEntries(keys.map((key) => [key, data[key]]))
-  /** A definition as a record keeps it: its fields, and its picture, `null` when it has none. */
+  /**
+   * A definition as a record keeps it: its fields, and its picture, `null` when it has none. A card's also has its
+   * DM-only flag, `false` when it has none.
+   */
   const snapshot = (keys: readonly string[], data: Definition): Definition => ({
     ...pick(keys, data),
     picture: data.picture ?? null,
+    ...(keys === CARD_KEYS ? { dmOnly: data.dmOnly ?? false } : {}),
   })
   const statusOf = (data: Definition | null): Status => (data?.status as Status) ?? null
   const stepName = (before: Status, after: Status) =>
@@ -472,7 +482,8 @@ describe('definition steps (cards, trueWords and definitionChanges)', () => {
             : after === 'retired'
               ? 'retired'
               : 'restored'
-  const isPlayerVisible = (status: Status) => status === 'active' || status === 'retired'
+  const isPlayerVisible = (data: Definition | null) =>
+    (statusOf(data) === 'active' || statusOf(data) === 'retired') && data?.dmOnly !== true
 
   type StepSpec = {
     /** The change record's ID. Default: `c-new`, or the fixed delete ID for a delete. */
@@ -486,8 +497,8 @@ describe('definition steps (cards, trueWords and definitionChanges)', () => {
 
   /**
    * One DM step as the app writes it: the definition (created, merged or deleted) with its change record, in one
-   * batch. `changes` are merged into the stored definition; `null` deletes it. The picture is written only when
-   * `changes` names it, so a definition without the field keeps it absent.
+   * batch. `changes` are merged into the stored definition; `null` deletes it. The picture and the DM-only flag are
+   * written only when `changes` names them, so a definition without the field keeps it absent.
    */
   async function step(
     uid: string,
@@ -505,7 +516,11 @@ describe('definition steps (cards, trueWords and definitionChanges)', () => {
     const written =
       changes === null
         ? null
-        : { ...pick(keys, merged), ...('picture' in changes ? { picture: changes.picture } : {}) }
+        : {
+            ...pick(keys, merged),
+            ...('picture' in changes ? { picture: changes.picture } : {}),
+            ...('dmOnly' in changes ? { dmOnly: changes.dmOnly } : {}),
+          }
     const changeId =
       spec.changeId ?? (after === null ? `del-${id}-${String(stored?.changeId)}` : 'c-new')
     const db = asUser(uid)
@@ -522,7 +537,7 @@ describe('definition steps (cards, trueWords and definitionChanges)', () => {
         step: stepName(statusOf(before), statusOf(after)),
         before,
         after,
-        public: isPlayerVisible(statusOf(before)) || isPlayerVisible(statusOf(after)),
+        public: isPlayerVisible(before) || isPlayerVisible(after),
         by: uid,
         at: serverTimestamp(),
         ...spec.record,
@@ -625,6 +640,62 @@ describe('definition steps (cards, trueWords and definitionChanges)', () => {
     it('lets the DM fix a text while a pack is open', async () => {
       await openPack()
       await assertSucceeds(step('dana', 'card', EYES, { text: 'Typo fixed.' }))
+    })
+
+    describe('DM-only cards', () => {
+      it('lets the DM mark an active card DM-only and back, each with a public record', async () => {
+        await assertSucceeds(step('dana', 'card', EYES, { dmOnly: true }, { changeId: 'c-1' }))
+        expect(await readAsAdmin(`cards/${EYES}`)).toMatchObject({ dmOnly: true })
+        expect(await readAsAdmin('definitionChanges/c-1')).toMatchObject({
+          step: 'edited',
+          public: true,
+          before: { dmOnly: false },
+          after: { dmOnly: true },
+        })
+        await assertSucceeds(getDoc(doc(asUser('ayla'), 'definitionChanges/c-1')))
+        await assertSucceeds(step('dana', 'card', EYES, { dmOnly: false }, { changeId: 'c-2' }))
+        await assertSucceeds(getDoc(doc(asUser('ayla'), 'definitionChanges/c-2')))
+      })
+
+      it('keeps the records of work on a DM-only card from players', async () => {
+        await assertSucceeds(step('dana', 'card', WISH, { text: 'Other.' }, { changeId: 'c-1' }))
+        expect(await readAsAdmin('definitionChanges/c-1')).toMatchObject({ public: false })
+        await assertFails(getDoc(doc(asUser('ayla'), 'definitionChanges/c-1')))
+        await assertSucceeds(step('dana', 'card', WISH, { status: 'retired' }, { changeId: 'c-2' }))
+        expect(await readAsAdmin('definitionChanges/c-2')).toMatchObject({ public: false })
+      })
+
+      it('lets the DM add a DM-only draft and a DM-only Cursed card straight to active', async () => {
+        await assertSucceeds(
+          step(
+            'dana',
+            'card',
+            'legend-lutesong',
+            card('Lute Song', { status: 'draft', dmOnly: true }),
+            { changeId: 'c-1' },
+          ),
+        )
+        await assertSucceeds(
+          step(
+            'dana',
+            'card',
+            'cursed-hollowbones',
+            card('Hollow Bones', {
+              kind: 'cursed',
+              setCode: null,
+              rarity: null,
+              mechanicPack: null,
+              dmOnly: true,
+            }),
+            { changeId: 'c-2' },
+          ),
+        )
+        expect(await readAsAdmin('definitionChanges/c-2')).toMatchObject({ public: false })
+      })
+
+      it('lets players read a DM-only card, as the hands need it', async () => {
+        await assertSucceeds(getDoc(doc(asUser('ayla'), `cards/${WISH}`)))
+      })
     })
 
     describe('pictures', () => {
@@ -795,6 +866,28 @@ describe('definition steps (cards, trueWords and definitionChanges)', () => {
       ],
       ['a record by someone else', 'card', EYES, { text: 'Other.' }, { record: { by: 'ayla' } }],
       [
+        'a record of work on a DM-only card marked public',
+        'card',
+        WISH,
+        { text: 'Other.' },
+        { record: { public: true } },
+      ],
+      [
+        'a record of a flag change marked private',
+        'card',
+        EYES,
+        { dmOnly: true },
+        { record: { public: false } },
+      ],
+      [
+        'a record that leaves the flag out of its snapshot',
+        'card',
+        WISH,
+        { text: 'Other.' },
+        { record: { after: card('The Last Wish', { text: 'Other.', picture: null }) } },
+      ],
+      ['a DM-only flag that is not a boolean', 'card', EYES, { dmOnly: 'yes' }],
+      [
         'deleting a draft with a record under another ID',
         'card',
         ENCORE,
@@ -869,6 +962,20 @@ describe('definition steps (cards, trueWords and definitionChanges)', () => {
       await assertSucceeds(
         step('dana', 'card', 'legend-lutesong', card('Lute Song', { status: 'draft' })),
       )
+    })
+
+    it('denies turning the DM-only flag on or off while a pack is open, also on a draft', async () => {
+      await openPack()
+      await assertFails(step('dana', 'card', EYES, { dmOnly: true }))
+      await assertFails(step('dana', 'card', WISH, { dmOnly: false }))
+      await assertFails(step('dana', 'card', ENCORE, { dmOnly: true }))
+      // Editing a DM-only card's other fields stays possible.
+      await assertSucceeds(step('dana', 'card', WISH, { text: 'Typo fixed.' }))
+    })
+
+    it('denies a player setting the DM-only flag', async () => {
+      await assertFails(step('ayla', 'card', EYES, { dmOnly: true }))
+      await assertFails(updateDoc(doc(asUser('ayla'), `cards/${EYES}`), { dmOnly: true }))
     })
 
     it('denies a holder change together with a text change', async () => {
@@ -951,6 +1058,10 @@ const HOLDINGS_SEED = {
   RETIRED: 'legend-oldcard',
   /** A normal draft, complete but not published: only the DM reads it, and nobody gives, draws or chooses it. */
   DRAFT: 'legend-newcard',
+  /** An active DM-only normal card in no hand: only the DM gives it, and nobody draws or chooses it. */
+  DM_ONLY: 'legend-thelastwish',
+  /** An active DM-only Cursed card. */
+  DM_ONLY_CURSED: 'cursed-crownofash',
 }
 
 function seededUser(role: 'player' | 'dm', displayName: string) {
@@ -1026,6 +1137,14 @@ async function seedHoldings() {
       seededCardOf('normal', 'Old Card', { status: 'retired' }),
     )
     await setDoc(doc(db, `cards/${DRAFT}`), seededCardOf('normal', 'New Card', { status: 'draft' }))
+    await setDoc(
+      doc(db, `cards/${HOLDINGS_SEED.DM_ONLY}`),
+      seededCardOf('normal', 'The Last Wish', { dmOnly: true, holder: null }),
+    )
+    await setDoc(
+      doc(db, `cards/${HOLDINGS_SEED.DM_ONLY_CURSED}`),
+      seededCardOf('cursed', 'Crown of Ash', { dmOnly: true }),
+    )
     const greedy = { cardId: HELD, cardName: 'Greedy Hands' }
     await setDoc(doc(db, 'userCards/h-bora'), seededHolding({ ...greedy, uid: 'bora' }))
     await setDoc(doc(db, 'userCards/h-ayla-extra'), seededHolding({ ...greedy, uid: 'ayla' }))
@@ -1299,6 +1418,36 @@ describe('card movements (userCards with cards/{cardId}.holder)', () => {
       await assertSucceeds(batch.commit())
       expect(await readAsAdmin(`cards/${POOL}`)).toMatchObject({
         holder: poolHolder('ayla', 'new-1'),
+      })
+    })
+
+    it('lets the DM give a DM-only card, and its holder use it, which clears the holder', async () => {
+      const wish = { cardId: HOLDINGS_SEED.DM_ONLY, cardName: 'The Last Wish' }
+      const dm = asUser('dana')
+      const give = writeBatch(dm)
+      give.set(doc(dm, 'userCards/new-1'), newHolding(wish))
+      give.update(doc(dm, `cards/${wish.cardId}`), { holder: poolHolder('ayla', 'new-1') })
+      await assertSucceeds(give.commit())
+      await assertSucceeds(
+        setDoc(
+          doc(dm, 'userCards/new-2'),
+          newHolding({
+            ...wish,
+            cardId: HOLDINGS_SEED.DM_ONLY_CURSED,
+            cardName: 'Crown of Ash',
+            cardKind: 'cursed',
+          }),
+        ),
+      )
+
+      const ayla = asUser('ayla')
+      const use = writeBatch(ayla)
+      use.update(doc(ayla, 'userCards/new-1'), closing('ayla', 'used'))
+      use.update(doc(ayla, `cards/${wish.cardId}`), { holder: null })
+      await assertSucceeds(use.commit())
+      expect(await readAsAdmin(`cards/${wish.cardId}`)).toMatchObject({
+        holder: null,
+        dmOnly: true,
       })
     })
 
@@ -2047,6 +2196,20 @@ describe('draws (draws/{drawId} with its holding, card, ledger entry and LP)', (
       expect(await readAsAdmin(`cards/${HELD}`)).toMatchObject({
         holder: { uid: 'bora', userCardId: 'h-bora' },
       })
+    })
+
+    it("denies every draw of a DM-only card, also the DM's", async () => {
+      const wish = { cardId: HOLDINGS_SEED.DM_ONLY, cardName: 'The Last Wish', cardKind: 'normal' }
+      const crown = {
+        cardId: HOLDINGS_SEED.DM_ONLY_CURSED,
+        cardName: 'Crown of Ash',
+        cardKind: 'cursed',
+      }
+      await assertFails(draw('ayla', { card: wish }))
+      await assertFails(draw('dana', { uid: 'ayla', card: wish }))
+      await assertFails(draw('ayla', { card: crown }))
+      await assertFails(draw('dana', { uid: 'ayla', card: crown }))
+      expect(await readAsAdmin(`cards/${wish.cardId}`)).toMatchObject({ holder: null })
     })
 
     it('denies a Cursed draw of a normal card, and a Cursed draw with filters', async () => {
@@ -2998,6 +3161,25 @@ describe('packs (draws/{drawId} with kind pack, table/main, and their holdings a
         choose('ayla', {
           card: { cardId: HOLDINGS_SEED.DRAFT, cardName: 'New Card', cardKind: 'normal' },
         }),
+      )
+    })
+
+    it('denies choosing a DM-only card, or taking one as the mandatory Cursed card', async () => {
+      const { DM_ONLY, DM_ONLY_CURSED } = HOLDINGS_SEED
+      await seedOpenPack({ offered: [DM_ONLY, ...PACK_CARDS] })
+      await assertFails(
+        choose('ayla', {
+          card: { cardId: DM_ONLY, cardName: 'The Last Wish', cardKind: 'normal' },
+        }),
+      )
+      await seedOpenPack({
+        packType: 'cursed',
+        offered: [POOL, PACK_CARDS[0], DM_ONLY_CURSED, ...PACK_CARDS.slice(1)],
+        revealed: [0, 1, 2, 3, 4, 5],
+        cost: 1,
+      })
+      await assertFails(
+        choose('ayla', { cursed: { cardId: DM_ONLY_CURSED, cardName: 'Crown of Ash' } }),
       )
     })
 

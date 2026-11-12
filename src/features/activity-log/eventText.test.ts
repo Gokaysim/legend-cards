@@ -325,11 +325,34 @@ describe('describing definition changes', () => {
         describe_([
           testImportRecord('i2', 3, {
             public: false,
-            items: [{ id: 'legend-x', name: 'X', status: 'draft' }],
+            items: [{ id: 'legend-x', name: 'X', status: 'draft', dmOnly: false }],
           }),
         ]),
       ),
     ).toBe('1 taslak kart ekledi.')
+  })
+
+  describe('the DM-only flag', () => {
+    it.each([
+      ['on', false, true, "DM'e özel: hayır → evet"],
+      ['off', true, false, "DM'e özel: evet → hayır"],
+    ])('names the flag turned %s', (_case, before, after, line) => {
+      const sentence = describe_([
+        testCardChange(
+          'c1',
+          { ...eyesBefore, dmOnly: before },
+          { ...eyesBefore, dmOnly: after, cost: '3' },
+        ),
+      ])
+      expect(sentenceText(sentence)).toBe("Aboleth's Eyes kartını düzenledi.")
+      expect(sentence.lines).toEqual(['Cost: 2 → 3', line])
+    })
+
+    it('shows no flag line when the flag stays', () => {
+      const wish = { ...eyesBefore, dmOnly: true }
+      const sentence = describe_([testCardChange('c1', wish, { ...wish, cost: '3' })])
+      expect(sentence.lines).toEqual(['Cost: 2 → 3'])
+    })
   })
 
   describe('pictures', () => {
@@ -384,11 +407,30 @@ describe('describing definition changes', () => {
               what: 'pictures',
               target: 'word',
               public: false,
-              items: [{ id: 'tw-echo', name: 'Echo', status: 'draft' }],
+              items: [{ id: 'tw-echo', name: 'Echo', status: 'draft', dmOnly: false }],
             }),
           ]),
         ),
       ).toBe("1 taslak True Word'e resim ekledi.")
+    })
+
+    it('describes a picture import of DM-only cards as such', () => {
+      const sentence = describeEvent(
+        only({
+          changes: [
+            testImportRecord('i3', 1, {
+              what: 'pictures',
+              public: false,
+              items: [
+                { id: 'legend-thelastwish', name: 'The Last Wish', status: 'active', dmOnly: true },
+              ],
+            }),
+          ],
+        }),
+        nameOf,
+      )
+      expect(sentenceText(sentence)).toBe("1 DM'e özel karta resim ekledi.")
+      expect(sentence.names).toEqual(['The Last Wish'])
     })
   })
 })

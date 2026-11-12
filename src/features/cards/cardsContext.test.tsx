@@ -3,8 +3,9 @@ import type { ReactNode } from 'react'
 import { describe, expect, it } from 'vitest'
 
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
-import { ready } from '@/test/fixtures'
+import { ready, testProfile } from '@/test/fixtures'
 import { TestCardsProvider } from '@/test/TestCardsProvider'
+import { TestUsersProvider } from '@/test/TestUsersProvider'
 
 import { useCards, useCardsById, useDeckCards, useDeckDefinitions } from './cardsContext'
 import type { Card } from './schema'
@@ -33,6 +34,45 @@ describe('useCards', () => {
 
   it('fails outside a provider', () => {
     expect(() => renderHook(() => useCards())).toThrow('<CardsProvider>')
+  })
+})
+
+describe('DM-only cards', () => {
+  const wish = testCard('The Last Wish', { dmOnly: true })
+  const crown = testCursedCard('Crown of Ash', { dmOnly: true, status: 'retired' })
+
+  function withRole(role: 'dm' | 'player') {
+    const profile = testProfile({ role })
+    return ({ children }: { children: ReactNode }) => (
+      <TestUsersProvider currentProfile={ready(profile)} profiles={ready([profile])}>
+        <TestCardsProvider cards={ready([common, wish, crown])}>{children}</TestCardsProvider>
+      </TestUsersProvider>
+    )
+  }
+  const useLists = () => ({
+    cards: useCards(),
+    legend: useDeckDefinitions('legend'),
+    cursed: useDeckDefinitions('cursed'),
+    byId: useCardsById(),
+  })
+  const ids = (subscription: Subscription<Card[]>) =>
+    subscription.status === 'ready' ? subscription.data.map((card) => card.id) : []
+
+  it("leaves them out of a player's lists, and keeps them in the map for the hands", () => {
+    const { result } = renderHook(useLists, { wrapper: withRole('player') })
+    expect(ids(result.current.cards)).toEqual([common.id])
+    expect(ids(result.current.legend)).toEqual([common.id])
+    expect(ids(result.current.cursed)).toEqual([])
+    const byId = result.current.byId.status === 'ready' ? result.current.byId.data : new Map()
+    expect(byId.get(wish.id)).toBe(wish)
+    expect(byId.get(crown.id)).toBe(crown)
+  })
+
+  it("keeps them in the DM's lists", () => {
+    const { result } = renderHook(useLists, { wrapper: withRole('dm') })
+    expect(ids(result.current.cards)).toEqual([common.id, wish.id])
+    expect(ids(result.current.legend)).toEqual([common.id, wish.id])
+    expect(ids(result.current.cursed)).toEqual([crown.id])
   })
 })
 

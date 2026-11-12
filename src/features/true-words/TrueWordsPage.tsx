@@ -10,6 +10,7 @@ import { compareLabels } from '@/features/cards/sort'
 import { StatusFilter } from '@/features/definitions/StatusFilter'
 import {
   DEFAULT_STATUS_FILTER,
+  STATUS_FILTER_OPTIONS,
   type StatusFilterValue,
 } from '@/features/definitions/statusFilterOptions'
 import { STATUS_LABELS } from '@/features/definitions/status'
@@ -156,7 +157,14 @@ function TrueWordsScreen({
           <h2 id={`${ids}-list`} className="text-lg font-semibold text-ink">
             {`True Words (${listed.length})`}
           </h2>
-          {isDm ? <StatusFilter value={filter} onChange={setFilter} className="w-auto" /> : null}
+          {isDm ? (
+            <StatusFilter
+              value={filter}
+              onChange={setFilter}
+              options={STATUS_FILTER_OPTIONS}
+              className="w-auto"
+            />
+          ) : null}
         </div>
         {listed.length === 0 ? (
           <p className="rounded-xl border border-line bg-pane p-6 text-ink-muted">

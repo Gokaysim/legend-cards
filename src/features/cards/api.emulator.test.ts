@@ -73,6 +73,7 @@ describe('reading the cards under the real rules', () => {
         holder: null,
         changeId: null,
         picture: null,
+        dmOnly: false,
       },
       {
         id: 'cursed-oldcurse',
@@ -80,6 +81,7 @@ describe('reading the cards under the real rules', () => {
         holder: null,
         changeId: null,
         picture: null,
+        dmOnly: false,
       },
     ])
   })

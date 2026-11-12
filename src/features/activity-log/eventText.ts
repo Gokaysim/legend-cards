@@ -1,6 +1,7 @@
 import { formatAmount, formatDelta } from '@/features/balances/format'
 import type { DrawFilters } from '@/features/cards/pool'
 import { setDisplayName } from '@/features/cards/sets'
+import { DM_ONLY_LABEL } from '@/features/cards/status'
 import { visibleText } from '@/features/cards/text'
 import type {
   CardSnapshot,
@@ -184,15 +185,28 @@ function pictureLine(before: string | null, after: string | null): string | null
 }
 
 /**
+ * A card's DM-only flag turned on or off (spec: activity-log, "The DM-only flag in the log"): `null` when it stayed the
+ * same, and always for a True Word, which has no flag.
+ */
+function dmOnlyLine(change: DefinitionStepRecord): string | null {
+  if (change.target !== 'card' || change.before === null || change.after === null) return null
+  if (change.before.dmOnly === change.after.dmOnly) return null
+  const shown = (dmOnly: boolean) => (dmOnly ? 'evet' : 'hayır')
+  return `${DM_ONLY_LABEL}: ${shown(change.before.dmOnly)} → ${shown(change.after.dmOnly)}`
+}
+
+/**
  * Each changed field as "Cost: 2 → 3" (spec: activity-log, "Definition changes are events"). A text is compared by its
  * visible part; when only the bracket text changed, the line says so and shows none of it ("Text changes in the log").
- * A picture change comes last.
+ * A change of the DM-only flag, then a picture change, come last.
  */
 function changedLines(change: DefinitionStepRecord): string[] {
   const { before, after } = change
   if (before === null || after === null) return []
   const fields = change.target === 'card' ? CARD_FIELDS : WORD_FIELDS
-  const picture = pictureLine(before.picture, after.picture)
+  const extra = [dmOnlyLine(change), pictureLine(before.picture, after.picture)].filter(
+    (line) => line !== null,
+  )
   const lines = fields.flatMap(([field, label]) => {
     // Every field a log line names is text or empty.
     const old = (before as Record<string, string | null>)[field] ?? null
@@ -207,7 +221,7 @@ function changedLines(change: DefinitionStepRecord): string[] {
     }
     return [`${label}: ${shownValue(field, old)} → ${shownValue(field, next)}`]
   })
-  return picture === null ? lines : [...lines, picture]
+  return [...lines, ...extra]
 }
 
 /**
@@ -265,11 +279,15 @@ function definitionSentence(change: DefinitionStepRecord): EventSentence {
 
 /**
  * An import: "742 kart ekledi." or "3 taslak kart ekledi.", with the names it added. A picture import: "700 karta resim
- * ekledi." or "1 taslak True Word'e resim ekledi.", with the names that got one.
+ * ekledi.", "1 taslak True Word'e resim ekledi." or "1 DM'e özel karta resim ekledi.", with the names that got one.
  */
 function importSentence(change: ImportRecord): EventSentence {
   const isWord = change.target === 'word'
-  const draft = change.public ? '' : 'taslak '
+  const draft = change.public
+    ? ''
+    : change.items.every((item) => item.status === 'draft')
+      ? 'taslak '
+      : `${DM_ONLY_LABEL} `
   const count = formatAmount(change.items.length)
   const sentence =
     change.what === 'pictures'

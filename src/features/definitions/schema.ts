@@ -38,15 +38,25 @@ export function stepFor(
   return null
 }
 
+/** What decides whether players see a definition: its status, and for a card whether it is DM-only. */
+export type VisibilityOf = { status: DefinitionStatus; dmOnly?: boolean }
+
+/** True when players see the definition: it is active or retired, and not a DM-only card. */
+export function isPlayerVisible(definition: VisibilityOf | null): boolean {
+  return (
+    definition !== null &&
+    (definition.status === 'active' || definition.status === 'retired') &&
+    definition.dmOnly !== true
+  )
+}
+
 /**
- * True when players may read the step's record: the definition is active or retired before or after it. Work on a
- * draft stays the DM's, also after the draft is published (spec: definition-editing, "Who reads the change records").
+ * True when players may read the step's record: the definition is visible to players before or after it (spec:
+ * definition-editing, "Who reads the change records"). Work on a draft or on a DM-only card stays the DM's, also after
+ * the definition becomes visible. Keep in step with `visibleSnapshot` in `firestore.rules`.
  */
-export function isPublicStep(
-  before: DefinitionStatus | null,
-  after: DefinitionStatus | null,
-): boolean {
-  return [before, after].some((status) => status === 'active' || status === 'retired')
+export function isPublicStep(before: VisibilityOf | null, after: VisibilityOf | null): boolean {
+  return isPlayerVisible(before) || isPlayerVisible(after)
 }
 
 const id = z.string().min(1)
@@ -72,6 +82,8 @@ export const cardSnapshotSchema = z.object({
   text: z.string().max(CARD_LIMITS.text),
   status,
   picture: snapshotPicture,
+  /** Records from before DM-only cards have no field, which reads as `false`. */
+  dmOnly: z.boolean().default(false),
 })
 export type CardSnapshot = z.infer<typeof cardSnapshotSchema>
 
@@ -112,8 +124,16 @@ const wordStepSchema = z.object({
   after: wordSnapshotSchema.nullable(),
 })
 
-/** One definition an import added, or gave a picture. */
-export const importItemSchema = z.object({ id, name: z.string().min(1), status })
+/**
+ * One definition an import added, or gave a picture. A picture import marks a DM-only card; records from before DM-only
+ * cards have no field, which reads as `false`.
+ */
+export const importItemSchema = z.object({
+  id,
+  name: z.string().min(1),
+  status,
+  dmOnly: z.boolean().default(false),
+})
 export type ImportItem = z.infer<typeof importItemSchema>
 
 /**
@@ -142,8 +162,8 @@ const importRecordSchema = z.object({
 /** A step record whose step, visibility and name agree with its two snapshots. */
 function checkStep(
   record: { step: DefinitionStep; public: boolean; name: string } & {
-    before: { status: DefinitionStatus; name: string } | null
-    after: { status: DefinitionStatus; name: string } | null
+    before: (VisibilityOf & { name: string }) | null
+    after: (VisibilityOf & { name: string }) | null
   },
   ctx: z.RefinementCtx,
 ) {
@@ -156,7 +176,7 @@ function checkStep(
       message: 'The step does not match the statuses',
     })
   }
-  if (isPublicStep(before, after) !== record.public) {
+  if (isPublicStep(record.before, record.after) !== record.public) {
     ctx.addIssue({ code: 'custom', path: ['public'], message: 'The visibility does not match' })
   }
   const name = record.after?.name ?? record.before?.name
@@ -174,11 +194,13 @@ export const definitionChangeSchema = z.union([
   cardStepSchema.superRefine(checkStep),
   wordStepSchema.superRefine(checkStep),
   importRecordSchema.superRefine((record, ctx) => {
-    const isPublic = record.items.every((item) =>
-      record.what === 'pictures' ? item.status !== 'draft' : item.status === 'active',
+    const isPublic = record.items.every(
+      (item) =>
+        !item.dmOnly &&
+        (record.what === 'pictures' ? item.status !== 'draft' : item.status === 'active'),
     )
-    const isDraft = record.items.every((item) => item.status === 'draft')
-    if (record.public ? !isPublic : !isDraft) {
+    const isPrivate = record.items.every((item) => item.status === 'draft' || item.dmOnly)
+    if (record.public ? !isPublic : !isPrivate) {
       ctx.addIssue({
         code: 'custom',
         path: ['items'],

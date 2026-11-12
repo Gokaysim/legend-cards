@@ -240,7 +240,14 @@ describe("True Words screen: the DM's definitions", () => {
     const { user } = renderScreen({ viewer: dm, trueWords: { words: ready([...WORDS, ECHO]) } })
 
     expect(tileNames()).toEqual(['Abyss', 'Aid', 'Chaos', 'Dragon', 'Hoard'])
-    await user.selectOptions(main().getByRole('combobox', { name: 'Durum' }), 'draft')
+    // True Words have no DM-only flag, so the filter offers no "DM'e özel".
+    const filter = main().getByRole('combobox', { name: 'Durum' })
+    expect(
+      within(filter)
+        .getAllByRole('option')
+        .map((option) => option.textContent),
+    ).toEqual(['Yayında', 'Taslak', 'Kaldırıldı', 'Hepsi'])
+    await user.selectOptions(filter, 'draft')
 
     expect(tileNames()).toEqual(['Echo'])
     const echo = within(main().getByRole('article', { name: 'Echo' }))

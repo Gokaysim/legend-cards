@@ -20,6 +20,51 @@ describe('stepFor and isPublicStep', () => {
     ['draft', null, 'deleted', false],
   ])('%s → %s is %s', (before, after, step, isPublic) => {
     expect(stepFor(before, after)).toBe(step)
+    const snapshot = (status: DefinitionStatus | null) => (status === null ? null : { status })
+    expect(isPublicStep(snapshot(before), snapshot(after))).toBe(isPublic)
+  })
+
+  // Spec: definition-editing, "Who reads the change records".
+  it.each<
+    [
+      string,
+      { status: DefinitionStatus; dmOnly: boolean } | null,
+      { status: DefinitionStatus; dmOnly: boolean } | null,
+      boolean,
+    ]
+  >([
+    [
+      'an edit of a DM-only card',
+      { status: 'active', dmOnly: true },
+      { status: 'active', dmOnly: true },
+      false,
+    ],
+    [
+      'turning the flag on',
+      { status: 'active', dmOnly: false },
+      { status: 'active', dmOnly: true },
+      true,
+    ],
+    [
+      'turning the flag off',
+      { status: 'active', dmOnly: true },
+      { status: 'active', dmOnly: false },
+      true,
+    ],
+    ['adding a DM-only draft', null, { status: 'draft', dmOnly: true }, false],
+    [
+      'publishing a DM-only draft',
+      { status: 'draft', dmOnly: true },
+      { status: 'active', dmOnly: true },
+      false,
+    ],
+    [
+      'retiring a DM-only card',
+      { status: 'active', dmOnly: true },
+      { status: 'retired', dmOnly: true },
+      false,
+    ],
+  ])('%s is public: %s', (_name, before, after, isPublic) => {
     expect(isPublicStep(before, after)).toBe(isPublic)
   })
 
@@ -37,6 +82,23 @@ describe('stepFor and isPublicStep', () => {
 })
 
 describe('definitionChangeSchema', () => {
+  it('reads a card snapshot from before DM-only cards as not DM-only', () => {
+    const parsed = definitionChangeSchema.parse(edit)
+    expect(parsed.step !== 'imported' && parsed.target === 'card' && parsed.after?.dmOnly).toBe(
+      false,
+    )
+  })
+
+  it('refuses a public record of an edit of a DM-only card', () => {
+    const before = { ...card, dmOnly: true }
+    const result = definitionChangeSchema.safeParse({
+      ...edit,
+      before,
+      after: { ...before, cost: '3' },
+    })
+    expect(result.success).toBe(false)
+  })
+
   const card = {
     kind: 'normal',
     name: "Aboleth's Eyes",

@@ -8,14 +8,20 @@ import type { Card } from './schema'
 export type Deck = 'legend' | 'cursed'
 
 export type CardsContextValue = {
-  /** Every active card, of every kind: no draft and no retired card. Empty when signed out. */
+  /**
+   * Every active card, of every kind: no draft and no retired card, and on a player's device no DM-only card (design D3
+   * of add-dm-only-cards). Empty when signed out.
+   */
   cards: Subscription<Card[]>
   /**
-   * Every card this device reads: for the DM all of them, drafts included; for a player the active and retired ones.
-   * The DM's status filter lists from it.
+   * Every card this device lists: for the DM all of them, drafts included; for a player the active and retired ones
+   * that are not DM-only. The DM's status filter lists from it.
    */
   definitions: Subscription<Card[]>
-  /** Every card this device reads, by its ID, so a hand can still show a held card that was retired. */
+  /**
+   * Every card this device reads, by its ID, so a hand can still show a held card that was retired, or a DM-only card
+   * on a player's device.
+   */
   cardsById: Subscription<ReadonlyMap<string, Card>>
 }
 
@@ -29,20 +35,25 @@ function useCardsContext(): CardsContextValue {
 
 /**
  * Builds the shared values from the one subscription to the cards this device reads. Used by `CardsProvider` and the
- * test provider, so both derive the active list and the map the same way.
+ * test provider, so both derive the lists and the map the same way. A player's lists leave the DM-only cards out; the
+ * map keeps them for the hands (spec: card-library, "DM-only cards are hidden from players").
  */
-export function cardsContextValue(allCards: Subscription<Card[]>): CardsContextValue {
+export function cardsContextValue(
+  allCards: Subscription<Card[]>,
+  isDm: boolean,
+): CardsContextValue {
   if (allCards.status !== 'ready') {
     return { cards: allCards, definitions: allCards, cardsById: allCards }
   }
+  const listed = isDm ? allCards.data : allCards.data.filter((card) => !card.dmOnly)
   return {
-    cards: { ...allCards, data: allCards.data.filter((card) => card.status === 'active') },
-    definitions: allCards,
+    cards: { ...allCards, data: listed.filter((card) => card.status === 'active') },
+    definitions: { ...allCards, data: listed },
     cardsById: { ...allCards, data: new Map(allCards.data.map((card) => [card.id, card])) },
   }
 }
 
-/** Every active card. Must be used inside `<CardsProvider>`. */
+/** Every active card, without DM-only cards on a player's device. Must be used inside `<CardsProvider>`. */
 export function useCards(): Subscription<Card[]> {
   return useCardsContext().cards
 }

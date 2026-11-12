@@ -23,6 +23,7 @@ export function testCardSnapshot(
     text: `${name} text.`,
     status: 'active',
     picture: null,
+    dmOnly: false,
     ...overrides,
   }
 }
@@ -102,6 +103,7 @@ export function testImportRecord(
       id: `legend-card${index}`,
       name: `Card ${index}`,
       status: 'active' as const,
+      dmOnly: false,
     })),
     public: true,
     by: null,

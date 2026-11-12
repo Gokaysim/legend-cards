@@ -15,19 +15,21 @@ const playerCards = playerVisibleCardsQuery(db)
  * Shares the cards in real time, with one subscription for the whole app. Mounted once under `UsersProvider`, because
  * the role picks the query (design D3): the DM's device reads every card, drafts included, and a player's device only
  * the active and retired ones, which the rules allow it. It waits for the signed-in user's profile, so a DM never
- * subscribes twice. A missing or failed profile reads as a player's. `useCards()` gives the active cards, and
- * `useCardsById()` keeps the retired ones for the hands. Signed out, it subscribes to nothing.
+ * subscribes twice. A missing or failed profile reads as a player's. `useCards()` gives the active cards, without
+ * DM-only cards on a player's device, and `useCardsById()` keeps the retired and DM-only ones for the hands. Signed
+ * out, it subscribes to nothing.
  */
 export function CardsProvider({ children }: { children: ReactNode }) {
   const auth = useAuth()
   const profile = useCurrentProfile()
+  const isDm = profile.status === 'ready' && profile.data?.role === 'dm'
   const source =
     auth.status !== 'signedIn' || profile.status === 'loading'
       ? null
-      : profile.status === 'ready' && profile.data?.role === 'dm'
+      : isDm
         ? allCards
         : playerCards
   const cards = useCollection(source)
-  const value = useMemo(() => cardsContextValue(cards), [cards])
+  const value = useMemo(() => cardsContextValue(cards, isDm), [cards, isDm])
   return <CardsContext value={value}>{children}</CardsContext>
 }

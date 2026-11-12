@@ -63,6 +63,41 @@ describe('the DM on the Cursed Deck', () => {
   })
 })
 
+describe('DM-only cards on the deck screens', () => {
+  const wish = testCard('The Last Wish', {
+    dmOnly: true,
+    holder: { uid: 'bora', userCardId: 'h-wish' },
+  })
+  const crown = testCursedCard('Crown of Ash', { dmOnly: true })
+
+  function renderWith(path: string, profile: typeof dm) {
+    return renderApp({
+      path,
+      users: { currentProfile: ready(profile), profiles: ready([profile]) },
+      cards: { cards: ready([...CARDS, wish, crown]) },
+    })
+  }
+
+  it.each([
+    ['/library', ["Aboleth's Eyes"]],
+    ['/cursed-deck', ['Hex']],
+  ])("leaves them out of a player's %s and its count, also while held", (path, names) => {
+    renderWith(path, player)
+    expect(faces()).toEqual(names)
+    expect(screen.getByText('1 kart')).toBeInTheDocument()
+  })
+
+  it.each([
+    ['/library', "Aboleth's Eyes", 'The Last Wish'],
+    ['/cursed-deck', 'Hex', 'Crown of Ash'],
+  ])('lists them for the DM on %s, marked', (path, other, secret) => {
+    renderWith(path, dm)
+    expect(faces()?.toSorted()).toEqual([other, secret].toSorted())
+    expect(screen.getByRole('article', { name: secret })).toHaveTextContent('🔒 DM')
+    expect(screen.getByRole('article', { name: other })).not.toHaveTextContent('🔒 DM')
+  })
+})
+
 describe('a player on the deck screens', () => {
   it.each(['/library', '/cursed-deck'])(
     'sees on %s only the active cards and no DM control',

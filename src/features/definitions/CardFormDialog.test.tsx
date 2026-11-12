@@ -100,7 +100,7 @@ const fieldsWith = (values: Partial<CardFields>) => expect.objectContaining(valu
 
 const dialog = () => within(screen.getByRole('dialog'))
 const button = (name: string) => dialog().getByRole('button', { name })
-const field = (name: string) => dialog().getByLabelText(name)
+const field = (name: string | RegExp) => dialog().getByLabelText(name)
 
 describe('CardFormDialog: adding', () => {
   it('saves an unfinished card as a draft, and names what publishing still needs', async () => {
@@ -125,10 +125,22 @@ describe('CardFormDialog: adding', () => {
           rarity: 'common',
           mechanicPack: null,
           text: '',
+          dmOnly: false,
         },
       }),
     )
     expect(onClose).toHaveBeenCalled()
+  })
+
+  it('adds a DM-only draft with "Sadece DM verebilir"', async () => {
+    const { user, fakes } = setup()
+    await user.type(field('Kart adı'), 'The Last Wish')
+    await user.click(field(/Sadece DM verebilir/))
+    await user.click(button('Kaydet'))
+
+    expect(fakes.addCard).toHaveBeenCalledWith(
+      expect.objectContaining({ publish: false, fields: fieldsWith({ dmOnly: true }) }),
+    )
   })
 
   it('adds a complete Cursed card on the Cursed Deck straight to active, without set, rarity or pack', async () => {
@@ -282,6 +294,31 @@ describe('CardFormDialog: editing', () => {
     await user.type(field('Metin'), ' More.')
     await user.click(button('Kaydet'))
     expect(fakes.saveCard).toHaveBeenCalled()
+  })
+
+  it('marks an active card DM-only, and turns the flag off again', async () => {
+    const { user, fakes } = setup({
+      cardId: eyes.id,
+      cards: [...CARDS.filter((card) => card.id !== eyes.id), { ...eyes, dmOnly: true }],
+    })
+    expect(field(/Sadece DM verebilir/)).toBeChecked()
+    await user.click(field(/Sadece DM verebilir/))
+    await user.click(button('Kaydet'))
+
+    expect(fakes.saveCard).toHaveBeenCalledWith(
+      expect.objectContaining({ fields: fieldsWith({ dmOnly: false }) }),
+    )
+  })
+
+  it('waits for an open pack to change the DM-only flag', async () => {
+    const { user } = setup({ cardId: eyes.id, openPackId: 'p-open' })
+    expect(field(/Sadece DM verebilir/)).not.toBeChecked()
+    await user.click(field(/Sadece DM verebilir/))
+
+    expect(button('Kaydet')).toBeDisabled()
+    expect(dialog().getByText(/“Sadece DM verebilir” değişikliği de bekler/)).toBeVisible()
+    await user.click(field(/Sadece DM verebilir/))
+    expect(button('Kaydet')).toBeEnabled()
   })
 
   it('reloads a card that changed on another device, with a Turkish message', async () => {

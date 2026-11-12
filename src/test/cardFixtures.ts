@@ -25,6 +25,7 @@ export function testCard(
     status: 'active',
     changeId: null,
     picture: null,
+    dmOnly: false,
     holder: null,
     ...overrides,
   }
@@ -48,6 +49,7 @@ export function testBlessedCard(
     status: 'active',
     changeId: null,
     picture: null,
+    dmOnly: false,
     holder: null,
     ...overrides,
   }
@@ -71,6 +73,7 @@ export function testCursedCard(
     status: 'active',
     changeId: null,
     picture: null,
+    dmOnly: false,
     holder: null,
     ...overrides,
   }

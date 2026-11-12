@@ -86,6 +86,14 @@ describe('cardSchema', () => {
     expect(cardSchema.safeParse(card).success).toBe(true)
   })
 
+  it('reads a card stored without the DM-only flag as not DM-only, of every kind', () => {
+    for (const card of [normal, blessed, cursed]) {
+      expect(cardSchema.parse(card).dmOnly).toBe(false)
+    }
+    expect(cardSchema.parse({ ...cursed, dmOnly: true }).dmOnly).toBe(true)
+    expect(cardSchema.safeParse({ ...normal, dmOnly: 'yes' }).success).toBe(false)
+  })
+
   it('reads a card stored before definition editing as having no change record', () => {
     expect(cardSchema.parse(normal).changeId).toBeNull()
     expect(cardSchema.parse({ ...normal, changeId: 'c1' }).changeId).toBe('c1')

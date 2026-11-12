@@ -8,11 +8,7 @@ import { useIsDm } from '@/features/users/usersContext'
 import type { Subscription } from '@/lib/firestore/subscription'
 
 import { CardFormDialog } from './CardFormDialog'
-import {
-  DEFAULT_STATUS_FILTER,
-  filterByStatus,
-  type StatusFilterValue,
-} from './statusFilterOptions'
+import { type CardFilterValue, DEFAULT_STATUS_FILTER, filterCards } from './statusFilterOptions'
 
 export type CardEditing = {
   /** The cards to browse: the active ones, or for the DM those the status filter keeps. */
@@ -34,13 +30,13 @@ export function useCardEditing(deck: Deck): CardEditing {
   const isDm = useIsDm()
   const activeCards = useDeckCards(deck)
   const definitions = useDeckDefinitions(deck)
-  const [filter, setFilter] = useState<StatusFilterValue>(DEFAULT_STATUS_FILTER)
+  const [filter, setFilter] = useState<CardFilterValue>(DEFAULT_STATUS_FILTER)
   // `null` while closed; `cardId: null` adds a card.
   const [editing, setEditing] = useState<{ cardId: string | null } | null>(null)
 
   if (!isDm) return { cards: activeCards, browserProps: {}, addButton: null, dialog: null }
   return {
-    cards: filterByStatus(definitions, filter),
+    cards: filterCards(definitions, filter),
     browserProps: {
       statusFilter: { value: filter, onChange: setFilter },
       onEdit: (card) => setEditing({ cardId: card.id }),

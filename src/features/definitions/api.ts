@@ -57,6 +57,8 @@ export type CardFields = {
   rarity: Rarity | null
   mechanicPack: string | null
   text: string
+  /** "Sadece DM verebilir" (spec: "Setting the DM-only flag"). */
+  dmOnly: boolean
 }
 
 /** The fields the DM's True Word form edits. */
@@ -115,6 +117,7 @@ const CARD_SNAPSHOT_KEYS = [
   'text',
   'status',
   'picture',
+  'dmOnly',
 ] as const satisfies readonly (keyof CardSnapshot)[]
 
 const WORD_SNAPSHOT_KEYS = [
@@ -142,6 +145,7 @@ export function cardSnapshotOf(card: CardFields & WithPicture): CardSnapshot {
     text: card.text,
     status: card.status,
     picture: card.picture ?? null,
+    dmOnly: card.dmOnly,
   }
 }
 
@@ -157,12 +161,27 @@ export function wordSnapshotOf(word: WordFields & WithPicture): WordSnapshot {
   }
 }
 
+/** What a snapshot field reads as when the stored definition lacks it: `false` for `dmOnly`, else `null`. */
+const MISSING_VALUES: Readonly<Record<string, unknown>> = { dmOnly: false }
+
 /** The stored definition as a snapshot, with the stored `nameKey`; `null` when the document does not exist. */
 function storedSnapshot(
   data: DocumentData | undefined,
   keys: readonly string[],
 ): Record<string, unknown> | null {
-  return data === undefined ? null : Object.fromEntries(keys.map((key) => [key, data[key] ?? null]))
+  return data === undefined
+    ? null
+    : Object.fromEntries(keys.map((key) => [key, data[key] ?? MISSING_VALUES[key] ?? null]))
+}
+
+/** True when the step changes a card's DM-only flag, which changes the pool as a status step does (design D5). */
+function changesDmOnly(
+  before: CardSnapshot | WordSnapshot | null,
+  after: CardSnapshot | WordSnapshot | null,
+) {
+  const flag = (snapshot: CardSnapshot | WordSnapshot | null) =>
+    snapshot !== null && 'dmOnly' in snapshot ? snapshot.dmOnly : false
+  return before !== null && after !== null && flag(before) !== flag(after)
 }
 
 function sameSnapshot(a: Record<string, unknown> | null, b: Record<string, unknown> | null) {
@@ -190,7 +209,7 @@ type Step = {
 
 /**
  * Runs one definition step in a transaction, with its change record (design D4, D5, D8, D9): it refuses a definition
- * that changed since the form opened, waits for an open pack when the status changes, writes the definition (created,
+ * that changed since the form opened, waits for an open pack when the status or a card's DM-only flag changes, writes the definition (created,
  * updated or deleted), and records the step. Throws `DefinitionChangedError`, `NameTakenError` (a new ID that exists
  * meanwhile) and `TableBusyError`. Returns the record's ID.
  */
@@ -213,7 +232,9 @@ async function runStep(db: Firestore, step: Step): Promise<string> {
       } else if (!sameSnapshot(storedSnapshot(stored, keys), step.before)) {
         throw new DefinitionChangedError()
       }
-      if (beforeStatus !== afterStatus) await ensureTableFree(transaction, db)
+      if (beforeStatus !== afterStatus || changesDmOnly(step.before, step.after)) {
+        await ensureTableFree(transaction, db)
+      }
 
       if (step.after === null) {
         transaction.delete(definitionDoc)
@@ -225,7 +246,10 @@ async function runStep(db: Firestore, step: Step): Promise<string> {
         })
       } else {
         transaction.update(definitionDoc, {
-          ...withoutUnchangedPicture(step.after, step.before.picture),
+          ...withoutUnchangedFlag(
+            withoutUnchangedPicture(step.after, step.before.picture),
+            step.before,
+          ),
           changeId: recordDoc.id,
         })
       }
@@ -236,7 +260,7 @@ async function runStep(db: Firestore, step: Step): Promise<string> {
         step: stepFor(beforeStatus, afterStatus),
         before: step.before,
         after: step.after,
-        public: isPublicStep(beforeStatus, afterStatus),
+        public: isPublicStep(step.before, step.after),
         by: step.by,
         at: serverTimestamp(),
       })
@@ -259,6 +283,16 @@ function withoutUnchangedPicture<T extends { picture: string | null }>(
   if (after.picture !== before) return after
   const { picture: _unchanged, ...rest } = after
   return rest
+}
+
+/**
+ * The definition to write, without a card's DM-only flag when it does not change: a card stored before the flag keeps
+ * the field absent, so retiring or bringing it back changes nothing but its status, as the rules require.
+ */
+function withoutUnchangedFlag<T extends object>(after: T, before: CardSnapshot | WordSnapshot): T {
+  if (!('dmOnly' in after) || !('dmOnly' in before) || after.dmOnly !== before.dmOnly) return after
+  const { dmOnly: _unchanged, ...rest } = after
+  return rest as T
 }
 
 /**

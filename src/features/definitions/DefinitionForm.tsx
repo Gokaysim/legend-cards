@@ -47,6 +47,8 @@ export type DefinitionFormProps = {
   problems: readonly string[]
   /** The definition was deleted on another device while the form was open. */
   isGone?: boolean
+  /** "Kaydet" changes something that waits for an open pack, such as a card's DM-only flag. */
+  saveWaitsForPack?: boolean
   /** Saves the fields; `publish` adds a new definition as active, or publishes a draft. */
   onSave: (publish: boolean) => Promise<unknown>
   /** Retires an active definition, or brings a retired one back. */
@@ -74,6 +76,7 @@ export function DefinitionForm({
   missing,
   problems,
   isGone = false,
+  saveWaitsForPack = false,
   onSave,
   onSetStatus,
   onDelete,
@@ -90,7 +93,11 @@ export function DefinitionForm({
   const isComplete = missing.length === 0
   const isLive = status === 'active' || status === 'retired'
   const isBlocked = isWorking || isGone || !isOnline
-  const canSave = !isBlocked && problems.length === 0 && (isComplete || !isLive)
+  const canSave =
+    !isBlocked &&
+    problems.length === 0 &&
+    (isComplete || !isLive) &&
+    !(saveWaitsForPack && isTableBusy)
   const canPublish = !isBlocked && problems.length === 0 && isComplete && !isTableBusy
   const canStep = !isBlocked && !isTableBusy
 
@@ -140,6 +147,7 @@ export function DefinitionForm({
         {isTableBusy ? (
           <p className="text-sm text-ink-muted">
             Bir Pack açık: yayınlama, kaldırma, geri alma ve silme seçim yapılana kadar bekler.
+            {saveWaitsForPack ? ' “Sadece DM verebilir” değişikliği de bekler.' : null}
           </p>
         ) : null}
         {!isOnline ? (

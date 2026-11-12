@@ -101,12 +101,14 @@ export function GiveCardDialog({ receiver, onClose }: GiveCardDialogProps) {
     }
   }
 
+  // A held normal card gets an extra copy only after asking. A DM-only card is never in the pool, so its holder, not
+  // the pool, tells whether someone holds it.
   const choose = (card: Card) => {
     const status = statuses?.get(card.id)
-    if (card.kind === 'normal' && status && !status.inPool) {
+    if (card.kind === 'normal' && card.holder !== null) {
       setFailure(null)
       setGiven(null)
-      setQuestion({ card, holderName: status.holderNames[0] ?? 'Başka bir oyuncu' })
+      setQuestion({ card, holderName: status?.holderNames[0] ?? 'Başka bir oyuncu' })
       return
     }
     void give(card, false)

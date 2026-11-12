@@ -191,6 +191,18 @@ describe('card import against the emulators', () => {
     expect(await storedCount()).toBe(154)
   })
 
+  it('leaves a DM-only card DM-only, and never writes the flag on a card it adds', async () => {
+    const cursed = repositoryDeck('cursed')
+    await importDecks({ cursed })
+    expect(await card('cursed-visionsofdeath')).not.toHaveProperty('dmOnly')
+    await admin.db.doc(`${CARDS_COLLECTION}/cursed-visionsofdeath`).update({ dmOnly: true })
+
+    const { written } = await importDecks({ cursed })
+
+    expect(written).toBe(0)
+    expect(await card('cursed-visionsofdeath')).toMatchObject({ dmOnly: true, status: 'active' })
+  })
+
   it('does not add a card again that the DM renamed', async () => {
     const cursed = repositoryDeck('cursed')
     await importDecks({ cursed })

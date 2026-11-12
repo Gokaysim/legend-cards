@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { describe, expect, it } from 'vitest'
 
-import type { StatusFilterValue } from '@/features/definitions/statusFilterOptions'
+import { type CardFilterValue, filterCards } from '@/features/definitions/statusFilterOptions'
 import type { Subscription } from '@/lib/firestore/subscription'
 import { testPicturePath, testPictureUrl } from '@/test/artFixtures'
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
@@ -495,17 +495,18 @@ describe('CardBrowser pool status', () => {
 describe('CardBrowser for the DM: the status filter and the edit control', () => {
   const draft = testCard('Lute Song', { status: 'draft', setCode: null, rarity: null })
   const retired = testCard('Old Aboleth', { status: 'retired', setCode: 'Kesqer' })
-  const ALL_CARDS: Card[] = [...LEGEND, draft, retired]
-  const byStatus = (value: string) =>
-    value === 'all' ? ALL_CARDS : ALL_CARDS.filter((card) => card.status === value)
+  const wish = testCard('The Last Wish', { dmOnly: true })
+  const ash = testCard('Crown of Ash', { dmOnly: true, status: 'draft' })
+  const ALL_CARDS: Card[] = [...LEGEND, draft, retired, wish, ash]
+  const byStatus = (value: CardFilterValue) => filterCards(ready(ALL_CARDS), value)
 
   /** The library as the DM's page renders it: the page filters the cards, the browser shows the filter. */
   function DmBrowser({ onEdit = () => undefined }: { onEdit?: (card: Card) => void }) {
-    const [value, setValue] = useState<StatusFilterValue>('active')
+    const [value, setValue] = useState<CardFilterValue>('active')
     return (
       <CardBrowser
         deck="legend"
-        cards={ready(byStatus(value))}
+        cards={byStatus(value)}
         status={deckStatus(ALL_CARDS, {
           'Old Aboleth': { inPool: false, holderNames: ['Ayla'] },
           'Lute Song': { inPool: false },
@@ -520,19 +521,32 @@ describe('CardBrowser for the DM: the status filter and the edit control', () =>
     const user = userEvent.setup()
     render(<DmBrowser />)
 
-    expect(options('Durum')).toEqual(['Yayında', 'Taslak', 'Kaldırıldı', 'Hepsi'])
+    expect(options('Durum')).toEqual(['Yayında', 'Taslak', 'Kaldırıldı', "DM'e özel", 'Hepsi'])
     expect(screen.getByRole('combobox', { name: 'Durum' })).toHaveValue('active')
     expect(shownNames()).not.toContain('Lute Song')
     expect(screen.getByRole('article', { name: 'Let Go' })).not.toHaveTextContent('Yayında')
 
     await user.selectOptions(screen.getByRole('combobox', { name: 'Durum' }), 'draft')
-    expect(shownNames()).toEqual(['Lute Song'])
+    expect(shownNames()?.toSorted()).toEqual(['Crown of Ash', 'Lute Song'])
     expect(screen.getByRole('article', { name: 'Lute Song' })).toHaveTextContent('Taslak')
-    expect(screen.getByText('1 kart')).toBeInTheDocument()
+    expect(screen.getByText('2 kart')).toBeInTheDocument()
 
     await user.selectOptions(screen.getByRole('combobox', { name: 'Durum' }), 'all')
     expect(shownNames()).toHaveLength(ALL_CARDS.length)
     expect(screen.getByRole('article', { name: 'Let Go' })).toHaveTextContent('Yayında')
+  })
+
+  it('lists the DM-only cards of every status under "DM\'e özel", each marked', async () => {
+    const user = userEvent.setup()
+    render(<DmBrowser />)
+    // "Yayında" keeps the active DM-only card, marked.
+    expect(shownNames()).toContain('The Last Wish')
+    expect(screen.getByRole('article', { name: 'The Last Wish' })).toHaveTextContent('🔒 DM')
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Durum' }), 'dmOnly')
+    expect(shownNames()?.toSorted()).toEqual(['Crown of Ash', 'The Last Wish'])
+    expect(screen.getByRole('article', { name: 'Crown of Ash' })).toHaveTextContent('🔒 DM')
+    expect(screen.getByText('2 kart')).toBeInTheDocument()
   })
 
   it('combines the status filter with the search', async () => {
@@ -557,7 +571,7 @@ describe('CardBrowser for the DM: the status filter and the edit control', () =>
   it('keeps the toolbar when the filter keeps no card, so the DM can switch back', async () => {
     const user = userEvent.setup()
     function Empty() {
-      const [value, setValue] = useState<StatusFilterValue>('draft')
+      const [value, setValue] = useState<CardFilterValue>('draft')
       return (
         <CardBrowser
           deck="cursed"

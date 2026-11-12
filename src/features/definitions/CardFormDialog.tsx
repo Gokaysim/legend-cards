@@ -30,6 +30,8 @@ type FormValues = {
   rarity: '' | Rarity
   mechanicPack: string
   text: string
+  /** "Sadece DM verebilir". */
+  dmOnly: boolean
 }
 
 const MISSING_LABELS: Readonly<Record<MissingCardField, string>> = {
@@ -56,6 +58,7 @@ function valuesOf(card: Card): FormValues {
     rarity: card.rarity ?? '',
     mechanicPack: card.mechanicPack ?? '',
     text: card.text,
+    dmOnly: card.dmOnly,
   }
 }
 
@@ -68,6 +71,7 @@ function emptyValues(deck: Deck): FormValues {
     rarity: '',
     mechanicPack: '',
     text: '',
+    dmOnly: false,
   }
 }
 
@@ -83,6 +87,7 @@ function fieldsOf(values: FormValues): CardFields {
     mechanicPack:
       values.kind !== 'cursed' && values.mechanicPack !== '' ? values.mechanicPack : null,
     text: values.text.trim(),
+    dmOnly: values.dmOnly,
   }
 }
 
@@ -105,7 +110,8 @@ export type CardFormDialogProps = {
  * The DM's card form (spec: definition-editing, "Adding a card", "Card form fields", "Editing a definition"). It offers
  * the fields of the card's kind; the kind itself only for a draft, between normal and Blessed. The set, rarity and
  * mechanic pack come from the fixed lists, each with an empty choice for a draft. The cost is free text, where empty
- * or "—" means no cost, and the text shows its bracket text. The name must be unique in the deck.
+ * or "—" means no cost, and the text shows its bracket text. The name must be unique in the deck. "Sadece DM verebilir"
+ * makes the card DM-only (spec: "Setting the DM-only flag").
  */
 export function CardFormDialog({ deck, cardId, onClose }: CardFormDialogProps) {
   const ids = useId()
@@ -133,6 +139,8 @@ export function CardFormDialog({ deck, cardId, onClose }: CardFormDialogProps) {
   const status = base?.status ?? null
   const isGone = cardId !== null && cardsById.status === 'ready' && live === null
   const canChooseKind = values.kind !== 'cursed' && (base === null || base.status === 'draft')
+  // Turning the flag on or off changes the pool, so it waits for an open pack (design D5).
+  const changesDmOnly = base !== null && base.dmOnly !== values.dmOnly
 
   const sameDeck = existing.filter((card) => deckOfKind(card.kind) === deckOfKind(values.kind))
   const nameKey = normalize(fields.name)
@@ -176,6 +184,7 @@ export function CardFormDialog({ deck, cardId, onClose }: CardFormDialogProps) {
       missing={missing}
       problems={problems}
       isGone={isGone}
+      saveWaitsForPack={changesDmOnly}
       onSave={(publish) =>
         base === null
           ? actions.addCard({ fields, publish, by: uid, existing, picture: choiceOf(picture) })
@@ -312,6 +321,22 @@ export function CardFormDialog({ deck, cardId, onClose }: CardFormDialogProps) {
           <p className="mt-1 text-xs text-ink-muted">
             [Köşeli parantez] içindeki metin oyunculara gösterilmez, aramada bulunur.
           </p>
+        </div>
+        <div className="sm:col-span-2">
+          <label className="flex items-start gap-2 text-sm text-ink">
+            <input
+              type="checkbox"
+              checked={values.dmOnly}
+              onChange={(event) => set('dmOnly', event.target.checked)}
+              className="mt-0.5 size-4 accent-gold"
+            />
+            <span>
+              Sadece DM verebilir
+              <span className="block text-xs text-ink-muted">
+                Çekilmez, paketlerde çıkmaz, oyuncuların listelerinde görünmez.
+              </span>
+            </span>
+          </label>
         </div>
         <div className="sm:col-span-2">
           <PictureField

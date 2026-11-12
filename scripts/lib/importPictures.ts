@@ -31,6 +31,8 @@ export type PictureDefinition = {
   name: string
   nameKey: string
   status: DefinitionStatus
+  /** A DM-only card (spec: definition-editing, "DM-only cards"); always `false` for a word. */
+  dmOnly: boolean
   picture: PictureState
 }
 
@@ -88,6 +90,7 @@ export async function readPictureDefinitions(db: Firestore): Promise<PictureDefi
         name: String(data.name),
         nameKey: String(data.nameKey),
         status: statusOf(data),
+        dmOnly: data.dmOnly === true,
         picture: pictureStateOf(data),
       }
     }
@@ -237,33 +240,54 @@ export async function writePictures<F extends SourceFile>(
   return result
 }
 
+/** Which record of a picture import names a definition: the public one, the drafts', or the DM-only cards'. */
+type PictureRecordGroup = 'public' | 'drafts' | 'dmOnly'
+
+function recordGroupOf(definition: PictureDefinition): PictureRecordGroup {
+  if (definition.status === 'draft') return 'drafts'
+  return definition.dmOnly ? 'dmOnly' : 'public'
+}
+
+/** One record a picture import writes: its target, whether players read it, and the definitions it names. */
+export type PictureRecord = {
+  target: 'card' | 'word'
+  isPublic: boolean
+  items: PictureDefinition[]
+}
+
 /**
- * Up to four records of a picture import: for cards and for words, one public of the active and retired definitions
- * that got a picture, and one DM-only of the drafts. None when nothing was added.
+ * Up to five records of a picture import: for cards and for words, one public of the active and retired definitions
+ * that got a picture, one DM-only of the drafts, and for cards one DM-only of the DM-only cards that are not drafts
+ * (design D7 of add-dm-only-cards). None when nothing was added.
  */
+export function pictureRecords(added: readonly PictureDefinition[]): PictureRecord[] {
+  return (['card', 'word'] as const)
+    .flatMap((target) =>
+      (['public', 'drafts', 'dmOnly'] as const).map((group) => ({
+        target,
+        isPublic: group === 'public',
+        items: added.filter(
+          (definition) => definition.target === target && recordGroupOf(definition) === group,
+        ),
+      })),
+    )
+    .filter((record) => record.items.length > 0)
+}
+
+/** Writes the records of a picture import (`pictureRecords`) in one batch. */
 export async function writePictureRecords(
   db: Firestore,
   added: readonly PictureDefinition[],
 ): Promise<void> {
-  const groups = (['card', 'word'] as const).flatMap((target) =>
-    [true, false].map((isPublic) => ({
-      target,
-      isPublic,
-      items: added.filter(
-        (definition) =>
-          definition.target === target && (definition.status !== 'draft') === isPublic,
-      ),
-    })),
-  )
+  const groups = pictureRecords(added)
   const batch = db.batch()
   let count = 0
   for (const { target, isPublic, items } of groups) {
-    if (items.length === 0) continue
     batch.set(db.collection(CHANGES_COLLECTION).doc(), {
       target,
       step: 'imported',
       what: 'pictures',
-      items: items.map(({ id, name, status }) => ({ id, name, status })),
+      items: items.map(({ id, name, status, dmOnly }) => ({ id, name, status, dmOnly })),
       public: isPublic,
       by: null,
       at: FieldValue.serverTimestamp(),

@@ -29,7 +29,8 @@ const halo = testBlessedCard('Halo of Aboleths')
 const visions = testCursedCard('Visions of Death', { text: 'Aboleth dreams.' })
 const retired = testCard('Old Aboleth', { status: 'retired' })
 const draft = testCard('Aboleth Draft', { status: 'draft' })
-const CARDS: Card[] = [eyes, gaze, greedy, halo, visions, retired, draft]
+const wish = testCard('The Last Wish', { dmOnly: true })
+const CARDS: Card[] = [eyes, gaze, greedy, halo, visions, retired, draft, wish]
 
 function setup({
   viewer = dm,
@@ -101,6 +102,19 @@ describe('GiveCardDialog', () => {
     await user.click(dialog().getByRole('button', { name: 'Visions of Death ver' }))
     expect(give).toHaveBeenLastCalledWith(expect.objectContaining({ cardId: visions.id }))
     expect(screen.getByRole('dialog', { name: 'Kart ver: Ayla' })).toBeInTheDocument()
+  })
+
+  it('gives a DM-only card no one holds without asking for an extra copy', async () => {
+    const { user, give } = setup()
+    await openAndSearch(user, 'last wish')
+    expect(results()).toEqual(["The Last WishKesqerian Nights · DM'e özelVer"])
+
+    await user.click(dialog().getByRole('button', { name: 'The Last Wish ver' }))
+
+    expect(give).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ cardId: wish.id, allowExtraCopy: false }),
+    )
+    expect(dialog().queryByText(/Ek kopya/)).not.toBeInTheDocument()
   })
 
   it('asks before giving an extra copy of a held card, and gives it once confirmed', async () => {

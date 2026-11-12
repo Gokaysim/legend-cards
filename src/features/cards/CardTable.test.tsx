@@ -46,6 +46,17 @@ const headers = () =>
 const rowNames = () => screen.getAllByRole('rowheader').map((cell) => cell.textContent)
 
 describe('CardTable', () => {
+  it('marks a DM-only row "🔒 DM" for the DM only', () => {
+    const wish = testCard('The Last Wish', { dmOnly: true })
+    const eyes = testCard("Aboleth's Eyes")
+    const props = { deck: 'legend' as const, sort: DEFAULT_SORT, onSort: () => {} }
+    const view = render(<CardTable {...props} cards={[eyes, wish]} marksDmOnly />)
+    expect(screen.getByRole('rowheader', { name: /The Last Wish/ })).toHaveTextContent('🔒 DM')
+    expect(screen.getByRole('rowheader', { name: /Aboleth's Eyes/ })).not.toHaveTextContent('🔒')
+    view.rerender(<CardTable {...props} cards={[eyes, wish]} />)
+    expect(screen.getByRole('rowheader', { name: /The Last Wish/ })).not.toHaveTextContent('🔒')
+  })
+
   it('has the Legend columns Kart, Set, Cost, Rarity, Mechanic Pack, Metin and Durum', () => {
     render(<SortableTable deck="legend" cards={[testCard('A')]} />)
     expect(headers()).toEqual(['Kart', 'Set', 'Cost', 'Rarity', 'Mechanic Pack', 'Metin', 'Durum'])

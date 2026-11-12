@@ -72,6 +72,18 @@ service cloud.firestore {
       return status in ['active', 'retired'];
     }
 
+    // A card only the DM gives (spec: definition-editing, "DM-only cards"). A card stored without the field is not
+    // DM-only. Keep in step with the cards schema.
+    function dmOnly(data) {
+      return data.get('dmOnly', false) == true;
+    }
+
+    // A change record's snapshot that players see: active or retired, and not a DM-only card (design D4 of
+    // add-dm-only-cards). A True Word's snapshot has no flag. Keep in step with isPublicStep in the definitions schema.
+    function visibleSnapshot(snapshot) {
+      return snapshot != null && playerVisible(snapshot.status) && !dmOnly(snapshot);
+    }
+
     // The status steps a definition may take in one write (design D5): a draft is edited or published, an active
     // definition is edited or retired, a retired one is edited or brought back. Nothing ever becomes a draft again.
     function allowedStatusStep(before, after) {
@@ -118,7 +130,8 @@ service cloud.firestore {
         'mechanicPack': data.mechanicPack,
         'text': data.text,
         'status': data.status,
-        'picture': data.get('picture', null)
+        'picture': data.get('picture', null),
+        'dmOnly': dmOnly(data)
       };
     }
 
@@ -482,12 +495,13 @@ service cloud.firestore {
         return ['kind', 'name', 'nameKey', 'setCode', 'cost', 'rarity', 'mechanicPack', 'text', 'status', 'changeId'];
       }
 
-      // A card's shape: the limits of CARD_LIMITS, a status, the fields its kind has, and its picture. A normal draft
-      // may still lack its set, rarity and mechanic pack; completeCard decides when it may be active. Only a normal
-      // card has a holder.
+      // A card's shape: the limits of CARD_LIMITS, a status, the fields its kind has, its picture, and its DM-only
+      // flag, which may be absent. A normal draft may still lack its set, rarity and mechanic pack; completeCard decides
+      // when it may be active. Only a normal card has a holder.
       function validCard(data) {
         return textOfSize(data.name, 200)
           && validPicture(data, 'cards', cardId)
+          && data.get('dmOnly', false) is bool
           && textOfSize(data.nameKey, 200)
           && (data.cost == null || textOfSize(data.cost, 10))
           && data.text is string
@@ -529,7 +543,7 @@ service cloud.firestore {
       // the pool, without a holder.
       function addedByDm() {
         let data = request.resource.data;
-        return data.keys().hasOnly(definitionKeys().concat(['holder', 'picture']))
+        return data.keys().hasOnly(definitionKeys().concat(['holder', 'picture', 'dmOnly']))
           && data.keys().hasAll(definitionKeys())
           && validCard(data)
           && inDeck(data.kind)
@@ -541,13 +555,14 @@ service cloud.firestore {
 
       // The DM's definition step on a stored card (design D5, D6, D8): an allowed status step that leaves an active or
       // retired card complete, a kind that changes only on a draft (also as it is published) and only between normal
-      // and Blessed, retiring and bringing back
-      // that change nothing but the status, a free table for every status change, and the step's new record. The
-      // holder never changes here. The picture changes with the other fields, never with retiring or bringing back.
+      // and Blessed, retiring and bringing back that change nothing but the status, a free table for every status
+      // change and every change of the DM-only flag (design D5 of add-dm-only-cards), and the step's new record. The
+      // holder never changes here. The picture and the flag change with the other fields, never with retiring or
+      // bringing back.
       function changedByDm() {
         let before = resource.data;
         let after = request.resource.data;
-        return onlyChanges(definitionKeys().concat(['picture']))
+        return onlyChanges(definitionKeys().concat(['picture', 'dmOnly']))
           && validCard(after)
           && inDeck(after.kind)
           && allowedStatusStep(before.status, after.status)
@@ -556,7 +571,7 @@ service cloud.firestore {
             || (before.status == 'draft'
               && before.kind in ['normal', 'blessed'] && after.kind in ['normal', 'blessed']))
           && (before.status == after.status || before.status == 'draft' || onlyChanges(['status', 'changeId']))
-          && (before.status == after.status || tableFree())
+          && ((before.status == after.status && dmOnly(before) == dmOnly(after)) || tableFree())
           && after.changeId != before.get('changeId', null)
           && recordedBy(after.changeId, 'card', cardId)
           && isDm();
@@ -722,7 +737,7 @@ service cloud.firestore {
 
       // A draw that this same request creates opened this holding: the draw names it, this hand, this card and
       // its kind (the draw's own rule checks that the signed-in user drew). A drawn card starts inactive, without a note or a cost, and is never
-      // retired. A normal card comes from the pool and gets this holding as its holder, so a draw never makes an
+      // retired or DM-only. A normal card comes from the pool and gets this holding as its holder, so a draw never makes an
       // extra copy.
       function drawnInto() {
         let data = request.resource.data;
@@ -738,6 +753,7 @@ service cloud.firestore {
           && data.note == ''
           && data.costOverride == null
           && get(cardPath(cardId)).data.status == 'active'
+          && !dmOnly(get(cardPath(cardId)).data)
           && (data.cardKind != 'normal'
             || (holderBefore(cardId) == null
               && holderAfter(cardId) == {'uid': data.uid, 'userCardId': holdingId}));
@@ -745,7 +761,7 @@ service cloud.firestore {
 
       // An open pack that this same request marks as chosen names this holding: as its chosen card, or as its
       // mandatory Cursed card. The pack's own rule checks who chooses. A chosen card starts inactive, without a note
-      // or a cost, and is never retired. A normal card comes from the pool and gets this holding as its holder.
+      // or a cost, and is never retired or DM-only. A normal card comes from the pool and gets this holding as its holder.
       function chosenFromPack() {
         let data = request.resource.data;
         let before = get(drawPath(data.drawId)).data;
@@ -768,6 +784,7 @@ service cloud.firestore {
           && data.note == ''
           && data.costOverride == null
           && get(cardPath(cardId)).data.status == 'active'
+          && !dmOnly(get(cardPath(cardId)).data)
           && (data.cardKind != 'normal'
             || (holderBefore(cardId) == null
               && holderAfter(cardId) == {'uid': data.uid, 'userCardId': holdingId}));
@@ -1262,7 +1279,7 @@ service cloud.firestore {
           && agreesWithTarget(data)
           && explainsTarget(data)
           && data.step == stepFor(statusOf(data.before), statusOf(data.after))
-          && data.public == (playerVisible(statusOf(data.before)) || playerVisible(statusOf(data.after)))
+          && data.public == (visibleSnapshot(data.before) || visibleSnapshot(data.after))
           && data.name == (data.after != null ? data.after.name : data.before.name)
           && data.by == request.auth.uid
           && data.at == request.time;

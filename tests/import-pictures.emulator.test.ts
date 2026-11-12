@@ -130,7 +130,7 @@ type PictureRecord = {
   what: string
   step: string
   by: null
-  items: { id: string; name: string; status: string }[]
+  items: { id: string; name: string; status: string; dmOnly: boolean }[]
 }
 const records = async () =>
   (await admin.db.collection(CHANGES_COLLECTION).get()).docs.map(
@@ -210,6 +210,34 @@ describe('import-pictures', () => {
           ids: ['tw-abyss'],
         },
       ]),
+    )
+  })
+
+  it('names a DM-only card in a DM-only record of its own, never in the public one', async () => {
+    await admin.db.doc('cards/legend-thelastwish').set({
+      kind: 'normal',
+      name: 'The Last Wish',
+      nameKey: 'thelastwish',
+      status: 'active',
+      dmOnly: true,
+    })
+    await importPictures(await pngs(...FILES, 'thelastwish.png'))
+
+    expect(await pictureOf('cards/legend-thelastwish')).toMatch(
+      /^cards\/legend-thelastwish\/[0-9a-f]{10}\.webp$/,
+    )
+    const cardRecords = (await records()).filter(({ target }) => target === 'card')
+    const publicIds = cardRecords
+      .filter((record) => record.public)
+      .flatMap(({ items }) => items.map(({ id }) => id))
+    expect(publicIds).not.toContain('legend-thelastwish')
+    expect(cardRecords).toContainEqual(
+      expect.objectContaining({
+        public: false,
+        items: [
+          { id: 'legend-thelastwish', name: 'The Last Wish', status: 'active', dmOnly: true },
+        ],
+      }),
     )
   })
 

@@ -56,6 +56,12 @@ const common = {
    * difference matters only to the picture import (design D3 of upload-card-and-word-pictures).
    */
   picture: picturePathSchema.nullable().default(null),
+  /**
+   * True for a card only the DM gives (spec: definition-editing, "DM-only cards"): no draw or pack gives it, and players'
+   * lists leave it out. Independent of the status. Cards stored without the field are not DM-only; the imports never
+   * write it.
+   */
+  dmOnly: z.boolean().default(false),
 }
 
 /** A normal card's set, rarity and mechanic pack may be empty only in a draft (see `isComplete`). */

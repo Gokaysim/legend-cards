@@ -7,6 +7,8 @@ import { ready, testProfile } from '@/test/fixtures'
 import { testHolding } from '@/test/holdingFixtures'
 import { renderApp } from '@/test/renderApp'
 
+import { isMarkedHeld, statusLabel } from '@/features/cards/status'
+
 import { cardStatuses } from './cardStatus'
 
 const ayla = testProfile({ id: 'ayla', displayName: 'Ayla' })
@@ -57,6 +59,32 @@ describe('cardStatuses', () => {
     expect(statuses.get(draft.id)).toEqual({ inPool: false, holderNames: [] })
     expect(statuses.get(retired.id)).toEqual({ inPool: false, holderNames: ['Ayla'] })
     expect(statuses.get(retiredBlessed.id)).toEqual({ inPool: false, holderNames: [] })
+  })
+
+  it('keeps DM-only cards out of the pool, and names them "DM\'e özel"', () => {
+    const wish = testCard('The Last Wish', { dmOnly: true })
+    const heldWish = testCard('Held Wish', {
+      dmOnly: true,
+      holder: { uid: 'bora', userCardId: 'bora-wish' },
+    })
+    const secretBlessing = testBlessedCard('Secret Blessing', { dmOnly: true })
+    const crown = testCursedCard('Crown of Ash', { dmOnly: true })
+    const statuses = cardStatuses(
+      [wish, heldWish, secretBlessing, crown],
+      [testHolding(heldWish, 'bora', 1000, { id: 'bora-wish' }), testHolding(crown, 'ayla', 2000)],
+      profiles,
+    )
+    const labelOf = (card: typeof wish) => {
+      const status = statuses.get(card.id)
+      if (!status) throw new Error(`No status for ${card.name}`)
+      return { label: statusLabel(card, status), marked: isMarkedHeld(card, status) }
+    }
+
+    expect(statuses.get(wish.id)).toEqual({ inPool: false, holderNames: [] })
+    expect(statuses.get(secretBlessing.id)).toEqual({ inPool: false, holderNames: [] })
+    expect(labelOf(wish)).toEqual({ label: "DM'e özel", marked: false })
+    expect(labelOf(heldWish)).toEqual({ label: "DM'e özel · Elde: Bora", marked: true })
+    expect(labelOf(crown)).toEqual({ label: "DM'e özel · Elde: Ayla", marked: true })
   })
 
   it('names the holder before its holding arrives, and a user without a profile generically', () => {

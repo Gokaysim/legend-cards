@@ -26,6 +26,7 @@ import {
   setLabel,
 } from './display'
 import type { Card } from './schema'
+import { DM_ONLY_MARK } from './status'
 import { visibleText } from './text'
 import { useCardTilt } from './useCardTilt'
 
@@ -135,6 +136,8 @@ export type CardFaceProps = {
   zoomsOnDoubleClick?: boolean
   /** In the DM's library: the definition status to show as a mark ("Taslak", "Yayında", "Kaldırıldı"). */
   statusMark?: string
+  /** In the DM's library: marks a DM-only card "🔒 DM" (spec: card-library, "DM-only cards are hidden from players"). */
+  isDmOnlyMarked?: boolean
   /** In the DM's library: opens the card's edit form from a "✎" control beside the magnifier. */
   onEdit?: () => void
   /**
@@ -177,6 +180,7 @@ export function CardFace({
   isZoomable = true,
   zoomsOnDoubleClick = true,
   statusMark,
+  isDmOnlyMarked = false,
   onEdit,
   onOpen,
   openLabel,
@@ -195,7 +199,8 @@ export function CardFace({
   const change = isInHand ? costChange(card.cost, handCost) : null
   const text = visibleText(card.text)
   const hasMarks =
-    showsMarks && (isActive || isExtraCopy || heldBy !== undefined || statusMark !== undefined)
+    showsMarks &&
+    (isActive || isExtraCopy || heldBy !== undefined || statusMark !== undefined || isDmOnlyMarked)
   const look = picture.src !== null ? 'picture' : 'css'
   const glow = faceGlow(frame, {
     isActive,
@@ -267,6 +272,7 @@ export function CardFace({
   const marks = hasMarks ? (
     <div data-marks="" className="flex flex-wrap gap-1">
       {statusMark ? <Mark className="border-ink-muted">{statusMark}</Mark> : null}
+      {isDmOnlyMarked ? <Mark className="border-ink-muted">{DM_ONLY_MARK}</Mark> : null}
       {isActive ? <Mark className={FRAME_CLASSES[frame]}>● Aktif</Mark> : null}
       {isExtraCopy ? <Mark>Ek kopya</Mark> : null}
       {heldBy ? <Mark className="border-gold">Elde: {heldBy.join(', ')}</Mark> : null}

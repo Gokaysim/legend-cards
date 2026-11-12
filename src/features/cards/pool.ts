@@ -28,20 +28,26 @@ export const NO_FILTERS: DrawFilters = {
   keyword: null,
 }
 
-/** True for a card a random draw can give: an active normal card without a holder, or an active Blessed card. */
+/**
+ * True for a card a random draw can give: an active normal card without a holder, or an active Blessed card, never a
+ * DM-only one (spec: card-draws, "Equal chance from the pool").
+ */
 export function isDrawable(card: Card): boolean {
-  if (card.status !== 'active') return false
+  if (card.status !== 'active' || card.dmOnly) return false
   return card.kind === 'blessed' || (card.kind === 'normal' && card.holder === null)
 }
 
-/** The cards a random draw picks from. Held normal cards, Cursed cards, drafts and retired cards are never in it. */
+/**
+ * The cards a random draw picks from. Held normal cards, Cursed cards, drafts, retired cards and DM-only cards are
+ * never in it.
+ */
 export function drawablePool(cards: readonly Card[]): Card[] {
   return cards.filter(isDrawable)
 }
 
-/** The cards a Cursed draw picks from: the active Cursed cards. */
+/** The cards a Cursed draw and a pack's Cursed card pick from: the active Cursed cards that are not DM-only. */
 export function cursedPool(cards: readonly Card[]): Card[] {
-  return cards.filter((card) => card.kind === 'cursed' && card.status === 'active')
+  return cards.filter((card) => card.kind === 'cursed' && card.status === 'active' && !card.dmOnly)
 }
 
 /** A card's rarity for the draw filter: its rarity, `blessed` for a Blessed card, and none for a Cursed card. */

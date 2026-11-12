@@ -34,6 +34,7 @@ export function cardStatuses(
       const status: CardStatus = {
         inPool:
           card.status === 'active' &&
+          !card.dmOnly &&
           (card.kind === 'blessed' || (card.kind === 'normal' && holder === null)),
         holderNames: uids.map((uid) => names.get(uid) ?? 'İsimsiz oyuncu'),
       }

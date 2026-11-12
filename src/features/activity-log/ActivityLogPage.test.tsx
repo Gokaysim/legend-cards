@@ -530,6 +530,27 @@ describe('definition changes in the İşlem Logu', () => {
     expect(rows()[1]).not.toHaveTextContent('Yalnızca DM')
   })
 
+  it('marks work on a DM-only card as visible to the DM only, and a flag change as public', () => {
+    const wish = testCardSnapshot('The Last Wish', { dmOnly: true })
+    const secretEdit = testCardChange(
+      'c-wish',
+      wish,
+      { ...wish, cost: '3' },
+      { public: false, at: on(8, 55) },
+    )
+    const flagOn = testCardChange(
+      'c-flag',
+      eyesBefore,
+      { ...eyesBefore, dmOnly: true },
+      { at: on(8, 50) },
+    )
+    renderLog({ records: ready(records({ changes: [secretEdit, flagOn] })) })
+    expect(rows()[0]).toHaveTextContent('The Last Wish kartını düzenledi.')
+    expect(rows()[0]).toHaveTextContent('🔒 Yalnızca DM')
+    expect(rows()[1]).toHaveTextContent("DM'e özel: hayır → evet")
+    expect(rows()[1]).not.toHaveTextContent('Yalnızca DM')
+  })
+
   it('shows the first import as one event of 742 cards, by "Import"', () => {
     renderLog({ records: ready(records({ changes: [imported] })) })
     expect(rows()).toHaveLength(1)

@@ -81,6 +81,7 @@ const fieldsOf = (card: Card): CardFields => ({
   rarity: card.rarity,
   mechanicPack: card.mechanicPack,
   text: card.text,
+  dmOnly: card.dmOnly,
 })
 
 async function readAsAdmin(path: string): Promise<Record<string, unknown> | undefined> {
@@ -159,6 +160,7 @@ describe('card steps under the real rules', () => {
     rarity: 'common',
     mechanicPack: 'Arcanus Divine',
     text: 'Play a song.',
+    dmOnly: false,
   }
 
   it('adds an unfinished card as a draft, with a DM-only record', async () => {
@@ -341,6 +343,86 @@ describe('card steps under the real rules', () => {
       ),
     ).toBeDefined()
     expect(await cardNow(EYES.id)).toMatchObject({ text: EYES.text })
+  })
+})
+
+describe('DM-only cards under the real rules', () => {
+  const save = (card: Card, changes: Partial<CardFields>, publish = false) =>
+    saveCard(as('dana'), {
+      card,
+      fields: { ...fieldsOf(card), ...changes },
+      publish,
+      by: 'dana',
+      existing: CARDS,
+    })
+
+  it('marks an active card DM-only and back, each in a public record', async () => {
+    await save(EYES, { dmOnly: true })
+    const marked = await cardNow(EYES.id)
+    expect(marked).toMatchObject({ dmOnly: true, status: 'active' })
+    await save(marked, { dmOnly: false })
+
+    const visible = await getDocs(publicChangesQuery(as('ayla')))
+    expect(
+      visible.docs.map((entry) => {
+        const record = entry.data()
+        return record.step === 'imported' || record.target !== 'card'
+          ? null
+          : [record.before?.dmOnly, record.after?.dmOnly]
+      }),
+    ).toEqual(
+      expect.arrayContaining([
+        [false, true],
+        [true, false],
+      ]),
+    )
+  })
+
+  it('keeps the edits of a DM-only card from players, and adds and publishes a DM-only draft privately', async () => {
+    await save(EYES, { dmOnly: true })
+    await save(await cardNow(EYES.id), { cost: '3' })
+    const id = await addCard(as('dana'), {
+      fields: { ...fieldsOf(ENCORE), name: 'The Last Wish', dmOnly: true },
+      publish: false,
+      by: 'dana',
+      existing: CARDS,
+    })
+    await save(await cardNow(id), {}, true)
+
+    expect(await cardNow(id)).toMatchObject({ status: 'active', dmOnly: true })
+    const steps = (await records()).map(({ step, public: isPublic, name }) => ({
+      step,
+      isPublic,
+      name,
+    }))
+    expect(steps).toEqual(
+      expect.arrayContaining([
+        { step: 'edited', isPublic: true, name: "Aboleth's Eyes" },
+        { step: 'edited', isPublic: false, name: "Aboleth's Eyes" },
+        { step: 'added', isPublic: false, name: 'The Last Wish' },
+        { step: 'published', isPublic: false, name: 'The Last Wish' },
+      ]),
+    )
+  })
+
+  it('retires and brings back a card stored without the flag, leaving the field absent', async () => {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const { dmOnly: _none, ...legacy } = stored(EYES)
+      await setDoc(doc(firestoreOf(admin), `cards/${EYES.id}`), legacy)
+    })
+    await setCardStatus(as('dana'), { card: EYES, status: 'retired', by: 'dana' })
+    await setCardStatus(as('dana'), {
+      card: await cardNow(EYES.id),
+      status: 'active',
+      by: 'dana',
+    })
+    expect(await readAsAdmin(`cards/${EYES.id}`)).not.toHaveProperty('dmOnly')
+  })
+
+  it('refuses turning the flag on while a pack is open', async () => {
+    await openPack()
+    expect(await failureOf(save(EYES, { dmOnly: true }))).toBeInstanceOf(TableBusyError)
+    expect(await cardNow(EYES.id)).toMatchObject({ dmOnly: false })
   })
 })
 
