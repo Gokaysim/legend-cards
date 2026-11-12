@@ -1,10 +1,11 @@
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { testArt } from '@/test/artFixtures'
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 import { ready, testProfile, testUser } from '@/test/fixtures'
+import { stubPhoneWidth, stubWideHover } from '@/test/media'
 import { renderApp } from '@/test/renderApp'
 
 import { SCREENS, SHOP_SCREENS } from './screens'
@@ -229,5 +230,50 @@ describe("each screen's Cardmaker", () => {
     renderApp({ path: '/library', cards: { cards: CARDS } })
 
     expect(document.querySelector('img[data-mascot]')).toBeNull()
+  })
+
+  describe('in the corner or nowhere', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals()
+    })
+
+    const cornerStem = () =>
+      document.querySelector('[data-corner-cardmaker]')?.getAttribute('data-corner-cardmaker')
+
+    it.each([
+      ['/shops', 'cardmaker_shop'],
+      ['/library', 'cardmaker_lib'],
+      ['/cursed-deck', 'cardmaker_cursed'],
+      ['/rules', 'cardmaker_wave'],
+      ['/settings', 'cardmaker_peek'],
+      ['/shops/elixirs', 'cardmaker_zaddir'],
+    ])('stands the Cardmaker of %s in the corner on a wide window with a mouse', (path, stem) => {
+      stubWideHover()
+      renderApp({ path, cards: { cards: CARDS }, art: ART })
+
+      expect(cornerStem()).toBe(stem)
+      expect(headerMascot()).toBeNull()
+    })
+
+    it.each([
+      ['/true-words', 'cardmaker_true'],
+      ['/log', 'cardmaker_think'],
+    ])('keeps the Cardmaker of %s by the title on a wide window with a mouse', (path, stem) => {
+      stubWideHover()
+      renderApp({ path, cards: { cards: CARDS }, art: ART })
+
+      expect(headerMascot()).toHaveAttribute('src', `/art/mascots/${stem}.0123456789.webp`)
+      expect(cornerStem()).toBeUndefined()
+    })
+
+    it.each(['/shops', '/library', '/rules', '/true-words', '/settings'])(
+      'shows no Cardmaker on %s on a phone',
+      (path) => {
+        stubPhoneWidth()
+        renderApp({ path, cards: { cards: CARDS }, art: ART })
+
+        expect(document.querySelector('img[data-mascot]')).toBeNull()
+      },
+    )
   })
 })

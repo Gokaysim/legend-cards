@@ -7,7 +7,7 @@ import { testCursedCard } from '@/test/cardFixtures'
 import { ready, testProfile, testUser } from '@/test/fixtures'
 import { testPartyPurse } from '@/test/ledgerFixtures'
 import { SHOP_CARDS, testPack } from '@/test/packFixtures'
-import { stubWideHover } from '@/test/media'
+import { stubPhoneWidth, stubWideHover } from '@/test/media'
 import { renderApp } from '@/test/renderApp'
 
 import { PackError } from './errors'
@@ -113,17 +113,19 @@ describe('pack pictures', () => {
   const pictureOf = (title: string) => packButton(title).querySelector('img')
   const nameOf = (title: string) => packButton(title).querySelector('[data-pack-name]')
   const priceOf = (title: string) => packButton(title).querySelector('[data-pack-price]')
-  /** The tile's parts from top to bottom: `price`, `picture`, `glyph` and `name`. */
+  /** The tile's parts from top to bottom: `picture`, `glyph`, `name` and `price`. */
   const partsOf = (title: string) =>
-    [...packButton(title).children].map((part) =>
-      part.hasAttribute('data-pack-price')
-        ? 'price'
-        : part.hasAttribute('data-pack-name')
-          ? 'name'
-          : part.querySelector('img')
-            ? 'picture'
-            : 'glyph',
-    )
+    [...packButton(title).children]
+      .flatMap((part) => (part.hasAttribute('data-pack-text') ? [...part.children] : [part]))
+      .map((part) =>
+        part.hasAttribute('data-pack-price')
+          ? 'price'
+          : part.hasAttribute('data-pack-name')
+            ? 'name'
+            : part.querySelector('img')
+              ? 'picture'
+              : 'glyph',
+      )
 
   it("shows a Mechanic Pack's picture with its name under it, and no price", () => {
     renderShop({ art: ART })
@@ -140,45 +142,59 @@ describe('pack pictures', () => {
     expect(priceOf(title)).toBeNull()
   })
 
-  it("shows a set's packs with their prices above the set's cardback, and no names", () => {
+  it("shows a set's packs on the set's cardback, in order, each with its short name and its price under it", () => {
     renderShop({ path: '/shops/packs?group=Kesqer', art: ART })
 
-    for (const [title, price] of [
-      ['Kesqerian Nights Standard Pack', '2 LP / 5.000 GP'],
-      ['Kesqerian Nights Premium Pack', '3 LP / 7.500 GP'],
-      ['Kesqerian Nights Cursed Pack', '1 LP / 2.500 GP'],
-    ] as const) {
+    const tiles = [
+      ['Kesqerian Nights Standard Pack', 'Standart', '2 LP / 5.000 GP'],
+      ['Kesqerian Nights Premium Pack', 'Premium', '3 LP / 7.500 GP'],
+      ['Kesqerian Nights Cursed Pack', 'Cursed', '1 LP / 2.500 GP'],
+    ] as const
+    for (const [title, name, price] of tiles) {
       expect(pictureOf(title)).toHaveAttribute('src', '/art/backs/kesqer.0123456789.webp')
-      expect(partsOf(title)).toEqual(['price', 'picture'])
+      expect(partsOf(title)).toEqual(['picture', 'name', 'price'])
+      expect(nameOf(title)).toHaveTextContent(new RegExp(`^${name}$`))
       expect(priceOf(title)).toHaveTextContent(price)
       expect(packButton(title)).not.toHaveTextContent(title)
     }
+    expect(
+      main()
+        .getAllByRole('button', { name: / Pack aç$/ })
+        .map((button) => button.querySelector('[data-pack-name]')?.textContent),
+    ).toEqual(['Standart', 'Premium', 'Cursed'])
   })
 
-  it('names both Pandemonium packs and both Golden Packs under their pictures', () => {
+  it('gives the Pandemonium packs and the Golden Packs their short names, with their prices under them', () => {
     const { unmount } = renderShop({ path: '/shops/packs?group=Pandemonium', art: ART })
-    for (const title of ['Pandemonium Pack', 'Pandemonium Cursed Pack']) {
-      expect(partsOf(title)).toEqual(['price', 'picture', 'name'])
+    for (const [title, name] of [
+      ['Pandemonium Pack', 'Pandemonium'],
+      ['Pandemonium Cursed Pack', 'Cursed'],
+    ] as const) {
+      expect(partsOf(title)).toEqual(['picture', 'name', 'price'])
+      expect(nameOf(title)).toHaveTextContent(new RegExp(`^${name}$`))
       expect(priceOf(title)).toHaveTextContent('3 LP / 7.500 GP')
-      expect(nameOf(title)).toHaveTextContent(title)
     }
     unmount()
 
     renderShop({ path: '/shops/packs?group=golden', art: ART })
-    for (const title of ['Golden Pack', 'Cursed Golden Pack']) {
-      expect(partsOf(title)).toEqual(['price', 'picture', 'name'])
-      expect(nameOf(title)).toHaveTextContent(title)
+    for (const [title, name, price] of [
+      ['Golden Pack', 'Golden', '4 LP / 10.000 GP'],
+      ['Cursed Golden Pack', 'Cursed Golden', '3 LP / 7.500 GP'],
+    ] as const) {
+      expect(partsOf(title)).toEqual(['picture', 'name', 'price'])
+      expect(nameOf(title)).toHaveTextContent(new RegExp(`^${name}$`))
+      expect(priceOf(title)).toHaveTextContent(price)
     }
   })
 
-  it('keeps the glyph and the name for a pack without a picture', () => {
+  it('keeps the glyph, the short name and the price for a pack without a picture', () => {
     renderShop({ path: '/shops/packs?group=Havenholm', art: ART })
 
     const title = 'Throne of Havenholm Standard Pack'
     expect(pictureOf(title)).toBeNull()
-    expect(partsOf(title)).toEqual(['price', 'glyph', 'name'])
+    expect(partsOf(title)).toEqual(['glyph', 'name', 'price'])
     expect(packButton(title)).toHaveTextContent('🎴')
-    expect(nameOf(title)).toHaveTextContent(title)
+    expect(nameOf(title)).toHaveTextContent('Standart')
   })
 
   it("keeps the pack's name in the button's label", () => {
@@ -309,6 +325,18 @@ describe("the groups' Cardmakers", () => {
   it("shows the shop's Cardmaker by the title of the main view", () => {
     renderShop({ art: ART })
     expect(mascots()).toEqual(['cardmaker_shop'])
+  })
+
+  it("shows no Cardmaker on a phone, neither the shop's nor a group's", () => {
+    stubPhoneWidth()
+    const { unmount } = renderShop({ art: ART })
+    expect(mascots()).toEqual([])
+    unmount()
+
+    renderShop({ path: '/shops/packs?group=Ulagal', art: ART })
+    expect(mascots()).toEqual([])
+    expect(main().getByRole('heading', { level: 2, name: 'Ballad of Ulagal Packs' })).toBeVisible()
+    vi.unstubAllGlobals()
   })
 
   it("shows a set group's own Cardmaker with the group's title, instead of the shop's", () => {

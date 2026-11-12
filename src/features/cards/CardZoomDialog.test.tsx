@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { testPicturePath, testPictureUrl } from '@/test/artFixtures'
-import { testCard, testCursedCard } from '@/test/cardFixtures'
+import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 import { TestArtProvider } from '@/test/TestArtProvider'
 
 import { CardZoomDialog } from './CardZoomDialog'
@@ -25,16 +25,40 @@ const renderWithArt = (ui: ReactNode) => render(<TestArtProvider>{ui}</TestArtPr
 const zoom = (name: string) => screen.getByRole('dialog', { name })
 
 describe('CardZoomDialog', () => {
-  it("shows the card's name, its set, cost and rarity, and its picture", () => {
+  it("shows only the card's picture and a small close button, named after the card", () => {
     renderWithArt(<CardZoomDialog card={ABOLETH} onClose={vi.fn()} />)
 
     const dialog = zoom("Aboleth's Eyes")
     expect(dialog).toHaveAttribute('open')
-    expect(dialog).toHaveTextContent('Kesqerian Nights · Cost 3 · Common')
     expect(within(dialog).getByRole('img', { name: "Aboleth's Eyes" })).toHaveAttribute(
       'src',
       ABOLETH_URL,
     )
+    expect(within(dialog).queryByRole('heading')).not.toBeInTheDocument()
+    expect(dialog).not.toHaveTextContent('Kesqerian Nights')
+    expect(dialog).not.toHaveTextContent('Cost')
+    expect(dialog).not.toHaveTextContent('Common')
+    expect(within(dialog).getByRole('button', { name: 'Kapat' })).toHaveTextContent('✕')
+  })
+
+  it.each([
+    [
+      'Blessed',
+      testBlessedCard('Second Wind', { picture: testPicturePath('card', 'blessed-wind') }),
+    ],
+    [
+      'Cursed · Cost 1',
+      testCursedCard('Abandon All Hope', {
+        cost: '1',
+        picture: testPicturePath('card', 'cursed-hope'),
+      }),
+    ],
+  ])('shows a card with a picture alone, without the line "%s"', (line, card) => {
+    renderWithArt(<CardZoomDialog card={card} onClose={vi.fn()} />)
+
+    const dialog = zoom(card.name)
+    expect(within(dialog).getByRole('img', { name: card.name })).toBeInTheDocument()
+    expect(dialog).not.toHaveTextContent(line)
   })
 
   it('opens outside the page it came from, in the document body', () => {
@@ -44,11 +68,10 @@ describe('CardZoomDialog', () => {
     expect(zoom("Aboleth's Eyes").parentElement).toBe(document.body)
   })
 
-  it('shows a cheaper hand cost in the line and as a badge on the picture, marked lower', () => {
+  it('shows a cheaper hand cost as a badge on the picture, marked lower', () => {
     renderWithArt(<CardZoomDialog card={ABOLETH} handCost="1" onClose={vi.fn()} />)
 
     const dialog = zoom("Aboleth's Eyes")
-    expect(dialog).toHaveTextContent('Kesqerian Nights · Cost 1 (temel: 3) · Common')
     const badge = within(dialog).getByText(/^Cost:/).parentElement
     expect(badge).toHaveTextContent('Cost: 1 (bu elde daha düşük; temel cost: 3)')
     expect(badge).toHaveAttribute('data-cost-change', 'lower')
@@ -64,7 +87,6 @@ describe('CardZoomDialog', () => {
     )
 
     for (const dialog of screen.getAllByRole('dialog', { name: "Aboleth's Eyes" })) {
-      expect(dialog).toHaveTextContent('Kesqerian Nights · Cost 3 · Common')
       expect(within(dialog).queryByText(/^Cost:/)).not.toBeInTheDocument()
     }
   })
@@ -79,8 +101,8 @@ describe('CardZoomDialog', () => {
     expect(
       within(dialog)
         .getAllByRole('button')
-        .map((button) => button.textContent),
-    ).toEqual(['✕ Kapat'])
+        .map((button) => button.getAttribute('aria-label')),
+    ).toEqual(['Kapat'])
   })
 
   it("shows the card's face without pictures, larger and without a magnifier, for a card without a picture", () => {
@@ -92,7 +114,6 @@ describe('CardZoomDialog', () => {
     )
 
     const dialog = zoom('Night Owl')
-    expect(dialog).toHaveTextContent('Kesqerian Nights · Cost 2 · Rare')
     expect(within(dialog).queryByRole('img')).not.toBeInTheDocument()
     const face = within(dialog).getByRole('article', { name: 'Night Owl' })
     // The CSS face sits in its glow box, inside the zoom view's wider box.
@@ -126,18 +147,17 @@ describe('CardZoomDialog', () => {
     )
 
     const dialog = zoom('Scorched Earth')
-    expect(dialog).toHaveTextContent('Cursed · Cost 1')
     const face = within(dialog).getByRole('article', { name: 'Scorched Earth' })
     expect(face).toHaveTextContent('Burn it all.')
     expect(within(face).queryByText('Set')).not.toBeInTheDocument()
     expect(within(face).queryByText('Mechanic Pack')).not.toBeInTheDocument()
   })
 
-  it('calls onClose from "✕ Kapat"', async () => {
+  it('calls onClose from its "✕" button', async () => {
     const onClose = vi.fn()
     renderWithArt(<CardZoomDialog card={ABOLETH} onClose={onClose} />)
 
-    await userEvent.click(within(zoom("Aboleth's Eyes")).getByRole('button', { name: '✕ Kapat' }))
+    await userEvent.click(within(zoom("Aboleth's Eyes")).getByRole('button', { name: 'Kapat' }))
 
     expect(onClose).toHaveBeenCalledOnce()
   })

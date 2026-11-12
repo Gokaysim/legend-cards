@@ -3,20 +3,12 @@ import { useEffect, useRef, useState } from 'react'
 import { useArt } from '@/features/art/artContext'
 import { CardPicture } from '@/features/art/CardPicture'
 import { type SpreadBack, spreadBackUrl } from '@/features/art/spreadBack'
+import { CSS_BACK_SHAPE, CSS_BACK_TONES, type CssBackTone } from '@/features/art/cssBack'
+import { CssBackGlyph } from '@/features/art/NeutralCardBack'
 import { usePicture } from '@/features/art/usePicture'
 import { CardFace } from '@/features/cards/CardFace'
 import type { Card } from '@/features/cards/schema'
 import { cn } from '@/lib/cn'
-
-/** The CSS back's look, without a cardback picture: neutral (also a set's, without its picture) or Cursed. */
-type CssBackTone = 'neutral' | 'cursed'
-
-const BACK_CLASSES: Record<CssBackTone, string> = {
-  neutral: 'border-gold from-control via-pane-raised to-primary',
-  cursed: 'border-cursed from-control via-pane-raised to-cursed/40',
-}
-
-const BACK_GLYPH: Record<CssBackTone, string> = { neutral: '✦', cursed: '☠' }
 
 export type FaceDownCardProps = {
   card: Card
@@ -84,21 +76,13 @@ export function FaceDownCard({
   const backClasses = cn(
     'col-start-1 row-start-1 rounded-xl border-2 backface-hidden',
     picture.src === null
-      ? cn(
-          'flex aspect-[563/788] flex-col items-center justify-center gap-3 bg-linear-to-br p-3',
-          BACK_CLASSES[tone],
-        )
+      ? cn(CSS_BACK_SHAPE, CSS_BACK_TONES[tone])
       : 'relative block overflow-hidden border-transparent',
   )
   const backContent =
     picture.src === null ? (
       <>
-        <span
-          aria-hidden="true"
-          className={cn('text-4xl', tone === 'cursed' ? 'text-cursed' : 'text-gold')}
-        >
-          {BACK_GLYPH[tone]}
-        </span>
+        <CssBackGlyph tone={tone} />
         {turnLabel()}
       </>
     ) : (

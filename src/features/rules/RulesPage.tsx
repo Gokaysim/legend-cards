@@ -8,7 +8,7 @@ export function RulesPage() {
   const screen = screenById('rules')
   return (
     <section className="flex flex-col gap-6">
-      <PageHeader title={screen.label} mascot={screen.mascot} />
+      <PageHeader title={screen.label} mascot={screen.mascot} mascotPlacement="corner" />
       <RulesContent />
     </section>
   )

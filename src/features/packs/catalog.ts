@@ -44,22 +44,24 @@ export function priceLabel(type: PackType): string {
 }
 
 /**
- * The pack types whose tile names the pack under its picture (spec: card-images, design D7). v2.2.8 names the Mechanic,
- * Golden, Cursed Golden and Pandemonium Packs. The owner chose to name the Pandemonium Cursed Pack too, since the two
- * Pandemonium packs share a picture and a price. A set's Standard, Premium and Cursed Packs are told apart by their
- * frame and price.
+ * The short names of the packs inside a group, under each tile's picture (spec: card-images, "Short pack names in a
+ * group"; design D4 of `polish-cards-packs-and-mascots`). "Standart" is the owner's Turkish spelling, on the tile
+ * alone: everywhere else a pack keeps its full `packTitle`.
  */
-const NAMED_ON_TILE: readonly PackType[] = [
-  'mechanic',
-  'golden',
-  'cursedGolden',
-  'pandemonium',
-  'pandemoniumCursed',
-]
+const SHORT_NAMES: Record<PackType, string> = {
+  standard: 'Standart',
+  premium: 'Premium',
+  cursed: 'Cursed',
+  pandemonium: 'Pandemonium',
+  pandemoniumCursed: 'Cursed',
+  golden: 'Golden',
+  cursedGolden: 'Cursed Golden',
+  mechanic: 'Mechanic',
+}
 
-/** True when a pack's tile shows its name under its picture. A tile without a picture always shows it. */
-export function hasNameOnTile(type: PackType): boolean {
-  return NAMED_ON_TILE.includes(type)
+/** A pack's short name on its tile inside a group: "Standart", "Premium", "Cursed", "Golden"… */
+export function packShortName(def: Pick<PackDef, 'type'>): string {
+  return SHORT_NAMES[def.type]
 }
 
 /** True for the Pandemonium set, which has its own two packs instead of Standard, Premium and Cursed. */
@@ -166,21 +168,31 @@ export function packCatalog(cards: readonly Card[]): PackCatalog {
 }
 
 /**
- * The back every face-down card of a pack shows (design D7): the set's cardback for a set's Standard, Premium or
- * Pandemonium Pack, the Cursed cardback for every Cursed type, and the neutral back for a Mechanic or Golden Pack,
- * whose cards can be of any set. Never the card's own: a back gives nothing away.
+ * The back every face-down card of a pack shows (design D7; design D1 of `polish-cards-packs-and-mascots`): the set's
+ * cardback for a set's Standard, Premium or Pandemonium Pack, the Cursed cardback for every Cursed type, the Mechanic
+ * Pack's own picture for a Mechanic Pack, and the neutral back for a Golden Pack, whose cards can be of any set. Never
+ * the card's own: the same back for every card of the pack, so a back gives nothing away.
  */
-export function spreadBackOf(packType: PackType, setCode: string | null): SpreadBack {
-  switch (packType) {
+export function spreadBackOf(pack: {
+  packType: PackType
+  setCode: string | null
+  mechanicPack: string | null
+}): SpreadBack {
+  switch (pack.packType) {
     case 'standard':
     case 'premium':
     case 'pandemonium':
-      return setCode === null ? NEUTRAL_BACK : { kind: 'set', setCode }
+      return pack.setCode === null ? NEUTRAL_BACK : { kind: 'set', setCode: pack.setCode }
     case 'cursed':
     case 'pandemoniumCursed':
     case 'cursedGolden':
       return CURSED_BACK
     case 'mechanic':
+      return {
+        kind: 'pack',
+        packKey: packDefOf({ type: 'mechanic', setCode: null, mechanicPack: pack.mechanicPack })
+          .key,
+      }
     case 'golden':
       return NEUTRAL_BACK
   }

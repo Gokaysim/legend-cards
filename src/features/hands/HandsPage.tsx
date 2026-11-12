@@ -9,6 +9,7 @@ import {
   screenById,
   TRUE_WORDS_TAB,
 } from '@/app/screens'
+import { DetailsBadges } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Spinner } from '@/components/ui/Spinner'
@@ -23,6 +24,7 @@ import { ActiveWordsPeek } from '@/features/true-words/ActiveWordsPeek'
 import { HandTrueWords } from '@/features/true-words/HandTrueWords'
 import { TrueWordDetails } from '@/features/true-words/TrueWordDetails'
 import { TrueWordDialog } from '@/features/true-words/TrueWordDialog'
+import { wordBadges } from '@/features/true-words/wordBadges'
 import {
   knownWordEntries,
   useKnownWords,
@@ -39,6 +41,7 @@ import { GiveCardDialog } from './GiveCardDialog'
 import { HandDetailsPanel } from './HandDetailsPanel'
 import { HandSummary } from './HandSummary'
 import { HandView } from './HandView'
+import { holdingBadges } from './holdingBadges'
 import { HoldingDetails } from './HoldingDetails'
 import { HoldingDialog } from './HoldingDialog'
 import { useOpenHoldings } from './holdingsContext'
@@ -306,9 +309,13 @@ function HandContent({ profile }: { profile: UserProfile }) {
         </div>
         {showsPanel && tab === 'true-words' ? (
           <HandDetailsPanel
-            title="Seçili True Word"
+            label="Seçili True Word"
             name={selectedWord?.word.name ?? null}
-            emptyText="Detaylarını görmek için bir True Word seç."
+            badges={selectedWord ? <DetailsBadges badges={wordBadges(selectedWord)} /> : null}
+            empty={{
+              title: 'Bir True Word seç',
+              hint: "Bir True Word'e tıkla, ayrıntıları burada görünsün.",
+            }}
           >
             {selectedWord ? (
               <TrueWordDetails
@@ -316,15 +323,20 @@ function HandContent({ profile }: { profile: UserProfile }) {
                 entry={selectedWord}
                 holderName={name}
                 onDone={() => setWordSelection(null)}
+                layout="panel"
               />
             ) : null}
           </HandDetailsPanel>
         ) : null}
         {showsPanel && tab === 'cards' ? (
           <HandDetailsPanel
-            title="Seçili Kart"
+            label="Seçili Kart"
             name={selected?.card.name ?? null}
-            emptyText="Detayları görmek için elden bir kart seç."
+            badges={selected ? <DetailsBadges badges={holdingBadges(selected)} /> : null}
+            empty={{
+              title: 'Bir kart seç',
+              hint: 'Elden bir karta tıkla, ayrıntıları burada görünsün.',
+            }}
           >
             {selected ? (
               // Keyed by the holding, so a new selection starts without an open step.

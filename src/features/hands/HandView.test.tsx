@@ -1,11 +1,12 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { Card } from '@/features/cards/schema'
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 import { ready, testProfile } from '@/test/fixtures'
 import { testHolding } from '@/test/holdingFixtures'
+import { stubWideWindow } from '@/test/media'
 import { renderApp } from '@/test/renderApp'
 import { testLearnedWord, testTrueWord } from '@/test/trueWordFixtures'
 
@@ -108,10 +109,10 @@ describe('hand contents', () => {
 
     expect(screen.getAllByRole('dialog')).toHaveLength(1)
     const zoom = screen.getByRole('dialog', { name: 'Night Owl' })
-    expect(zoom).toHaveTextContent('Kesqerian Nights · Cost 3 · Common')
+    expect(zoom).not.toHaveTextContent('Kesqerian Nights · Cost 3 · Common')
     expect(zoom).not.toHaveTextContent('Kart notu')
 
-    await user.click(within(zoom).getByRole('button', { name: '✕ Kapat' }))
+    await user.click(within(zoom).getByRole('button', { name: 'Kapat' }))
     await user.click(screen.getByRole('button', { name: 'Night Owl: ayrıntılar' }))
 
     expect(screen.getByRole('dialog', { name: 'Night Owl' })).toHaveTextContent('Kart notu')
@@ -236,6 +237,34 @@ function stat(label: string) {
 const summaryList = (name: string) => screen.getByRole('region', { name })
 const listTrigger = (name: string) =>
   within(screen.getByLabelText('El özeti')).getByRole('button', { name })
+
+describe('double-clicking a hand card', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('selects the card beside the hand and opens its zoom view over the panel on a wide window', async () => {
+    stubWideWindow()
+    const user = userEvent.setup()
+    renderHand([testHolding(owl, 'ayla', 1000)])
+
+    await user.dblClick(screen.getByRole('button', { name: 'Night Owl: ayrıntılar' }))
+
+    expect(screen.getByRole('region', { name: 'Seçili Kart' })).toHaveTextContent('Kart notu')
+    expect(screen.getAllByRole('dialog')).toHaveLength(1)
+    expect(screen.getByRole('dialog', { name: 'Night Owl' })).not.toHaveTextContent('Kart notu')
+  })
+
+  it('opens only the details dialog on a narrower window', async () => {
+    const user = userEvent.setup()
+    renderHand([testHolding(owl, 'ayla', 1000)])
+
+    await user.dblClick(screen.getByRole('button', { name: 'Night Owl: ayrıntılar' }))
+
+    expect(screen.getAllByRole('dialog')).toHaveLength(1)
+    expect(screen.getByRole('dialog', { name: 'Night Owl' })).toHaveTextContent('Kart notu')
+  })
+})
 
 describe('hand summary', () => {
   it('counts the cards, the active ones, the sets and the Cursed cards, and lists them', () => {

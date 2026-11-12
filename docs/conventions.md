@@ -82,7 +82,9 @@ src/
   components/ui/        shared primitives: Avatar, Button, Dialog (a native modal dialog; one may open inside
                         another, and closing the inner one leaves the outer one open; `closeOnBackdrop` also closes
                         it with a click outside, as the zoom view does), PageHeader, Placeholder, Spinner,
-                        FullScreenSpinner
+                        FullScreenSpinner, and the details' pieces: Pill (a label whose border takes a kind's
+                        color), NotePaper (the card note on cream paper), ToolSection (a heading between two
+                        lines, as "DM araçları"), EmptyCardSlot (the dashed card place of an empty details panel)
   lib/
     firebase/           settings check (config.ts) and the Firebase app, Auth and Firestore instances
     firestore/          real-time subscription hooks, converters, errors (including firebaseCode)
@@ -94,6 +96,8 @@ src/
                         Cardmaker then stands in the corner and speaks
     useWideWindow.ts    whether this is a window at least 1024 px wide, live: the hand then shows the selected
                         card's or word's details in a panel beside it instead of a dialog
+    usePhoneWidth.ts    whether this is a window narrower than 640 px, live: no Cardmaker shows there, and no
+                        shocked pair
     useSavedField.ts    a text field saved on blur that keeps the user's draft while live changes arrive
                         (the card note, the cost override and the player notes)
     turkish.ts          Turkish grammar helpers, such as the genitive of a name ("Ayla'nın")

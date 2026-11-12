@@ -17,7 +17,7 @@ export type TrueWordDialogProps = {
 export function TrueWordDialog({ entry, holderName, onClose }: TrueWordDialogProps) {
   return (
     <Dialog title={`✦ ${entry.word.name}`} onClose={onClose}>
-      <TrueWordDetails entry={entry} holderName={holderName} onDone={onClose} />
+      <TrueWordDetails entry={entry} holderName={holderName} onDone={onClose} layout="dialog" />
     </Dialog>
   )
 }

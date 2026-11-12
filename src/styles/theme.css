@@ -29,6 +29,9 @@
   /* Accents */
   --color-gold: #eac57e;
   --color-green: #65c9a3;
+  /* The "Aktif" badge in a card's or word's details (design D2 of `redesign-selected-card-panel`): `green` at 10%
+     over `pane`, as a hex so that its `green` text is tested for contrast. */
+  --color-badge-active: #1f3039;
 
   /* Card kinds */
   /* Common cards have a purple frame (Kurallar: "Mor çerçeveli kartlar"). Its own token, so it is not
@@ -270,6 +273,47 @@
     }
     100% {
       transform: translateY(68px);
+      opacity: 0;
+    }
+  }
+
+  /*
+   * The card back of an unbuilt screen's "Yakında" panel (spec: app-shell, "Placeholder screens"; design D7 of
+   * `polish-cards-packs-and-mascots`): it drifts a few pixels up and down, tilting a little, without end. It runs only
+   * under `motion-safe:`, so reduced motion shows the card still.
+   */
+  --animate-card-drift: card-drift 6s ease-in-out infinite;
+
+  @keyframes card-drift {
+    0%,
+    100% {
+      transform: translateY(0) rotate(-4deg);
+    }
+    50% {
+      transform: translateY(-8px) rotate(-2deg);
+    }
+  }
+
+  /*
+   * A band of warm light crossing that card back every few seconds: it crosses in the first third of the cycle and
+   * waits out the rest. Only under `motion-safe:` as well.
+   */
+  --animate-back-glint: back-glint 4.5s ease-in-out infinite;
+
+  @keyframes back-glint {
+    0% {
+      transform: translateX(-120%) skewX(-18deg);
+      opacity: 0;
+    }
+    8% {
+      opacity: 1;
+    }
+    32% {
+      transform: translateX(320%) skewX(-18deg);
+      opacity: 0;
+    }
+    100% {
+      transform: translateX(320%) skewX(-18deg);
       opacity: 0;
     }
   }

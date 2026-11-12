@@ -1,11 +1,14 @@
 import { useId, useState } from 'react'
 
+import { DetailsBadges } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
+import { ArrowIcon, BinIcon, BoltIcon, PersonIcon, PowerIcon } from '@/components/ui/icons'
+import { NotePaper } from '@/components/ui/NotePaper'
+import { Pill } from '@/components/ui/Pill'
+import { ToolSection } from '@/components/ui/ToolSection'
 import { useAuth } from '@/features/auth/authContext'
 import { CardFace } from '@/features/cards/CardFace'
-import type { Card } from '@/features/cards/schema'
-import { NO_VALUE, rarityLabel, setLabel } from '@/features/cards/display'
-import { visibleText } from '@/features/cards/text'
+import { cardFrame, type FaceGlow, faceGlow, NO_VALUE } from '@/features/cards/display'
 import { TABLE_BUSY_NOTE } from '@/features/table/errors'
 import { TableBusyNote } from '@/features/table/TableBusyNote'
 import { useIsTableBusy } from '@/features/table/tableContext'
@@ -17,20 +20,28 @@ import { useSavedField } from '@/lib/useSavedField'
 
 import { type HoldingFailure, holdingFailureMessage, toHoldingFailure } from './errors'
 import type { HandEntry } from './handEntries'
+import { holdingBadges } from './holdingBadges'
+import { holdingInfo } from './holdingInfo'
 import { useHoldingActions } from './holdingsContext'
 import { HOLDING_LIMITS } from './schema'
 
 const fieldClasses =
   'w-full rounded-lg border border-control-line bg-control px-3 py-2 text-sm text-ink placeholder:text-ink-muted'
 
-type Step = 'idle' | 'use' | 'discard' | 'transfer'
+/** The DM's three buttons: an icon over a short label, in equal columns. */
+const TOOL_BUTTON_CLASSES = 'min-h-14 flex-col gap-1 px-1 py-2 text-xs'
 
-/** v2.2.8's lines under the face: the set and the rarity, then the mechanic pack. A Cursed card has only "Cursed". */
-function infoLines(card: Card): string[] {
-  if (card.kind === 'cursed') return ['Cursed']
-  const setAndRarity = [setLabel(card), rarityLabel(card)].filter((part) => part !== null)
-  return [setAndRarity.join(' · ') || NO_VALUE, card.mechanicPack ?? NO_VALUE]
+/** The soft light behind the face, in the color it glows (design D3). A Common card that is not active has none. */
+const STAGE_LIGHTS: Partial<Record<FaceGlow, string>> = {
+  active: 'from-glow-active/15',
+  'active-cursed': 'from-glow-cursed/15',
+  'active-blessed': 'from-glow-blessed/15',
+  'reveal-rare': 'from-glow-rare/20',
+  'reveal-cursed': 'from-glow-cursed/15',
+  'reveal-blessed': 'from-glow-blessed/15',
 }
+
+type Step = 'idle' | 'use' | 'discard' | 'transfer'
 
 export type HoldingDetailsProps = {
   entry: HandEntry
@@ -39,19 +50,25 @@ export type HoldingDetailsProps = {
   /** Called after the card left the hand from here: used, discarded, or given away. */
   onDone: () => void
   /**
-   * `dialog` puts the face beside the fields from `sm`; `panel`, for the narrow panel beside the hand, stacks them and
-   * holds the face to v2.2.8's 205 px.
+   * `panel`, beside the hand, stacks everything under the face, and the panel shows the badges by its label. `dialog`
+   * shows the badges at the top, and puts the face at the left of the rest from `sm`.
    */
   layout: 'dialog' | 'panel'
 }
 
 /**
- * The details of a held card, the same in the dialog and in the panel beside the hand (design D3): its face, its set,
- * rarity, mechanic pack and text as v2.2.8 writes them, its note, its cost in this hand, and the actions the signed-in
- * user may take. The holder and the DM edit the note and use the card; only the DM switches it active, sets its cost,
- * discards it, or gives it to another player. Controls the user may not use are not shown; the rules decide. Every
- * confirmation is a step inside the details. While a pack is open, the card cannot leave the hand: using, discarding
- * and giving it away wait, and the note, the active switch and the cost stay available.
+ * The details of a held card, the same in the dialog and in the panel beside the hand, in the order of the owner's V1
+ * design (spec: card-holdings; design D3 of `redesign-selected-card-panel`):
+ * - the face, large, glowing as a revealed card of its kind or with its active glow, over a soft light of that color
+ * - labels for its set, rarity, cost and mechanic pack; its name and text are on the face, not written again
+ * - who holds it, then its note on cream paper
+ * - "Kullan" across the details, then the DM's tools under "DM araçları": the cost in this hand, and the active
+ *   switch, giving away and discarding as three equal buttons
+ *
+ * The holder and the DM edit the note and use the card; only the DM switches it active, sets its cost, discards it,
+ * or gives it to another player. Controls the user may not use are not shown; the rules decide. Every confirmation is
+ * a step in place of the buttons. While a pack is open, the card cannot leave the hand: using, discarding and giving
+ * it away wait, and the note, the active switch and the cost stay available.
  */
 export function HoldingDetails({ entry, holderName, onDone, layout }: HoldingDetailsProps) {
   const { holding, card, cost, isExtraCopy } = entry
@@ -113,230 +130,257 @@ export function HoldingDetails({ entry, holderName, onDone, layout }: HoldingDet
     actions.setActive(holding.id, !holding.active).catch(showError)
   }
 
-  const text = visibleText(card.text)
   const isDialog = layout === 'dialog'
+  const glow = faceGlow(cardFrame(card), {
+    isActive: holding.active,
+    isRevealed: true,
+    isHeld: false,
+  })
+  const stageLight = STAGE_LIGHTS[glow ?? 'reveal-common']
+
+  const useStep = (
+    <div className="flex flex-col gap-2 rounded-xl border border-line bg-pane-raised p-3">
+      <label htmlFor={`${ids}-used-on`} className="text-sm font-medium text-ink">
+        Hangi karakter üzerinde? (isteğe bağlı)
+      </label>
+      <input
+        id={`${ids}-used-on`}
+        value={usedOn}
+        maxLength={HOLDING_LIMITS.usedOn}
+        onChange={(event) => setUsedOn(event.target.value)}
+        className={fieldClasses}
+      />
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant="primary"
+          disabled={isBusy || isTableBusy}
+          title={busyTitle}
+          onClick={() =>
+            void move((by) =>
+              actions.closeHolding({ holdingId: holding.id, by, reason: 'used', usedOn }),
+            )
+          }
+        >
+          {isBusy ? 'Kaydediliyor…' : 'Kullanımı onayla'}
+        </Button>
+        <Button disabled={isBusy} onClick={() => goTo('idle')}>
+          Vazgeç
+        </Button>
+      </div>
+    </div>
+  )
+
+  const discardStep = (
+    <div className="flex flex-col gap-2 rounded-xl border border-danger-line bg-pane-raised p-3">
+      <p className="text-sm text-ink">
+        Bu kart kullanılmadan elden atılsın mı?
+        {card.kind === 'normal' && !isExtraCopy ? ' Kart havuza döner.' : ''}
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant="danger"
+          disabled={isBusy || isTableBusy}
+          title={busyTitle}
+          onClick={() =>
+            void move((by) =>
+              actions.closeHolding({ holdingId: holding.id, by, reason: 'discarded' }),
+            )
+          }
+        >
+          {isBusy ? 'Kaydediliyor…' : 'Evet, at'}
+        </Button>
+        <Button disabled={isBusy} onClick={() => goTo('idle')}>
+          Vazgeç
+        </Button>
+      </div>
+    </div>
+  )
+
+  const transferStep = (
+    <div className="flex flex-col gap-2 rounded-xl border border-line bg-pane-raised p-3">
+      <label htmlFor={`${ids}-receiver`} className="text-sm font-medium text-ink">
+        Kime verilsin?
+      </label>
+      <select
+        id={`${ids}-receiver`}
+        value={receiver}
+        onChange={(event) => setReceiver(event.target.value)}
+        className={fieldClasses}
+      >
+        <option value="">Oyuncu seç</option>
+        {receivers.map((profile) => (
+          <option key={profile.id} value={profile.id}>
+            {profileName(profile)}
+          </option>
+        ))}
+      </select>
+      <p className="text-sm text-ink-muted">
+        Kart, seçilen oyuncunun elinin sonuna eklenir. Not, cost ve aktiflik korunur.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant="primary"
+          disabled={isBusy || isTableBusy || receiver === ''}
+          title={busyTitle}
+          onClick={() =>
+            void move((by) =>
+              actions.transferHolding({ holdingId: holding.id, toUid: receiver, by }),
+            )
+          }
+        >
+          {isBusy ? 'Kaydediliyor…' : 'Onayla ve ver'}
+        </Button>
+        <Button disabled={isBusy} onClick={() => goTo('idle')}>
+          Vazgeç
+        </Button>
+      </div>
+    </div>
+  )
+
   return (
     <div className="flex flex-col gap-4">
+      {isDialog ? <DetailsBadges badges={holdingBadges(entry)} /> : null}
       <div className={cn('flex flex-col gap-4', isDialog && 'sm:flex-row sm:items-start')}>
+        {/* The face over a soft light in the color it glows. Its marks are the badges above, not repeated under it. */}
         <div
+          data-details-face=""
           className={cn(
-            'mx-auto w-full shrink-0',
-            isDialog ? 'max-w-72 sm:mx-0 sm:w-60' : 'max-w-52',
+            'relative mx-auto w-full shrink-0',
+            isDialog ? 'max-w-72 sm:mx-0 sm:w-60' : 'max-w-66',
           )}
         >
-          <CardFace
-            card={card}
-            handCost={cost}
-            isActive={holding.active}
-            hasNote={holding.note !== ''}
-            isExtraCopy={isExtraCopy}
-          />
+          {stageLight ? (
+            <div
+              aria-hidden="true"
+              data-stage-light=""
+              className={cn(
+                'pointer-events-none absolute -inset-4 rounded-full bg-radial to-transparent to-70%',
+                stageLight,
+              )}
+            />
+          ) : null}
+          <div className="relative">
+            <CardFace
+              card={card}
+              handCost={cost}
+              isActive={holding.active}
+              hasNote={holding.note !== ''}
+              isExtraCopy={isExtraCopy}
+              isRevealed
+              showsMarks={false}
+            />
+          </div>
         </div>
-        <div className="flex min-w-0 flex-1 flex-col gap-3">
-          <p className="text-sm text-ink-muted">
-            {genitive(holderName)} elinde{isExtraCopy ? ' · Ek kopya' : ''}
-          </p>
-          <div data-info="" className="flex flex-col gap-1 text-sm">
-            {infoLines(card).map((line, index) => (
-              <p key={index} className="break-words text-ink-muted">
-                {line}
-              </p>
-            ))}
-            {text === '' ? null : (
-              <p lang="en" className="break-words whitespace-pre-line text-ink-muted">
-                {text}
-              </p>
-            )}
-          </div>
 
-          <div className="flex flex-col gap-1">
-            {canUse ? (
-              <label htmlFor={`${ids}-note`} className="text-sm font-medium text-ink">
-                Kart notu
-              </label>
-            ) : (
-              <p className="text-sm font-medium text-ink">Kart notu</p>
-            )}
-            {canUse ? (
-              <textarea
-                id={`${ids}-note`}
-                value={note.value}
-                maxLength={HOLDING_LIMITS.note}
-                rows={3}
-                placeholder="Bu kart için oyuncuya özel not"
-                onFocus={note.onFocus}
-                onChange={(event) => note.onChange(event.target.value)}
-                onBlur={note.onBlur}
-                className={fieldClasses}
-              />
-            ) : (
-              <p className="text-sm whitespace-pre-line text-ink">{holding.note || 'Not yok.'}</p>
-            )}
-          </div>
+        <div className="flex min-w-0 flex-1 flex-col gap-4">
+          <ul aria-label="Kart bilgileri" className="flex flex-wrap gap-1.5">
+            {holdingInfo(card, cost).map((info) => (
+              <li key={info.label} className="max-w-full">
+                <Pill tone={info.tone} isMuted={info.isMuted}>
+                  {info.label}
+                </Pill>
+              </li>
+            ))}
+          </ul>
+
+          <p className="flex items-center gap-2 text-[13px] text-ink-muted">
+            <PersonIcon />
+            {genitive(holderName)} elinde
+          </p>
+
+          <NotePaper
+            label="Kart notu"
+            value={canUse ? note.value : holding.note}
+            isEditable={canUse}
+            maxLength={HOLDING_LIMITS.note}
+            placeholder="Bu kart için oyuncuya özel not"
+            onFocus={note.onFocus}
+            onChange={note.onChange}
+            onBlur={note.onBlur}
+          />
+
+          {canUse && step === 'idle' ? (
+            <Button
+              variant="primary"
+              disabled={isTableBusy}
+              title={busyTitle}
+              onClick={() => goTo('use')}
+              className="h-11 w-full text-[15px] font-semibold"
+            >
+              <BoltIcon />
+              Kullan
+            </Button>
+          ) : null}
+          {step === 'use' ? useStep : null}
 
           {isDm ? (
-            <div className="flex flex-col gap-1">
-              <label htmlFor={`${ids}-cost`} className="text-sm font-medium text-ink">
-                Bu eldeki cost (boş = temel cost: {card.cost ?? NO_VALUE})
-              </label>
-              <input
-                id={`${ids}-cost`}
-                value={costOverride.value}
-                maxLength={HOLDING_LIMITS.costOverride}
-                placeholder={card.cost ?? NO_VALUE}
-                onFocus={costOverride.onFocus}
-                onChange={(event) => costOverride.onChange(event.target.value)}
-                onBlur={costOverride.onBlur}
-                className={fieldClasses}
-              />
-            </div>
+            <ToolSection title="DM araçları">
+              <div className="flex items-center gap-2.5">
+                <label htmlFor={`${ids}-cost`} className="flex-1 text-[13px] font-medium text-ink">
+                  Bu eldeki cost
+                </label>
+                <input
+                  id={`${ids}-cost`}
+                  value={costOverride.value}
+                  maxLength={HOLDING_LIMITS.costOverride}
+                  placeholder={card.cost ?? NO_VALUE}
+                  aria-describedby={`${ids}-base-cost`}
+                  onFocus={costOverride.onFocus}
+                  onChange={(event) => costOverride.onChange(event.target.value)}
+                  onBlur={costOverride.onBlur}
+                  className="h-9 w-14 rounded-lg border border-control-line bg-control px-1 text-center text-[15px] font-semibold text-ink placeholder:text-ink-muted"
+                />
+                <span id={`${ids}-base-cost`} className="text-xs text-ink-muted">
+                  temel: {card.cost ?? NO_VALUE}
+                </span>
+              </div>
+              {step === 'idle' ? (
+                <div className="grid grid-cols-3 gap-2">
+                  <Button
+                    onClick={toggleActive}
+                    className={cn(TOOL_BUTTON_CLASSES, holding.active && 'border-green/55')}
+                  >
+                    <PowerIcon className={cn('size-4.5', holding.active && 'text-green')} />
+                    {holding.active ? 'Aktifliği kaldır' : 'Aktif et'}
+                  </Button>
+                  <Button
+                    disabled={isTableBusy}
+                    title={busyTitle}
+                    onClick={() => goTo('transfer')}
+                    className={TOOL_BUTTON_CLASSES}
+                  >
+                    <ArrowIcon className="size-4.5" />
+                    Başkasına ver
+                  </Button>
+                  <Button
+                    variant="danger"
+                    disabled={isTableBusy}
+                    title={busyTitle}
+                    onClick={() => goTo('discard')}
+                    className={TOOL_BUTTON_CLASSES}
+                  >
+                    <BinIcon className="size-4.5" />
+                    At
+                  </Button>
+                </div>
+              ) : null}
+              {step === 'discard' ? discardStep : null}
+              {step === 'transfer' ? transferStep : null}
+            </ToolSection>
+          ) : null}
+
+          {canUse && step === 'idle' ? <TableBusyNote /> : null}
+
+          {failure ? (
+            <p
+              role="alert"
+              className="rounded-lg border border-danger-line bg-pane-raised p-3 text-sm text-danger-ink"
+            >
+              {holdingFailureMessage(failure)}
+            </p>
           ) : null}
         </div>
       </div>
-
-      {step === 'idle' && (canUse || isDm) ? (
-        <div className="flex flex-col gap-2">
-          <div className="flex flex-wrap gap-2">
-            {canUse ? (
-              <Button
-                variant="primary"
-                disabled={isTableBusy}
-                title={busyTitle}
-                onClick={() => goTo('use')}
-              >
-                Kullan
-              </Button>
-            ) : null}
-            {isDm ? (
-              <>
-                <Button variant={holding.active ? 'primary' : 'secondary'} onClick={toggleActive}>
-                  {holding.active ? '✓ Aktifliği kaldır' : '● Aktif et'}
-                </Button>
-                <Button disabled={isTableBusy} title={busyTitle} onClick={() => goTo('transfer')}>
-                  Başkasına ver
-                </Button>
-                <Button
-                  variant="danger"
-                  disabled={isTableBusy}
-                  title={busyTitle}
-                  onClick={() => goTo('discard')}
-                >
-                  At
-                </Button>
-              </>
-            ) : null}
-          </div>
-          <TableBusyNote />
-        </div>
-      ) : null}
-
-      {step === 'use' ? (
-        <div className="flex flex-col gap-2 rounded-xl border border-line bg-pane-raised p-3">
-          <label htmlFor={`${ids}-used-on`} className="text-sm font-medium text-ink">
-            Hangi karakter üzerinde? (isteğe bağlı)
-          </label>
-          <input
-            id={`${ids}-used-on`}
-            value={usedOn}
-            maxLength={HOLDING_LIMITS.usedOn}
-            onChange={(event) => setUsedOn(event.target.value)}
-            className={fieldClasses}
-          />
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="primary"
-              disabled={isBusy || isTableBusy}
-              title={busyTitle}
-              onClick={() =>
-                void move((by) =>
-                  actions.closeHolding({ holdingId: holding.id, by, reason: 'used', usedOn }),
-                )
-              }
-            >
-              {isBusy ? 'Kaydediliyor…' : 'Kullanımı onayla'}
-            </Button>
-            <Button disabled={isBusy} onClick={() => goTo('idle')}>
-              Vazgeç
-            </Button>
-          </div>
-        </div>
-      ) : null}
-
-      {step === 'discard' ? (
-        <div className="flex flex-col gap-2 rounded-xl border border-danger-line bg-pane-raised p-3">
-          <p className="text-sm text-ink">
-            Bu kart kullanılmadan elden atılsın mı?
-            {card.kind === 'normal' && !isExtraCopy ? ' Kart havuza döner.' : ''}
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="danger"
-              disabled={isBusy || isTableBusy}
-              title={busyTitle}
-              onClick={() =>
-                void move((by) =>
-                  actions.closeHolding({ holdingId: holding.id, by, reason: 'discarded' }),
-                )
-              }
-            >
-              {isBusy ? 'Kaydediliyor…' : 'Evet, at'}
-            </Button>
-            <Button disabled={isBusy} onClick={() => goTo('idle')}>
-              Vazgeç
-            </Button>
-          </div>
-        </div>
-      ) : null}
-
-      {step === 'transfer' ? (
-        <div className="flex flex-col gap-2 rounded-xl border border-line bg-pane-raised p-3">
-          <label htmlFor={`${ids}-receiver`} className="text-sm font-medium text-ink">
-            Kime verilsin?
-          </label>
-          <select
-            id={`${ids}-receiver`}
-            value={receiver}
-            onChange={(event) => setReceiver(event.target.value)}
-            className={fieldClasses}
-          >
-            <option value="">Oyuncu seç</option>
-            {receivers.map((profile) => (
-              <option key={profile.id} value={profile.id}>
-                {profileName(profile)}
-              </option>
-            ))}
-          </select>
-          <p className="text-sm text-ink-muted">
-            Kart, seçilen oyuncunun elinin sonuna eklenir. Not, cost ve aktiflik korunur.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="primary"
-              disabled={isBusy || isTableBusy || receiver === ''}
-              title={busyTitle}
-              onClick={() =>
-                void move((by) =>
-                  actions.transferHolding({ holdingId: holding.id, toUid: receiver, by }),
-                )
-              }
-            >
-              {isBusy ? 'Kaydediliyor…' : 'Onayla ve ver'}
-            </Button>
-            <Button disabled={isBusy} onClick={() => goTo('idle')}>
-              Vazgeç
-            </Button>
-          </div>
-        </div>
-      ) : null}
-
-      {failure ? (
-        <p
-          role="alert"
-          className="rounded-lg border border-danger-line bg-pane-raised p-3 text-sm text-danger-ink"
-        >
-          {holdingFailureMessage(failure)}
-        </p>
-      ) : null}
     </div>
   )
 }

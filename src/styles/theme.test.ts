@@ -72,6 +72,11 @@ describe('theme tokens', () => {
     })
   }
 
+  // The "Aktif" badge in a card's or word's details: green text on its faint green surface.
+  it('green text on the active badge has at least 4.5:1 contrast', () => {
+    expect(contrastRatio(token('green'), token('badge-active'))).toBeGreaterThanOrEqual(4.5)
+  })
+
   // Card frames are non-text graphics: WCAG asks for at least 3:1 against the surface they sit on.
   for (const frame of ['common', 'gold', 'blessed', 'cursed']) {
     for (const surface of ['pane', 'pane-raised']) {

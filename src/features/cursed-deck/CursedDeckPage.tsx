@@ -16,6 +16,7 @@ export function CursedDeckPage() {
       <PageHeader
         title={screenById('cursed-deck').label}
         mascot={screenById('cursed-deck').mascot}
+        mascotPlacement="corner"
         actions={editing.addButton}
       />
       <CardBrowser deck="cursed" cards={editing.cards} status={status} {...editing.browserProps} />

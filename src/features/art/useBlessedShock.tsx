@@ -1,6 +1,7 @@
 import { type ReactNode, useCallback, useEffect, useState } from 'react'
 
 import { cn } from '@/lib/cn'
+import { usePhoneWidth } from '@/lib/usePhoneWidth'
 import { useReducedMotion } from '@/lib/useReducedMotion'
 
 import { useArt } from './artContext'
@@ -17,7 +18,8 @@ const SIDES = [
  * The shocked Cardmaker pair for a Blessed card turned over (design D10). `shock()` shows `cardmaker_shockl` at the
  * left edge and `cardmaker_shockr` at the right edge of the viewport for `BLESSED_SHOCK_MS`; another shock meanwhile
  * starts it again. They rise in and sink away, or with reduced motion appear and disappear without moving. A timer
- * removes them, even if the animation never runs (a hidden tab). Without both pictures, `shock()` does nothing.
+ * removes them, even if the animation never runs (a hidden tab). Without both pictures, and on a phone (spec:
+ * card-images, "The shocked Cardmaker for a Blessed card"), `shock()` does nothing.
  *
  * Render `overlay` inside the component's dialog, if it has one: a modal dialog covers anything outside it.
  */
@@ -25,7 +27,9 @@ export function useBlessedShock(): { shock: () => void; overlay: ReactNode } {
   const art = useArt()
   const reducedMotion = useReducedMotion()
   const urls = SIDES.map(({ stem }) => art.mascotUrl(stem))
-  const hasPair = urls.every((url) => url !== null)
+  // On a phone the pair would cover the card that was just turned: no Cardmaker shows there.
+  const isPhone = usePhoneWidth()
+  const hasPair = urls.every((url) => url !== null) && !isPhone
   // Counts the shocks, so a new one restarts the animation and the timer.
   const [shown, setShown] = useState<number | null>(null)
 

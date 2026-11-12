@@ -3,6 +3,7 @@ import { useId, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { CardDeck } from '@/features/cards/CardDeck'
 import { CardFace } from '@/features/cards/CardFace'
+import { useWideWindow } from '@/lib/useWideWindow'
 
 import type { HandEntry } from './handEntries'
 import { HandTable } from './HandTable'
@@ -27,6 +28,8 @@ export type HandViewProps = {
 export function HandView({ title, entries, onSelect, selectedId = null }: HandViewProps) {
   const ids = useId()
   const [view, setView] = useState<View>('cards')
+  // On a narrower window the first click opens the details dialog over the hand, so a double click does not zoom.
+  const isWide = useWideWindow()
 
   return (
     <section
@@ -70,7 +73,7 @@ export function HandView({ title, entries, onSelect, selectedId = null }: HandVi
           items={entries}
           itemKey={(entry) => entry.holding.id}
           renderItem={({ holding, card, cost, isExtraCopy }) => (
-            // The face opens the details; its magnifier opens the zoom view instead.
+            // The face opens the details; its magnifier, or a double click beside the details panel, zooms it.
             <CardFace
               card={card}
               handCost={cost}
@@ -80,6 +83,7 @@ export function HandView({ title, entries, onSelect, selectedId = null }: HandVi
               isExtraCopy={isExtraCopy}
               isSelected={holding.id === selectedId}
               onOpen={() => onSelect(holding.id)}
+              zoomsOnDoubleClick={isWide}
               openLabel={`${card.name}: ayrıntılar`}
             />
           )}

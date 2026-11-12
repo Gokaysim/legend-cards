@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Card } from '@/features/cards/schema'
+import { testPicturePath } from '@/test/artFixtures'
 import { testCard, testCursedCard } from '@/test/cardFixtures'
 import { ready, testProfile, testUser } from '@/test/fixtures'
 import { testHolding } from '@/test/holdingFixtures'
@@ -86,7 +87,7 @@ type Host = {
   isClosed: () => boolean
 }
 
-const EMPTY_PANEL = 'Detayları görmek için elden bir kart seç.'
+const EMPTY_PANEL = 'Bir kart seç'
 const HOSTS: Host[] = [
   {
     name: 'the dialog',
@@ -123,7 +124,8 @@ describe.each(HOSTS)('the card details in $name', (current) => {
       expect(details().getByRole('textbox', { name: 'Kart notu' })).toBeInTheDocument()
       expect(button('Kullan')).toBeInTheDocument()
       expect(details().queryByRole('textbox', { name: /Bu eldeki cost/ })).not.toBeInTheDocument()
-      for (const name of ['● Aktif et', 'Başkasına ver', 'At']) expect(button(name)).toBeNull()
+      for (const name of ['Aktif et', 'Başkasına ver', 'At']) expect(button(name)).toBeNull()
+      expect(details().queryByRole('region', { name: 'DM araçları' })).not.toBeInTheDocument()
     })
 
     it("shows another player's card read-only, with no actions", async () => {
@@ -131,21 +133,34 @@ describe.each(HOSTS)('the card details in $name', (current) => {
 
       expect(details().getByText("Ayla'nın elinde")).toBeInTheDocument()
       expect(details().getByText('Boss savaşında kullan')).toBeInTheDocument()
+      expect(
+        details().getByText('Boss savaşında kullan').closest('[data-note-paper]'),
+      ).not.toBeNull()
       expect(details().queryByRole('textbox')).not.toBeInTheDocument()
-      for (const name of ['Kullan', '● Aktif et', 'Başkasına ver', 'At'])
+      for (const name of ['Kullan', 'Aktif et', 'Başkasına ver', 'At'])
         expect(button(name)).toBeNull()
+      expect(details().queryByRole('region', { name: 'DM araçları' })).not.toBeInTheDocument()
+    })
+
+    it('says "Not yok." on the note paper of a card without a note, to another player', async () => {
+      await openDetails({ handOf: ayla })
+
+      expect(details().getByText('Not yok.').closest('[data-note-paper]')).not.toBeNull()
     })
 
     it('shows the DM every control on any hand', async () => {
       await openDetails({ viewer: dm, handOf: ayla })
 
       expect(details().getByRole('textbox', { name: 'Kart notu' })).toBeInTheDocument()
-      expect(
-        details().getByRole('textbox', { name: 'Bu eldeki cost (boş = temel cost: 3)' }),
-      ).toBeInTheDocument()
-      for (const name of ['Kullan', '● Aktif et', 'Başkasına ver', 'At']) {
-        expect(button(name)).toBeInTheDocument()
+      expect(button('Kullan')).toBeInTheDocument()
+      const tools = within(details().getByRole('region', { name: 'DM araçları' }))
+      const cost = tools.getByRole('textbox', { name: 'Bu eldeki cost' })
+      expect(cost).toHaveAccessibleDescription('temel: 3')
+      expect(cost).toHaveAttribute('placeholder', '3')
+      for (const name of ['Aktif et', 'Başkasına ver', 'At']) {
+        expect(tools.getByRole('button', { name })).toBeInTheDocument()
       }
+      expect(tools.queryByRole('button', { name: 'Kullan' })).not.toBeInTheDocument()
     })
 
     it('marks an extra copy', async () => {
@@ -161,10 +176,26 @@ describe.each(HOSTS)('the card details in $name', (current) => {
       })
       await user.click(screen.getByRole('button', { name: 'Night Owl: ayrıntılar' }))
 
-      expect(details().getByText("Gökay'ın elinde · Ek kopya")).toBeInTheDocument()
+      // At the top of the details: by the panel's label beside the hand, above the face in the dialog.
+      const badges = within(host.container()).getByRole('list', { name: 'Durum' })
+      expect(within(badges).getByText('Ek kopya')).toBeInTheDocument()
+      expect(details().getByText("Gökay'ın elinde")).toBeInTheDocument()
     })
 
-    it("writes the card's set, rarity, mechanic pack and text under the holder, as v2.2.8 does", async () => {
+    it('marks an active card with the "Aktif" badge, and not again under its face', async () => {
+      await openDetails({ holding: { active: true } })
+
+      const badges = within(host.container()).getByRole('list', { name: 'Durum' })
+      expect(within(badges).getByText('Aktif')).toBeInTheDocument()
+      expect(details().getByRole('article', { name: 'Night Owl' })).not.toHaveTextContent('Aktif')
+    })
+
+    const infoLabels = () =>
+      within(details().getByRole('list', { name: 'Kart bilgileri' }))
+        .getAllByRole('listitem')
+        .map((item) => item.textContent)
+
+    it("labels the card's set, rarity, cost and mechanic pack, and writes its text only on its face", async () => {
       await openDetails({
         card: testCard('Night Owl', {
           cost: '3',
@@ -175,24 +206,66 @@ describe.each(HOSTS)('the card details in $name', (current) => {
         }),
       })
 
-      const info = details().getByText("Gökay'ın elinde").nextElementSibling as HTMLElement
-      expect(
-        within(info)
-          .getAllByRole('paragraph')
-          .map((line) => line.textContent),
-      ).toEqual(['Kesqerian Nights · Rare', 'Blood & Battle', 'Gain 1 LP.'])
+      expect(infoLabels()).toEqual(['Kesqerian Nights', 'Rare', 'Cost 3', 'Blood & Battle'])
+      // Without a picture, the face writes the text; nothing under it writes it again.
+      expect(details().getAllByText('Gain 1 LP.')).toHaveLength(1)
+      expect(details().getByRole('article', { name: 'Night Owl' })).toHaveTextContent('Gain 1 LP.')
     })
 
-    it('writes only "Cursed" and the text for a Cursed card', async () => {
-      const curse = testCursedCard('Night Owl', { text: 'Lose 1 LP.' })
+    it('labels a Cursed card only "Cursed" and its cost', async () => {
+      const curse = testCursedCard('Night Owl', { cost: '1', text: 'Lose 1 LP.' })
       await openDetails({ card: curse })
 
-      const info = details().getByText("Gökay'ın elinde").nextElementSibling as HTMLElement
+      expect(infoLabels()).toEqual(['Cursed', 'Cost 1'])
+    })
+
+    it("labels a changed cost with the card's own cost", async () => {
+      await openDetails({ holding: { costOverride: '1' } })
+
+      expect(infoLabels()).toContain('Cost 1 (temel: 3)')
+    })
+
+    it("does not write the card's name and text under its picture, and names the details for screen readers", async () => {
+      const pictured = testCard('Night Owl', {
+        cost: '3',
+        text: 'Gain 1 LP.',
+        picture: testPicturePath('card', 'legend-nightowl'),
+      })
+      await openDetails({ card: pictured })
+
+      const face = details().getByRole('article', { name: 'Night Owl' })
+      expect(within(face).getByRole('img', { name: 'Night Owl' })).toBeInTheDocument()
+      // The text and the name are in the DOM only for screen readers; the dialog's own title stays visible.
+      expect(details().getByText('Gain 1 LP.')).toHaveClass('sr-only')
+      const visibleNames = details()
+        .queryAllByText('Night Owl')
+        .filter((element) => !element.classList.contains('sr-only'))
+        .filter((element) => !(element.tagName === 'H2' && element.closest('dialog') !== null))
+      expect(visibleNames).toEqual([])
       expect(
-        within(info)
-          .getAllByRole('paragraph')
-          .map((line) => line.textContent),
-      ).toEqual(['Cursed', 'Lose 1 LP.'])
+        details().getAllByRole('heading', { name: 'Night Owl' }).length,
+      ).toBeGreaterThanOrEqual(1)
+    })
+
+    it('lays the face above the rest, and in the dialog at its left from 640 px', async () => {
+      await openDetails()
+
+      const face = host.container().querySelector('[data-details-face]')
+      const row = face?.parentElement
+      if (current === HOSTS[0]) {
+        // A phone stacks the face above the labels; from `sm` it stands at their left, 240 px wide.
+        expect(face).toHaveClass('max-w-72', 'sm:w-60')
+        expect(row).toHaveClass('flex-col', 'sm:flex-row')
+      } else {
+        expect(face).toHaveClass('max-w-66')
+        expect(row).toHaveClass('flex-col')
+        expect(row).not.toHaveClass('sm:flex-row')
+      }
+      // The labels, the note and "Kullan" come after the face.
+      expect(face?.nextElementSibling).toContainElement(
+        details().getByRole('list', { name: 'Kart bilgileri' }),
+      )
+      expect(face?.nextElementSibling).toContainElement(button('Kullan'))
     })
 
     it.runIf(current === HOSTS[0])('closes with the close button', async () => {
@@ -229,7 +302,7 @@ describe.each(HOSTS)('the card details in $name', (current) => {
         openPackId: 'pack-1',
       })
 
-      await user.click(details().getByRole('button', { name: '● Aktif et' }))
+      await user.click(details().getByRole('button', { name: 'Aktif et' }))
       expect(actions.setActive).toHaveBeenCalledExactlyOnceWith('h1', true)
       expect(details().getByRole('textbox', { name: 'Kart notu' })).toBeEnabled()
       expect(details().getByRole('textbox', { name: /Bu eldeki cost/ })).toBeEnabled()
@@ -321,7 +394,7 @@ describe.each(HOSTS)('the card details in $name', (current) => {
 
     it('lets the DM switch a card active and inactive', async () => {
       const { user, actions } = await openDetails({ viewer: dm, handOf: ayla })
-      await user.click(details().getByRole('button', { name: '● Aktif et' }))
+      await user.click(details().getByRole('button', { name: 'Aktif et' }))
       expect(actions.setActive).toHaveBeenCalledExactlyOnceWith('h1', true)
     })
 
@@ -331,7 +404,7 @@ describe.each(HOSTS)('the card details in $name', (current) => {
         handOf: ayla,
         holding: { active: true },
       })
-      await user.click(details().getByRole('button', { name: '✓ Aktifliği kaldır' }))
+      await user.click(details().getByRole('button', { name: 'Aktifliği kaldır' }))
       expect(actions.setActive).toHaveBeenCalledExactlyOnceWith('h1', false)
     })
 
@@ -339,9 +412,11 @@ describe.each(HOSTS)('the card details in $name', (current) => {
       const { user, actions } = await openDetails({ viewer: dm, handOf: ayla })
 
       await user.click(details().getByRole('button', { name: 'At' }))
-      expect(
-        details().getByText(/kullanılmadan elden atılsın mı\? Kart havuza döner\./),
-      ).toBeVisible()
+      // The question opens in place of the buttons, inside the DM's tools.
+      const tools = within(details().getByRole('region', { name: 'DM araçları' }))
+      expect(tools.getByText(/kullanılmadan elden atılsın mı\? Kart havuza döner\./)).toBeVisible()
+      for (const name of ['Kullan', 'Aktif et', 'Başkasına ver', 'At'])
+        expect(button(name)).toBeNull()
       await user.click(details().getByRole('button', { name: 'Vazgeç' }))
       expect(actions.closeHolding).not.toHaveBeenCalled()
 
@@ -443,7 +518,7 @@ describe.each(HOSTS)('the card details in $name', (current) => {
         .filter((dialog) => dialog !== detailsBox)
       expect(zooms).toHaveLength(1)
       const zoom = zooms[0]!
-      expect(zoom).toHaveTextContent('Kesqerian Nights · Cost 3 · Common')
+      expect(zoom).not.toHaveTextContent('Kesqerian Nights · Cost 3 · Common')
       expect(zoom).not.toHaveTextContent('Boss savaşında kullan')
 
       act(() => zoom.close())

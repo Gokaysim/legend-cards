@@ -189,7 +189,7 @@ describe('the True Words tab', () => {
     const dialog = within(screen.getByRole('dialog', { name: '✦ Abyss' }))
     expect(dialog.getByText('5 LP')).toBeInTheDocument()
     expect(dialog.getByText('DM öğretti')).toBeInTheDocument()
-    expect(dialog.queryByRole('button', { name: '● Aktif et' })).toBeNull()
+    expect(dialog.queryByRole('button', { name: 'Aktif et' })).toBeNull()
     expect(dialog.queryByRole('button', { name: 'Geri al' })).toBeNull()
   })
 })
@@ -199,7 +199,7 @@ describe("the DM's word controls", () => {
     const { user, actions } = renderTab({ viewer: dm, table: { openPackId: 'p1' } })
 
     await user.click(main().getByRole('button', { name: 'Abyss: ayrıntılar' }))
-    await user.click(screen.getByRole('button', { name: '● Aktif et' }))
+    await user.click(screen.getByRole('button', { name: 'Aktif et' }))
 
     expect(actions.setActive).toHaveBeenCalledWith('r2', true)
   })
@@ -264,7 +264,7 @@ describe('the "Seçili True Word" panel on a wide window', () => {
     stubWideWindow()
     const { user } = renderTab()
 
-    expect(within(panel()).getByText('Detaylarını görmek için bir True Word seç.')).toBeVisible()
+    expect(within(panel()).getByText('Bir True Word seç')).toBeVisible()
 
     await user.click(main().getByRole('button', { name: 'Abyss: ayrıntılar' }))
 
@@ -280,19 +280,36 @@ describe('the "Seçili True Word" panel on a wide window', () => {
     expect(list.getByRole('article', { name: 'Abyss' })).toHaveAttribute('data-glow', 'selected')
   })
 
+  it("shows an active word's badge, its labels and who knows it, in the frame of a card's details", async () => {
+    stubWideWindow()
+    const { user } = renderTab()
+
+    await user.click(main().getByRole('button', { name: 'Aid: ayrıntılar' }))
+
+    expect(within(panel()).getByRole('list', { name: 'Durum' })).toHaveTextContent('Aktif')
+    const labels = within(within(panel()).getByRole('list', { name: 'True Word bilgileri' }))
+      .getAllByRole('listitem')
+      .map((item) => item.textContent)
+    expect(labels).toEqual(['1 LP', 'DM öğretti'])
+    expect(within(panel()).getByText('Ayla biliyor')).toBeInTheDocument()
+    expect(within(panel()).queryByRole('region', { name: 'DM araçları' })).not.toBeInTheDocument()
+  })
+
   it("gives the DM the word's controls in the panel, and clears it once the word is taken back", async () => {
     stubWideWindow()
     const { user, actions } = renderTab({ viewer: dm })
 
     await user.click(main().getByRole('button', { name: 'Aid: ayrıntılar' }))
-    await user.click(within(panel()).getByRole('button', { name: '✓ Aktifliği kaldır' }))
+    const tools = within(within(panel()).getByRole('region', { name: 'DM araçları' }))
+    expect(tools.getByRole('button', { name: 'Geri al' })).toBeInTheDocument()
+    await user.click(tools.getByRole('button', { name: 'Aktifliği kaldır' }))
     expect(actions.setActive).toHaveBeenCalledWith('r1', false)
 
     await user.click(within(panel()).getByRole('button', { name: 'Geri al' }))
     await user.click(within(panel()).getByRole('button', { name: 'Evet, geri al' }))
 
     expect(actions.takeBackWord).toHaveBeenCalledWith({ recordId: 'r1', by: testUser.uid })
-    expect(within(panel()).getByText('Detaylarını görmek için bir True Word seç.')).toBeVisible()
+    expect(within(panel()).getByText('Bir True Word seç')).toBeVisible()
   })
 
   it('shows the selected card again after switching tabs and back', async () => {

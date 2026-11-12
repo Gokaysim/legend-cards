@@ -137,11 +137,45 @@ describe('the backs of a pack', () => {
     expect(backPictures()).toEqual(Array(6).fill('/art/backs/cursed.0123456789.webp'))
   })
 
-  it('keeps the neutral back for a Mechanic Pack', () => {
+  it("shows every card of a Mechanic Pack, a Blessed one included, on the pack's own picture", () => {
+    const pack = testPack('ayla', {
+      packType: 'mechanic',
+      setCode: null,
+      mechanicPack: 'Blood & Battle',
+      offered: [...CARDS.slice(0, 4).map((card) => card.id), WIND.id],
+      cost: 4,
+    })
+    watch({
+      pack,
+      art: testArt({
+        ...BACKS,
+        packs: { 'mechanic:Blood & Battle': '/art/packs/mechanic-blood-battle.0123456789.webp' },
+      }),
+    })
+
+    expect(backPictures()).toEqual(
+      Array(5).fill('/art/packs/mechanic-blood-battle.0123456789.webp'),
+    )
+  })
+
+  it('keeps the neutral back for a Mechanic Pack without a picture', () => {
     const pack = testPack('ayla', {
       packType: 'mechanic',
       setCode: null,
       mechanicPack: 'Arcanus Divine',
+      offered: CARDS.map((card) => card.id),
+      cost: 4,
+    })
+    watch({ pack, art: BACKS })
+
+    expect(backPictures()).toEqual(Array(5).fill(undefined))
+    expect(packDialog().getAllByRole('img', { name: /: kapalı$/ })[0]).toHaveTextContent('✦')
+  })
+
+  it('keeps the neutral back for a Golden Pack', () => {
+    const pack = testPack('ayla', {
+      packType: 'golden',
+      setCode: null,
       offered: CARDS.map((card) => card.id),
       cost: 4,
     })
@@ -451,7 +485,7 @@ describe('zooming a card of the pack', () => {
     await user.click(within(pack).getByRole('button', { name: 'C: büyüt' }))
 
     const zoom = screen.getByRole<HTMLDialogElement>('dialog', { name: 'C' })
-    expect(zoom).toHaveTextContent('Kesqerian Nights · Cost 1 · Common')
+    expect(zoom).not.toHaveTextContent('Kesqerian Nights · Cost 1 · Common')
     // As Escape does: the browser closes the zoom view.
     act(() => zoom.close())
 

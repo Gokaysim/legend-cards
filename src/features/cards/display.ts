@@ -108,19 +108,3 @@ export function cardHaystack(card: Card): string {
 export function cardMatchesQuery(haystack: string, query: string): boolean {
   return matchesAllTerms(haystack, searchTerms(query))
 }
-
-/**
- * The zoom view's line under the card's name (spec: Zoom view contents): the set, or "Blessed" or "Cursed", then
- * "Cost <cost>", then the rarity, joined by " · ". A missing cost or rarity is left out. Opened from a hand whose
- * cost differs from the card's own (`handCost`), the cost reads "Cost <hand cost> (temel: <own cost or —>)".
- */
-export function zoomLine(card: Card, handCost?: string | null): string {
-  const set = card.kind === 'cursed' ? 'Cursed' : setLabel(card)
-  const cost =
-    handCost !== undefined && handCost !== card.cost
-      ? `Cost ${handCost ?? NO_VALUE} (temel: ${card.cost ?? NO_VALUE})`
-      : card.cost === null
-        ? null
-        : `Cost ${card.cost}`
-  return [set, cost, rarityLabel(card)].filter((part) => part !== null).join(' · ')
-}

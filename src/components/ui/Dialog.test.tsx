@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -112,6 +112,47 @@ describe('Dialog', () => {
 
       expect(onCloseInner).toHaveBeenCalledOnce()
       expect(onCloseOuter).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('bare', () => {
+    function renderBare(onClose = vi.fn()) {
+      render(
+        <Dialog title="Night Owl" onClose={onClose} closeOnBackdrop bare>
+          <button type="button" aria-label="Kapat" onClick={onClose}>
+            ✕
+          </button>
+          <p>Kart görseli</p>
+        </Dialog>,
+      )
+      const dialog = screen.getByRole<HTMLDialogElement>('dialog', { name: 'Night Owl' })
+      dialog.getBoundingClientRect = () => new DOMRect(100, 100, 400, 500)
+      return { dialog, onClose }
+    }
+
+    it('shows only its content, named by its title for screen readers', () => {
+      const { dialog } = renderBare()
+
+      expect(dialog).toHaveAttribute('open')
+      expect(dialog).toHaveAccessibleName('Night Owl')
+      expect(screen.queryByRole('heading')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: '✕ Kapat' })).not.toBeInTheDocument()
+      expect(screen.getByText('Kart görseli')).toBeInTheDocument()
+    })
+
+    it("closes with its content's own control, with Escape, and with a press on the backdrop", async () => {
+      const { dialog, onClose } = renderBare()
+
+      await userEvent.click(screen.getByRole('button', { name: 'Kapat' }))
+      expect(onClose).toHaveBeenCalledTimes(1)
+
+      fireEvent.pointerDown(dialog, { clientX: 20, clientY: 20 })
+      fireEvent.click(dialog, { clientX: 20, clientY: 20 })
+      expect(onClose).toHaveBeenCalledTimes(2)
+
+      // jsdom does not close a native dialog on Escape: `close()` fires `close` as Escape would.
+      act(() => dialog.close())
+      expect(onClose).toHaveBeenCalledTimes(3)
     })
   })
 

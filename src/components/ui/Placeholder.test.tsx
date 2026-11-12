@@ -7,11 +7,33 @@ import { TestArtProvider } from '@/test/TestArtProvider'
 import { Placeholder } from './Placeholder'
 
 describe('Placeholder', () => {
-  it('shows the screen title and the not-ready note', () => {
+  it('shows the screen title, then a drifting card back, "Yakında" and the not-ready note', () => {
     render(<Placeholder title="Custom Card Draft" />)
 
     expect(screen.getByRole('heading', { level: 1, name: 'Custom Card Draft' })).toBeInTheDocument()
+    const soon = screen.getByRole('heading', { level: 2, name: 'Yakında' })
+    expect(soon).toHaveClass('uppercase', 'text-gold')
+    expect(soon).toHaveAttribute('lang', 'tr')
     expect(screen.getByText('Bu ekran henüz hazır değil.')).toBeInTheDocument()
+    // The card is the neutral back of a random draw, as decoration.
+    const card = document.querySelector('[data-coming-soon-card]')
+    expect(card).toHaveTextContent('✦')
+    expect(card?.querySelector('[aria-hidden="true"].border-gold')).not.toBeNull()
+  })
+
+  it('moves the card only where motion is welcome', () => {
+    render(<Placeholder title="Veri / Yedek" />)
+
+    const card = document.querySelector('[data-coming-soon-card]')
+    const drifting = card?.querySelector('.motion-safe\\:animate-card-drift')
+    expect(drifting).toHaveClass('motion-reduce:-rotate-3')
+    expect(card?.querySelector('[data-glint]')).toHaveClass(
+      'opacity-0',
+      'motion-safe:animate-back-glint',
+    )
+    expect(
+      card?.querySelector('[class*="animate-"]:not([class*="motion-safe:animate-"])'),
+    ).toBeNull()
   })
 
   it('shows no buttons or other controls', () => {

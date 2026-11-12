@@ -69,12 +69,31 @@ function glowOf(name: string) {
 }
 
 describe('the "Seçili Kart" panel on a wide window', () => {
-  it('stands beside the hand, asking to select a card', () => {
+  it('stands beside the hand with an empty card slot, asking to select a card', () => {
     stubWindow(true)
     renderHand()
 
-    expect(within(panel()).getByText('Detayları görmek için elden bir kart seç.')).toBeVisible()
+    expect(within(panel()).getByRole('heading', { level: 2, name: 'Seçili Kart' })).toHaveClass(
+      'uppercase',
+    )
+    expect(within(panel()).getByText('Bir kart seç')).toBeVisible()
+    expect(
+      within(panel()).getByText('Elden bir karta tıkla, ayrıntıları burada görünsün.'),
+    ).toBeVisible()
+    expect(panel().querySelector('[data-empty-card-slot]')).not.toBeNull()
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('names the selected card for screen readers and shows its marks beside the label', async () => {
+    stubWindow(true)
+    const user = userEvent.setup()
+    renderHand()
+
+    await user.click(face('Old Oath'))
+
+    expect(panelName()).toHaveClass('sr-only')
+    expect(panelName()).toHaveTextContent('Old Oath')
+    expect(within(panel()).getByRole('list', { name: 'Durum' })).toHaveTextContent('Aktif')
   })
 
   it("shows a selected card's details under its name, without a dialog, and marks the card", async () => {
@@ -132,7 +151,7 @@ describe('the "Seçili Kart" panel on a wide window', () => {
     expect(face('Night Owl')).not.toHaveAttribute('aria-current')
 
     media.resize(true)
-    expect(within(panel()).getByText('Detayları görmek için elden bir kart seç.')).toBeVisible()
+    expect(within(panel()).getByText('Bir kart seç')).toBeVisible()
   })
 
   it('is not shown on the DM notu tab', () => {

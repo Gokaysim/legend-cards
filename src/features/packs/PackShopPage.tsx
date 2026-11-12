@@ -159,15 +159,14 @@ function PackShop({ cards }: { cards: readonly Card[] }) {
       ? groupStem
       : shopScreenById('pack-shop').mascot
 
-  // Inside a group, each pack shows its price. In the main view, the Mechanic Packs' price is in their heading, and
-  // each speaks its line: nothing inside a group speaks, as in v2.2.8.
+  // Inside a group, each pack shows its short name and price. In the main view, the Mechanic Packs' price is in their
+  // heading, and each speaks its line: nothing inside a group speaks, as in v2.2.8.
   const tiles = (defs: readonly PackDef[], variant: PackTileVariant) =>
     defs.map((def) => (
       <PackTile
         key={def.key}
         def={def}
         variant={variant}
-        showPrice={variant === 'group'}
         disabledReason={reasonFor(def)}
         onOpen={setConfirming}
         speech={variant === 'shop' ? speechOf(packTitle(def), packLine(def)) : null}

@@ -22,6 +22,7 @@ export function LibraryPage() {
       <PageHeader
         title={screenById('library').label}
         mascot={screenById('library').mascot}
+        mascotPlacement="corner"
         actions={
           <>
             {editing.addButton}

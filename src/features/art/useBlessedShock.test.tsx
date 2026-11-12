@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { testArt } from '@/test/artFixtures'
+import { PHONE_WIDTH_QUERY } from '@/lib/usePhoneWidth'
 import { TestArtProvider } from '@/test/TestArtProvider'
 
 import type { ArtManifest } from './schema'
@@ -15,10 +16,10 @@ const PAIR = testArt({
   },
 })
 
-/** Stubs the reduced-motion media query. */
-const stubMotion = (reduce: boolean) =>
-  vi.stubGlobal('matchMedia', () => ({
-    matches: reduce,
+/** Stubs the reduced-motion media query, and with `isPhone` the phone width too. */
+const stubMotion = (reduce: boolean, isPhone = false) =>
+  vi.stubGlobal('matchMedia', (query: string) => ({
+    matches: query === PHONE_WIDTH_QUERY ? isPhone : reduce,
     addEventListener: () => undefined,
     removeEventListener: () => undefined,
   }))
@@ -110,5 +111,16 @@ describe('useBlessedShock', () => {
       act(() => hook.result.current.shock())
       expect(hook.result.current.overlay).toBeNull()
     }
+  })
+})
+
+describe('useBlessedShock on a phone', () => {
+  it('shows no pair on a window narrower than 640 px', () => {
+    stubMotion(false, true)
+    const { hook } = renderShock()
+
+    act(() => hook.result.current.shock())
+
+    expect(hook.result.current.overlay).toBeNull()
   })
 })

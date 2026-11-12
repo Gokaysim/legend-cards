@@ -231,10 +231,10 @@ describe('CardFace magnifier', () => {
     await user.click(magnifier('Night Owl'))
 
     const zoom = screen.getByRole('dialog', { name: 'Night Owl' })
-    expect(zoom).toHaveTextContent('Kesqerian Nights · Cost 2 · Rare')
+    expect(zoom).not.toHaveTextContent('Kesqerian Nights · Cost 2 · Rare')
     expect(card).not.toContainElement(zoom)
 
-    await user.click(within(zoom).getByRole('button', { name: '✕ Kapat' }))
+    await user.click(within(zoom).getByRole('button', { name: 'Kapat' }))
 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(magnifier('Night Owl')).toHaveFocus()
@@ -259,7 +259,7 @@ describe('CardFace magnifier', () => {
     await user.click(magnifier('Night Owl'))
 
     const zoom = screen.getByRole('dialog', { name: 'Night Owl' })
-    expect(zoom).toHaveTextContent('Kesqerian Nights · Cost 1 (temel: 3) · Common')
+    expect(zoom).not.toHaveTextContent('Cost 1 (temel: 3)')
     expect(within(zoom).getByText(/^Cost:/).parentElement).toHaveAttribute(
       'data-cost-change',
       'lower',
@@ -577,5 +577,101 @@ describe('CardFace glow', () => {
     expect(within(card).getByRole('button', { name: 'Set, rarity ve mechanic pack' })).toHaveClass(
       'pointer-events-auto',
     )
+  })
+})
+
+describe('CardFace double click', () => {
+  const magnifier = (name: string) => screen.getByRole('button', { name: `${name}: büyüt` })
+
+  it('zooms a face on a double click with a mouse, and gives the focus to the magnifier on close', async () => {
+    const user = userEvent.setup()
+    render(<CardFace card={testCard('Night Owl', { cost: '2', rarity: 'rare' })} />)
+
+    await user.dblClick(within(face('Night Owl')).getByRole('heading', { name: 'Night Owl' }))
+
+    const zoom = screen.getByRole<HTMLDialogElement>('dialog', { name: 'Night Owl' })
+    act(() => zoom.close())
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(magnifier('Night Owl')).toHaveFocus()
+  })
+
+  it('zooms a picture face on a double click, and the hand face beside the details too', async () => {
+    const user = userEvent.setup()
+    const onOpen = vi.fn()
+    render(
+      <TestArtProvider>
+        <CardFace
+          card={testCard("Aboleth's Eyes", { picture: testPicturePath('card', 'legend-eyes') })}
+          handCost="1"
+          onOpen={onOpen}
+          openLabel="Aboleth's Eyes: ayrıntılar"
+        />
+      </TestArtProvider>,
+    )
+
+    await user.dblClick(screen.getByRole('button', { name: "Aboleth's Eyes: ayrıntılar" }))
+
+    expect(onOpen).toHaveBeenCalled()
+    expect(screen.getByRole('dialog', { name: "Aboleth's Eyes" })).toBeInTheDocument()
+  })
+
+  it('does not zoom on a double tap', () => {
+    render(<CardFace card={testCard('Night Owl')} />)
+    const card = face('Night Owl')
+
+    fireEvent.pointerDown(card, { pointerType: 'touch' })
+    fireEvent.click(card, { detail: 1 })
+    fireEvent.pointerDown(card, { pointerType: 'touch' })
+    fireEvent.click(card, { detail: 2 })
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+    // The same two presses with a mouse zoom it.
+    fireEvent.pointerDown(card, { pointerType: 'mouse' })
+    fireEvent.click(card, { detail: 1 })
+    fireEvent.pointerDown(card, { pointerType: 'mouse' })
+    fireEvent.click(card, { detail: 2 })
+
+    expect(screen.getByRole('dialog', { name: 'Night Owl' })).toBeInTheDocument()
+  })
+
+  it('does not zoom when the first press landed somewhere else', () => {
+    render(<CardFace card={testCard('Night Owl')} />)
+    const card = face('Night Owl')
+
+    // As on a turned card, or a face in a dialog that opened under the pointer: only the second press is its own.
+    fireEvent.pointerDown(card, { pointerType: 'mouse' })
+    fireEvent.click(card, { detail: 2 })
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('does not zoom from a double click on the edit control', async () => {
+    const user = userEvent.setup()
+    const onEdit = vi.fn()
+    render(<CardFace card={testCard('Night Owl')} onEdit={onEdit} />)
+
+    await user.dblClick(screen.getByRole('button', { name: 'Night Owl: düzenle' }))
+
+    expect(onEdit).toHaveBeenCalledTimes(2)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('does not zoom on a double click where its first click opens a dialog', async () => {
+    const user = userEvent.setup()
+    render(
+      <CardFace
+        card={testCard('Night Owl')}
+        onOpen={vi.fn()}
+        openLabel="Night Owl: ayrıntılar"
+        zoomsOnDoubleClick={false}
+      />,
+    )
+
+    await user.dblClick(screen.getByRole('button', { name: 'Night Owl: ayrıntılar' }))
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    await user.click(magnifier('Night Owl'))
+    expect(screen.getByRole('dialog', { name: 'Night Owl' })).toBeInTheDocument()
   })
 })

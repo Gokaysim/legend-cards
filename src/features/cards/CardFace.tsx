@@ -1,4 +1,12 @@
-import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
+import {
+  type MouseEvent,
+  type PointerEvent,
+  type ReactNode,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from 'react'
 
 import { useArt } from '@/features/art/artContext'
 import { CardPicture } from '@/features/art/CardPicture'
@@ -63,6 +71,15 @@ const EDIT_POSITION = {
 } as const
 const NOTE_POSITION = { picture: 'bottom-[2%] left-[3%]', css: 'bottom-2 left-2' } as const
 
+/**
+ * Two mouse presses on one face at most this far apart, in ms, make the double click that zooms it (design D2 of
+ * `polish-cards-packs-and-mascots`). The browser's own double-click interval is shorter on most systems.
+ */
+const DOUBLE_PRESS_MS = 600
+
+/** The last two presses on a face, for its double click. */
+type Presses = { last: number; previous: number; pointerType: string }
+
 /** A small label on the face, for example "Aktif". */
 function Mark({ className, children }: { className?: string; children: ReactNode }) {
   return (
@@ -104,8 +121,18 @@ export type CardFaceProps = {
    * soft light (design D5). Faces inside dialogs stay still.
    */
   isTiltable?: boolean
-  /** `false` leaves out the magnifier, for the face inside the zoom view. */
+  /**
+   * `false` leaves out the marks ("● Aktif", "Ek kopya"…) under the face, where its owner shows them elsewhere: the
+   * card's details show them as badges at their top (design D3 of `redesign-selected-card-panel`).
+   */
+  showsMarks?: boolean
+  /** `false` leaves out the magnifier and the double click, for the face inside the zoom view. */
   isZoomable?: boolean
+  /**
+   * `false` keeps a double click from zooming, where the face's first click opens a dialog on top of it: the hand on
+   * a narrower window (spec: card-zoom, "Double click opens the zoom view"). The magnifier still zooms.
+   */
+  zoomsOnDoubleClick?: boolean
   /** In the DM's library: the definition status to show as a mark ("Taslak", "Yayında", "Kaldırıldı"). */
   statusMark?: string
   /** In the DM's library: opens the card's edit form from a "✎" control beside the magnifier. */
@@ -132,8 +159,9 @@ export type CardFaceProps = {
  * The face glows (design D4): an active card in a hand, the selected card of a hand, a revealed card in a draw or a
  * pack, and a held card in the library, each in its own color.
  *
- * The magnifier in the top-right corner opens the card's zoom view (spec: card-zoom). The magnifier and the note icon
- * show on hover or keyboard focus, and at all times on a device without hover.
+ * The magnifier in the top-right corner opens the card's zoom view (spec: card-zoom), and so does a double click with a
+ * mouse on the face outside its controls, when both presses landed on this face. The magnifier and the note icon show
+ * on hover or keyboard focus, and at all times on a device without hover.
  */
 export function CardFace({
   card,
@@ -145,7 +173,9 @@ export function CardFace({
   heldBy,
   isRevealed = false,
   isTiltable = false,
+  showsMarks = true,
   isZoomable = true,
+  zoomsOnDoubleClick = true,
   statusMark,
   onEdit,
   onOpen,
@@ -158,12 +188,14 @@ export function CardFace({
   const [isZoomOpen, setIsZoomOpen] = useState(false)
   const magnifierRef = useRef<HTMLButtonElement>(null)
   const wasZoomOpen = useRef(false)
+  const presses = useRef<Presses>({ last: -Infinity, previous: -Infinity, pointerType: '' })
   const frame = cardFrame(card)
   const isInHand = handCost !== undefined
   const cost = (isInHand ? handCost : card.cost) ?? NO_VALUE
   const change = isInHand ? costChange(card.cost, handCost) : null
   const text = visibleText(card.text)
-  const hasMarks = isActive || isExtraCopy || heldBy !== undefined || statusMark !== undefined
+  const hasMarks =
+    showsMarks && (isActive || isExtraCopy || heldBy !== undefined || statusMark !== undefined)
   const look = picture.src !== null ? 'picture' : 'css'
   const glow = faceGlow(frame, {
     isActive,
@@ -183,6 +215,28 @@ export function CardFace({
       magnifierRef.current?.focus()
     }
   }, [isZoomOpen])
+
+  // Both presses of a double click must land on this face (design D2): a press that lands on a dialog or a turned card
+  // that appeared under the pointer never counts. Events from the zoom view, React's child through a portal, are not
+  // the face's own and are left out.
+  const onFacePointerDown = (event: PointerEvent<HTMLElement>) => {
+    tiltHandlers.onPointerDown?.(event)
+    if (!(event.target instanceof Node) || !event.currentTarget.contains(event.target)) return
+    const press = presses.current
+    press.previous = press.last
+    press.last = event.timeStamp
+    press.pointerType = event.pointerType
+  }
+  const onFaceClick = (event: MouseEvent<HTMLElement>) => {
+    if (!isZoomable || !zoomsOnDoubleClick || event.detail !== 2) return
+    const target = event.target
+    if (!(target instanceof Element) || !event.currentTarget.contains(target)) return
+    if (target.closest('[data-face-control]') !== null) return
+    const press = presses.current
+    if (press.pointerType === 'mouse' && press.last - press.previous <= DOUBLE_PRESS_MS) {
+      setIsZoomOpen(true)
+    }
+  }
 
   const costBadge = (className: string) => (
     <CostBadge cost={cost} baseCost={card.cost} change={change} className={className} />
@@ -255,6 +309,7 @@ export function CardFace({
       ref={magnifierRef}
       type="button"
       aria-label={`${card.name}: büyüt`}
+      data-face-control=""
       onClick={() => setIsZoomOpen(true)}
       className={cn(
         CORNER_ICON_CLASSES,
@@ -269,6 +324,7 @@ export function CardFace({
     <button
       type="button"
       aria-label={`${card.name}: düzenle`}
+      data-face-control=""
       onClick={onEdit}
       className={cn(CORNER_ICON_CLASSES, 'pointer-events-auto', EDIT_POSITION[look])}
     >
@@ -301,6 +357,8 @@ export function CardFace({
         data-frame={frame}
         className="group relative flex h-full flex-col gap-2"
         {...tiltHandlers}
+        onPointerDown={onFacePointerDown}
+        onClick={onFaceClick}
       >
         {openButton}
         <div
@@ -324,6 +382,7 @@ export function CardFace({
                   type="button"
                   aria-label="Set, rarity ve mechanic pack"
                   aria-describedby={infoId}
+                  data-face-control=""
                   onClick={() => setIsInfoShown((shown) => !shown)}
                   onBlur={() => setIsInfoShown(false)}
                   className="peer pointer-events-auto absolute right-[3%] bottom-[2%] z-10 h-[11%] w-[14%] cursor-help rounded-full focus-visible:outline-2 focus-visible:outline-gold"
@@ -370,6 +429,8 @@ export function CardFace({
           isTiltable && 'card-tilt',
         )}
         {...tiltHandlers}
+        onPointerDown={onFacePointerDown}
+        onClick={onFaceClick}
       >
         {openButton}
         {/* The cost sits above the name, so the name gets the face's full width and long names do not break. The

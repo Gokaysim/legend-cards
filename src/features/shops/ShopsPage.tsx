@@ -5,7 +5,6 @@ import { PageHeader } from '@/components/ui/PageHeader'
 import { useArt } from '@/features/art/artContext'
 import { useSpeechTrigger } from '@/features/art/cardmakerSpeech'
 import { CardmakerSpeechProvider } from '@/features/art/CardmakerSpeechProvider'
-import { CornerCardmaker } from '@/features/art/CornerCardmaker'
 import { cn } from '@/lib/cn'
 import { useWideHover } from '@/lib/useWideHover'
 
@@ -27,8 +26,7 @@ export function ShopsPage() {
   return (
     <CardmakerSpeechProvider isEnabled={canSpeak}>
       <section className="flex flex-col gap-6">
-        <PageHeader title={label} mascot={isCorner ? null : mascot} />
-        {isCorner ? <CornerCardmaker stem={mascot} /> : null}
+        <PageHeader title={label} mascot={mascot} mascotPlacement="corner" />
         <ul className="grid max-w-4xl grid-cols-1 gap-6 sm:grid-cols-2">
           {SHOP_SCREENS.map((shop) => (
             <ShopChoice key={shop.id} shop={shop} isSummaryInBubble={canSpeak} />

@@ -38,7 +38,12 @@ function Highlight({ children }: { children: ReactNode }) {
  */
 export function RulesContent() {
   return (
-    <div className="flex max-w-3xl flex-col gap-8 leading-relaxed break-words text-ink">
+    // About 70 characters a line, so that on a wide window the corner Cardmaker stands beside the text (spec:
+    // rules-page, "Rules screen layout").
+    <div
+      data-rules-text
+      className="flex max-w-[70ch] flex-col gap-8 leading-relaxed break-words text-ink"
+    >
       <RulesSection title="Legend Point Kart Sistemi">
         <p>
           Gel bakalım kuzum, otur şöyle yanıma. Şimdi sana bu güzelim kartların nasıl kullanıldığını

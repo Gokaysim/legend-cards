@@ -10,11 +10,11 @@ import {
   burstArtUrl,
   GOLDEN_PACKS,
   groupArtUrl,
-  hasNameOnTile,
   PACK_PRICES,
   type PackDef,
   packCatalog,
   packDefOf,
+  packShortName,
   packStatus,
   packTitle,
   priceLabel,
@@ -148,20 +148,22 @@ describe('prices', () => {
   })
 })
 
-describe('hasNameOnTile', () => {
-  it("names the Mechanic, Golden and Pandemonium packs, and not a set's three packs", () => {
-    const named = PACK_TYPES.filter(hasNameOnTile)
+describe('packShortName', () => {
+  it.each([
+    ['standard', 'Standart'],
+    ['premium', 'Premium'],
+    ['cursed', 'Cursed'],
+    ['pandemonium', 'Pandemonium'],
+    ['pandemoniumCursed', 'Cursed'],
+    ['golden', 'Golden'],
+    ['cursedGolden', 'Cursed Golden'],
+    ['mechanic', 'Mechanic'],
+  ] as const)('names a %s pack "%s" on its tile in a group', (type, name) => {
+    expect(packShortName({ type })).toBe(name)
+  })
 
-    expect(named).toEqual([
-      'pandemonium',
-      'pandemoniumCursed',
-      'mechanic',
-      'golden',
-      'cursedGolden',
-    ])
-    expect(hasNameOnTile('standard')).toBe(false)
-    expect(hasNameOnTile('premium')).toBe(false)
-    expect(hasNameOnTile('cursed')).toBe(false)
+  it('covers every pack type', () => {
+    expect(PACK_TYPES.map((type) => packShortName({ type })).every(Boolean)).toBe(true)
   })
 })
 
@@ -272,16 +274,16 @@ describe('packStatus', () => {
 
 describe('spreadBackOf', () => {
   it.each([
-    ['standard', 'Kesqer', { kind: 'set', setCode: 'Kesqer' }],
-    ['premium', 'Kesqer', { kind: 'set', setCode: 'Kesqer' }],
-    ['pandemonium', 'Pandemonium', { kind: 'set', setCode: 'Pandemonium' }],
-    ['cursed', 'Kesqer', { kind: 'cursed' }],
-    ['pandemoniumCursed', 'Pandemonium', { kind: 'cursed' }],
-    ['cursedGolden', null, { kind: 'cursed' }],
-    ['mechanic', null, { kind: 'neutral' }],
-    ['golden', null, { kind: 'neutral' }],
-  ] as const)('gives a %s pack the back of its spread', (packType, setCode, back) => {
-    expect(spreadBackOf(packType, setCode)).toEqual(back)
+    ['standard', 'Kesqer', null, { kind: 'set', setCode: 'Kesqer' }],
+    ['premium', 'Kesqer', null, { kind: 'set', setCode: 'Kesqer' }],
+    ['pandemonium', 'Pandemonium', null, { kind: 'set', setCode: 'Pandemonium' }],
+    ['cursed', 'Kesqer', null, { kind: 'cursed' }],
+    ['pandemoniumCursed', 'Pandemonium', null, { kind: 'cursed' }],
+    ['cursedGolden', null, null, { kind: 'cursed' }],
+    ['mechanic', null, 'Blood & Battle', { kind: 'pack', packKey: 'mechanic:Blood & Battle' }],
+    ['golden', null, null, { kind: 'neutral' }],
+  ] as const)('gives a %s pack the back of its spread', (packType, setCode, mechanicPack, back) => {
+    expect(spreadBackOf({ packType, setCode, mechanicPack })).toEqual(back)
   })
 })
 

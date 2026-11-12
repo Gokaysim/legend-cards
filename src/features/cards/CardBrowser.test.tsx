@@ -325,7 +325,7 @@ describe('CardBrowser for the Cursed deck', () => {
     await user.click(screen.getByRole('button', { name: 'Visions of Death: büyüt' }))
 
     const zoom = screen.getByRole('dialog', { name: 'Visions of Death' })
-    expect(zoom).toHaveTextContent('Cursed · Cost 1')
+    expect(zoom).not.toHaveTextContent('Cursed · Cost 1')
     expect(within(zoom).getByRole('img', { name: 'Visions of Death' })).toHaveAttribute('src', url)
   })
 

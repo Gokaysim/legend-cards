@@ -1,4 +1,5 @@
 import { cn } from '@/lib/cn'
+import { usePhoneWidth } from '@/lib/usePhoneWidth'
 
 import { useArt } from './artContext'
 import { usePicture } from './usePicture'
@@ -11,11 +12,13 @@ export type MascotProps = {
 
 /**
  * The Cardmaker, as decoration without alternative text (design D9). Without its picture, or when it fails to load,
- * nothing is shown.
+ * nothing is shown, and on a phone neither (spec: card-images, "The Cardmaker on screens"; design D5 of
+ * `polish-cards-packs-and-mascots`): by a title, by a pack group or in the corner.
  */
 export function Mascot({ stem, className }: MascotProps) {
   const picture = usePicture(useArt().mascotUrl(stem))
-  if (picture.src === null) return null
+  const isPhone = usePhoneWidth()
+  if (picture.src === null || isPhone) return null
   return (
     <img
       src={picture.src}

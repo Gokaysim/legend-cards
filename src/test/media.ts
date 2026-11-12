@@ -1,5 +1,6 @@
 import { vi } from 'vitest'
 
+import { PHONE_WIDTH_QUERY } from '@/lib/usePhoneWidth'
 import { WIDE_HOVER_QUERY } from '@/lib/useWideHover'
 import { WIDE_WINDOW_QUERY } from '@/lib/useWideWindow'
 
@@ -30,4 +31,9 @@ export function stubWideHover(): void {
  */
 export function stubWideWindow(): void {
   stubMedia(WIDE_WINDOW_QUERY)
+}
+
+/** Stubs `matchMedia` as a phone (`usePhoneWidth()` is true): no Cardmaker shows, and no shocked pair. */
+export function stubPhoneWidth(): void {
+  stubMedia(PHONE_WIDTH_QUERY)
 }

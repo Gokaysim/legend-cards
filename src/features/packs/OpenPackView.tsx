@@ -126,7 +126,7 @@ function PackDialog({
   const isOpen = pack.status === 'open'
   const canAct = isOpen && uid !== null && (uid === pack.uid || isDm)
   const isCursedType = isCursedPackType(pack.packType)
-  const back = spreadBackOf(pack.packType, pack.setCode)
+  const back = spreadBackOf(pack)
   const burstPicture = usePicture(burstArtUrl(useArt(), pack))
   // Only the pack's own animation ends the burst: the halo's and the backdrop's end on their own elements.
   const endBurst = (event: AnimationEvent) => {

@@ -224,6 +224,34 @@ describe('the Cursed draw', () => {
   })
 })
 
+describe('double-clicking a drawn card', () => {
+  it('turns a face-down card over without zooming it', async () => {
+    const { user } = setup()
+    await user.click(control('🎲 Kart Çek (1 LP)'))
+    const back = backs()[0] as HTMLElement
+
+    // In a browser, the first click turns the card and the second lands on the face that appeared.
+    fireEvent.pointerDown(back, { pointerType: 'mouse' })
+    fireEvent.click(back, { detail: 1 })
+    const face = screen.getByRole('article', { name: "Aboleth's Eyes" })
+    fireEvent.pointerDown(face, { pointerType: 'mouse' })
+    fireEvent.click(face, { detail: 2 })
+
+    expect(screen.getAllByRole('dialog')).toHaveLength(1)
+    expect(screen.queryByRole('dialog', { name: "Aboleth's Eyes" })).not.toBeInTheDocument()
+  })
+
+  it('zooms a turned card on a double click', async () => {
+    const { user } = setup()
+    await user.click(control('🎲 Kart Çek (1 LP)'))
+    await user.click(backs()[0] as HTMLElement)
+
+    await user.dblClick(screen.getByRole('article', { name: "Aboleth's Eyes" }))
+
+    expect(screen.getByRole('dialog', { name: "Aboleth's Eyes" })).toBeInTheDocument()
+  })
+})
+
 describe('the backs of drawn cards', () => {
   /** Every cardback has a picture, so a back that showed the card's own would show. */
   const BACKS = testArt({
@@ -390,7 +418,7 @@ describe('zooming a drawn card', () => {
     await user.click(within(draw).getByRole('button', { name: "Aboleth's Eyes: büyüt" }))
 
     const zoom = screen.getByRole<HTMLDialogElement>('dialog', { name: "Aboleth's Eyes" })
-    expect(zoom).toHaveTextContent('Kesqerian Nights · Cost 1 · Common')
+    expect(zoom).not.toHaveTextContent('Kesqerian Nights · Cost 1 · Common')
     act(() => zoom.close())
 
     expect(screen.getAllByRole('dialog')).toEqual([draw])

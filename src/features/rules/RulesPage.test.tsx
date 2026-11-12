@@ -1,7 +1,9 @@
 import { screen, within } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { testArt } from '@/test/artFixtures'
 import { ready, testProfile } from '@/test/fixtures'
+import { stubPhoneWidth, stubWideHover } from '@/test/media'
 import { renderApp } from '@/test/renderApp'
 
 /** The four sections, in order, each with its topics in order. */
@@ -169,5 +171,45 @@ describe('Kurallar screen', () => {
     const header = screen.getByRole('heading', { level: 1, name: 'Kurallar' }).closest('header')
     expect(header?.querySelector('img')).toBeNull()
     expect(sectionTitles()).toEqual(SECTIONS.map((s) => s.title))
+  })
+})
+
+describe('where the Kurallar Cardmaker stands', () => {
+  const ART = testArt({
+    mascots: { cardmaker_wave: '/art/mascots/cardmaker_wave.0123456789.webp' },
+  })
+  const headerMascot = () =>
+    screen
+      .getByRole('heading', { level: 1, name: 'Kurallar' })
+      .closest('header')
+      ?.querySelector('img[data-mascot]')
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('stands her in the corner on a wide window with a mouse, beside text of a readable width', () => {
+    stubWideHover()
+    renderApp({ path: '/rules', art: ART })
+
+    expect(document.querySelector('[data-corner-cardmaker]')).toHaveAttribute(
+      'data-corner-cardmaker',
+      'cardmaker_wave',
+    )
+    expect(headerMascot()).toBeNull()
+    expect(document.querySelector('[data-rules-text]')).toHaveClass('max-w-[70ch]')
+  })
+
+  it('keeps her by the title on a tablet', () => {
+    renderApp({ path: '/rules', art: ART })
+
+    expect(headerMascot()).toHaveAttribute('data-mascot', 'cardmaker_wave')
+  })
+
+  it('shows no Cardmaker on a phone', () => {
+    stubPhoneWidth()
+    renderApp({ path: '/rules', art: ART })
+
+    expect(document.querySelector('img[data-mascot]')).toBeNull()
   })
 })
