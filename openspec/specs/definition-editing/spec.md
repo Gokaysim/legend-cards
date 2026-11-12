@@ -181,7 +181,7 @@ A card's kind SHALL change only while the card is a draft, and only between norm
 - **THEN** the form offers no kind choice, and the server denies such a write
 
 ### Requirement: Status steps wait for an open pack
-While a pack is open, the server SHALL deny publishing, retiring, bringing back and deleting, and the controls SHALL say in Turkish that the table is waiting for the pack. Adding a draft and changing the fields of any definition SHALL stay possible.
+While a pack is open, the server SHALL deny publishing, retiring, bringing back, deleting, and turning a card's DM-only flag on or off, and the controls SHALL say in Turkish that the table is waiting for the pack. Adding a draft and changing the other fields of any definition SHALL stay possible.
 
 #### Scenario: Retiring during a pack
 - **WHEN** Ayla has an open pack, and the DM tries to retire a card
@@ -190,6 +190,10 @@ While a pack is open, the server SHALL deny publishing, retiring, bringing back 
 #### Scenario: Fixing a text during a pack
 - **WHEN** Ayla has an open pack, and the DM fixes a typo in a card's text
 - **THEN** the change is saved
+
+#### Scenario: Marking a card DM-only during a pack
+- **WHEN** Ayla has an open pack, and the DM tries to mark "Aboleth's Eyes" as DM-only
+- **THEN** the card stays as it was, and the DM sees that the table is waiting for the pack
 
 ### Requirement: Change records
 Every add, edit, publish, retire, bring-back and delete SHALL be recorded in the same step. A record names who did it, when, the definition, the step, and each changed field's value before and after. A record SHALL never change and SHALL never be deleted. The server SHALL deny a definition change without its record, and a record without its change.
@@ -207,7 +211,7 @@ Every add, edit, publish, retire, bring-back and delete SHALL be recorded in the
 - **THEN** the server denies it
 
 ### Requirement: Who reads the change records
-A record of a step that players can see SHALL be readable by every signed-in user. Those steps are a publish, an add straight to active, a change to an active or retired definition, a retire and a bring-back. A record of work on a draft SHALL be readable by the DM only, even after the draft is published. That work is adding, editing or deleting a draft.
+A record SHALL be readable by every signed-in user when its definition is visible to players before or after the step: active or retired, and not DM-only. Those are a publish, an add straight to active, a change to such a definition, a retire, a bring-back, and turning the DM-only flag on or off. Any other record SHALL be readable by the DM only, even after the definition becomes visible: work on a draft, and work on a DM-only card.
 
 #### Scenario: A player reads a publish
 - **WHEN** the DM publishes "Bard's Encore", and Ayla reads the change records
@@ -216,6 +220,14 @@ A record of a step that players can see SHALL be readable by every signed-in use
 #### Scenario: A player reads draft work
 - **WHEN** Ayla tries to read the record of the DM adding "Bard's Encore" as a draft
 - **THEN** the server denies it, also after "Bard's Encore" is published
+
+#### Scenario: A player reads work on a DM-only card
+- **WHEN** the DM changes the text of the active DM-only card "The Last Wish", and Ayla tries to read that record
+- **THEN** the server denies it
+
+#### Scenario: A player reads a flag change
+- **WHEN** the DM turns off the DM-only flag of the active card "The Last Wish", and Ayla reads the change records
+- **THEN** she can read the record of that edit
 
 ### Requirement: A changed definition is not overwritten unseen
 If a definition changes on another device while the DM's form for it is open, saving the form SHALL NOT overwrite that change. The form SHALL say in Turkish that the definition has changed, and SHALL show its new values.
@@ -301,3 +313,29 @@ After a save that replaces or removes a picture, the file that is no longer used
 #### Scenario: A refused save
 - **WHEN** the DM saves a new picture for "Aboleth's Eyes" after it changed on another device
 - **THEN** the save is refused, "Aboleth's Eyes" keeps its picture, and the uploaded file is deleted
+
+### Requirement: DM-only cards
+A card of any kind SHALL be either DM-only or not, independent of its status. A DM-only card is one that only the DM gives: no draw or pack gives it, and players do not find it in the card lists. A card stored without the flag SHALL read as not DM-only. True Words SHALL have no such flag. The interface SHALL call the flag "Sadece DM verebilir", and mark such a card "DM'e özel".
+
+#### Scenario: A stored card
+- **WHEN** the DM looks at a card that was imported before the flag existed
+- **THEN** it is not DM-only
+
+#### Scenario: A DM-only Cursed card
+- **WHEN** the DM marks the Cursed card "Visions of Death" as DM-only
+- **THEN** it stays a Cursed card, and its status does not change
+
+### Requirement: Setting the DM-only flag
+The card form SHALL offer a "Sadece DM verebilir" checkbox, for a new card and for a stored card in every status. Saving a changed flag SHALL be an edit of the card, with its change record. Only the DM SHALL change the flag; the server SHALL deny anyone else.
+
+#### Scenario: Marking an active card
+- **WHEN** the DM checks "Sadece DM verebilir" on the active card "Aboleth's Eyes" and saves
+- **THEN** the card is DM-only, and a change record names the edit with the flag before and after
+
+#### Scenario: Adding a DM-only draft
+- **WHEN** the DM adds the card "The Last Wish" with the box checked and "Kaydet"
+- **THEN** it is stored as a DM-only draft
+
+#### Scenario: A player sets the flag
+- **WHEN** a player writes the flag on a card
+- **THEN** the server denies it
