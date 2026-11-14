@@ -12,6 +12,7 @@ export type HoldingErrorKind =
   | 'price-changed'
   | 'invalid-amount'
   | 'not-a-player'
+  | 'character-unavailable'
 
 /** What a use could not pay, for `insufficient`: the holder's LP and the amount. */
 export type UseShortfall = { balance: number; amount: number }
@@ -53,6 +54,8 @@ export type HoldingFailure =
   | { kind: 'invalid-amount' }
   /** A paid use of a card in the DM's own hand: the DM has no LP. */
   | { kind: 'not-a-player' }
+  /** The chosen character was archived meanwhile, or does not exist (spec: card-holdings). */
+  | { kind: 'character-unavailable' }
   /** A pack is open: the table waits for it, and no card moves until it ends. */
   | { kind: 'table-busy' }
   /** No connection: card movements are transactions, and transactions need the server. */
@@ -114,6 +117,8 @@ export function holdingFailureMessage(
       return 'Bu tutar bu kartın bedeline uymuyor.'
     case 'not-a-player':
       return "Bu elin sahibinin LP'si yok: kartı ücretsiz kullan."
+    case 'character-unavailable':
+      return 'Bu karakter artık seçilemiyor. Başka bir karakter seç.'
     case 'table-busy':
       return TABLE_BUSY_MESSAGE
     case 'offline':

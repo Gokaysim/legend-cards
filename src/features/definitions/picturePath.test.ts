@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { isPicturePathOf, picturePath, picturePathSchema } from './picturePath'
+import {
+  characterPicturePathSchema,
+  isPicturePathOf,
+  picturePath,
+  picturePathSchema,
+} from './picturePath'
 
 describe('picturePath', () => {
   it('builds a card picture path', () => {
@@ -11,6 +16,12 @@ describe('picturePath', () => {
 
   it('builds a word picture path', () => {
     expect(picturePath('word', 'tw-abyss', 'abcdef0123')).toBe('words/tw-abyss/abcdef0123.webp')
+  })
+
+  it('builds a character photo path', () => {
+    expect(picturePath('character', 'AbCdEfGhIj0123456789', 'abcdef0123')).toBe(
+      'characters/AbCdEfGhIj0123456789/abcdef0123.webp',
+    )
   })
 
   it.each(['93e6f39a9', '93E6F39A91', '93e6f39a91f', 'zzzzzzzzzz'])(
@@ -59,5 +70,23 @@ describe('picturePathSchema', () => {
     'packs/x/93e6f39a91.webp',
   ])('rejects %s', (path) => {
     expect(picturePathSchema.safeParse(path).success).toBe(false)
+  })
+})
+
+describe('characterPicturePathSchema', () => {
+  it('accepts a character photo path', () => {
+    expect(
+      characterPicturePathSchema.safeParse('characters/AbCdEfGhIj0123456789/abcdef0123.webp')
+        .success,
+    ).toBe(true)
+  })
+
+  it.each([
+    'characters/short/abcdef0123.webp',
+    'characters/AbCdEfGhIj012345678-/abcdef0123.webp',
+    'characters/AbCdEfGhIj0123456789/ABCDEF0123.webp',
+    'cards/AbCdEfGhIj0123456789/abcdef0123.webp',
+  ])('rejects %s', (path) => {
+    expect(characterPicturePathSchema.safeParse(path).success).toBe(false)
   })
 })

@@ -118,11 +118,12 @@ export function trueWordsPath(forUid?: string): string {
 }
 
 /**
- * The search parameter of a hand's tab, and the values of its True Words tab and of the DM's own DM notu tab. Any other
- * value, such as the former Notlar tab's `notes`, opens the Kartlar tab.
+ * The search parameter of a hand's tab, and the values of its True Words tab, its Karakterler tab and the DM's own DM
+ * notu tab. Any other value, such as the former Notlar tab's `notes`, opens the Kartlar tab.
  */
 export const HAND_TAB_PARAM = 'tab'
 export const TRUE_WORDS_TAB = 'true-words'
+export const CHARACTERS_TAB = 'characters'
 export const DM_NOTE_TAB = 'dm-note'
 
 /** A player's hand, opened on its True Words tab. */

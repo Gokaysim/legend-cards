@@ -2,6 +2,7 @@ import { useId, useMemo, useState } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router'
 
 import {
+  CHARACTERS_TAB,
   DM_NOTE_TAB,
   HAND_TAB_PARAM,
   handPath,
@@ -15,6 +16,7 @@ import { PageHeader } from '@/components/ui/PageHeader'
 import { Spinner } from '@/components/ui/Spinner'
 import { useAuth } from '@/features/auth/authContext'
 import { useCardsById } from '@/features/cards/cardsContext'
+import { useHandCharacters } from '@/features/characters/useHandCharacters'
 import { DrawButtons } from '@/features/draws/DrawButtons'
 import { DmNote, PlayerNote } from '@/features/player-notes/HandNotes'
 import { TABLE_BUSY_NOTE } from '@/features/table/errors'
@@ -146,7 +148,7 @@ function HandScreen({ profile }: { profile: UserProfile }) {
   )
 }
 
-type HandTab = 'cards' | 'true-words' | 'dm-note'
+type HandTab = 'cards' | 'true-words' | 'characters' | 'dm-note'
 
 /**
  * A selected card or word, with the layout it was selected in (design D2). It counts only while the layout is the
@@ -157,6 +159,7 @@ type Selection = { id: string; isWide: boolean }
 /** Each tab's value in the URL. The cards tab has none: it is the hand's default. */
 const TAB_VALUES: Record<Exclude<HandTab, 'cards'>, string> = {
   'true-words': TRUE_WORDS_TAB,
+  characters: CHARACTERS_TAB,
   'dm-note': DM_NOTE_TAB,
 }
 
@@ -166,13 +169,15 @@ const TAB_VALUES: Record<Exclude<HandTab, 'cards'>, string> = {
  */
 function tabOf(value: string | null, isDm: boolean): HandTab {
   if (value === TRUE_WORDS_TAB) return 'true-words'
+  if (value === CHARACTERS_TAB) return 'characters'
   if (value === DM_NOTE_TAB && isDm) return 'dm-note'
   return 'cards'
 }
 
 /**
  * The hand of one player, live: the summary with the tabs beside it, kept in the URL (`?tab=true-words`,
- * `?tab=dm-note`): the cards, the player's True Words, and for the DM alone the DM note. The player note shows under
+ * `?tab=characters`, `?tab=dm-note`): the cards, the player's True Words, their characters, and for the DM alone the
+ * DM note. The player note shows under
  * every tab. The DM note shows only on its tab and its label never changes, because the DM's screen may face the table
  * (spec: player-notes).
  *
@@ -191,6 +196,7 @@ function HandContent({ profile }: { profile: UserProfile }) {
   const [cardSelection, setCardSelection] = useState<Selection | null>(null)
   const [wordSelection, setWordSelection] = useState<Selection | null>(null)
   const tab = tabOf(params.get(HAND_TAB_PARAM), isDm)
+  const handCharacters = useHandCharacters(profile, isWide)
   // Crossing 1024 px clears a selection made in the other layout, during this render (design D2): a dialog never opens
   // by itself, and going back does not bring the old selection back.
   if (cardSelection !== null && cardSelection.isWide !== isWide) setCardSelection(null)
@@ -240,6 +246,7 @@ function HandContent({ profile }: { profile: UserProfile }) {
   const tabs: { id: HandTab; label: string }[] = [
     { id: 'cards', label: '♠ Kartlar' },
     { id: 'true-words', label: '✦ True Words' },
+    { id: 'characters', label: '🧝 Karakterler' },
     ...(isDm ? [{ id: 'dm-note' as const, label: '🔒 DM notu' }] : []),
   ]
   const name = profileName(profile)
@@ -252,7 +259,11 @@ function HandContent({ profile }: { profile: UserProfile }) {
         <div
           role="tablist"
           aria-label="El"
-          className="flex gap-2 sm:w-34 sm:flex-col sm:justify-center"
+          // On a phone, three tabs share one row; the DM's four take two rows of two, so none is cut off at 360 px.
+          className={cn(
+            'gap-2 sm:flex sm:w-34 sm:flex-col sm:justify-center',
+            tabs.length > 3 ? 'grid grid-cols-2' : 'flex',
+          )}
         >
           {tabs.map(({ id, label }) => (
             <Button
@@ -282,6 +293,8 @@ function HandContent({ profile }: { profile: UserProfile }) {
                   selectedId={isWide ? (selected?.holding.id ?? null) : null}
                 />
               </ActiveWordsPeek>
+            ) : tab === 'characters' ? (
+              handCharacters.content
             ) : tab === 'dm-note' ? (
               <DmOnly>
                 <DmNote profile={profile} />
@@ -328,6 +341,18 @@ function HandContent({ profile }: { profile: UserProfile }) {
             ) : null}
           </HandDetailsPanel>
         ) : null}
+        {showsPanel && tab === 'characters' ? (
+          <HandDetailsPanel
+            label="Seçili Karakter"
+            name={handCharacters.selected?.name ?? null}
+            empty={{
+              title: 'Bir karakter seç',
+              hint: 'Bir karaktere tıkla, ayrıntıları burada görünsün.',
+            }}
+          >
+            {handCharacters.selected?.details}
+          </HandDetailsPanel>
+        ) : null}
         {showsPanel && tab === 'cards' ? (
           <HandDetailsPanel
             label="Seçili Kart"
@@ -359,6 +384,7 @@ function HandContent({ profile }: { profile: UserProfile }) {
           onClose={() => setCardSelection(null)}
         />
       ) : null}
+      {tab === 'characters' ? handCharacters.overlays : null}
       {!isWide && tab === 'true-words' && selectedWord ? (
         <TrueWordDialog
           key={selectedWord.record.id}

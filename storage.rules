@@ -3,10 +3,12 @@ rules_version = '2';
 // Cloud Storage access rules (design D5 of upload-card-and-word-pictures). Closed by default: a path is opened on
 // purpose, with tests in tests/storage.rules.emulator.test.ts.
 //
-// The card, True Word and set pictures are the one thing anyone may read without signing in, as the built pictures on
-// Hosting are (spec: data-access-control). Only the DM stores and deletes them. A picture is a WebP file of at most
-// 1 MB, named by its content hash, under its definition's or set's ID. The rules do not ask whether the definition or
-// set exists: a new one's picture is uploaded before it is created.
+// The card, True Word and set pictures, and the character photos, are the one thing anyone may read without signing
+// in, as the built pictures on Hosting are (spec: data-access-control). Only the DM stores and deletes the pictures;
+// a character's owner and the DM store and delete its photos. A picture is a WebP file of at most 1 MB, named by its
+// content hash, under its definition's, set's or character's ID. The rules do not ask whether a definition or set
+// exists, and allow a photo for a character that does not exist yet: a new one's picture is uploaded before it is
+// created.
 service firebase.storage {
   match /b/{bucket}/o {
     // The DM's role, read from the profile in Firestore (cross-service rules).
@@ -22,6 +24,17 @@ service firebase.storage {
       return file.matches('[0-9a-f]{10}[.]webp')
         && request.resource.contentType == 'image/webp'
         && request.resource.size <= 1024 * 1024;
+    }
+
+    // Whether the signed-in user may store or delete the photos of a character (design D4 of add-characters): its
+    // owner, the DM, or anyone signed in while the character does not exist yet, because a new character's photo is
+    // uploaded before it. The Firestore rule then accepts only a photo of that very character.
+    function mayEditCharacter(characterId) {
+      let path = /databases/(default)/documents/characters/$(characterId);
+      return request.auth != null
+        && (!firestore.exists(path)
+          || firestore.get(path).data.uid == request.auth.uid
+          || isDm());
     }
 
     match /cards/{cardId}/{file} {
@@ -41,6 +54,15 @@ service firebase.storage {
       allow read: if true;
       allow create, update: if setId.matches('[a-z0-9]+') && validPicture(file) && isDm();
       allow delete: if isDm();
+    }
+
+    // A character's photo (spec: characters, "Character photo files"). The character's ID is a Firestore auto ID.
+    match /characters/{characterId}/{file} {
+      allow read: if true;
+      allow create, update: if characterId.matches('[A-Za-z0-9]{20}')
+        && validPicture(file)
+        && mayEditCharacter(characterId);
+      allow delete: if mayEditCharacter(characterId);
     }
   }
 }

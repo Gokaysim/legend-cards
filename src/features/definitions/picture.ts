@@ -25,6 +25,9 @@ export const PICTURE_QUALITY = 0.82
 
 export type PictureSize = { width: number; height: number }
 
+/** A part of a picture, in its natural pixels. */
+export type PictureRect = PictureSize & { x: number; y: number }
+
 /** A picture ready to upload: the WebP file, its content hash for the file name, and its size. */
 export type PreparedPicture = PictureSize & { blob: Blob; hash: string }
 
@@ -35,12 +38,18 @@ export type PreparedPicture = PictureSize & { blob: Blob; hash: string }
 export type PictureCodec = {
   /** The picture's natural size. Throws when it cannot be decoded. */
   sizeOf: (file: Blob) => Promise<PictureSize>
-  /** The picture scaled to `size` and encoded as WebP, or whatever the browser makes of that request. */
-  encode: (file: Blob, size: PictureSize, quality: number) => Promise<Blob>
+  /**
+   * The picture scaled to `size` and encoded as WebP, or whatever the browser makes of that request. With `source`,
+   * only that part of the picture is scaled.
+   */
+  encode: (file: Blob, size: PictureSize, quality: number, source?: PictureRect) => Promise<Blob>
 }
 
-/** The box a prepared picture must fit in. */
-export type PictureBox = PictureSize
+/**
+ * The box a prepared picture must fit in. With `aspect` (width ÷ height), the picture is first cropped from its center
+ * to that aspect (design D5 of add-characters).
+ */
+export type PictureBox = PictureSize & { aspect?: number }
 
 /** A card's, True Word's or cardback's box: the card picture's size. */
 export const CARD_PICTURE_BOX: PictureBox = { width: PICTURE_WIDTH, height: PICTURE_HEIGHT }
@@ -50,6 +59,19 @@ export const CARD_PICTURE_BOX: PictureBox = { width: PICTURE_WIDTH, height: PICT
  * picture"). Her width only follows her height.
  */
 export const CARDMAKER_PICTURE_BOX: PictureBox = { width: Number.POSITIVE_INFINITY, height: 480 }
+
+/** A character photo's box: a 3:4 portrait of at most 600 × 800 pixels (spec: characters, "Preparing a character photo"). */
+export const CHARACTER_PICTURE_BOX: PictureBox = { width: 600, height: 800, aspect: 3 / 4 }
+
+/** The largest part of a picture of `natural` size that has the `aspect` (width ÷ height), from its center. */
+export function centerCrop({ width, height }: PictureSize, aspect: number): PictureRect {
+  if (width / height > aspect) {
+    const cropped = Math.max(1, Math.min(width, Math.round(height * aspect)))
+    return { x: Math.floor((width - cropped) / 2), y: 0, width: cropped, height }
+  }
+  const cropped = Math.max(1, Math.min(height, Math.round(width / aspect)))
+  return { x: 0, y: Math.floor((height - cropped) / 2), width, height: cropped }
+}
 
 /**
  * The size that fits within `box` (563 × 788 pixels by default) with the proportions kept. A smaller picture is never
@@ -82,12 +104,16 @@ export const browserCodec: PictureCodec = {
     bitmap.close()
     return size
   },
-  async encode(file, size, quality) {
-    const bitmap = await createImageBitmap(file, {
+  async encode(file, size, quality, source) {
+    const options: ImageBitmapOptions = {
       resizeWidth: size.width,
       resizeHeight: size.height,
       resizeQuality: 'high',
-    })
+    }
+    const bitmap =
+      source === undefined
+        ? await createImageBitmap(file, options)
+        : await createImageBitmap(file, source.x, source.y, source.width, source.height, options)
     try {
       const canvas = new OffscreenCanvas(size.width, size.height)
       const context = canvas.getContext('2d')
@@ -125,8 +151,12 @@ export async function preparePicture(
   } catch {
     throw new PictureUnreadableError()
   }
-  const size = fitWithin(natural, box)
-  const blob = await codec.encode(file, size, PICTURE_QUALITY)
+  const source = box.aspect === undefined ? undefined : centerCrop(natural, box.aspect)
+  const size = fitWithin(source ?? natural, box)
+  const blob =
+    source === undefined
+      ? await codec.encode(file, size, PICTURE_QUALITY)
+      : await codec.encode(file, size, PICTURE_QUALITY, source)
   // A browser that cannot encode WebP answers with a PNG instead (Safari).
   if (blob.type !== 'image/webp') throw new PictureUnsupportedError()
   if (blob.size > PICTURE_MAX_BYTES) throw new PictureTooLargeError('picture')

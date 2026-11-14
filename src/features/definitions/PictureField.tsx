@@ -4,11 +4,13 @@ import { Button } from '@/components/ui/Button'
 import { useArt } from '@/features/art/artContext'
 import { CardPicture } from '@/features/art/CardPicture'
 import { usePicture } from '@/features/art/usePicture'
+import { cn } from '@/lib/cn'
 
 import { pictureErrorMessage } from './errors'
 import {
   CARD_PICTURE_BOX,
   CARDMAKER_PICTURE_BOX,
+  CHARACTER_PICTURE_BOX,
   PICTURE_INPUT_TYPES,
   preparePicture,
 } from './picture'
@@ -31,14 +33,22 @@ export type PictureFieldProps = {
   title?: string
   /**
    * What the picture is: a card's, word's or cardback's (`card`, at the card's proportions and at most 563 × 788 pixels),
-   * or a Cardmaker (`cardmaker`, at most 480 pixels high, shown whole).
+   * a Cardmaker (`cardmaker`, at most 480 pixels high, shown whole), or a character's photo (`portrait`, cropped to 3:4
+   * and at most 600 × 800 pixels).
    */
-  shape?: 'card' | 'cardmaker'
+  shape?: 'card' | 'cardmaker' | 'portrait'
 }
+
+const BOXES = {
+  card: CARD_PICTURE_BOX,
+  cardmaker: CARDMAKER_PICTURE_BOX,
+  portrait: CHARACTER_PICTURE_BOX,
+} as const
 
 const HINTS = {
   card: 'PNG, JPEG ya da WebP; en fazla 563 × 788 piksele küçültülür.',
   cardmaker: 'PNG, JPEG ya da WebP; en fazla 480 piksel yüksekliğe küçültülür, saydamlığı kalır.',
+  portrait: 'PNG, JPEG ya da WebP; ortasından 3:4 kırpılır, en fazla 600 × 800 piksele küçültülür.',
 } as const
 
 /**
@@ -75,11 +85,7 @@ export function PictureField({
     setError(null)
     setIsPreparing(true)
     try {
-      const prepared = await preparePicture(
-        file,
-        undefined,
-        shape === 'cardmaker' ? CARDMAKER_PICTURE_BOX : CARD_PICTURE_BOX,
-      )
+      const prepared = await preparePicture(file, undefined, BOXES[shape])
       onChange({ kind: 'new', prepared, previewUrl: URL.createObjectURL(prepared.blob) })
     } catch (failure) {
       setError(pictureErrorMessage(failure) ?? 'Resim hazırlanamadı. Başka bir dosya dene.')
@@ -109,7 +115,14 @@ export function PictureField({
       </h3>
       <div className="flex flex-wrap items-start gap-3">
         <div className="w-28 shrink-0">
-          {shown !== null && shape === 'cardmaker' ? (
+          {shown !== null && shape === 'portrait' ? (
+            <img
+              src={shown}
+              alt={name}
+              onError={draft.kind === 'keep' ? storedPicture.onError : undefined}
+              className="block aspect-[3/4] h-auto w-full rounded-lg object-cover"
+            />
+          ) : shown !== null && shape === 'cardmaker' ? (
             <img
               src={shown}
               alt={name}
@@ -123,7 +136,12 @@ export function PictureField({
               onError={draft.kind === 'keep' ? storedPicture.onError : undefined}
             />
           ) : (
-            <div className="flex aspect-[563/788] w-full items-center justify-center rounded-lg border border-dashed border-control-line p-2 text-center text-xs text-ink-muted">
+            <div
+              className={cn(
+                'flex w-full items-center justify-center rounded-lg border border-dashed border-control-line p-2 text-center text-xs text-ink-muted',
+                shape === 'portrait' ? 'aspect-[3/4]' : 'aspect-[563/788]',
+              )}
+            >
               Resim yok
             </div>
           )}

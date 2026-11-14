@@ -2031,6 +2031,84 @@ describe('card uses and their payments (userCards with ledger/{entryId} and user
       await assertFails(use('dana', 'h-ayla-cursed', 0, { close: { returnReason: 'discarded' } }))
     })
   })
+
+  describe('the character of a use', () => {
+    const THORIN = 'ThorinAyla0123456789'
+    const ELARA = 'ElaraBora01234567890'
+    const KUZGUN = 'KuzgunAyla0123456789'
+
+    const character = (uid: string, name: string, archived = false) => ({
+      uid,
+      name,
+      picture: null,
+      archived,
+      createdAt: Timestamp.fromMillis(1000),
+      createdBy: uid,
+    })
+
+    beforeEach(async () => {
+      await testEnv.withSecurityRulesDisabled(async (admin) => {
+        const db = firestoreOf(admin)
+        await setDoc(doc(db, `characters/${THORIN}`), character('ayla', 'Thorin'))
+        await setDoc(doc(db, `characters/${ELARA}`), character('bora', 'Elara'))
+        await setDoc(doc(db, `characters/${KUZGUN}`), character('ayla', 'Kuzgun', true))
+      })
+    })
+
+    const on = (usedOnCharacterId: string | null, usedOn: string | null) => ({
+      close: { usedOnCharacterId, usedOn },
+    })
+
+    it('allows a use on a character whose name the holding keeps', async () => {
+      await assertSucceeds(use('ayla', 'h-ayla-cursed', 1, on(THORIN, 'Thorin')))
+      expect(await readAsAdmin('userCards/h-ayla-cursed')).toMatchObject({
+        usedOn: 'Thorin',
+        usedOnCharacterId: THORIN,
+      })
+    })
+
+    it("allows a use on another player's character", async () => {
+      await assertSucceeds(use('ayla', 'h-ayla-cursed', 1, on(ELARA, 'Elara')))
+    })
+
+    it('allows a typed name with no character, and a use without the field', async () => {
+      await assertSucceeds(use('dana', 'h-ayla-cursed', 0, on(null, 'Goblin şefi')))
+      await assertSucceeds(use('ayla', 'h-ayla-extra', 1, { close: { usedOn: 'Thorin' } }))
+    })
+
+    it("allows the heaviest request: a player's paid use of a normal card on a character", async () => {
+      await assertSucceeds(
+        use('bora', 'h-bora', 1, {
+          payer: 'bora',
+          lpBefore: 5,
+          release: HOLDINGS_SEED.HELD,
+          ...on(ELARA, 'Elara'),
+        }),
+      )
+    })
+
+    it.each([
+      ['an unknown character', on('Ghost012345678901234', 'Ghost')],
+      ['an archived character', on(KUZGUN, 'Kuzgun')],
+      ["a name that is not the character's", on(THORIN, 'Elara')],
+      ['a character without a name', on(THORIN, null)],
+      ['a character ID that is not a string', on(7 as unknown as string, 'Thorin')],
+    ])('denies a use on %s', async (_case, spec) => {
+      await assertFails(use('ayla', 'h-ayla-cursed', 1, spec))
+      await assertFails(use('dana', 'h-ayla-cursed', 0, spec))
+    })
+
+    it('denies a character on a discard', async () => {
+      await assertFails(
+        updateDoc(doc(asUser('dana'), 'userCards/h-ayla-cursed'), {
+          returnedAt: serverTimestamp(),
+          returnedBy: 'dana',
+          returnReason: 'discarded',
+          usedOnCharacterId: THORIN,
+        }),
+      )
+    })
+  })
 })
 
 describe('balances (users/{uid}.lp, party/main, ledger/{entryId})', () => {
@@ -4719,6 +4797,177 @@ describe('player notes (playerNotes/{uid}) and DM notes (dmNotes/{uid})', () => 
         await setDoc(doc(firestoreOf(admin), 'table/main'), { openPackId: 'p-open' })
       })
       await assertSucceeds(save(writer, path))
+    })
+  })
+})
+
+describe('characters (characters/{characterId})', () => {
+  /** Ayla's "Thorin", stored with a photo, added by Ayla. */
+  const THORIN = 'ThorinAyla0123456789'
+  /** A new character's ID, as the application makes it. */
+  const NEW = 'NewCharacter01234567'
+
+  const photoOf = (id: string, hash = '0123456789') => `characters/${id}/${hash}.webp`
+
+  const STORED = {
+    uid: 'ayla',
+    name: 'Thorin',
+    picture: photoOf(THORIN),
+    archived: false,
+    createdAt: Timestamp.fromMillis(1000),
+    createdBy: 'ayla',
+  }
+
+  /** A new character as the application adds it: unarchived, by the signed-in user, at the server time. */
+  const newCharacter = (by: string, overrides: Record<string, unknown> = {}) => ({
+    uid: by,
+    name: 'Kuzgun',
+    picture: null,
+    archived: false,
+    createdAt: serverTimestamp(),
+    createdBy: by,
+    ...overrides,
+  })
+
+  const add = (by: string, overrides?: Record<string, unknown>, id = NEW) =>
+    setDoc(doc(asUser(by), `characters/${id}`), newCharacter(by, overrides))
+
+  const edit = (by: string, change: Record<string, unknown>) =>
+    updateDoc(doc(asUser(by), `characters/${THORIN}`), change)
+
+  beforeEach(async () => {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const db = firestoreOf(admin)
+      await setDoc(doc(db, 'users/ayla'), seededUser('player', 'Ayla'))
+      await setDoc(doc(db, 'users/bora'), seededUser('player', 'Bora'))
+      await setDoc(doc(db, 'users/dana'), seededUser('dm', 'Dana'))
+      await setDoc(doc(db, `characters/${THORIN}`), STORED)
+    })
+  })
+
+  describe('reading', () => {
+    it.each(['ayla', 'bora', 'dana'])('lets %s read every character', async (uid) => {
+      await assertSucceeds(getDoc(doc(asUser(uid), `characters/${THORIN}`)))
+      await assertSucceeds(getDocs(collection(asUser(uid), 'characters')))
+    })
+
+    it('denies a signed-out read and write', async () => {
+      const db = firestoreOf(testEnv.unauthenticatedContext())
+      await assertFails(getDoc(doc(db, `characters/${THORIN}`)))
+      await assertFails(getDocs(collection(db, 'characters')))
+      await assertFails(setDoc(doc(db, `characters/${NEW}`), newCharacter('ayla')))
+    })
+  })
+
+  describe('adding', () => {
+    it('lets a player add their own character, with or without a photo', async () => {
+      await assertSucceeds(add('ayla'))
+      expect(await readAsAdmin(`characters/${NEW}`)).toMatchObject({
+        uid: 'ayla',
+        name: 'Kuzgun',
+        createdBy: 'ayla',
+      })
+      await assertSucceeds(
+        add('ayla', { picture: photoOf('Other0123456789abcde') }, 'Other0123456789abcde'),
+      )
+    })
+
+    it('lets the DM add a character for a player and for the DM', async () => {
+      await assertSucceeds(add('dana', { uid: 'bora', name: 'Elara' }))
+      expect(await readAsAdmin(`characters/${NEW}`)).toMatchObject({
+        uid: 'bora',
+        createdBy: 'dana',
+      })
+      await assertSucceeds(add('dana', { name: 'Goblin şefi' }, 'Goblin0123456789abcd'))
+    })
+
+    it('allows adding while a pack is open', async () => {
+      await testEnv.withSecurityRulesDisabled(async (admin) => {
+        await setDoc(doc(firestoreOf(admin), 'table/main'), { openPackId: 'p-open' })
+      })
+      await assertSucceeds(add('ayla'))
+    })
+
+    it.each([
+      ['a name of 40 Turkish letters', { name: 'ğ'.repeat(40) }],
+      ['a name of 1 character', { name: 'K' }],
+    ])('allows %s', async (_case, overrides) => {
+      await assertSucceeds(add('ayla', overrides))
+    })
+
+    it.each([
+      ['a character for another player', { uid: 'bora' }],
+      ['an empty name', { name: '' }],
+      ['a name of 41 characters', { name: 'x'.repeat(41) }],
+      ['a name that is not a string', { name: 7 }],
+      ['an extra field', { extra: true }],
+      ['a missing field', { picture: undefined }],
+      ["another character's photo", { picture: photoOf(THORIN) }],
+      ['a photo outside the character photos', { picture: `cards/${NEW}/0123456789.webp` }],
+      ['a badly named photo', { picture: photoOf(NEW, 'ABCDEF0123') }],
+      ['an archived new character', { archived: true }],
+      ['a forged creator', { createdBy: 'dana' }],
+      ['a time that is not the server time', { createdAt: Timestamp.fromMillis(5000) }],
+    ])('denies a player adding %s', async (_case, overrides) => {
+      const data = newCharacter('ayla', overrides)
+      if ('picture' in overrides && overrides.picture === undefined)
+        delete (data as Record<string, unknown>).picture
+      await assertFails(setDoc(doc(asUser('ayla'), `characters/${NEW}`), data))
+    })
+
+    it('denies a character for a user who has no profile', async () => {
+      await assertFails(add('dana', { uid: 'ghost' }))
+      await assertFails(add('ghost'))
+    })
+  })
+
+  describe('editing', () => {
+    it.each(['ayla', 'dana'])(
+      'lets %s rename, change the photo, archive and bring back',
+      async (by) => {
+        await assertSucceeds(edit(by, { name: 'Thorin Oakenshield' }))
+        await assertSucceeds(edit(by, { picture: photoOf(THORIN, 'abcdef0123') }))
+        await assertSucceeds(edit(by, { picture: null }))
+        await assertSucceeds(edit(by, { archived: true }))
+        await assertSucceeds(edit(by, { archived: false }))
+        expect(await readAsAdmin(`characters/${THORIN}`)).toMatchObject({
+          name: 'Thorin Oakenshield',
+          picture: null,
+          archived: false,
+        })
+      },
+    )
+
+    it('allows editing while a pack is open', async () => {
+      await testEnv.withSecurityRulesDisabled(async (admin) => {
+        await setDoc(doc(firestoreOf(admin), 'table/main'), { openPackId: 'p-open' })
+      })
+      await assertSucceeds(edit('ayla', { archived: true }))
+    })
+
+    it("denies another player's edit", async () => {
+      await assertFails(edit('bora', { name: 'Bora was here' }))
+      await assertFails(edit('bora', { archived: true }))
+      expect(await readAsAdmin(`characters/${THORIN}`)).toMatchObject(STORED)
+    })
+
+    it.each([
+      ['the owner', { uid: 'bora' }],
+      ['the creator', { createdBy: 'dana' }],
+      ['the creation time', { createdAt: Timestamp.fromMillis(5000) }],
+      ['an empty name', { name: '' }],
+      ['a name of 41 characters', { name: 'x'.repeat(41) }],
+      ["another character's photo", { picture: photoOf(NEW) }],
+      ['an extra field', { extra: true }],
+    ])('denies changing %s, even for the DM', async (_case, change) => {
+      await assertFails(edit('dana', change))
+      await assertFails(edit('ayla', change))
+    })
+
+    it('denies deleting a character, even for the DM', async () => {
+      await assertFails(deleteDoc(doc(asUser('dana'), `characters/${THORIN}`)))
+      await assertFails(deleteDoc(doc(asUser('ayla'), `characters/${THORIN}`)))
+      expect(await readAsAdmin(`characters/${THORIN}`)).toMatchObject(STORED)
     })
   })
 })

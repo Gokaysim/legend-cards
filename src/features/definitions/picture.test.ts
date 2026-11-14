@@ -9,6 +9,8 @@ import {
 } from './errors'
 import {
   CARDMAKER_PICTURE_BOX,
+  centerCrop,
+  CHARACTER_PICTURE_BOX,
   fitWithin,
   type PictureCodec,
   pictureHash,
@@ -93,6 +95,58 @@ describe('preparePicture with a box', () => {
       { width: 320, height: 480 },
       PICTURE_QUALITY,
     )
+  })
+})
+
+describe('centerCrop', () => {
+  it.each([
+    [
+      { width: 1600, height: 900 },
+      { x: 462, y: 0, width: 675, height: 900 },
+    ],
+    [
+      { width: 300, height: 300 },
+      { x: 37, y: 0, width: 225, height: 300 },
+    ],
+    [
+      { width: 600, height: 1200 },
+      { x: 0, y: 200, width: 600, height: 800 },
+    ],
+    [
+      { width: 600, height: 800 },
+      { x: 0, y: 0, width: 600, height: 800 },
+    ],
+  ])('crops %o to %o at 3:4', (natural, crop) => {
+    expect(centerCrop(natural, 3 / 4)).toEqual(crop)
+  })
+})
+
+describe('preparePicture for a character photo', () => {
+  it.each([
+    // A landscape photo: its middle 675 × 900 pixels, scaled to 600 × 800.
+    [
+      { width: 1600, height: 900 },
+      { x: 462, y: 0, width: 675, height: 900 },
+      { width: 600, height: 800 },
+    ],
+    // A small photo is cropped, not enlarged.
+    [
+      { width: 300, height: 300 },
+      { x: 37, y: 0, width: 225, height: 300 },
+      { width: 225, height: 300 },
+    ],
+    // A portrait taller than 3:4 loses its top and bottom.
+    [
+      { width: 1200, height: 2400 },
+      { x: 0, y: 400, width: 1200, height: 1600 },
+      { width: 600, height: 800 },
+    ],
+  ])('prepares %o from %o as %o', async (natural, crop, size) => {
+    const codec = fakeCodec({ natural })
+    const picture = await preparePicture(fileOf('image/jpeg'), codec, CHARACTER_PICTURE_BOX)
+
+    expect(picture).toMatchObject(size)
+    expect(codec.encode).toHaveBeenCalledWith(expect.any(Blob), size, PICTURE_QUALITY, crop)
   })
 })
 

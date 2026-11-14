@@ -74,6 +74,10 @@ service cloud.firestore {
       return /databases/$(database)/documents/sets/$(setId);
     }
 
+    function characterPath(characterId) {
+      return /databases/$(database)/documents/characters/$(characterId);
+    }
+
     function setChangePath(changeId) {
       return /databases/$(database)/documents/setChanges/$(changeId);
     }
@@ -874,12 +878,14 @@ service cloud.firestore {
       // the price of the card's cost in this hand. The ledger's balance check keeps it within the holder's LP.
       function closesAsUsed() {
         let next = request.resource.data;
-        return onlyChanges(['returnedAt', 'returnedBy', 'returnReason', 'usedOn', 'useCost', 'useEntryId'])
+        return onlyChanges(['returnedAt', 'returnedBy', 'returnReason', 'usedOn', 'useCost', 'useEntryId',
+            'usedOnCharacterId'])
           && next.keys().hasAll(['useCost', 'useEntryId'])
           && next.returnedAt == request.time
           && next.returnedBy == request.auth.uid
           && next.returnReason == 'used'
           && validUsedOn(next.usedOn)
+          && usedCharacterMatches(next)
           && next.useCost is int
           && next.useCost >= 0
           && next.useCost <= 1000000
@@ -887,6 +893,17 @@ service cloud.firestore {
           && (next.useCost == 0
             ? next.useEntryId == null
             : next.useEntryId is string && paidByUseEntry(next.useEntryId, next.useCost));
+      }
+
+      // A use on a stored character (design D7 of add-characters): no character (the field missing, as from the
+      // previous app, or null), or an existing, unarchived character whose name the holding keeps in `usedOn`.
+      function usedCharacterMatches(next) {
+        let characterId = next.get('usedOnCharacterId', null);
+        return characterId == null
+          || (characterId is string
+            && exists(characterPath(characterId))
+            && get(characterPath(characterId)).data.archived == false
+            && get(characterPath(characterId)).data.name == next.usedOn);
       }
 
       // The card's cost in this hand: the DM's override, or the card's own cost (missing: none).
@@ -1892,6 +1909,40 @@ service cloud.firestore {
         && data.updatedBy == request.auth.uid
         && data.updatedAt == request.time
         && exists(userPath(uid));
+    }
+
+    // Characters (design D3 of add-characters): a user's player characters and the DM's NPCs. Everyone signed in reads
+    // them. A player adds their own, and the DM one for anyone with a profile. The owner and the DM rename one,
+    // change its photo, archive it and bring it back. Nothing else changes, and a character is never deleted. They
+    // are not table actions: an open pack does not stop them.
+    match /characters/{characterId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && (isSelf(request.resource.data.uid) || isDm())
+        && validCharacter(request.resource.data)
+        && request.resource.data.archived == false
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.createdBy == request.auth.uid
+        && exists(userPath(request.resource.data.uid));
+      allow update: if isSignedIn()
+        && (isSelf(resource.data.uid) || isDm())
+        && onlyChanges(['name', 'picture', 'archived'])
+        && validCharacter(request.resource.data);
+      allow delete: if false;
+
+      // Exactly the stored fields, a name of 1 to 40 characters, and no photo or one of this very character's.
+      // Keep in step with src/features/characters/schema.ts.
+      function validCharacter(data) {
+        let fields = ['uid', 'name', 'picture', 'archived', 'createdAt', 'createdBy'];
+        return data.keys().hasOnly(fields)
+          && data.keys().hasAll(fields)
+          && data.uid is string
+          && textOfSize(data.name, 40)
+          && data.archived is bool
+          && (data.picture == null
+            || (data.picture is string
+              && data.picture.matches('characters/' + characterId + '/[0-9a-f]{10}[.]webp')));
+      }
     }
 
     // The player note: the whole table reads it; the player writes their own, and the DM anyone's.

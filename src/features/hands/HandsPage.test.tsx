@@ -347,7 +347,7 @@ describe('the notes on the hand', () => {
     )
   })
 
-  it('gives a player the Kartlar and True Words tabs only, and never reads a DM note', () => {
+  it('gives a player the Kartlar, True Words and Karakterler tabs only, and never reads a DM note', () => {
     const onUseDmNote = vi.fn()
     renderApp({
       path: '/hands/ayla',
@@ -355,11 +355,15 @@ describe('the notes on the hand', () => {
       notes: { onUseDmNote },
     })
 
-    expect(tabs().map((tab) => tab.textContent)).toEqual(['♠ Kartlar', '✦ True Words'])
+    expect(tabs().map((tab) => tab.textContent)).toEqual([
+      '♠ Kartlar',
+      '✦ True Words',
+      '🧝 Karakterler',
+    ])
     expect(onUseDmNote).not.toHaveBeenCalled()
   })
 
-  it('gives the DM a third tab, "🔒 DM notu", kept in the URL', async () => {
+  it('gives the DM a fourth tab, "🔒 DM notu", after Karakterler, kept in the URL', async () => {
     const user = userEvent.setup()
     const { router } = renderApp({
       path: '/hands/ayla',
@@ -370,6 +374,7 @@ describe('the notes on the hand', () => {
     expect(tabs().map((tab) => tab.textContent)).toEqual([
       '♠ Kartlar',
       '✦ True Words',
+      '🧝 Karakterler',
       '🔒 DM notu',
     ])
 
@@ -435,6 +440,7 @@ describe('the notes on the hand', () => {
     expect(tabs().map((tab) => tab.textContent)).toEqual([
       '♠ Kartlar',
       '✦ True Words',
+      '🧝 Karakterler',
       '🔒 DM notu',
     ])
   })

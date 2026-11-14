@@ -170,14 +170,14 @@ describe('giving cards under the real rules', () => {
 })
 
 describe('closing holdings under the real rules', () => {
-  it('uses a card on a character and pays its price: the holding, the entry and the LP agree', async () => {
+  it('uses a card on a typed character and pays its price: the holding, the entry and the LP agree', async () => {
     const id = await giveCard(as('dana'), { cardId: POOL, uid: 'ayla', by: 'dana' })
 
     await closeHolding(as('ayla'), {
       holdingId: id,
       by: 'ayla',
       reason: 'used',
-      usedOn: ' Thorin ',
+      target: { kind: 'typed', name: ' Thorin ' },
       amount: 3,
     })
 
@@ -286,18 +286,82 @@ describe('closing holdings under the real rules', () => {
     expect(entries.map((entry) => entry?.balanceAfter).sort()).toEqual([LP.ayla - 6, LP.ayla - 3])
   })
 
-  it('stores no character when none was typed', async () => {
-    const id = await giveCard(as('dana'), { cardId: CURSED, uid: 'ayla', by: 'dana' })
+  it('stores no character when an empty name was typed, or none was chosen', async () => {
+    const typed = await giveCard(as('dana'), { cardId: CURSED, uid: 'ayla', by: 'dana' })
+    const none = await giveCard(as('dana'), { cardId: CURSED, uid: 'ayla', by: 'dana' })
 
     await closeHolding(as('ayla'), {
-      holdingId: id,
+      holdingId: typed,
       by: 'ayla',
       reason: 'used',
-      usedOn: '  ',
+      target: { kind: 'typed', name: '  ' },
       amount: 3,
     })
+    await closeHolding(as('ayla'), { holdingId: none, by: 'ayla', reason: 'used', amount: 3 })
 
-    expect(await stored(`userCards/${id}`)).toMatchObject({ returnReason: 'used', usedOn: null })
+    for (const id of [typed, none]) {
+      const holding = await stored(`userCards/${id}`)
+      expect(holding).toMatchObject({ returnReason: 'used', usedOn: null })
+      expect(holding).not.toHaveProperty('usedOnCharacterId')
+    }
+  })
+
+  describe('on a stored character', () => {
+    const THORIN = 'ThorinAyla0123456789'
+
+    async function seedThorin(overrides: Record<string, unknown> = {}) {
+      await testEnv.withSecurityRulesDisabled(async (admin) => {
+        await setDoc(doc(firestoreOf(admin), `characters/${THORIN}`), {
+          uid: 'ayla',
+          name: 'Thorin',
+          picture: null,
+          archived: false,
+          createdAt: Timestamp.fromMillis(0),
+          createdBy: 'ayla',
+          ...overrides,
+        })
+      })
+    }
+
+    it('records the character and its current name', async () => {
+      await seedThorin({ name: 'Thorin Oakenshield' })
+      const id = await giveCard(as('dana'), { cardId: CURSED, uid: 'ayla', by: 'dana' })
+
+      await closeHolding(as('ayla'), {
+        holdingId: id,
+        by: 'ayla',
+        reason: 'used',
+        target: { kind: 'character', characterId: THORIN },
+        amount: 3,
+      })
+
+      expect(await stored(`userCards/${id}`)).toMatchObject({
+        usedOn: 'Thorin Oakenshield',
+        usedOnCharacterId: THORIN,
+      })
+    })
+
+    it.each([
+      ['archived', () => seedThorin({ archived: true })],
+      ['missing', () => Promise.resolve()],
+    ])('refuses a character that is %s, and the card stays in the hand', async (_case, seed) => {
+      await seed()
+      const id = await giveCard(as('dana'), { cardId: CURSED, uid: 'ayla', by: 'dana' })
+
+      const error = await failureOf(
+        closeHolding(as('ayla'), {
+          holdingId: id,
+          by: 'ayla',
+          reason: 'used',
+          target: { kind: 'character', characterId: THORIN },
+          amount: 3,
+        }),
+      )
+
+      expect(toHoldingFailure(error)).toEqual({ kind: 'character-unavailable' })
+      expect(await stored(`userCards/${id}`)).toMatchObject({ returnedAt: null })
+      expect(await stored('users/ayla')).toMatchObject({ lp: LP.ayla })
+    })
   })
 
   it('discards a card as the DM, which releases its holder', async () => {

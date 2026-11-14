@@ -94,6 +94,20 @@ describe('describeEvent', () => {
     ).toBe("Ayla'nın Aboleth's Eyes kartını kullandı.")
   })
 
+  it('names a stored character by the name the holding kept, whatever it is called now', () => {
+    const onCharacter = {
+      ...closed('ayla', 'ayla', 'used', 'Thorin'),
+      usedOnCharacterId: 'ThorinAyla0123456789',
+    }
+    expect(text(only({ closed: [onCharacter] }))).toBe(
+      "Aboleth's Eyes kartını Thorin üzerinde kullandı.",
+    )
+    // A typed name, and a holding closed before characters, have no character record.
+    expect(text(only({ closed: [closed('ayla', 'ayla', 'used', 'Goblin şefi')] }))).toBe(
+      "Aboleth's Eyes kartını Goblin şefi üzerinde kullandı.",
+    )
+  })
+
   it("names the holder when the DM used another player's card", () => {
     expect(text(only({ closed: [closed('cem', 'dana', 'used', 'Thorin')] }))).toBe(
       "Cem'in Aboleth's Eyes kartını Thorin üzerinde kullandı.",

@@ -199,3 +199,80 @@ describe('every other path is closed', () => {
     await assertFails(signedOut().ref(path).getMetadata())
   })
 })
+
+describe('character photos', () => {
+  /** Ayla's stored "Thorin". */
+  const THORIN = 'ThorinAyla0123456789'
+  /** A character the application is about to add: no document yet. */
+  const NEW = 'NewCharacter01234567'
+  const photoOf = (id: string) => `characters/${id}/0123456789.webp`
+
+  beforeAll(async () => {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const db = admin.firestore() as unknown as Firestore
+      await setDoc(doc(db, 'users/bora'), {
+        displayName: 'Bora',
+        photoURL: null,
+        role: 'player',
+        createdAt: Timestamp.fromMillis(0),
+      })
+      await setDoc(doc(db, `characters/${THORIN}`), {
+        uid: 'ayla',
+        name: 'Thorin',
+        picture: null,
+        archived: false,
+        createdAt: Timestamp.fromMillis(0),
+        createdBy: 'ayla',
+      })
+    })
+  })
+
+  it.each(['ayla', 'dana'])('lets %s store and delete a photo of Thorin', async (uid) => {
+    await assertSucceeds(put(as(uid), photoOf(THORIN), bytes(200 * 1024)))
+    await assertSucceeds(as(uid).ref(photoOf(THORIN)).delete())
+  })
+
+  it('lets any signed-in user store and delete a photo for a character not added yet', async () => {
+    await assertSucceeds(put(as('bora'), photoOf(NEW)))
+    await assertSucceeds(as('bora').ref(photoOf(NEW)).delete())
+  })
+
+  it('lets anyone read a photo, signed out too', async () => {
+    await seedFile(photoOf(THORIN))
+    await assertSucceeds(signedOut().ref(photoOf(THORIN)).getMetadata())
+    await assertSucceeds(as('bora').ref(photoOf(THORIN)).getMetadata())
+  })
+
+  it("denies another player storing or deleting Thorin's photo", async () => {
+    await assertFails(put(as('bora'), photoOf(THORIN)))
+    await seedFile(photoOf(THORIN))
+    await assertFails(as('bora').ref(photoOf(THORIN)).delete())
+  })
+
+  it('denies a signed-out upload and delete', async () => {
+    await assertFails(put(signedOut(), photoOf(NEW)))
+    await seedFile(photoOf(THORIN))
+    await assertFails(signedOut().ref(photoOf(THORIN)).delete())
+  })
+
+  it('refuses a PNG and a file over 1 MB', async () => {
+    await assertFails(put(as('ayla'), photoOf(THORIN), bytes(), { contentType: 'image/png' }))
+    await assertFails(put(as('ayla'), photoOf(THORIN), bytes(1024 * 1024 + 1)))
+  })
+
+  it.each([
+    `characters/${THORIN}/photo.webp`,
+    `characters/${THORIN}/ABCDEF0123.webp`,
+    `characters/${THORIN}/0123456789.png`,
+    `characters/${THORIN}/old/0123456789.webp`,
+  ])('refuses the file name of %s', async (path) => {
+    await assertFails(put(as('ayla'), path))
+  })
+
+  it.each(['short', 'NewCharacter0123456-', 'NewCharacter012345678'])(
+    'refuses the ID %s',
+    async (id) => {
+      await assertFails(put(as('dana'), photoOf(id)))
+    },
+  )
+})

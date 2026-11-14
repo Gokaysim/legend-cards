@@ -3,8 +3,10 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Card } from '@/features/cards/schema'
+import type { Character } from '@/features/characters/schema'
 import { testPicturePath } from '@/test/artFixtures'
 import { testCard, testCursedCard } from '@/test/cardFixtures'
+import { testCharacter } from '@/test/characterFixtures'
 import { ready, testProfile, testUser } from '@/test/fixtures'
 import { testHolding } from '@/test/holdingFixtures'
 import { stubWideWindow } from '@/test/media'
@@ -50,6 +52,7 @@ async function openDetails({
   card = owl,
   actions = fakeActions(),
   openPackId = null,
+  characters = [],
 }: {
   viewer?: typeof me
   handOf?: typeof me
@@ -58,6 +61,8 @@ async function openDetails({
   actions?: ReturnType<typeof fakeActions>
   /** An open pack, which makes the table wait. */
   openPackId?: string | null
+  /** The table's characters. */
+  characters?: Character[]
 } = {}) {
   const user = userEvent.setup()
   const held = testHolding(card, handOf.id, 1000, { id: 'h1', ...holding })
@@ -72,6 +77,7 @@ async function openDetails({
     cards: { cards: ready([cardWithHolder]) },
     holdings: { openHoldings: ready([held]), actions },
     table: { openPackId },
+    characters: { characters: ready(characters) },
   })
   await user.click(screen.getByRole('button', { name: `${card.name}: ayrıntılar` }))
   return { user, actions, held, ...view }
@@ -368,19 +374,23 @@ describe.each(HOSTS)('the card details in $name', (current) => {
 
   describe('HoldingDialog actions', () => {
     it('uses the card on a character after confirming its price, then closes', async () => {
-      const { user, actions } = await openDetails()
+      const thorin = testCharacter('Thorin', me.id)
+      const { user, actions } = await openDetails({ characters: [thorin] })
 
       await user.click(details().getByRole('button', { name: 'Kullan' }))
       expect(details().getByText('3 LP')).toBeInTheDocument()
       expect(details().getByText('5 LP → 2 LP')).toBeInTheDocument()
-      await user.type(details().getByRole('textbox', { name: /Hangi karakter üzerinde/ }), 'Thorin')
+      await user.selectOptions(
+        details().getByRole('combobox', { name: 'Hangi karakter üzerinde?' }),
+        'Thorin',
+      )
       await user.click(details().getByRole('button', { name: 'Kullanımı onayla (3 LP)' }))
 
       expect(actions.closeHolding).toHaveBeenCalledExactlyOnceWith({
         holdingId: 'h1',
         by: testUser.uid,
         reason: 'used',
-        usedOn: 'Thorin',
+        target: { kind: 'character', characterId: thorin.id },
         amount: 3,
       })
       expect(host.isClosed()).toBe(true)
@@ -413,7 +423,7 @@ describe.each(HOSTS)('the card details in $name', (current) => {
         holdingId: 'h1',
         by: testUser.uid,
         reason: 'used',
-        usedOn: '',
+        target: { kind: 'none' },
         amount: 0,
       })
     })
@@ -548,6 +558,102 @@ describe.each(HOSTS)('the card details in $name', (current) => {
       expect(details().getByRole('alert')).toHaveTextContent(
         'Bağlantı yok: kart hareketleri için internet bağlantısı gerekiyor.',
       )
+    })
+  })
+
+  describe('HoldingDialog character of a use', () => {
+    const thorin = testCharacter('Thorin', 'ayla', { addedAtMillis: 1000 })
+    const kuzgun = testCharacter('Kuzgun', 'ayla', { addedAtMillis: 2000 })
+    const old = testCharacter('Old', 'ayla', { archived: true })
+    const elara = testCharacter('Elara', 'bora')
+    const CHARACTERS = [thorin, kuzgun, old, elara]
+
+    const picker = () => details().getByRole('combobox', { name: 'Hangi karakter üzerinde?' })
+    /** The list as shown: each group's label with its characters, and the choices outside groups. */
+    const listed = () =>
+      Array.from(picker().children).map((child) =>
+        child instanceof HTMLOptGroupElement
+          ? `${child.label}: ${Array.from(child.children)
+              .map((option) => option.textContent)
+              .join(', ')}`
+          : child.textContent,
+      )
+
+    it("lists the holder's characters first, then the others, without archived ones", async () => {
+      const { user } = await openDetails({ viewer: dm, handOf: bora, characters: CHARACTERS })
+
+      await user.click(details().getByRole('button', { name: 'Kullan' }))
+
+      expect(picker()).toHaveValue('')
+      expect(listed()).toEqual([
+        'Karakter seçilmedi',
+        'Bora: Elara',
+        'Ayla: Thorin, Kuzgun',
+        'Başka (yaz)…',
+      ])
+    })
+
+    it('shows a character added on another device without a reload', async () => {
+      const { user, setCharacters } = await openDetails({ characters: [elara] })
+      await user.click(details().getByRole('button', { name: 'Kullan' }))
+
+      setCharacters({ characters: ready([elara, testCharacter('Lyra', me.id)]) })
+
+      expect(listed()).toContain('Gökay: Lyra')
+    })
+
+    it('sends a typed name for a character without a record', async () => {
+      const { user, actions } = await openDetails({ characters: CHARACTERS })
+
+      await user.click(details().getByRole('button', { name: 'Kullan' }))
+      await user.selectOptions(picker(), 'Başka (yaz)…')
+      await user.type(details().getByRole('textbox', { name: 'Karakterin adı' }), 'Goblin şefi')
+      await user.click(details().getByRole('button', { name: 'Kullanımı onayla (3 LP)' }))
+
+      expect(actions.closeHolding).toHaveBeenCalledWith(
+        expect.objectContaining({ target: { kind: 'typed', name: 'Goblin şefi' } }),
+      )
+    })
+
+    it('sends no character for an empty typed name', async () => {
+      const { user, actions } = await openDetails({ characters: CHARACTERS })
+
+      await user.click(details().getByRole('button', { name: 'Kullan' }))
+      await user.selectOptions(picker(), 'Başka (yaz)…')
+      await user.click(details().getByRole('button', { name: 'Kullanımı onayla (3 LP)' }))
+
+      expect(actions.closeHolding).toHaveBeenCalledWith(
+        expect.objectContaining({ target: { kind: 'none' } }),
+      )
+    })
+
+    it('says so when the chosen character is archived meanwhile', async () => {
+      const { user, actions, setCharacters } = await openDetails({ characters: CHARACTERS })
+      await user.click(details().getByRole('button', { name: 'Kullan' }))
+      await user.selectOptions(picker(), 'Kuzgun')
+
+      setCharacters({ characters: ready([thorin, { ...kuzgun, archived: true }, elara]) })
+
+      expect(details().getByRole('alert')).toHaveTextContent(
+        'Bu karakter artık seçilemiyor. Başka bir karakter seç.',
+      )
+      expect(picker()).toHaveValue('')
+      expect(actions.closeHolding).not.toHaveBeenCalled()
+    })
+
+    it('explains a character the server says is gone', async () => {
+      const actions = fakeActions()
+      actions.closeHolding.mockRejectedValue(new HoldingError('character-unavailable'))
+      const { user } = await openDetails({ actions, characters: [testCharacter('Lyra', me.id)] })
+
+      await user.click(details().getByRole('button', { name: 'Kullan' }))
+      await user.selectOptions(picker(), 'Lyra')
+      await user.click(details().getByRole('button', { name: 'Kullanımı onayla (3 LP)' }))
+
+      expect(await details().findByRole('alert')).toHaveTextContent(
+        'Bu karakter artık seçilemiyor.',
+      )
+      expect(host.isClosed()).toBe(false)
     })
   })
 

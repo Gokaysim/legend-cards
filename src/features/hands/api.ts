@@ -18,6 +18,7 @@ import {
 import { LEDGER_COLLECTION, newLedgerEntry } from '@/features/balances/api'
 import { cardRef } from '@/features/cards/api'
 import { MAX_USE_AMOUNT, priceAllows, priceOfUse } from '@/features/cards/display'
+import { characterConverter, CHARACTERS_COLLECTION } from '@/features/characters/schema'
 import type { Card } from '@/features/cards/schema'
 import { explainDenial } from '@/features/table/api'
 import { profileRef, USERS_COLLECTION } from '@/features/users/api'
@@ -166,6 +167,15 @@ function giveCardOnce(
   })
 }
 
+/**
+ * On which character a card is used (spec: card-holdings, "Choosing the character of a use"): none, one of the table's
+ * characters, or a name typed for one that has no record (blank means none).
+ */
+export type UseTarget =
+  { kind: 'none' } | { kind: 'character'; characterId: string } | { kind: 'typed'; name: string }
+
+export const NO_USE_TARGET: UseTarget = { kind: 'none' }
+
 export type CloseHoldingInput = {
   holdingId: string
   /** The signed-in user: the holder, or the DM. */
@@ -173,8 +183,8 @@ export type CloseHoldingInput = {
 } & (
   | {
       reason: 'used'
-      /** On which character, as typed; blank means not given. */
-      usedOn?: string | null
+      /** On which character the card was used. None by default. */
+      target?: UseTarget
       /**
        * The LP the user confirmed for the use, taken from the holder's LP: the price of the card's cost in this hand
        * for the holder's own use, any whole amount for the DM, 0 for free (spec: card-holdings, "The price of a
@@ -244,11 +254,12 @@ function closeHoldingOnce(db: Firestore, input: CloseHoldingInput, read: LpRead)
     // A use reads the card of every kind, for its cost; a discard only a normal card, for its holder.
     const current =
       reason === 'used' || holding.cardKind === 'normal' ? await readCard(transaction, card) : null
+    const usedOn = reason === 'used' ? await readUseTarget(transaction, db, input.target) : null
     const closing = {
       returnedAt: serverTimestamp(),
       returnedBy: by,
       returnReason: reason,
-      usedOn: reason === 'used' ? cleanText(input.usedOn, HOLDING_LIMITS.usedOn) : null,
+      usedOn: usedOn?.name ?? null,
     }
     if (reason === 'used' && current) {
       const { amount } = input
@@ -295,12 +306,44 @@ function closeHoldingOnce(db: Firestore, input: CloseHoldingInput, read: LpRead)
         ...closing,
         useCost: amount,
         useEntryId,
+        // Written only for a chosen character, so a typed name stores no field (design D7 of add-characters).
+        ...(usedOn?.characterId ? { usedOnCharacterId: usedOn.characterId } : {}),
       })
     } else {
       transaction.update(writableHolding(db, holdingId), closing)
     }
     if (current && isHolderOf(current, holdingId)) transaction.update(card, { holder: null })
   })
+}
+
+/**
+ * The name a use keeps, and the character it names: a chosen character's current name, read in the transaction, or a
+ * typed name. Fails with `HoldingError` `character-unavailable` when the chosen character is missing or archived.
+ */
+async function readUseTarget(
+  transaction: Transaction,
+  db: Firestore,
+  target: UseTarget = NO_USE_TARGET,
+): Promise<{ name: string; characterId: string | null } | null> {
+  switch (target.kind) {
+    case 'none':
+      return null
+    case 'typed': {
+      const name = cleanText(target.name, HOLDING_LIMITS.usedOn)
+      return name === null ? null : { name, characterId: null }
+    }
+    case 'character': {
+      const character = (
+        await transaction.get(
+          doc(db, CHARACTERS_COLLECTION, target.characterId).withConverter(characterConverter),
+        )
+      ).data()
+      if (character === undefined || character.archived) {
+        throw new HoldingError('character-unavailable')
+      }
+      return { name: character.name, characterId: character.id }
+    }
+  }
 }
 
 export type TransferHoldingInput = {

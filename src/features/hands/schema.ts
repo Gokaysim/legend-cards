@@ -70,6 +70,12 @@ export const holdingSchema = z
     useCost: z.number().int().min(0).nullable().default(null),
     /** For a use that paid more than 0: the ledger entry of the payment. */
     useEntryId: id.nullable().default(null),
+    /**
+     * For a use on a stored character: that character (design D7 of add-characters), whose name at the time `usedOn`
+     * keeps. Written only when the holding closes as used; a typed name, every other holding, and holdings closed
+     * before characters read as `null`.
+     */
+    usedOnCharacterId: id.nullable().default(null),
   })
   .superRefine((holding, context) => {
     const issue = (path: string, message: string) => {
@@ -86,6 +92,9 @@ export const holdingSchema = z
     }
     if (holding.usedOn !== null && holding.returnReason !== 'used') {
       issue('usedOn', 'only a holding closed as used names a character')
+    }
+    if (holding.usedOnCharacterId !== null && holding.usedOn === null) {
+      issue('usedOnCharacterId', 'a use on a character also keeps its name')
     }
     if (holding.useCost !== null && holding.returnReason !== 'used') {
       issue('useCost', 'only a holding closed as used records a payment')
@@ -106,8 +115,8 @@ export const holdingSchema = z
 
 export type StoredHolding = z.infer<typeof holdingSchema>
 
-/** The fields a new holding is created with: the payment fields come only with its close as used. */
-export type NewHolding = Omit<StoredHolding, 'useCost' | 'useEntryId'>
+/** The fields a new holding is created with: the payment and character fields come only with its close as used. */
+export type NewHolding = Omit<StoredHolding, 'useCost' | 'useEntryId' | 'usedOnCharacterId'>
 
 /** A holding as features see it: the stored fields plus the document ID as `id`. */
 export type Holding = StoredHolding & { id: string }

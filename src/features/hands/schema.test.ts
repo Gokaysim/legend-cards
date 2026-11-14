@@ -68,6 +68,8 @@ describe('holdingSchema', () => {
     ],
     ['a paid use', { ...used, useCost: 2, useEntryId: 'entry-1' }],
     ['a free use', { ...used, useCost: 0, useEntryId: null }],
+    ['a use on a character', { ...used, useCost: 0, usedOnCharacterId: 'char-1' }],
+    ['a use on a typed name', { ...used, useCost: 0, usedOnCharacterId: null }],
   ])('accepts %s', (_case, holding) => {
     expect(holdingSchema.safeParse(holding).success).toBe(true)
   })
@@ -110,6 +112,13 @@ describe('holdingSchema', () => {
     ['an entry without a payment', { ...used, useEntryId: 'entry-1' }],
     ['a negative payment', { ...used, useCost: -1, useEntryId: 'entry-1' }],
     ['a fractional payment', { ...used, useCost: 1.5, useEntryId: 'entry-1' }],
+    ['a character on an open holding', { ...open, usedOnCharacterId: 'char-1' }],
+    [
+      'a character on a discarded holding',
+      { ...used, returnReason: 'discarded', usedOn: null, usedOnCharacterId: 'char-1' },
+    ],
+    ['a character without its name', { ...used, usedOn: null, usedOnCharacterId: 'char-1' }],
+    ['an empty character ID', { ...used, usedOnCharacterId: '' }],
   ])('rejects %s', (_case, holding) => {
     expect(holdingSchema.safeParse(holding).success).toBe(false)
   })
@@ -123,5 +132,10 @@ describe('holdingSchema', () => {
   it('reads a used holding from before payments as one without a payment', () => {
     const result = holdingSchema.safeParse(used)
     expect(result.success && [result.data.useCost, result.data.useEntryId]).toEqual([null, null])
+  })
+
+  it('reads a used holding from before characters as one without a character', () => {
+    const result = holdingSchema.safeParse(used)
+    expect(result.success && result.data.usedOnCharacterId).toBeNull()
   })
 })
