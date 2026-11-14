@@ -15,6 +15,14 @@ describe('toWordFailure', () => {
     })
   })
 
+  it('keeps the price of a price-changed error', () => {
+    expect(toWordFailure(new WordError('price-changed', null, 5))).toEqual({
+      kind: 'price-changed',
+      price: 5,
+    })
+    expect(toWordFailure(new WordError('price-changed'))).toEqual({ kind: 'unknown' })
+  })
+
   it('reads an insufficient error without its shortfall as unknown', () => {
     expect(toWordFailure(new WordError('insufficient'))).toEqual({ kind: 'unknown' })
   })
@@ -35,6 +43,10 @@ describe('toWordFailure', () => {
 describe('wordFailureMessage', () => {
   it.each<[WordFailure, string]>([
     [{ kind: 'too-few-words' }, 'Draft için en az 3 öğrenilmemiş True Word gerekli.'],
+    [
+      { kind: 'price-changed', price: 5 },
+      "Bu True Word'ün bedeli değişti: şimdi 5 LP. Yeni bedelle tekrar onayla.",
+    ],
     [
       { kind: 'insufficient', balance: 2, amount: 4 },
       "Bu draft 4 LP tutuyor; Ayla'nın 2 LP'si var.",

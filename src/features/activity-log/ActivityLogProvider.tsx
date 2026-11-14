@@ -22,6 +22,7 @@ function useFirestoreLogRecords(uid: string | null, n: number) {
   const drafts = useCollection(queries.drafts)
   const taught = useCollection(queries.taught)
   const takenBack = useCollection(queries.takenBack)
+  const wordUses = useCollection(queries.wordUses)
   const changes = useCollection(queries.changes)
   const setChanges = useCollection(queries.setChanges)
   return useMemo(
@@ -34,10 +35,11 @@ function useFirestoreLogRecords(uid: string | null, n: number) {
         drafts,
         taught,
         takenBack,
+        wordUses,
         changes,
         setChanges,
       }),
-    [given, closed, draws, entries, drafts, taught, takenBack, changes, setChanges],
+    [given, closed, draws, entries, drafts, taught, takenBack, wordUses, changes, setChanges],
   )
 }
 

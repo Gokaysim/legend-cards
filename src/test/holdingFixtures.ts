@@ -32,6 +32,8 @@ export function testHolding(
     returnReason: null,
     usedOn: null,
     transferredTo: null,
+    useCost: null,
+    useEntryId: null,
     ...overrides,
   }
 }

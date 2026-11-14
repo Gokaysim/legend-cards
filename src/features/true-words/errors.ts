@@ -16,17 +16,25 @@ export type WordErrorKind =
   | 'word-known'
   | 'unavailable'
   | 'not-known'
+  | 'price-changed'
 
 export class WordError extends Error {
   override readonly name = 'WordError'
   readonly kind: WordErrorKind
   /** For `insufficient`: the player's LP at the time and the amount needed. */
   readonly shortfall: { balance: number; amount: number } | null
+  /** For `price-changed`: the word's price now. */
+  readonly price: number | null
 
-  constructor(kind: WordErrorKind, shortfall: { balance: number; amount: number } | null = null) {
+  constructor(
+    kind: WordErrorKind,
+    shortfall: { balance: number; amount: number } | null = null,
+    price: number | null = null,
+  ) {
     super(`True Word step failed: ${kind}`)
     this.kind = kind
     this.shortfall = shortfall
+    this.price = price
   }
 }
 
@@ -54,6 +62,8 @@ export type WordFailure =
   | { kind: 'unavailable' }
   /** The player does not know the word any more: it was taken back meanwhile. */
   | { kind: 'not-known' }
+  /** The word's fixed price changed between showing it and confirming a use: confirm again at the new price. */
+  | { kind: 'price-changed'; price: number }
   /** A pack is open: the table waits for it, True Words included. */
   | { kind: 'table-busy' }
   /** No connection: True Word steps are transactions, and transactions need the server. */
@@ -64,6 +74,11 @@ export type WordFailure =
 /** Maps anything a True Word step can throw to a failure the interface explains. */
 export function toWordFailure(error: unknown): WordFailure {
   if (error instanceof WordError) {
+    if (error.kind === 'price-changed') {
+      return error.price === null
+        ? { kind: 'unknown' }
+        : { kind: 'price-changed', price: error.price }
+    }
     if (error.kind !== 'insufficient') return { kind: error.kind }
     return error.shortfall === null
       ? { kind: 'unknown' }
@@ -105,6 +120,8 @@ export function wordFailureMessage(failure: WordFailure, name: string): string {
       return 'Bu True Word artık kullanılmıyor.'
     case 'not-known':
       return `${name} bu True Word'ü artık bilmiyor.`
+    case 'price-changed':
+      return `Bu True Word'ün bedeli değişti: şimdi ${formatAmount(failure.price)} LP. Yeni bedelle tekrar onayla.`
     case 'table-busy':
       return TABLE_BUSY_MESSAGE
     case 'offline':

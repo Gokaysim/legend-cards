@@ -8,7 +8,7 @@ import { testHolding } from '@/test/holdingFixtures'
 import { testGpEntry, testLedgerEntry } from '@/test/ledgerFixtures'
 import { testPack } from '@/test/packFixtures'
 import { testSetChange } from '@/test/setFixtures'
-import { testLearnedWord, testTrueWord, testWordDraft } from '@/test/trueWordFixtures'
+import { testLearnedWord, testTrueWord, testWordDraft, testWordUse } from '@/test/trueWordFixtures'
 
 import { deriveEvents, EMPTY_LOG_RECORDS, type LogRecords, newestEvents } from './events'
 
@@ -283,7 +283,21 @@ describe('True Word events', () => {
     ])
   })
 
+  it('makes one event per word use, at its time, by whoever used it, ordered among the others', () => {
+    const own = testWordUse('u1', abyss, 'ayla')
+    const byDm = testWordUse('u2', abyss, 'ayla', { by: 'dana', at: Timestamp.fromMillis(6000) })
+    const { events } = newestEvents(records({ drafts: [draft], wordUses: [own, byDm] }), 50)
+    expect(events.map((event) => [event.kind, event.key, event.at?.toMillis(), event.by])).toEqual([
+      ['wordUsed', 'wordUsed:u2', 6000, 'dana'],
+      ['wordUsed', 'wordUsed:u1', 4000, 'ayla'],
+      ['wordDraft', 'wordDraft:w1', 3000, 'ayla'],
+    ])
+  })
+
   it('may have more when a True Words source is full', () => {
+    expect(
+      newestEvents(records({ wordUses: [testWordUse('u1', abyss, 'ayla')] }), 1).mayHaveMore,
+    ).toBe(true)
     expect(newestEvents(records({ drafts: [draft] }), 1).mayHaveMore).toBe(true)
     expect(newestEvents(records({ taught: [taught] }), 1).mayHaveMore).toBe(true)
     expect(newestEvents(records({ takenBack: [takenBack] }), 1).mayHaveMore).toBe(true)

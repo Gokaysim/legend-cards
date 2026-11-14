@@ -223,3 +223,41 @@ export const wordDraftSchema = z
 export type StoredWordDraft = z.infer<typeof wordDraftSchema>
 export type WordDraft = StoredWordDraft & { id: string }
 export const wordDraftConverter = createConverter(wordDraftSchema, { idField: 'id' })
+
+/** The most LP one word use may take. Keep in step with `firestore.rules`. */
+export const WORD_USE_COST_MAX = 1_000_000
+
+/**
+ * One use of a known True Word, at `wordUses/{useId}` (design D2 of `pay-lp-on-use`). The word stays known, so a use
+ * is its own record, created once with its payment and never changed or deleted.
+ */
+export const wordUseSchema = z
+  .object({
+    /** The player whose word it is. */
+    uid: id,
+    wordId: id,
+    /** The word's name when it was used, so the history reads well after a rename. */
+    wordName,
+    /** The player's record of the word (`userTrueWords/{recordId}`), open when it was used. */
+    recordId: id,
+    /** Who used it: the player, or the DM. */
+    by: id,
+    at: serverTime,
+    /** The LP paid; 0 when free. */
+    cost: z.number().int().min(0).max(WORD_USE_COST_MAX),
+    /** The payment's ledger entry; `null` when free. */
+    entryId: id.nullable(),
+  })
+  .superRefine((use, context) => {
+    if (use.cost > 0 !== (use.entryId !== null)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['entryId'],
+        message: 'a paid use names its entry, and a free one does not',
+      })
+    }
+  })
+
+export type StoredWordUse = z.infer<typeof wordUseSchema>
+export type WordUse = StoredWordUse & { id: string }
+export const wordUseConverter = createConverter(wordUseSchema, { idField: 'id' })

@@ -62,6 +62,10 @@ service cloud.firestore {
       return /databases/$(database)/documents/wordDrafts/$(draftId);
     }
 
+    function wordUsePath(useId) {
+      return /databases/$(database)/documents/wordUses/$(useId);
+    }
+
     function definitionChangePath(changeId) {
       return /databases/$(database)/documents/definitionChanges/$(changeId);
     }
@@ -221,6 +225,21 @@ service cloud.firestore {
         && entry.delta == after - before;
     }
 
+    // What a player may pay to use a card or a True Word at its cost as written (spec: card-holdings, "The price of
+    // a use"; design D3 of pay-lp-on-use): a cost of whole digits exactly that, no cost nothing, "d6" a die of 1 to 6,
+    // and anything else ("X", "X+1", "-1") any whole amount from 0. Keep in step with priceOfUse and priceAllows in
+    // src/features/cards/display.ts.
+    function priceAllows(cost, amount) {
+      let value = cost == null ? '' : cost.trim();
+      return amount is int
+        && amount >= 0
+        && amount <= 1000000
+        && (value == '' ? amount == 0
+          : value.matches('[0-9]+') ? amount == int(value)
+          : value.lower() == 'd6' ? amount >= 1 && amount <= 6
+          : true);
+    }
+
     // True when the signed-in user's profile says DM. Reads the profile once per request (cached after that).
     function isDm() {
       return isSignedIn()
@@ -255,8 +274,8 @@ service cloud.firestore {
     // User profiles. Everyone signed in reads every profile. A user creates only their own, only as a player,
     // and later changes only its name and picture. Roles are changed by the admin script (Admin SDK), never here.
     // The other writes are a player's Legend Points, each together with the ledger entry that records it: the DM
-    // changes them by hand, a player pays 1 LP for their own draw, and a pack's or a True Word draft's payment or
-    // refund moves them.
+    // changes them by hand, a player pays 1 LP for their own draw, a pack's or a True Word draft's payment or refund
+    // moves them, and the player or the DM pays for using the player's card or True Word.
     match /users/{uid} {
       allow read: if isSignedIn();
       allow create: if isSelf(uid)
@@ -275,12 +294,15 @@ service cloud.firestore {
         || (lpSetByEntry('manual') && isDm())
         || (isSelf(uid) && lpSetByEntry('draw'))
         || (lpSetByEntry('pack') && (isSelf(uid) || isDm()))
-        || (lpSetByEntry('wordDraft') && (isSelf(uid) || isDm()));
+        || (lpSetByEntry('wordDraft') && (isSelf(uid) || isDm()))
+        || (lpSetByEntry('use') && (isSelf(uid) || isDm()))
+        || (lpSetByEntry('wordUse') && (isSelf(uid) || isDm()));
       allow delete: if false;
 
       // A player's LP (a whole number, never below 0) set with a new ledger entry from `source`: the DM's change by
-      // hand, the player's draw payment, whose amount the ledger rules fix at 1, or a pack's payment or refund, which
-      // the ledger rules tie to the pack. A missing `lp` is 0.
+      // hand, the player's draw payment, whose amount the ledger rules fix at 1, a pack's or a True Word draft's
+      // payment or refund, or a card's or a True Word's use payment, which the ledger rules tie to their record. A
+      // missing `lp` is 0.
       function lpSetByEntry(source) {
         let next = request.resource.data;
         return isSignedIn()
@@ -316,12 +338,13 @@ service cloud.firestore {
 
     // The ledger: one entry per balance change, created together with the balance it sets, and never changed or
     // deleted. Everyone signed in reads it. The DM makes changes by hand; a player pays for their own draw; a pack's
-    // opening pays for it and the DM's cancel refunds it. Only a pack's own steps may change a balance while the
-    // pack is open.
+    // or a True Word draft's start pays for it and the DM's cancel refunds it; a card's or a True Word's use pays
+    // for it. Only a pack's own steps may change a balance while the pack is open.
     match /ledger/{entryId} {
       allow read: if isSignedIn();
       allow create: if validLedgerEntry()
-        && (((manualByDm() || paysForDraw() || forWordDraft()) && tableFree()) || forPack());
+        && (((manualByDm() || paysForDraw() || forWordDraft() || forUse() || forWordUse()) && tableFree())
+          || forPack());
       allow update, delete: if false;
 
       // Exactly the stored fields. Limits: keep in step with BALANCE_LIMITS in src/features/balances/schema.ts.
@@ -444,6 +467,54 @@ service cloud.firestore {
           && after.refundEntryId == entryId
           && data.account == before.uid
           && data.delta == before.cost;
+      }
+
+      // A card use's payment, created with the holding's close as used that names it (design D4 of pay-lp-on-use).
+      // Always the holder's LP, without a reason: the holding explains it. The holding's rules decide who may use the
+      // card and for how much.
+      function forUse() {
+        let data = request.resource.data;
+        return data.source == 'use'
+          && data.reason == null
+          && data.currency == 'lp'
+          && data.drawId is string
+          && paysForUse()
+          && setsLp();
+      }
+
+      // The open holding that this same request closes as used names this entry, which takes exactly its payment
+      // from its holder.
+      function paysForUse() {
+        let data = request.resource.data;
+        let before = get(holdingPath(data.drawId)).data;
+        let after = getAfter(holdingPath(data.drawId)).data;
+        return before.returnedAt == null
+          && after.returnReason == 'used'
+          && after.get('useEntryId', null) == entryId
+          && after.get('useCost', null) == -data.delta
+          && data.account == before.uid;
+      }
+
+      // A True Word use's payment, created with the use that names it. Always the word's player's LP, without a
+      // reason. The use's rules decide who may use the word and for how much.
+      function forWordUse() {
+        let data = request.resource.data;
+        return data.source == 'wordUse'
+          && data.reason == null
+          && data.currency == 'lp'
+          && data.drawId is string
+          && paysForWordUse()
+          && setsLp();
+      }
+
+      // The use that this same request creates names this entry, which takes exactly its cost from its player.
+      function paysForWordUse() {
+        let data = request.resource.data;
+        let use = getAfter(wordUsePath(data.drawId)).data;
+        return createdNow(wordUsePath(data.drawId))
+          && use.entryId == entryId
+          && data.account == use.uid
+          && data.delta == -use.cost;
       }
 
       // The entry's currency and account are the ones the pack was paid with: the hand's owner's LP, or the party's GP.
@@ -642,8 +713,9 @@ service cloud.firestore {
 
     // Card holdings: one card's stay with one player. Everyone signed in reads every holding, open or closed.
     // Only the DM gives and transfers cards. A player opens a holding only for their own draw or a choice from their
-    // own open pack (see draws below). While a pack is open, no card is given, used, discarded or transferred.
-    // A holding is closed, never deleted, and a closed holding never changes again. Every movement keeps a normal
+    // own open pack (see draws below). While a pack is open, no card is given, used, discarded or transferred. A use
+    // pays its price with its ledger entry and the holder's new LP in the same request. A holding is closed, never
+    // deleted, and a closed holding never changes again. Every movement keeps a normal
     // card's `holder` in step with its holdings, checked with getAfter.
     match /userCards/{holdingId} {
       allow read: if isSignedIn();
@@ -654,8 +726,7 @@ service cloud.firestore {
           (onlyChanges(['note']) && validNote(request.resource.data.note) && (isDm() || isHolder()))
           || (onlyChanges(['active']) && request.resource.data.active is bool && isDm())
           || (onlyChanges(['costOverride']) && validCost(request.resource.data.costOverride) && isDm())
-          || (closesAs('used') && validUsedOn(request.resource.data.usedOn)
-              && (isDm() || isHolder()) && releasesCard() && tableFree())
+          || (closesAsUsed() && (isDm() || isHolder()) && releasesCard() && tableFree())
           || (closesAs('discarded') && request.resource.data.usedOn == null
               && isDm() && releasesCard() && tableFree())
           || (closesAsTransferred() && isDm() && movesCard() && tableFree())
@@ -796,6 +867,42 @@ service cloud.firestore {
           && (data.cardKind != 'normal'
             || (holderBefore(cardId) == null
               && holderAfter(cardId) == {'uid': data.uid, 'userCardId': holdingId}));
+      }
+
+      // Closes the holding now as used, with its payment (design D5 of pay-lp-on-use): the LP paid, and the ledger
+      // entry created in this same request when it is more than 0. The DM charges any whole amount; the holder pays
+      // the price of the card's cost in this hand. The ledger's balance check keeps it within the holder's LP.
+      function closesAsUsed() {
+        let next = request.resource.data;
+        return onlyChanges(['returnedAt', 'returnedBy', 'returnReason', 'usedOn', 'useCost', 'useEntryId'])
+          && next.keys().hasAll(['useCost', 'useEntryId'])
+          && next.returnedAt == request.time
+          && next.returnedBy == request.auth.uid
+          && next.returnReason == 'used'
+          && validUsedOn(next.usedOn)
+          && next.useCost is int
+          && next.useCost >= 0
+          && next.useCost <= 1000000
+          && (isDm() || priceAllows(handCost(), next.useCost))
+          && (next.useCost == 0
+            ? next.useEntryId == null
+            : next.useEntryId is string && paidByUseEntry(next.useEntryId, next.useCost));
+      }
+
+      // The card's cost in this hand: the DM's override, or the card's own cost (missing: none).
+      function handCost() {
+        return resource.data.costOverride != null
+          ? resource.data.costOverride
+          : get(cardPath(resource.data.cardId)).data.get('cost', null);
+      }
+
+      // A ledger entry created in this same request pays `cost` for using this holding.
+      function paidByUseEntry(entryId, cost) {
+        let entry = getAfter(ledgerPath(entryId)).data;
+        return createdNow(ledgerPath(entryId))
+          && entry.source == 'use'
+          && entry.drawId == holdingId
+          && entry.delta == -cost;
       }
 
       // Closes the holding now, by the signed-in user, for `reason`.
@@ -1708,6 +1815,66 @@ service cloud.firestore {
           && (resource.data.paidWith == 'none'
             ? after.refundEntryId == null
             : paysDraftWith(after.refundEntryId));
+      }
+    }
+
+    // True Word uses (design D2 of pay-lp-on-use). Everyone signed in reads every use. While the table is free, the
+    // word's player or the DM records a use of a word the player knows: the player pays the price of the word's cost,
+    // the DM any whole amount. A paid use comes with its ledger entry and the player's new LP in this same request.
+    // A use is never changed or deleted.
+    match /wordUses/{useId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && validWordUse()
+        && tableFree()
+        && ((isSelf(request.resource.data.uid) && priceAllows(wordCost(), request.resource.data.cost))
+          || isDm());
+      allow update, delete: if false;
+
+      // Exactly the stored fields, used now by the signed-in user, for a word the player knows, with its payment.
+      function validWordUse() {
+        let data = request.resource.data;
+        let fields = ['uid', 'wordId', 'wordName', 'recordId', 'by', 'at', 'cost', 'entryId'];
+        return data.keys().hasOnly(fields)
+          && data.keys().hasAll(fields)
+          && data.uid is string
+          && data.wordId is string
+          && data.recordId is string
+          && data.by == request.auth.uid
+          && data.at == request.time
+          && data.cost is int
+          && data.cost >= 0
+          && data.cost <= 1000000
+          && knowsWord()
+          && (data.cost == 0
+            ? data.entryId == null
+            : data.entryId is string && paidByWordUseEntry(data.entryId));
+      }
+
+      // The record is the player's open record of this word, and the word is active or retired, with this name.
+      function knowsWord() {
+        let data = request.resource.data;
+        let record = get(learnedWordPath(data.recordId)).data;
+        let word = get(trueWordPath(data.wordId)).data;
+        return record.uid == data.uid
+          && record.wordId == data.wordId
+          && record.removedBy == null
+          && playerVisible(word.status)
+          && data.wordName == word.name;
+      }
+
+      // The word's cost as written (missing: none).
+      function wordCost() {
+        return get(trueWordPath(request.resource.data.wordId)).data.get('cost', null);
+      }
+
+      // A ledger entry created in this same request pays this use's cost.
+      function paidByWordUseEntry(entryId) {
+        let entry = getAfter(ledgerPath(entryId)).data;
+        return createdNow(ledgerPath(entryId))
+          && entry.source == 'wordUse'
+          && entry.drawId == useId
+          && entry.delta == -request.resource.data.cost;
       }
     }
 

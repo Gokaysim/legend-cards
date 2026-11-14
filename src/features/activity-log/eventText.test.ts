@@ -12,7 +12,7 @@ import {
 import { testDmDraw, testDraw } from '@/test/drawFixtures'
 import { testHolding } from '@/test/holdingFixtures'
 import { testGpEntry, testLedgerEntry } from '@/test/ledgerFixtures'
-import { testLearnedWord, testTrueWord, testWordDraft } from '@/test/trueWordFixtures'
+import { testLearnedWord, testTrueWord, testWordDraft, testWordUse } from '@/test/trueWordFixtures'
 import { testSetChange, testSetName } from '@/test/setFixtures'
 import type { WordDraft } from '@/features/true-words/schema'
 
@@ -77,6 +77,21 @@ describe('describeEvent', () => {
     expect(text(only({ closed: [closed('ayla', 'ayla', 'used')] }))).toBe(
       "Aboleth's Eyes kartını kullandı.",
     )
+  })
+
+  it('shows the payment of a paid use, with and without a character, and none for a free use', () => {
+    const paid = (usedOn: string | null) => ({
+      ...closed('ayla', 'ayla', 'used', usedOn),
+      useCost: 2,
+      useEntryId: 'e-use',
+    })
+    expect(text(only({ closed: [paid('Thorin')] }))).toBe(
+      "Aboleth's Eyes kartını Thorin üzerinde kullandı (−2 LP).",
+    )
+    expect(text(only({ closed: [paid(null)] }))).toBe("Aboleth's Eyes kartını kullandı (−2 LP).")
+    expect(
+      text(only({ closed: [{ ...closed('ayla', 'dana', 'used'), useCost: 0, useEntryId: null }] })),
+    ).toBe("Ayla'nın Aboleth's Eyes kartını kullandı.")
   })
 
   it("names the holder when the DM used another player's card", () => {
@@ -254,6 +269,21 @@ describe('describeEvent: True Words', () => {
     expect(text(only({ takenBack: [{ ...record, removedAt: at(3000), removedBy: 'dana' }] }))).toBe(
       "Bora'dan Abyss True Word'ünü geri aldı.",
     )
+  })
+
+  it("describes a player's use of their word, with its payment", () => {
+    const event = only({ wordUses: [testWordUse('u1', abyss, 'ayla', { cost: 5 })] })
+    expect(text(event)).toBe("Abyss True Word'ünü kullandı (−5 LP).")
+    expect(describeEvent(event, NAMES_OF).parts).toContainEqual({ card: 'Abyss' })
+  })
+
+  it('names the player when the DM used their word, and shows no payment for a free use', () => {
+    expect(
+      text(only({ wordUses: [testWordUse('u1', abyss, 'ayla', { by: 'dana', cost: 5 })] })),
+    ).toBe("Ayla'nın Abyss True Word'ünü kullandı (−5 LP).")
+    expect(
+      text(only({ wordUses: [testWordUse('u1', abyss, 'ayla', { cost: 0, entryId: null })] })),
+    ).toBe("Abyss True Word'ünü kullandı.")
   })
 })
 

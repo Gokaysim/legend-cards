@@ -19,9 +19,10 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-const me = testProfile()
+/** The signed-in player, with 5 LP to pay for their own uses. */
+const me = testProfile({ lp: 5 })
 const dm = testProfile({ role: 'dm' })
-const ayla = testProfile({ id: 'ayla', displayName: 'Ayla' })
+const ayla = testProfile({ id: 'ayla', displayName: 'Ayla', lp: 4 })
 const bora = testProfile({ id: 'bora', displayName: 'Bora' })
 
 const owl: Card = testCard('Night Owl', { cost: '3' })
@@ -366,20 +367,65 @@ describe.each(HOSTS)('the card details in $name', (current) => {
   })
 
   describe('HoldingDialog actions', () => {
-    it('uses the card on a character after confirming, then closes', async () => {
+    it('uses the card on a character after confirming its price, then closes', async () => {
       const { user, actions } = await openDetails()
 
       await user.click(details().getByRole('button', { name: 'Kullan' }))
+      expect(details().getByText('3 LP')).toBeInTheDocument()
+      expect(details().getByText('5 LP → 2 LP')).toBeInTheDocument()
       await user.type(details().getByRole('textbox', { name: /Hangi karakter üzerinde/ }), 'Thorin')
-      await user.click(details().getByRole('button', { name: 'Kullanımı onayla' }))
+      await user.click(details().getByRole('button', { name: 'Kullanımı onayla (3 LP)' }))
 
       expect(actions.closeHolding).toHaveBeenCalledExactlyOnceWith({
         holdingId: 'h1',
         by: testUser.uid,
         reason: 'used',
         usedOn: 'Thorin',
+        amount: 3,
       })
       expect(host.isClosed()).toBe(true)
+    })
+
+    it('does not let a player use a card that costs more than their LP, and says why', async () => {
+      const poor = testProfile({ lp: 1 })
+      const { user, actions } = await openDetails({ viewer: poor, handOf: poor })
+
+      await user.click(details().getByRole('button', { name: 'Kullan' }))
+
+      expect(details().getByRole('button', { name: 'Kullanımı onayla (3 LP)' })).toBeDisabled()
+      expect(
+        details().getByText("Bu kullanım 3 LP tutuyor; Gökay'ın 1 LP'si var."),
+      ).toBeInTheDocument()
+      expect(actions.closeHolding).not.toHaveBeenCalled()
+    })
+
+    it("lets the DM use a player's card for the amount the DM enters", async () => {
+      const { user, actions } = await openDetails({ viewer: dm, handOf: ayla })
+
+      await user.click(details().getByRole('button', { name: 'Kullan' }))
+      const amount = details().getByRole('spinbutton', { name: "Tutar (Ayla'nın LP'sinden)" })
+      expect(amount).toHaveValue(3)
+      await user.clear(amount)
+      await user.type(amount, '0')
+      await user.click(details().getByRole('button', { name: 'Kullanımı onayla' }))
+
+      expect(actions.closeHolding).toHaveBeenCalledExactlyOnceWith({
+        holdingId: 'h1',
+        by: testUser.uid,
+        reason: 'used',
+        usedOn: '',
+        amount: 0,
+      })
+    })
+
+    it('shows a cost the DM changes on another device while the use step is open', async () => {
+      const { user, actions, setHoldings, held } = await openDetails()
+      await user.click(details().getByRole('button', { name: 'Kullan' }))
+
+      setHoldings({ openHoldings: ready([{ ...held, costOverride: '1' }]), actions })
+
+      expect(details().getByText('5 LP → 4 LP')).toBeInTheDocument()
+      expect(details().getByRole('button', { name: 'Kullanımı onayla (1 LP)' })).toBeEnabled()
     })
 
     it('cancels using the card', async () => {
@@ -469,12 +515,12 @@ describe.each(HOSTS)('the card details in $name', (current) => {
       const { user } = await openDetails({ actions })
 
       await user.click(details().getByRole('button', { name: 'Kullan' }))
-      await user.click(details().getByRole('button', { name: 'Kullanımı onayla' }))
+      await user.click(details().getByRole('button', { name: 'Kullanımı onayla (3 LP)' }))
 
       expect(details().getByRole('alert')).toHaveTextContent(
         'Bu kart artık bu elde değil: başka bir cihazda kullanılmış ya da verilmiş olabilir.',
       )
-      expect(details().getByRole('button', { name: 'Kullanımı onayla' })).toBeEnabled()
+      expect(details().getByRole('button', { name: 'Kullanımı onayla (3 LP)' })).toBeEnabled()
     })
 
     it('says so when the rules deny an action', async () => {
@@ -496,7 +542,7 @@ describe.each(HOSTS)('the card details in $name', (current) => {
       const { user, actions } = await openDetails({ card: testCursedCard('Night Owl') })
 
       await user.click(details().getByRole('button', { name: 'Kullan' }))
-      await user.click(details().getByRole('button', { name: 'Kullanımı onayla' }))
+      await user.click(details().getByRole('button', { name: 'Kullanımı onayla (1 LP)' }))
 
       expect(actions.closeHolding).not.toHaveBeenCalled()
       expect(details().getByRole('alert')).toHaveTextContent(

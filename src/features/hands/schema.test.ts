@@ -66,6 +66,8 @@ describe('holdingSchema', () => {
       'a holding chosen from a pack',
       { ...open, givenBy: 'ayla', givenVia: 'pack', drawId: 'pack-1' },
     ],
+    ['a paid use', { ...used, useCost: 2, useEntryId: 'entry-1' }],
+    ['a free use', { ...used, useCost: 0, useEntryId: null }],
   ])('accepts %s', (_case, holding) => {
     expect(holdingSchema.safeParse(holding).success).toBe(true)
   })
@@ -98,6 +100,16 @@ describe('holdingSchema', () => {
       'a transfer that names a draw',
       { ...open, givenVia: 'transfer', transferredFrom: 'h1', drawId: 'draw-1' },
     ],
+    ['a payment on an open holding', { ...open, useCost: 0 }],
+    [
+      'a payment on a discarded holding',
+      { ...used, returnReason: 'discarded', usedOn: null, useCost: 0 },
+    ],
+    ['a paid use without its entry', { ...used, useCost: 2, useEntryId: null }],
+    ['a free use that names an entry', { ...used, useCost: 0, useEntryId: 'entry-1' }],
+    ['an entry without a payment', { ...used, useEntryId: 'entry-1' }],
+    ['a negative payment', { ...used, useCost: -1, useEntryId: 'entry-1' }],
+    ['a fractional payment', { ...used, useCost: 1.5, useEntryId: 'entry-1' }],
   ])('rejects %s', (_case, holding) => {
     expect(holdingSchema.safeParse(holding).success).toBe(false)
   })
@@ -106,5 +118,10 @@ describe('holdingSchema', () => {
     const { drawId: _drawId, ...stored } = open
     const result = holdingSchema.safeParse(stored)
     expect(result.success && result.data.drawId).toBeNull()
+  })
+
+  it('reads a used holding from before payments as one without a payment', () => {
+    const result = holdingSchema.safeParse(used)
+    expect(result.success && [result.data.useCost, result.data.useEntryId]).toEqual([null, null])
   })
 })

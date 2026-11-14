@@ -67,6 +67,14 @@
       ]
     },
     {
+      "collectionGroup": "wordUses",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "uid", "order": "ASCENDING" },
+        { "fieldPath": "at", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "userTrueWords",
       "queryScope": "COLLECTION",
       "fields": [

@@ -16,6 +16,8 @@ import {
 } from 'firebase/firestore'
 
 import { LEDGER_COLLECTION, newLedgerEntry, readBalance, setBalance } from '@/features/balances/api'
+import { priceAllows, priceOfUse } from '@/features/cards/display'
+import { profileRef } from '@/features/users/api'
 import { PLAYER_VISIBLE_STATUSES } from '@/features/definitions/status'
 import { BalanceError } from '@/features/balances/errors'
 import { explainDenial, openPackIdOnServer, tableRef } from '@/features/table/api'
@@ -35,11 +37,15 @@ import {
   playerWordsConverter,
   type StoredLearnedWord,
   type StoredWordDraft,
+  type StoredWordUse,
   type TrueWord,
   trueWordConverter,
   WORD_DRAFT_SIZE,
   type WordDraft,
   wordDraftConverter,
+  WORD_USE_COST_MAX,
+  type WordUse,
+  wordUseConverter,
 } from './schema'
 
 /** Collections. Keep in step with `firestore.rules` and `scripts/lib/importTrueWords.ts`. */
@@ -47,6 +53,7 @@ export const TRUE_WORDS_COLLECTION = 'trueWords'
 export const LEARNED_WORDS_COLLECTION = 'userTrueWords'
 export const PLAYER_WORDS_COLLECTION = 'playerWords'
 export const WORD_DRAFTS_COLLECTION = 'wordDrafts'
+export const WORD_USES_COLLECTION = 'wordUses'
 
 /**
  * Every word, drafts and retired ones included. Only the DM may read the whole collection: a player reads it through
@@ -91,6 +98,11 @@ export function wordDraftsRef(db: Firestore): CollectionReference<WordDraft> {
 
 export function wordDraftRef(db: Firestore, draftId: string): DocumentReference<WordDraft> {
   return doc(db, WORD_DRAFTS_COLLECTION, draftId).withConverter(wordDraftConverter)
+}
+
+/** Every True Word use, validated and with the document ID as `id`. */
+export function wordUsesRef(db: Firestore): CollectionReference<WordUse> {
+  return collection(db, WORD_USES_COLLECTION).withConverter(wordUseConverter)
 }
 
 /** Every open draft, at most one per player. */
@@ -510,4 +522,116 @@ export async function takeBackWord(db: Firestore, input: TakeBackWordInput): Pro
 /** Switches a known word active or inactive (the DM only). Allowed while a pack is open. */
 export function setWordActive(db: Firestore, recordId: string, active: boolean): Promise<void> {
   return updateDoc(writableRecord(db, recordId), { active })
+}
+
+export type RecordWordUseInput = {
+  /** The player's open record of the word. */
+  recordId: string
+  /** The signed-in user: the player, or the DM. */
+  by: string
+  /**
+   * The LP the user confirmed, taken from the player's LP: the price of the word's cost for the player's own use,
+   * any whole amount for the DM, 0 for free (spec: true-words, "Using a True Word").
+   */
+  amount: number
+}
+
+/** At most this many tries when the rules deny a use because another device moved the player's LP first. */
+const MAX_USE_ATTEMPTS = 3
+
+/**
+ * Records one use of a word a player knows, in one transaction with its payment: the use, and when it pays, the
+ * ledger entry and the player's new LP (design D6 of `pay-lp-on-use`). The word stays known. When another device
+ * moves the LP between the transaction's read and its commit, the rules deny the commit before the transaction
+ * could retry, so a denied use reads the LP from the server and tries again when it moved. Returns the use's ID.
+ *
+ * Throws `WordError`: `not-known` for a word taken back, `unavailable` for a draft or missing word, `price-changed`
+ * with the price now when the player's own use confirms another fixed price, `invalid-amount` for an amount the
+ * price does not allow, `insufficient` when the LP is below the amount, and `not-a-player` for a paid use of the
+ * DM's word. Throws `TableBusyError` while a pack is open.
+ */
+export async function recordWordUse(db: Firestore, input: RecordWordUseInput): Promise<string> {
+  const { amount } = input
+  if (!Number.isInteger(amount) || amount < 0 || amount > WORD_USE_COST_MAX) {
+    throw new WordError('invalid-amount')
+  }
+  for (let attempt = 1; ; attempt += 1) {
+    const read: { uid: string | null; lp: number | null } = { uid: null, lp: null }
+    try {
+      return await recordWordUseOnce(db, input, read)
+    } catch (error) {
+      const explained = await explainDenial(db, error)
+      if (
+        explained !== error ||
+        firebaseCode(error) !== 'permission-denied' ||
+        attempt >= MAX_USE_ATTEMPTS ||
+        read.uid === null ||
+        (await getDocFromServer(profileRef(db, read.uid))).data()?.lp === read.lp
+      ) {
+        throw explained
+      }
+    }
+  }
+}
+
+function recordWordUseOnce(
+  db: Firestore,
+  { recordId, by, amount }: RecordWordUseInput,
+  read: { uid: string | null; lp: number | null },
+): Promise<string> {
+  const useDoc = doc(collection(db, WORD_USES_COLLECTION))
+  const entryDoc = doc(collection(db, LEDGER_COLLECTION))
+  return runTransaction(db, async (transaction) => {
+    await ensureTableFree(transaction, db)
+    const record = (await transaction.get(learnedWordRef(db, recordId))).data()
+    if (!record || record.removedBy !== null) throw new WordError('not-known')
+    const word = (await transaction.get(trueWordRef(db, record.wordId))).data()
+    if (!word || (word.status !== 'active' && word.status !== 'retired')) {
+      throw new WordError('unavailable')
+    }
+    if (by === record.uid) {
+      const price = priceOfUse(word.cost)
+      if (!priceAllows(price, amount)) {
+        throw price.kind === 'fixed'
+          ? new WordError('price-changed', null, price.amount)
+          : new WordError('invalid-amount')
+      }
+    }
+    let balanceAfter: number | null = null
+    if (amount > 0) {
+      const balance = await readLp(transaction, db, record.uid)
+      read.uid = record.uid
+      read.lp = balance
+      if (balance < amount) throw new WordError('insufficient', { balance, amount })
+      balanceAfter = balance - amount
+    }
+
+    const use: WithFieldValue<StoredWordUse> = {
+      uid: record.uid,
+      wordId: record.wordId,
+      wordName: word.name,
+      recordId,
+      by,
+      at: serverTimestamp(),
+      cost: amount,
+      entryId: amount > 0 ? entryDoc.id : null,
+    }
+    transaction.set(useDoc, use)
+    if (balanceAfter !== null) {
+      transaction.set(
+        entryDoc,
+        newLedgerEntry({
+          currency: 'lp',
+          account: record.uid,
+          delta: -amount,
+          balanceAfter,
+          source: 'wordUse',
+          drawId: useDoc.id,
+          by,
+        }),
+      )
+      setBalance(transaction, db, { currency: 'lp', uid: record.uid }, balanceAfter, entryDoc.id)
+    }
+    return useDoc.id
+  })
 }

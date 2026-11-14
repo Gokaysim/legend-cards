@@ -32,6 +32,7 @@ const main = () => within(screen.getByRole('main'))
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
 })
 
 function fakeActions() {
@@ -191,6 +192,121 @@ describe('the True Words tab', () => {
     expect(dialog.getByText('DM öğretti')).toBeInTheDocument()
     expect(dialog.queryByRole('button', { name: 'Aktif et' })).toBeNull()
     expect(dialog.queryByRole('button', { name: 'Geri al' })).toBeNull()
+    expect(dialog.queryByRole('button', { name: 'Kullan' })).toBeNull()
+  })
+})
+
+describe('using a word', () => {
+  /** The signed-in player, who knows Abyss (5 LP) and Dragon (X) and has `lp` LP, on their own True Words tab. */
+  function renderOwnTab({
+    lp = 6,
+    table,
+  }: { lp?: number; table?: { openPackId: string | null } } = {}) {
+    const recordWordUse = vi.fn<TrueWordActions['recordWordUse']>(() => Promise.resolve('u-new'))
+    const player = testProfile({ displayName: 'Gökay', lp })
+    const view = renderApp({
+      path: `/hands/${testUser.uid}?tab=true-words`,
+      users: { currentProfile: ready(player), profiles: ready([player, ayla]) },
+      trueWords: {
+        words: ready(WORDS),
+        knownWords: ready([
+          testLearnedWord('r-abyss', ABYSS, testUser.uid),
+          testLearnedWord('r-dragon', DRAGON, testUser.uid),
+        ]),
+        actions: { recordWordUse },
+      },
+      table,
+    })
+    return { ...view, recordWordUse, user: userEvent.setup() }
+  }
+
+  it('lets a player use their word for its price, and says so, keeping the details open', async () => {
+    const { user, recordWordUse } = renderOwnTab()
+
+    await user.click(main().getByRole('button', { name: 'Abyss: ayrıntılar' }))
+    const dialog = within(screen.getByRole('dialog', { name: '✦ Abyss' }))
+    await user.click(dialog.getByRole('button', { name: 'Kullan' }))
+    expect(dialog.getByText('6 LP → 1 LP')).toBeInTheDocument()
+    expect(dialog.queryByRole('textbox', { name: /Hangi karakter/ })).not.toBeInTheDocument()
+    await user.click(dialog.getByRole('button', { name: 'Kullanımı onayla (5 LP)' }))
+
+    expect(recordWordUse).toHaveBeenCalledExactlyOnceWith({
+      recordId: 'r-abyss',
+      by: testUser.uid,
+      amount: 5,
+    })
+    expect(dialog.getByRole('status')).toHaveTextContent('Abyss kullanıldı (−5 LP).')
+    expect(dialog.getByRole('button', { name: 'Kullan' })).toBeInTheDocument()
+  })
+
+  it('asks the player how much to pay for an X word', async () => {
+    const { user, recordWordUse } = renderOwnTab()
+
+    await user.click(main().getByRole('button', { name: 'Dragon: ayrıntılar' }))
+    const dialog = within(screen.getByRole('dialog', { name: '✦ Dragon' }))
+    await user.click(dialog.getByRole('button', { name: 'Kullan' }))
+    await user.type(dialog.getByRole('spinbutton', { name: 'Kaç LP ödenecek?' }), '2')
+    await user.click(dialog.getByRole('button', { name: 'Kullanımı onayla (2 LP)' }))
+
+    expect(recordWordUse).toHaveBeenCalledWith({
+      recordId: 'r-dragon',
+      by: testUser.uid,
+      amount: 2,
+    })
+  })
+
+  it('does not let a player use a word that costs more than their LP', async () => {
+    const { user } = renderOwnTab({ lp: 1 })
+
+    await user.click(main().getByRole('button', { name: 'Abyss: ayrıntılar' }))
+    const dialog = within(screen.getByRole('dialog', { name: '✦ Abyss' }))
+    await user.click(dialog.getByRole('button', { name: 'Kullan' }))
+
+    expect(dialog.getByRole('button', { name: 'Kullanımı onayla (5 LP)' })).toBeDisabled()
+    expect(dialog.getByText("Bu kullanım 5 LP tutuyor; Gökay'ın 1 LP'si var.")).toBeInTheDocument()
+  })
+
+  it("lets the DM use a player's word for free", async () => {
+    const recordWordUse = vi.fn<TrueWordActions['recordWordUse']>(() => Promise.resolve('u-new'))
+    const { user } = renderTab({ viewer: dm, trueWords: { actions: { recordWordUse } } })
+
+    await user.click(main().getByRole('button', { name: 'Abyss: ayrıntılar' }))
+    const dialog = within(screen.getByRole('dialog', { name: '✦ Abyss' }))
+    await user.click(dialog.getByRole('button', { name: 'Kullan' }))
+    const amount = dialog.getByRole('spinbutton', { name: "Tutar (Ayla'nın LP'sinden)" })
+    expect(amount).toHaveValue(5)
+    expect(dialog.getByRole('button', { name: 'Kullanımı onayla (5 LP)' })).toBeDisabled()
+    await user.clear(amount)
+    await user.type(amount, '0')
+    await user.click(dialog.getByRole('button', { name: 'Kullanımı onayla' }))
+
+    expect(recordWordUse).toHaveBeenCalledWith({ recordId: 'r2', by: testUser.uid, amount: 0 })
+    expect(dialog.getByRole('status')).toHaveTextContent('Abyss kullanıldı.')
+  })
+
+  it('disables "Kullan" while a pack is open, and says why', async () => {
+    const { user } = renderOwnTab({ table: { openPackId: 'p1' } })
+
+    await user.click(main().getByRole('button', { name: 'Abyss: ayrıntılar' }))
+    const dialog = within(screen.getByRole('dialog', { name: '✦ Abyss' }))
+
+    expect(dialog.getByRole('button', { name: 'Kullan' })).toBeDisabled()
+    expect(dialog.getByText(TABLE_BUSY_NOTE)).toBeVisible()
+  })
+
+  it('does not try a use offline, and says that a connection is needed', async () => {
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+    const { user, recordWordUse } = renderOwnTab()
+
+    await user.click(main().getByRole('button', { name: 'Abyss: ayrıntılar' }))
+    const dialog = within(screen.getByRole('dialog', { name: '✦ Abyss' }))
+    await user.click(dialog.getByRole('button', { name: 'Kullan' }))
+    await user.click(dialog.getByRole('button', { name: 'Kullanımı onayla (5 LP)' }))
+
+    expect(recordWordUse).not.toHaveBeenCalled()
+    expect(dialog.getByRole('alert')).toHaveTextContent(
+      'Bağlantı yok: True Word işlemleri için internet bağlantısı gerekiyor.',
+    )
   })
 })
 

@@ -7,6 +7,13 @@ import { NotePaper } from '@/components/ui/NotePaper'
 import { Pill } from '@/components/ui/Pill'
 import { ToolSection } from '@/components/ui/ToolSection'
 import { useAuth } from '@/features/auth/authContext'
+import {
+  confirmUseLabel,
+  initialEntered,
+  planUsePayment,
+  type UsePayer,
+} from '@/features/balances/paymentPlan'
+import { UsePayment } from '@/features/balances/UsePayment'
 import { CardFace } from '@/features/cards/CardFace'
 import { cardFrame, type FaceGlow, faceGlow, NO_VALUE } from '@/features/cards/display'
 import { useSetIndex } from '@/features/sets/setsContext'
@@ -67,7 +74,8 @@ export type HoldingDetailsProps = {
  *   switch, giving away and discarding as three equal buttons
  *
  * The holder and the DM edit the note and use the card; only the DM switches it active, sets its cost, discards it,
- * or gives it to another player. Controls the user may not use are not shown; the rules decide. Every confirmation is
+ * or gives it to another player. A use pays from the holder's LP: the price of the cost in this hand for the
+ * holder, the amount the DM enters for the DM, nothing in the DM's own hand (spec: card-holdings, "Using a card"). Controls the user may not use are not shown; the rules decide. Every confirmation is
  * a step in place of the buttons. While a pack is open, the card cannot leave the hand: using, discarding and giving
  * it away wait, and the note, the active switch and the cost stay available.
  */
@@ -88,6 +96,7 @@ export function HoldingDetails({ entry, holderName, onDone, layout }: HoldingDet
 
   const [step, setStep] = useState<Step>('idle')
   const [usedOn, setUsedOn] = useState('')
+  const [entered, setEntered] = useState('')
   const [receiver, setReceiver] = useState('')
   const [isBusy, setIsBusy] = useState(false)
   const [failure, setFailure] = useState<HoldingFailure | null>(null)
@@ -104,8 +113,19 @@ export function HoldingDetails({ entry, holderName, onDone, layout }: HoldingDet
   const receivers =
     profiles.status === 'ready' ? profiles.data.filter((profile) => profile.id !== holding.uid) : []
 
+  // The holder's LP pays for a use, live. Until the profiles load, the payment is not known and a use waits.
+  const holderProfile =
+    profiles.status === 'ready'
+      ? profiles.data.find((profile) => profile.id === holding.uid)
+      : undefined
+  const payer: UsePayer | null =
+    holderProfile?.role === 'player' ? { name: holderName, lp: holderProfile.lp } : null
+  const payment = planUsePayment({ cost, payer, isDm, entered })
+  const canConfirmUse = holderProfile !== undefined && payment.canConfirm
+
   const goTo = (next: Step) => {
     setFailure(null)
+    if (next === 'use') setEntered(initialEntered(cost, isDm))
     setStep(next)
   }
 
@@ -152,18 +172,27 @@ export function HoldingDetails({ entry, holderName, onDone, layout }: HoldingDet
         onChange={(event) => setUsedOn(event.target.value)}
         className={fieldClasses}
       />
+      <UsePayment
+        plan={payment}
+        payer={payer}
+        cost={cost}
+        entered={entered}
+        onEnteredChange={setEntered}
+      />
       <div className="flex flex-wrap gap-2">
         <Button
           variant="primary"
-          disabled={isBusy || isTableBusy}
+          disabled={isBusy || isTableBusy || !canConfirmUse}
           title={busyTitle}
-          onClick={() =>
+          onClick={() => {
+            const { amount } = payment
+            if (amount === null) return
             void move((by) =>
-              actions.closeHolding({ holdingId: holding.id, by, reason: 'used', usedOn }),
+              actions.closeHolding({ holdingId: holding.id, by, reason: 'used', usedOn, amount }),
             )
-          }
+          }}
         >
-          {isBusy ? 'Kaydediliyor…' : 'Kullanımı onayla'}
+          {isBusy ? 'Kaydediliyor…' : confirmUseLabel(payment.amount)}
         </Button>
         <Button disabled={isBusy} onClick={() => goTo('idle')}>
           Vazgeç
@@ -378,7 +407,7 @@ export function HoldingDetails({ entry, holderName, onDone, layout }: HoldingDet
               role="alert"
               className="rounded-lg border border-danger-line bg-pane-raised p-3 text-sm text-danger-ink"
             >
-              {holdingFailureMessage(failure)}
+              {holdingFailureMessage(failure, { holderName })}
             </p>
           ) : null}
         </div>

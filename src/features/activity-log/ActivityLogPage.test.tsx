@@ -12,7 +12,7 @@ import { ready, testProfile } from '@/test/fixtures'
 import { testHolding } from '@/test/holdingFixtures'
 import { testGpEntry, testLedgerEntry } from '@/test/ledgerFixtures'
 import { testPack } from '@/test/packFixtures'
-import { testLearnedWord, testTrueWord, testWordDraft } from '@/test/trueWordFixtures'
+import { testLearnedWord, testTrueWord, testWordDraft, testWordUse } from '@/test/trueWordFixtures'
 import { renderApp } from '@/test/renderApp'
 import type { TestActivityLog } from '@/test/TestActivityLogProvider'
 import { testSetChange } from '@/test/setFixtures'
@@ -512,6 +512,34 @@ describe('True Words in the İşlem Logu', () => {
 
     expect(rowTexts()[0]).toContain("Bora'dan Abyss True Word'ünü geri aldı.")
     expect(rowTexts()[1]).toContain("Bora'ya Abyss True Word'ünü öğretti.")
+  })
+
+  it("lists a word use with its payment, and keeps only the chosen player's uses in the filter", async () => {
+    const user = userEvent.setup()
+    const aylaUse = testWordUse('u-ayla', ABYSS, 'ayla', { cost: 5, at: on(8, 40) })
+    const boraUse = testWordUse('u-bora', WORDS[1]!, 'bora', { at: on(8, 45) })
+    const all = records({ wordUses: [boraUse, aylaUse], entries: [lpForBora] })
+    renderApp({
+      path: '/log',
+      users: { profiles: PROFILES },
+      trueWords: { words: ready(WORDS) },
+      activityLog: {
+        records: (uid) =>
+          ready(
+            uid === null
+              ? all
+              : records({ wordUses: all.wordUses.filter((use) => use.uid === uid) }),
+          ),
+      },
+    })
+    expect(rowTexts()[0]).toContain("Aid True Word'ünü kullandı (−1 LP).")
+    expect(rowTexts()[1]).toContain("Abyss True Word'ünü kullandı (−5 LP).")
+    expect(rows()).toHaveLength(3)
+
+    await user.selectOptions(main().getByRole('combobox', { name: 'Oyuncu' }), 'Ayla')
+
+    expect(rowTexts()).toHaveLength(1)
+    expect(rowTexts()[0]).toContain("Abyss True Word'ünü kullandı (−5 LP).")
   })
 })
 

@@ -8,10 +8,14 @@ export const CURRENCIES = ['lp', 'gp'] as const
 export type Currency = (typeof CURRENCIES)[number]
 
 /**
- * Where a balance change came from: the DM by hand, a player's payment for a draw, a pack's payment or refund, or a
- * True Word draft's payment or refund. Keep in step with `firestore.rules`.
+ * Where a balance change came from: the DM by hand, a player's payment for a draw, a pack's payment or refund, a
+ * True Word draft's payment or refund, or the payment for using a card (`use`) or a True Word (`wordUse`). Keep in
+ * step with `firestore.rules`.
  */
-export const LEDGER_SOURCES = ['manual', 'draw', 'pack', 'wordDraft'] as const
+export const LEDGER_SOURCES = ['manual', 'draw', 'pack', 'wordDraft', 'use', 'wordUse'] as const
+
+/** The sources that are always paid in LP: every one but the DM's changes by hand and packs. */
+const LP_ONLY_SOURCES: readonly LedgerSource[] = ['draw', 'wordDraft', 'use', 'wordUse']
 export type LedgerSource = (typeof LEDGER_SOURCES)[number]
 
 /** Limits of one change. Keep in step with `validLedgerEntry` in `firestore.rules`. */
@@ -48,13 +52,15 @@ export const ledgerEntrySchema = z
     balanceAfter: z.number().int().min(0),
     source: z.enum(LEDGER_SOURCES),
     /**
-     * The DM's reason for a change by hand, shown as "Neden". A draw, pack or draft payment and a pack or draft
-     * refund have none: their draw, pack opening or True Word draft explains them.
+     * The DM's reason for a change by hand, shown as "Neden". A draw, pack, draft or use payment and a pack or draft
+     * refund have none: their draw, pack opening, True Word draft, holding or word use explains them.
      */
     reason: z.string().min(1).max(BALANCE_LIMITS.reason).nullable(),
     /**
      * For a draw payment, the draw it paid for; for a pack payment or refund, the pack opening; for a True Word
-     * draft's payment or refund, the draft (`wordDrafts/{drawId}`). Stored entries from before draws read as `null`.
+     * draft's payment or refund, the draft (`wordDrafts/{drawId}`); for a card's use, the holding
+     * (`userCards/{drawId}`); for a True Word's use, the word use (`wordUses/{drawId}`). Stored entries from before
+     * draws read as `null`.
      */
     drawId: id.nullable().default(null),
     /** The uid of the user who made the change. */
@@ -75,11 +81,8 @@ export const ledgerEntrySchema = z
     if (manual === (entry.drawId !== null)) {
       issue('drawId', 'a draw or pack entry names its draw, and a change by hand names none')
     }
-    if (entry.source === 'draw' && entry.currency !== 'lp') {
-      issue('currency', 'a draw is paid with LP')
-    }
-    if (entry.source === 'wordDraft' && entry.currency !== 'lp') {
-      issue('currency', 'a True Word draft is paid with LP')
+    if (LP_ONLY_SOURCES.includes(entry.source) && entry.currency !== 'lp') {
+      issue('currency', 'a draw, a True Word draft and a use are paid with LP')
     }
   })
 

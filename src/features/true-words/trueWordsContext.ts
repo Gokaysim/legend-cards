@@ -6,6 +6,7 @@ import type { Subscription } from '@/lib/firestore/subscription'
 import type {
   DraftStepInput,
   LearnWordInput,
+  RecordWordUseInput,
   StartDraftInput,
   TakeBackWordInput,
   TeachWordInput,
@@ -24,6 +25,8 @@ export type TrueWordActions = {
   teachWord: (input: TeachWordInput) => Promise<string>
   takeBackWord: (input: TakeBackWordInput) => Promise<void>
   setActive: (recordId: string, active: boolean) => Promise<void>
+  /** Records a use of a known word with its payment; returns the use's ID. */
+  recordWordUse: (input: RecordWordUseInput) => Promise<string>
 }
 
 export type TrueWordsContextValue = {

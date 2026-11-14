@@ -1,6 +1,6 @@
 import { Timestamp } from 'firebase/firestore'
 
-import type { LearnedWord, TrueWord, WordDraft } from '@/features/true-words/schema'
+import type { LearnedWord, TrueWord, WordDraft, WordUse } from '@/features/true-words/schema'
 
 /** A test key from a name: lowercase letters and digits only, like the import's `nameKey`. */
 const keyOf = (name: string) =>
@@ -71,6 +71,27 @@ export function testWordDraft(
     closedBy: null,
     learned: null,
     refundEntryId: null,
+    ...overrides,
+  }
+}
+
+/** A use of a known word for tests: by its player at 4000, paying 1 LP with the entry `e-<id>`, unless overridden. */
+export function testWordUse(
+  id: string,
+  word: TrueWord,
+  uid: string,
+  overrides: Partial<WordUse> = {},
+): WordUse {
+  return {
+    id,
+    uid,
+    wordId: word.id,
+    wordName: word.name,
+    recordId: `r-${uid}-${word.id}`,
+    by: uid,
+    at: Timestamp.fromMillis(4000),
+    cost: 1,
+    entryId: `e-${id}`,
     ...overrides,
   }
 }

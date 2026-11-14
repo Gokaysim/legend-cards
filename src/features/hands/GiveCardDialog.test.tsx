@@ -152,7 +152,9 @@ describe('GiveCardDialog', () => {
   it('switches to the extra-copy question when the card was just taken', async () => {
     const { user, give } = setup({
       giveCard: ({ allowExtraCopy }) =>
-        allowExtraCopy ? Promise.resolve('new') : Promise.reject(new HoldingError('taken', 'bora')),
+        allowExtraCopy
+          ? Promise.resolve('new')
+          : Promise.reject(new HoldingError('taken', { holderUid: 'bora' })),
     })
     await openAndSearch(user, 'aboleth gaze')
 

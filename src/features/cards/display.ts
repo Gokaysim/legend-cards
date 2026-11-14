@@ -22,6 +22,45 @@ export function numericCost(cost: string | null): number | null {
 }
 
 /**
+ * What using a card or a True Word asks the user to pay, read from its cost as written (spec: card-holdings, "The
+ * price of a use"; design D3 of `pay-lp-on-use`):
+ * - `fixed`: exactly `amount` LP. A cost of whole digits ("2"), or no cost at all (0).
+ * - `die`: "d6". The user enters the die rolled at the table, 1 to 6.
+ * - `chosen`: anything else ("X", "X+1", "-1", "1,5"). The user enters a whole number of LP from 0 up.
+ *
+ * Unlike `numericCost`, "-1" and "1,5" are not fixed prices: LP is a whole number, never below 0.
+ * Keep in step with `priceAllows` in `firestore.rules`.
+ */
+export type UsePrice = { kind: 'fixed'; amount: number } | { kind: 'die' } | { kind: 'chosen' }
+
+/** The sides of the die a "d6" cost rolls. */
+export const DIE_SIDES = 6
+
+/** The most LP one use may take. Keep in step with the ledger's limit in `firestore.rules`. */
+export const MAX_USE_AMOUNT = 1_000_000
+
+export function priceOfUse(cost: string | null): UsePrice {
+  const value = cost?.trim() ?? ''
+  if (value === '') return { kind: 'fixed', amount: 0 }
+  if (/^\d+$/.test(value)) return { kind: 'fixed', amount: Number(value) }
+  if (value.toLowerCase() === 'd6') return { kind: 'die' }
+  return { kind: 'chosen' }
+}
+
+/** True when a player may pay `amount` LP for a use at `price`, as the rules' `priceAllows` accepts it. */
+export function priceAllows(price: UsePrice, amount: number): boolean {
+  if (!Number.isInteger(amount)) return false
+  switch (price.kind) {
+    case 'fixed':
+      return amount === price.amount
+    case 'die':
+      return amount >= 1 && amount <= DIE_SIDES
+    case 'chosen':
+      return amount >= 0 && amount <= MAX_USE_AMOUNT
+  }
+}
+
+/**
  * How a hand's cost compares with the card's own cost: `lower`, `higher`, or `null` when they are equal or
  * either is not a number.
  */

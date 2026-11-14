@@ -24,6 +24,8 @@ import {
 } from 'firebase/firestore'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
+import { USE_PRICE_CASES, type UsePriceCase } from '../src/test/usePriceCases.ts'
+
 const PROJECT_ID = 'demo-legend-cards'
 
 /** Arbitrary paths, including names a later data model might use. None of them is opened yet. */
@@ -65,6 +67,18 @@ beforeEach(async () => {
     }
   })
 })
+
+async function updateDocAsAdmin(path: string, data: Record<string, unknown>): Promise<void> {
+  await testEnv.withSecurityRulesDisabled(async (admin) => {
+    await updateDoc(doc(firestoreOf(admin), path), data)
+  })
+}
+
+async function deleteAsAdmin(path: string): Promise<void> {
+  await testEnv.withSecurityRulesDisabled(async (admin) => {
+    await deleteDoc(doc(firestoreOf(admin), path))
+  })
+}
 
 async function readAsAdmin(path: string): Promise<unknown> {
   let data: unknown
@@ -1114,6 +1128,43 @@ function newHolding(overrides: Record<string, unknown> = {}) {
 
 const asUser = (uid: string) => firestoreOf(testEnv.authenticatedContext(uid))
 
+/**
+ * The writes of a card use's payment, as the application adds them to the use's batch: the ledger entry `entryId`
+ * that takes `cost` LP from `payer`, who had `lpBefore`, and the payer's new LP.
+ */
+function payForUse(
+  batch: ReturnType<typeof writeBatch>,
+  db: Firestore,
+  {
+    by,
+    holdingId,
+    payer,
+    cost,
+    lpBefore,
+    entryId = 'e-use',
+  }: {
+    by: string
+    holdingId: string
+    payer: string
+    cost: number
+    lpBefore: number
+    entryId?: string
+  },
+) {
+  batch.set(doc(db, `ledger/${entryId}`), {
+    currency: 'lp',
+    account: payer,
+    delta: -cost,
+    balanceAfter: lpBefore - cost,
+    source: 'use',
+    reason: null,
+    drawId: holdingId,
+    by,
+    at: serverTimestamp(),
+  })
+  batch.update(doc(db, `users/${payer}`), { lp: lpBefore - cost, lpEntryId: entryId })
+}
+
 async function seedHoldings() {
   const { POOL, HELD, BLESSED, CURSED, RETIRED, DRAFT } = HOLDINGS_SEED
   await testEnv.withSecurityRulesDisabled(async (admin) => {
@@ -1354,14 +1405,31 @@ describe('card movements (userCards with cards/{cardId}.holder)', () => {
   const { POOL, HELD, CURSED } = HOLDINGS_SEED
   const poolHolder = (uid: string, userCardId: string) => ({ uid, userCardId })
 
-  beforeEach(seedHoldings)
+  beforeEach(async () => {
+    await seedHoldings()
+    // Ayla and Bora have 5 LP each, so their own uses of the seeded 1-cost cards can pay.
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const db = firestoreOf(admin)
+      await updateDoc(doc(db, 'users/ayla'), { lp: 5, lpEntryId: 'e-old' })
+      await updateDoc(doc(db, 'users/bora'), { lp: 5, lpEntryId: 'e-old-bora' })
+    })
+  })
 
-  /** The fields that close a holding now, by `uid`. */
-  const closing = (uid: string, reason: 'used' | 'discarded', usedOn: string | null = null) => ({
+  /**
+   * The fields that close a holding now, by `uid`. A use records its payment: free by default, as the DM may use a
+   * card, or `useCost` LP with the entry `e-use`.
+   */
+  const closing = (
+    uid: string,
+    reason: 'used' | 'discarded',
+    usedOn: string | null = null,
+    useCost = 0,
+  ) => ({
     returnedAt: serverTimestamp(),
     returnedBy: uid,
     returnReason: reason,
     usedOn,
+    ...(reason === 'used' ? { useCost, useEntryId: useCost > 0 ? 'e-use' : null } : {}),
   })
 
   /** A transfer of holding `fromId` of `cardId` to `toUid` as `newId`, by `by`, in one batch. */
@@ -1442,8 +1510,9 @@ describe('card movements (userCards with cards/{cardId}.holder)', () => {
 
       const ayla = asUser('ayla')
       const use = writeBatch(ayla)
-      use.update(doc(ayla, 'userCards/new-1'), closing('ayla', 'used'))
+      use.update(doc(ayla, 'userCards/new-1'), closing('ayla', 'used', null, 1))
       use.update(doc(ayla, `cards/${wish.cardId}`), { holder: null })
+      payForUse(use, ayla, { by: 'ayla', holdingId: 'new-1', payer: 'ayla', cost: 1, lpBefore: 5 })
       await assertSucceeds(use.commit())
       expect(await readAsAdmin(`cards/${wish.cardId}`)).toMatchObject({
         holder: null,
@@ -1466,13 +1535,16 @@ describe('card movements (userCards with cards/{cardId}.holder)', () => {
     it('lets the holder use their card on a character, which returns it to the pool', async () => {
       const db = asUser('bora')
       const batch = writeBatch(db)
-      batch.update(doc(db, 'userCards/h-bora'), closing('bora', 'used', 'Thorin'))
+      batch.update(doc(db, 'userCards/h-bora'), closing('bora', 'used', 'Thorin', 1))
       batch.update(doc(db, `cards/${HELD}`), { holder: null })
+      payForUse(batch, db, { by: 'bora', holdingId: 'h-bora', payer: 'bora', cost: 1, lpBefore: 5 })
       await assertSucceeds(batch.commit())
       expect(await readAsAdmin('userCards/h-bora')).toMatchObject({
         returnReason: 'used',
         returnedBy: 'bora',
         usedOn: 'Thorin',
+        useCost: 1,
+        useEntryId: 'e-use',
       })
       expect(await readAsAdmin(`cards/${HELD}`)).toMatchObject({ holder: null })
     })
@@ -1550,9 +1622,11 @@ describe('card movements (userCards with cards/{cardId}.holder)', () => {
           moveHolder: false,
         }).commit(),
       )
-      await assertSucceeds(
-        updateDoc(doc(asUser('bora'), 'userCards/new-1'), closing('bora', 'used', 'Thorin')),
-      )
+      const bora = asUser('bora')
+      const use = writeBatch(bora)
+      use.update(doc(bora, 'userCards/new-1'), closing('bora', 'used', 'Thorin', 1))
+      payForUse(use, bora, { by: 'bora', holdingId: 'new-1', payer: 'bora', cost: 1, lpBefore: 5 })
+      await assertSucceeds(use.commit())
     })
   })
 
@@ -1611,8 +1685,9 @@ describe('card movements (userCards with cards/{cardId}.holder)', () => {
     it("denies a player closing someone else's card", async () => {
       const db = asUser('ayla')
       const batch = writeBatch(db)
-      batch.update(doc(db, 'userCards/h-bora'), closing('ayla', 'used'))
+      batch.update(doc(db, 'userCards/h-bora'), closing('ayla', 'used', null, 1))
       batch.update(doc(db, `cards/${HELD}`), { holder: null })
+      payForUse(batch, db, { by: 'ayla', holdingId: 'h-bora', payer: 'bora', cost: 1, lpBefore: 5 })
       await assertFails(batch.commit())
     })
 
@@ -1638,7 +1713,7 @@ describe('card movements (userCards with cards/{cardId}.holder)', () => {
     })
 
     it("denies closing the holder's holding without releasing the card", async () => {
-      await assertFails(updateDoc(doc(asUser('bora'), 'userCards/h-bora'), closing('bora', 'used')))
+      await assertFails(updateDoc(doc(asUser('dana'), 'userCards/h-bora'), closing('dana', 'used')))
       await assertFails(
         updateDoc(doc(asUser('dana'), 'userCards/h-bora'), closing('dana', 'discarded')),
       )
@@ -1650,9 +1725,9 @@ describe('card movements (userCards with cards/{cardId}.holder)', () => {
     })
 
     it('denies closing an extra copy together with releasing the card', async () => {
-      const db = asUser('ayla')
+      const db = asUser('dana')
       const batch = writeBatch(db)
-      batch.update(doc(db, 'userCards/h-ayla-extra'), closing('ayla', 'used'))
+      batch.update(doc(db, 'userCards/h-ayla-extra'), closing('dana', 'used'))
       batch.update(doc(db, `cards/${HELD}`), { holder: null })
       await assertFails(batch.commit())
     })
@@ -1717,6 +1792,243 @@ describe('card movements (userCards with cards/{cardId}.holder)', () => {
       )
       batch.update(doc(db, `cards/${CURSED}`), { holder: poolHolder('ayla', 'new-1') })
       await assertFails(batch.commit())
+    })
+  })
+})
+
+describe('card uses and their payments (userCards with ledger/{entryId} and users/{uid}.lp)', () => {
+  const { HELD, BLESSED, CURSED } = HOLDINGS_SEED
+  /** Ayla's LP before each use. */
+  const LP = 10
+  /** A Cursed card of the cost under test, held by Ayla through `h-priced`. Cursed cards have no holder. */
+  const PRICED = 'cursed-priced'
+
+  beforeEach(async () => {
+    await seedHoldings()
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const db = firestoreOf(admin)
+      await updateDoc(doc(db, 'users/ayla'), { lp: LP, lpEntryId: 'e-old' })
+      await updateDoc(doc(db, 'users/bora'), { lp: 5, lpEntryId: 'e-old-bora' })
+    })
+  })
+
+  async function seedPriced(cost: string | null, costOverride: string | null = null) {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const db = firestoreOf(admin)
+      await setDoc(doc(db, `cards/${PRICED}`), seededCardOf('cursed', 'Priced Curse', { cost }))
+      await setDoc(
+        doc(db, 'userCards/h-priced'),
+        seededHolding({
+          cardId: PRICED,
+          cardName: 'Priced Curse',
+          cardKind: 'cursed',
+          costOverride,
+        }),
+      )
+    })
+  }
+
+  type UseSpec = {
+    /** Whose LP pays: the holder by default. */
+    payer?: string
+    lpBefore?: number
+    /** Overrides of the holding's close. */
+    close?: Record<string, unknown>
+    /** Overrides of the entry, or `null` to write none. Written only for an amount other than 0. */
+    entry?: Record<string, unknown> | null
+    /** Overrides of the new LP, or `null` to leave it alone. Written only for an amount other than 0. */
+    balance?: Record<string, unknown> | null
+    /** A normal card whose holder the use releases. */
+    release?: string
+  }
+
+  /** One use of `holdingId` by `by` for `amount` LP, as the application writes it: in one batch with its payment. */
+  function use(by: string, holdingId: string, amount: number, spec: UseSpec = {}) {
+    const db = asUser(by)
+    const payer = spec.payer ?? 'ayla'
+    const lpBefore = spec.lpBefore ?? LP
+    const batch = writeBatch(db)
+    batch.update(doc(db, `userCards/${holdingId}`), {
+      returnedAt: serverTimestamp(),
+      returnedBy: by,
+      returnReason: 'used',
+      usedOn: null,
+      useCost: amount,
+      useEntryId: amount === 0 ? null : 'e-use',
+      ...spec.close,
+    })
+    if (spec.release) batch.update(doc(db, `cards/${spec.release}`), { holder: null })
+    if (amount !== 0 && spec.entry !== null) {
+      batch.set(doc(db, 'ledger/e-use'), {
+        currency: 'lp',
+        account: payer,
+        delta: -amount,
+        balanceAfter: lpBefore - amount,
+        source: 'use',
+        reason: null,
+        drawId: holdingId,
+        by,
+        at: serverTimestamp(),
+        ...spec.entry,
+      })
+    }
+    if (amount !== 0 && spec.balance !== null) {
+      batch.update(doc(db, `users/${payer}`), {
+        lp: lpBefore - amount,
+        lpEntryId: 'e-use',
+        ...spec.balance,
+      })
+    }
+    return batch.commit()
+  }
+
+  describe('the price a holder pays', () => {
+    it.each(USE_PRICE_CASES)(
+      'allows and denies amounts for the cost $cost',
+      async (priced: UsePriceCase) => {
+        for (const amount of priced.denied) {
+          await seedPriced(priced.cost)
+          await assertFails(use('ayla', 'h-priced', amount))
+        }
+        for (const amount of priced.allowed) {
+          await seedPriced(priced.cost)
+          await updateDocAsAdmin('users/ayla', { lp: LP, lpEntryId: 'e-old' })
+          await assertSucceeds(use('ayla', 'h-priced', amount))
+          expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: LP - amount })
+          await deleteAsAdmin('ledger/e-use')
+        }
+      },
+    )
+
+    it('pays the cost override instead of the card’s own cost', async () => {
+      await seedPriced('3', '1')
+      await assertFails(use('ayla', 'h-priced', 3))
+      await assertSucceeds(use('ayla', 'h-priced', 1))
+    })
+
+    it('uses a Blessed card, which has no cost, without a payment', async () => {
+      await testEnv.withSecurityRulesDisabled(async (admin) => {
+        await setDoc(
+          doc(firestoreOf(admin), 'userCards/h-blessed'),
+          seededHolding({ cardId: BLESSED, cardName: 'Second Wind', cardKind: 'blessed' }),
+        )
+      })
+      await assertFails(use('ayla', 'h-blessed', 1))
+      await assertSucceeds(use('ayla', 'h-blessed', 0))
+      expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: LP })
+      expect(await readAsAdmin('userCards/h-blessed')).toMatchObject({
+        useCost: 0,
+        useEntryId: null,
+      })
+    })
+
+    it('pays 1 LP for the 1-cost Cursed card', async () => {
+      await assertFails(use('ayla', 'h-ayla-cursed', 0))
+      await assertSucceeds(use('ayla', 'h-ayla-cursed', 1))
+      expect(await readAsAdmin('ledger/e-use')).toMatchObject({
+        source: 'use',
+        drawId: 'h-ayla-cursed',
+        delta: -1,
+        balanceAfter: LP - 1,
+      })
+    })
+  })
+
+  describe("the DM's amount", () => {
+    it("lets the DM charge any amount of the player's LP, or nothing", async () => {
+      await assertSucceeds(use('dana', 'h-ayla-cursed', 4))
+      expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: LP - 4, lpEntryId: 'e-use' })
+      expect(await readAsAdmin('ledger/e-use')).toMatchObject({ by: 'dana', account: 'ayla' })
+      await assertSucceeds(use('dana', 'h-bora', 0, { release: HELD }))
+    })
+
+    it("lets the DM use a card in the DM's own hand only for free", async () => {
+      await testEnv.withSecurityRulesDisabled(async (admin) => {
+        await setDoc(
+          doc(firestoreOf(admin), 'userCards/h-dana'),
+          seededHolding({
+            cardId: CURSED,
+            cardName: 'Visions of Death',
+            cardKind: 'cursed',
+            uid: 'dana',
+          }),
+        )
+      })
+      // The DM has no LP to pay from, even with a balance that would stay above 0.
+      await assertFails(use('dana', 'h-dana', 1, { payer: 'dana', lpBefore: 5 }))
+      await assertSucceeds(use('dana', 'h-dana', 0))
+    })
+  })
+
+  describe('the use and its payment agree', () => {
+    it("allows the heaviest request: a player's paid use of a normal card, released to the pool", async () => {
+      await assertSucceeds(use('bora', 'h-bora', 1, { payer: 'bora', lpBefore: 5, release: HELD }))
+      expect(await readAsAdmin('users/bora')).toMatchObject({ lp: 4, lpEntryId: 'e-use' })
+      expect(await readAsAdmin(`cards/${HELD}`)).toMatchObject({ holder: null })
+    })
+
+    it.each(['ayla', 'dana'])(
+      'denies a use by %s closed without its payment fields',
+      async (by) => {
+        await assertFails(
+          updateDoc(doc(asUser(by), 'userCards/h-ayla-cursed'), {
+            returnedAt: serverTimestamp(),
+            returnedBy: by,
+            returnReason: 'used',
+            usedOn: null,
+          }),
+        )
+      },
+    )
+
+    it('denies a paid use without its entry or without the new LP', async () => {
+      await assertFails(use('ayla', 'h-ayla-cursed', 1, { entry: null, balance: null }))
+      await assertFails(use('ayla', 'h-ayla-cursed', 1, { entry: null }))
+      await assertFails(use('ayla', 'h-ayla-cursed', 1, { balance: null }))
+    })
+
+    it('denies a payment without the use', async () => {
+      const db = asUser('ayla')
+      const batch = writeBatch(db)
+      payForUse(batch, db, {
+        by: 'ayla',
+        holdingId: 'h-ayla-cursed',
+        payer: 'ayla',
+        cost: 1,
+        lpBefore: LP,
+      })
+      await assertFails(batch.commit())
+    })
+
+    it('denies a free use that names an entry, and a paid use that names none', async () => {
+      await assertFails(use('dana', 'h-ayla-cursed', 0, { close: { useEntryId: 'e-use' } }))
+      await assertFails(use('dana', 'h-ayla-cursed', 2, { close: { useEntryId: null } }))
+    })
+
+    it('denies an entry that disagrees with the payment', async () => {
+      await assertFails(
+        use('dana', 'h-ayla-cursed', 1, {
+          entry: { delta: -2, balanceAfter: LP - 2 },
+          balance: { lp: LP - 2 },
+        }),
+      )
+      await assertFails(use('dana', 'h-ayla-cursed', 1, { entry: { drawId: 'h-bora' } }))
+      await assertFails(use('dana', 'h-ayla-cursed', 1, { entry: { source: 'draw' } }))
+    })
+
+    it('denies a payment below 0', async () => {
+      await updateDocAsAdmin('users/ayla', { lp: 0, lpEntryId: 'e-old' })
+      await assertFails(use('ayla', 'h-ayla-cursed', 1, { lpBefore: 0 }))
+      await assertFails(use('dana', 'h-ayla-cursed', 1, { lpBefore: 0 }))
+    })
+
+    it("denies paying for another player's use", async () => {
+      await assertFails(use('ayla', 'h-bora', 1, { payer: 'bora', lpBefore: 5, release: HELD }))
+      await assertFails(use('bora', 'h-bora', 1, { payer: 'ayla', release: HELD }))
+    })
+
+    it('denies a payment on a discard', async () => {
+      await assertFails(use('dana', 'h-ayla-cursed', 0, { close: { returnReason: 'discarded' } }))
     })
   })
 })
@@ -2803,13 +3115,39 @@ describe('packs (draws/{drawId} with kind pack, table/main, and their holdings a
       },
     ],
     [
-      'a player uses a card',
-      () =>
-        updateDoc(doc(asUser('ayla'), 'userCards/h-ayla-cursed'), {
+      'a player uses a card and pays for it',
+      () => {
+        const db = asUser('ayla')
+        const batch = writeBatch(db)
+        batch.update(doc(db, 'userCards/h-ayla-cursed'), {
           returnedAt: serverTimestamp(),
           returnedBy: 'ayla',
           returnReason: 'used',
           usedOn: null,
+          useCost: 1,
+          useEntryId: 'e-use',
+        })
+        // The open pack's seed left Ayla 3 LP.
+        payForUse(batch, db, {
+          by: 'ayla',
+          holdingId: 'h-ayla-cursed',
+          payer: 'ayla',
+          cost: 1,
+          lpBefore: 3,
+        })
+        return batch.commit()
+      },
+    ],
+    [
+      'the DM uses a card for free',
+      () =>
+        updateDoc(doc(asUser('dana'), 'userCards/h-ayla-cursed'), {
+          returnedAt: serverTimestamp(),
+          returnedBy: 'dana',
+          returnReason: 'used',
+          usedOn: null,
+          useCost: 0,
+          useEntryId: null,
         }),
     ],
     [
@@ -3958,6 +4296,169 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
     })
   })
 
+  type WordUseSpec = {
+    uid?: string
+    wordId?: string
+    wordName?: string
+    recordId?: string
+    /** The LP paid. Default: 1, the price of the seeded words. */
+    cost?: number
+    /** Overrides of the use's fields. */
+    use?: Record<string, unknown>
+    /** Overrides of the entry, or `null` to write none. Written only when the use pays. */
+    entry?: Record<string, unknown> | null
+    /** Overrides of the new LP, or `null` to leave it alone. Written only when the use pays. */
+    balance?: Record<string, unknown> | null
+  }
+
+  /**
+   * One word use as the application writes it, in one batch: the use `u-new` and, when it pays, the entry `e-word`
+   * and the player's new LP. Default: Ayla's use of "Chaos" for 1 LP.
+   */
+  function useWord(writer: string, spec: WordUseSpec = {}) {
+    const db = asUser(writer)
+    const uid = spec.uid ?? 'ayla'
+    const cost = spec.cost ?? 1
+    const lpAfter = (LP_BEFORE[uid] ?? 0) - cost
+    const batch = writeBatch(db)
+    batch.set(doc(db, 'wordUses/u-new'), {
+      uid,
+      wordId: spec.wordId ?? 'tw-chaos',
+      wordName: spec.wordName ?? 'Chaos',
+      recordId: spec.recordId ?? 'r-chaos',
+      by: writer,
+      at: serverTimestamp(),
+      cost,
+      entryId: cost > 0 ? 'e-word' : null,
+      ...spec.use,
+    })
+    if (cost > 0 && spec.entry !== null) {
+      batch.set(doc(db, 'ledger/e-word'), {
+        currency: 'lp',
+        account: uid,
+        delta: -cost,
+        balanceAfter: lpAfter,
+        source: 'wordUse',
+        reason: null,
+        drawId: 'u-new',
+        by: writer,
+        at: serverTimestamp(),
+        ...spec.entry,
+      })
+    }
+    if (cost > 0 && spec.balance !== null) {
+      batch.update(doc(db, `users/${uid}`), { lp: lpAfter, lpEntryId: 'e-word', ...spec.balance })
+    }
+    return batch.commit()
+  }
+
+  const setWordCost = async (wordId: string, cost: string | null) =>
+    updateDocAsAdmin(`trueWords/${wordId}`, { cost })
+
+  describe('using a word', () => {
+    it('lets a player use their word for its price, which keeps the word', async () => {
+      await assertSucceeds(useWord('ayla'))
+      expect(await readAsAdmin('users/ayla')).toEqual(
+        expect.objectContaining({ lp: 4, lpEntryId: 'e-word' }),
+      )
+      expect(await readAsAdmin('wordUses/u-new')).toMatchObject({
+        uid: 'ayla',
+        wordId: 'tw-chaos',
+        recordId: 'r-chaos',
+        cost: 1,
+        entryId: 'e-word',
+      })
+      expect(await readAsAdmin('ledger/e-word')).toMatchObject({
+        source: 'wordUse',
+        drawId: 'u-new',
+      })
+      expect(await readAsAdmin('userTrueWords/r-chaos')).toMatchObject({ removedBy: null })
+    })
+
+    it('lets a player choose the amount of an X word, and use a 0-cost word for free', async () => {
+      await setWordCost('tw-chaos', 'X')
+      await assertSucceeds(useWord('ayla', { cost: 3 }))
+      await deleteAsAdmin('wordUses/u-new')
+      await setWordCost('tw-hoard', '0')
+      await assertFails(
+        useWord('ayla', { wordId: 'tw-hoard', wordName: 'Hoard', recordId: 'r-hoard', cost: 1 }),
+      )
+      await assertSucceeds(
+        useWord('ayla', { wordId: 'tw-hoard', wordName: 'Hoard', recordId: 'r-hoard', cost: 0 }),
+      )
+      expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 2 })
+    })
+
+    it("lets the DM charge any amount of the player's LP, or nothing", async () => {
+      await assertSucceeds(useWord('dana', { cost: 4 }))
+      expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 1 })
+      await deleteAsAdmin('wordUses/u-new')
+      await assertSucceeds(useWord('dana', { cost: 0 }))
+    })
+
+    it('lets a player use a retired word they know', async () => {
+      await testEnv.withSecurityRulesDisabled(async (admin) => {
+        await setDoc(doc(firestoreOf(admin), 'userTrueWords/r-old'), seededRecord('tw-old', 'Old'))
+      })
+      await assertSucceeds(
+        useWord('ayla', { wordId: 'tw-old', wordName: 'Old', recordId: 'r-old' }),
+      )
+    })
+
+    it('denies a word the player does not know, or has been taken back', async () => {
+      await assertFails(useWord('ayla', { wordId: 'tw-abyss', wordName: 'Abyss', recordId: 'r-x' }))
+      await assertFails(useWord('ayla', { wordId: 'tw-abyss', wordName: 'Abyss' }))
+      await updateDocAsAdmin('userTrueWords/r-chaos', {
+        removedAt: Timestamp.fromMillis(3000),
+        removedBy: 'dana',
+      })
+      await assertFails(useWord('ayla'))
+      await assertFails(useWord('dana', { cost: 0 }))
+    })
+
+    it('denies a player paying anything but the price', async () => {
+      await assertFails(useWord('ayla', { cost: 2 }))
+      await assertFails(useWord('ayla', { cost: 0 }))
+    })
+
+    it('denies a paid use without its entry or the new LP, and an entry that disagrees', async () => {
+      await assertFails(useWord('ayla', { entry: null, balance: null }))
+      await assertFails(useWord('ayla', { entry: null }))
+      await assertFails(useWord('ayla', { balance: null }))
+      await assertFails(
+        useWord('ayla', { entry: { delta: -2, balanceAfter: 3 }, balance: { lp: 3 } }),
+      )
+      await assertFails(useWord('ayla', { entry: { drawId: 'u-other' } }))
+      await assertFails(useWord('dana', { use: { entryId: null } }))
+    })
+
+    it("denies another player's word, and paying from another player's LP", async () => {
+      await assertFails(useWord('bora'))
+      await assertFails(useWord('bora', { uid: 'bora' }))
+    })
+
+    it('denies a wrong name, another user as the user, or another time than now', async () => {
+      await assertFails(useWord('ayla', { wordName: 'Kaos' }))
+      await assertFails(useWord('ayla', { use: { by: 'dana' } }))
+      await assertFails(useWord('ayla', { use: { at: Timestamp.fromMillis(5) } }))
+    })
+
+    it('lets everyone signed in read a use, and nobody change or delete one', async () => {
+      await assertSucceeds(useWord('ayla'))
+      await assertSucceeds(getDoc(doc(asUser('bora'), 'wordUses/u-new')))
+      await assertFails(
+        getDoc(doc(firestoreOf(testEnv.unauthenticatedContext()), 'wordUses/u-new')),
+      )
+      await assertFails(updateDoc(doc(asUser('dana'), 'wordUses/u-new'), { cost: 0 }))
+      await assertFails(deleteDoc(doc(asUser('dana'), 'wordUses/u-new')))
+    })
+
+    it('allows the heaviest request: a paid use with its record, word, entry and LP', async () => {
+      await setTable(null)
+      await assertSucceeds(useWord('dana', { cost: 3 }))
+    })
+  })
+
   describe('the table waits for an open pack', () => {
     /** Nothing to seed. */
     const nothing = () => Promise.resolve()
@@ -3973,6 +4474,8 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
       ['the DM cancels a draft', () => seedOpenDraft(), () => cancel('dana')],
       ['the DM teaches a word', nothing, () => teach('dana')],
       ['the DM takes back a word', nothing, () => takeBack('dana')],
+      ['a player uses a word', nothing, () => useWord('ayla')],
+      ['the DM uses a word for free', nothing, () => useWord('dana', { cost: 0 })],
     ]
 
     it.each(STEPS)(

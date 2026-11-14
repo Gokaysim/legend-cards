@@ -323,6 +323,71 @@ describe('the log queries of True Words', () => {
   })
 })
 
+describe('the log queries of uses and their payments', () => {
+  /** A use of Abyss by `uid` at `millis`, paid with `pay-<id>`. */
+  function storedWordUse(uid: string, millis: number) {
+    return {
+      uid,
+      wordId: 'tw-abyss',
+      wordName: 'Abyss',
+      recordId: `r-${uid}`,
+      by: uid,
+      at: at(millis),
+      cost: 2,
+      entryId: `pay-u-${uid}`,
+    }
+  }
+
+  /** A use payment as stored: `source` of a card's or a word's use, for the record `drawId`. */
+  function storedPayment(
+    account: string,
+    millis: number,
+    source: 'use' | 'wordUse',
+    drawId: string,
+  ) {
+    return { ...storedEntry(account, millis), delta: -2, source, reason: null, drawId }
+  }
+
+  beforeEach(async () => {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const db = firestoreOf(admin)
+      await setDoc(doc(db, 'wordUses/u-ayla'), storedWordUse('ayla', 30000))
+      await setDoc(doc(db, 'wordUses/u-bora'), storedWordUse('bora', 31000))
+      await setDoc(doc(db, 'ledger/pay-u-ayla'), storedPayment('ayla', 30000, 'wordUse', 'u-ayla'))
+      await setDoc(doc(db, 'ledger/pay-a-used'), storedPayment('ayla', 6000, 'use', 'a-used'))
+    })
+  })
+
+  async function useIds(uid: string | null, n: number) {
+    const db = firestoreOf(testEnv.authenticatedContext('ayla'))
+    const queries = logQueries(db, uid, n, false)
+    const idsOf = async <T>(query: Query<T>) =>
+      (await getDocs(query)).docs.map((document) => document.id)
+    return {
+      wordUses: await idsOf(queries.wordUses),
+      closed: await idsOf(queries.closed),
+      entries: await idsOf(queries.entries),
+    }
+  }
+
+  it('return the word uses, newest first, and never a use payment as a change by hand', async () => {
+    expect(await useIds(null, 50)).toEqual({
+      wordUses: ['u-bora', 'u-ayla'],
+      closed: ['a-used', 'b-used'],
+      entries: ['gp', 'lp-bora', 'lp-ayla'],
+    })
+  })
+
+  it("keep only one user's uses, and stop at n", async () => {
+    expect(await useIds('ayla', 50)).toEqual({
+      wordUses: ['u-ayla'],
+      closed: ['a-used'],
+      entries: ['lp-ayla'],
+    })
+    expect((await useIds(null, 1)).wordUses).toEqual(['u-bora'])
+  })
+})
+
 describe('the definition changes query', () => {
   const record = (step: string, isPublic: boolean, millis: number) => ({
     target: 'card',

@@ -31,13 +31,19 @@ const as = (uid: string) => firestoreOf(testEnv.authenticatedContext(uid))
 
 const POOL = 'legend-abolethseyes'
 const CURSED = 'cursed-visionsofdeath'
+/** A Cursed card that costs "0", and one that costs "X". */
+const FREE = 'cursed-freecurse'
+const X_CARD = 'cursed-xcurse'
 
-const storedCard = (kind: 'normal' | 'cursed', name: string) => ({
+/** Ayla's and Bora's LP before each test. */
+const LP = { ayla: 10, bora: 2 }
+
+const storedCard = (kind: 'normal' | 'cursed', name: string, cost = '3') => ({
   kind,
   name,
   nameKey: name.toLowerCase().replace(/[^a-z0-9]/g, ''),
   setCode: kind === 'normal' ? 'Kesqer' : null,
-  cost: '3',
+  cost,
   rarity: kind === 'normal' ? 'common' : null,
   mechanicPack: kind === 'normal' ? 'Arcanus Divine' : null,
   text: `${name} text.`,
@@ -84,11 +90,13 @@ beforeEach(async () => {
       role,
       createdAt: Timestamp.fromMillis(0),
     })
-    await setDoc(doc(db, 'users/ayla'), profile('player', 'Ayla'))
-    await setDoc(doc(db, 'users/bora'), profile('player', 'Bora'))
+    await setDoc(doc(db, 'users/ayla'), { ...profile('player', 'Ayla'), lp: LP.ayla })
+    await setDoc(doc(db, 'users/bora'), { ...profile('player', 'Bora'), lp: LP.bora })
     await setDoc(doc(db, 'users/dana'), profile('dm', 'Dana'))
     await setDoc(doc(db, `cards/${POOL}`), storedCard('normal', "Aboleth's Eyes"))
     await setDoc(doc(db, `cards/${CURSED}`), storedCard('cursed', 'Visions of Death'))
+    await setDoc(doc(db, `cards/${FREE}`), storedCard('cursed', 'Free Curse', '0'))
+    await setDoc(doc(db, `cards/${X_CARD}`), storedCard('cursed', 'X Curse', 'X'))
   })
 })
 
@@ -162,7 +170,7 @@ describe('giving cards under the real rules', () => {
 })
 
 describe('closing holdings under the real rules', () => {
-  it('uses a card on a character, which releases its holder', async () => {
+  it('uses a card on a character and pays its price: the holding, the entry and the LP agree', async () => {
     const id = await giveCard(as('dana'), { cardId: POOL, uid: 'ayla', by: 'dana' })
 
     await closeHolding(as('ayla'), {
@@ -170,21 +178,124 @@ describe('closing holdings under the real rules', () => {
       by: 'ayla',
       reason: 'used',
       usedOn: ' Thorin ',
+      amount: 3,
     })
 
-    expect(await stored(`userCards/${id}`)).toMatchObject({
+    const holding = await stored(`userCards/${id}`)
+    expect(holding).toMatchObject({
       returnedBy: 'ayla',
       returnReason: 'used',
       usedOn: 'Thorin',
+      useCost: 3,
     })
-    expect((await stored(`userCards/${id}`))?.returnedAt).toBeInstanceOf(Timestamp)
+    expect(holding?.returnedAt).toBeInstanceOf(Timestamp)
     expect(await stored(`cards/${POOL}`)).toMatchObject({ holder: null })
+    const entryId = String(holding?.useEntryId)
+    expect(await stored(`ledger/${entryId}`)).toMatchObject({
+      currency: 'lp',
+      account: 'ayla',
+      delta: -3,
+      balanceAfter: LP.ayla - 3,
+      source: 'use',
+      reason: null,
+      drawId: id,
+      by: 'ayla',
+    })
+    expect(await stored('users/ayla')).toMatchObject({ lp: LP.ayla - 3, lpEntryId: entryId })
+  })
+
+  it('uses a card that costs "0" without a payment', async () => {
+    const id = await giveCard(as('dana'), { cardId: FREE, uid: 'ayla', by: 'dana' })
+
+    await closeHolding(as('ayla'), { holdingId: id, by: 'ayla', reason: 'used', amount: 0 })
+
+    expect(await stored(`userCards/${id}`)).toMatchObject({ useCost: 0, useEntryId: null })
+    expect(await stored('users/ayla')).toMatchObject({ lp: LP.ayla })
+  })
+
+  it('pays the amount the player chose for an "X" card', async () => {
+    const id = await giveCard(as('dana'), { cardId: X_CARD, uid: 'ayla', by: 'dana' })
+
+    await closeHolding(as('ayla'), { holdingId: id, by: 'ayla', reason: 'used', amount: 4 })
+
+    expect(await stored(`userCards/${id}`)).toMatchObject({ useCost: 4 })
+    expect(await stored('users/ayla')).toMatchObject({ lp: LP.ayla - 4 })
+  })
+
+  it("lets the DM use a player's card for free, or for another amount", async () => {
+    const free = await giveCard(as('dana'), { cardId: CURSED, uid: 'ayla', by: 'dana' })
+    const paid = await giveCard(as('dana'), { cardId: CURSED, uid: 'ayla', by: 'dana' })
+
+    await closeHolding(as('dana'), { holdingId: free, by: 'dana', reason: 'used', amount: 0 })
+    expect(await stored('users/ayla')).toMatchObject({ lp: LP.ayla })
+    await closeHolding(as('dana'), { holdingId: paid, by: 'dana', reason: 'used', amount: 5 })
+    expect(await stored('users/ayla')).toMatchObject({ lp: LP.ayla - 5 })
+    expect(await stored(`userCards/${paid}`)).toMatchObject({ returnedBy: 'dana', useCost: 5 })
+  })
+
+  it("uses a card in the DM's own hand only for free", async () => {
+    const id = await giveCard(as('dana'), { cardId: CURSED, uid: 'dana', by: 'dana' })
+
+    const paid = await failureOf(
+      closeHolding(as('dana'), { holdingId: id, by: 'dana', reason: 'used', amount: 3 }),
+    )
+    expect(toHoldingFailure(paid)).toEqual({ kind: 'not-a-player' })
+    await closeHolding(as('dana'), { holdingId: id, by: 'dana', reason: 'used', amount: 0 })
+    expect(await stored(`userCards/${id}`)).toMatchObject({ useCost: 0, useEntryId: null })
+  })
+
+  it('fails with "insufficient" when the LP is below the price, and changes nothing', async () => {
+    const id = await giveCard(as('dana'), { cardId: CURSED, uid: 'bora', by: 'dana' })
+
+    const error = await failureOf(
+      closeHolding(as('bora'), { holdingId: id, by: 'bora', reason: 'used', amount: 3 }),
+    )
+
+    expect(toHoldingFailure(error)).toEqual({ kind: 'insufficient', balance: LP.bora, amount: 3 })
+    expect(await stored(`userCards/${id}`)).toMatchObject({ returnedAt: null })
+    expect(await stored('users/bora')).toMatchObject({ lp: LP.bora })
+  })
+
+  it('fails with "price-changed" when the confirmed price is no longer the price', async () => {
+    const id = await giveCard(as('dana'), { cardId: CURSED, uid: 'ayla', by: 'dana' })
+    await setHoldingCost(as('dana'), id, '4')
+
+    const error = await failureOf(
+      closeHolding(as('ayla'), { holdingId: id, by: 'ayla', reason: 'used', amount: 3 }),
+    )
+
+    expect(toHoldingFailure(error)).toEqual({ kind: 'price-changed', price: 4 })
+    expect(await stored(`userCards/${id}`)).toMatchObject({ returnedAt: null })
+  })
+
+  it('lands two uses from two devices at once, with the LP and the ledger right', async () => {
+    const first = await giveCard(as('dana'), { cardId: CURSED, uid: 'ayla', by: 'dana' })
+    const second = await giveCard(as('dana'), { cardId: CURSED, uid: 'ayla', by: 'dana' })
+
+    await Promise.all([
+      closeHolding(as('ayla'), { holdingId: first, by: 'ayla', reason: 'used', amount: 3 }),
+      closeHolding(as('ayla'), { holdingId: second, by: 'ayla', reason: 'used', amount: 3 }),
+    ])
+
+    expect(await stored('users/ayla')).toMatchObject({ lp: LP.ayla - 6 })
+    const entries = await Promise.all(
+      [first, second].map(async (id) =>
+        stored(`ledger/${String((await stored(`userCards/${id}`))?.useEntryId)}`),
+      ),
+    )
+    expect(entries.map((entry) => entry?.balanceAfter).sort()).toEqual([LP.ayla - 6, LP.ayla - 3])
   })
 
   it('stores no character when none was typed', async () => {
     const id = await giveCard(as('dana'), { cardId: CURSED, uid: 'ayla', by: 'dana' })
 
-    await closeHolding(as('ayla'), { holdingId: id, by: 'ayla', reason: 'used', usedOn: '  ' })
+    await closeHolding(as('ayla'), {
+      holdingId: id,
+      by: 'ayla',
+      reason: 'used',
+      usedOn: '  ',
+      amount: 3,
+    })
 
     expect(await stored(`userCards/${id}`)).toMatchObject({ returnReason: 'used', usedOn: null })
   })
@@ -211,7 +322,7 @@ describe('closing holdings under the real rules', () => {
       allowExtraCopy: true,
     })
 
-    await closeHolding(as('bora'), { holdingId: copy, by: 'bora', reason: 'used' })
+    await closeHolding(as('dana'), { holdingId: copy, by: 'dana', reason: 'used', amount: 0 })
 
     expect(await stored(`cards/${POOL}`)).toMatchObject({
       holder: { uid: 'ayla', userCardId: original },
@@ -220,7 +331,7 @@ describe('closing holdings under the real rules', () => {
 
   it('fails with "closed" for a holding that is already closed', async () => {
     const id = await giveCard(as('dana'), { cardId: POOL, uid: 'ayla', by: 'dana' })
-    await closeHolding(as('ayla'), { holdingId: id, by: 'ayla', reason: 'used' })
+    await closeHolding(as('ayla'), { holdingId: id, by: 'ayla', reason: 'used', amount: 3 })
 
     const again = await failureOf(
       closeHolding(as('dana'), { holdingId: id, by: 'dana', reason: 'discarded' }),
@@ -236,7 +347,7 @@ describe('closing holdings under the real rules', () => {
     const id = await giveCard(as('dana'), { cardId: POOL, uid: 'ayla', by: 'dana' })
 
     const error = await failureOf(
-      closeHolding(as('bora'), { holdingId: id, by: 'bora', reason: 'used' }),
+      closeHolding(as('bora'), { holdingId: id, by: 'bora', reason: 'used', amount: 3 }),
     )
     expect(toHoldingFailure(error)).toEqual({ kind: 'permission-denied' })
   })

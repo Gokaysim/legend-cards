@@ -3,7 +3,7 @@ import type { DefinitionStepRecord, ImportRecord } from '@/features/definitions/
 import type { CardDraw, Draw, PackOpening } from '@/features/draws/schema'
 import type { Holding } from '@/features/hands/schema'
 import type { SetChange } from '@/features/sets/schema'
-import type { LearnedWord, WordDraft } from '@/features/true-words/schema'
+import type { LearnedWord, WordDraft, WordUse } from '@/features/true-words/schema'
 
 /** A server time, or `null` while it is pending in the local snapshot. */
 export type EventTime = Holding['givenAt']
@@ -12,9 +12,9 @@ export type EventTime = Holding['givenAt']
  * The records the log is read from, each source newest first and limited to the same `n`: the holdings the DM gave
  * or transferred, by the time they were given; closed holdings, by the time they were closed; draws and pack
  * openings; the ledger's changes by hand; True Word drafts; the words the DM taught, by the time they were taught;
- * the words the DM took back, by the time they were taken back; the definition changes this device may read; and the
- * set changes. The
- * holdings and entries of draws, packs and drafts, and the words learned from drafts, are not among them.
+ * the words the DM took back, by the time they were taken back; True Word uses; the definition changes this device
+ * may read; and the set changes. The holdings and entries of draws, packs and drafts, the entries of uses, and the
+ * words learned from drafts, are not among them.
  */
 export type LogRecords = {
   given: readonly Holding[]
@@ -24,6 +24,7 @@ export type LogRecords = {
   drafts: readonly WordDraft[]
   taught: readonly LearnedWord[]
   takenBack: readonly LearnedWord[]
+  wordUses: readonly WordUse[]
   changes: readonly (DefinitionStepRecord | ImportRecord)[]
   /** Every user reads every set change (spec: activity-log, "Set changes are events"). */
   setChanges: readonly SetChange[]
@@ -38,6 +39,7 @@ export const EMPTY_LOG_RECORDS: LogRecords = {
   drafts: [],
   taught: [],
   takenBack: [],
+  wordUses: [],
   changes: [],
   setChanges: [],
 }
@@ -56,8 +58,9 @@ type EventBase = {
  * `to` is `null`, and `missingHoldingId` names the holding to read for it. A draw is one event for the draw, its
  * holding and its payment. A pack opening is one event for the pack, its holdings, its payment and its refund, at
  * the time it was opened; it changes as the pack goes on. A True Word draft is likewise one event for the draft, its
- * learned word, its payment and its refund. A word the DM teaches, and a word the DM takes back, are events too. So is
- * each definition change record: a DM step on a card or a word, or an import's additions.
+ * learned word, its payment and its refund. A word the DM teaches, and a word the DM takes back, are events too, and
+ * so is each use of a word, with its payment. So is each definition change record: a DM step on a card or a word, or
+ * an import's additions.
  */
 export type LogEvent =
   | (EventBase & { kind: 'given' | 'used' | 'discarded'; holding: Holding })
@@ -75,6 +78,7 @@ export type LogEvent =
   | (EventBase & { kind: 'balance'; entry: LedgerEntry })
   | (EventBase & { kind: 'wordDraft'; draft: WordDraft })
   | (EventBase & { kind: 'wordTaught' | 'wordTakenBack'; record: LearnedWord })
+  | (EventBase & { kind: 'wordUsed'; use: WordUse })
   | (EventBase & { kind: 'definition'; change: DefinitionStepRecord })
   | (EventBase & { kind: 'import'; change: ImportRecord })
   | (EventBase & { kind: 'set'; change: SetChange })
@@ -189,6 +193,10 @@ export function deriveEvents(records: LogRecords): LogEvent[] {
       record,
     })
   }
+  for (const use of records.wordUses) {
+    const key = `wordUsed:${use.id}`
+    events.set(key, { kind: 'wordUsed', key, at: use.at, by: use.by, use })
+  }
   for (const change of records.changes) {
     const key = `definition:${change.id}`
     events.set(
@@ -230,6 +238,7 @@ export function newestEvents(
     records.drafts.length >= limit ||
     records.taught.length >= limit ||
     records.takenBack.length >= limit ||
+    records.wordUses.length >= limit ||
     records.changes.length >= limit ||
     records.setChanges.length >= limit
   return { events: events.slice(0, limit), mayHaveMore }

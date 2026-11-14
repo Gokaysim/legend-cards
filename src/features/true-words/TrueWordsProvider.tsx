@@ -14,6 +14,7 @@ import {
   setWordActive,
   skipDraft,
   startDraft,
+  recordWordUse,
   takeBackWord,
   teachWord,
   trueWordsRef,
@@ -37,6 +38,7 @@ const actions: TrueWordActions = {
   teachWord: (input) => teachWord(db, input),
   takeBackWord: (input) => takeBackWord(db, input),
   setActive: (recordId, active) => setWordActive(db, recordId, active),
+  recordWordUse: (input) => recordWordUse(db, input),
 }
 
 /**

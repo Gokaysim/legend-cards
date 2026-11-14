@@ -2,18 +2,28 @@ import { useState } from 'react'
 
 import { DetailsBadges } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
-import { BinIcon, PersonIcon, PowerIcon } from '@/components/ui/icons'
+import { BinIcon, BoltIcon, PersonIcon, PowerIcon } from '@/components/ui/icons'
 import { Pill } from '@/components/ui/Pill'
 import { ToolSection } from '@/components/ui/ToolSection'
 import { useArt } from '@/features/art/artContext'
 import { CardPicture } from '@/features/art/CardPicture'
 import { usePicture } from '@/features/art/usePicture'
 import { useAuth } from '@/features/auth/authContext'
+import { formatDelta } from '@/features/balances/format'
+import {
+  confirmUseLabel,
+  initialEntered,
+  planUsePayment,
+  shortfallNote,
+  type UsePayer,
+} from '@/features/balances/paymentPlan'
+import { UsePayment } from '@/features/balances/UsePayment'
 import { visibleText } from '@/features/cards/text'
 import { cn } from '@/lib/cn'
 import { TABLE_BUSY_NOTE } from '@/features/table/errors'
+import { TableBusyNote } from '@/features/table/TableBusyNote'
 import { useIsTableBusy } from '@/features/table/tableContext'
-import { useIsDm } from '@/features/users/usersContext'
+import { useIsDm, useProfiles } from '@/features/users/usersContext'
 import { useOnlineStatus } from '@/lib/useOnlineStatus'
 
 import { costLabel } from './display'
@@ -38,7 +48,9 @@ const TOOL_BUTTON_CLASSES = 'min-h-14 flex-col gap-1 px-1 py-2 text-xs'
  * A known word's details, the same in the dialog and in the panel beside the hand, in the frame of a card's details
  * (spec: true-words, "True Words tab on the hand screen"; design D4 of `redesign-selected-card-panel`): its picture,
  * large and glowing purple while active, or without one its name and text; labels for its cost and how it was learned;
- * who knows it; and the DM's tools. The picture carries the name and text, which stay for screen readers. The DM
+ * who knows it; "Kullan" across the details; and the DM's tools. The picture carries the name and text, which stay
+ * for screen readers. The player who knows the word and the DM use it, paying from the player's LP in a step in place
+ * of the button (spec: true-words, "Using a True Word"); the word stays, and the details say it was used. The DM
  * switches it active (also while a pack is open) and takes it back, after a confirmation in place of the buttons, to
  * correct a mistake. Others only read.
  */
@@ -50,10 +62,25 @@ export function TrueWordDetails({ entry, holderName, onDone, layout }: TrueWordD
   const isTableBusy = useIsTableBusy()
   const isOnline = useOnlineStatus()
   const actions = useTrueWordActions()
+  const profiles = useProfiles()
   const picture = usePicture(useArt().pictureUrl(word.picture))
   const [isConfirming, setIsConfirming] = useState(false)
+  const [isUsing, setIsUsing] = useState(false)
+  const [entered, setEntered] = useState('')
+  /** The LP paid by the last use from here, to say that the word was used; `null` before any. */
+  const [lastUse, setLastUse] = useState<number | null>(null)
   const [isBusy, setIsBusy] = useState(false)
   const [failure, setFailure] = useState<WordFailure | null>(null)
+
+  const canUse = isDm || (uid !== null && uid === record.uid)
+  // The player's LP pays for a use, live. Until the profiles load, the payment is not known and a use waits.
+  const ownerProfile =
+    profiles.status === 'ready'
+      ? profiles.data.find((profile) => profile.id === record.uid)
+      : undefined
+  const payer: UsePayer | null =
+    ownerProfile?.role === 'player' ? { name: holderName, lp: ownerProfile.lp } : null
+  const payment = planUsePayment({ cost: word.cost, payer, isDm, entered })
 
   const run = async (action: () => Promise<void>, onDone?: () => void) => {
     setFailure(null)
@@ -77,6 +104,54 @@ export function TrueWordDetails({ entry, holderName, onDone, layout }: TrueWordD
     }
     void run(() => actions.takeBackWord({ recordId: record.id, by: uid }), onDone)
   }
+
+  const startUse = () => {
+    setFailure(null)
+    setLastUse(null)
+    setEntered(initialEntered(word.cost, isDm))
+    setIsUsing(true)
+  }
+
+  const confirmUse = () => {
+    const { amount } = payment
+    if (uid === null || amount === null) return
+    if (!isOnline) {
+      setFailure({ kind: 'offline' })
+      return
+    }
+    void run(
+      () => actions.recordWordUse({ recordId: record.id, by: uid, amount }).then(() => undefined),
+      () => {
+        setIsUsing(false)
+        setLastUse(amount)
+      },
+    )
+  }
+
+  const useStep = (
+    <div className="flex flex-col gap-2 rounded-xl border border-line bg-pane-raised p-3">
+      <UsePayment
+        plan={payment}
+        payer={payer}
+        cost={word.cost}
+        entered={entered}
+        onEnteredChange={setEntered}
+      />
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant="primary"
+          disabled={isBusy || isTableBusy || ownerProfile === undefined || !payment.canConfirm}
+          title={isTableBusy ? TABLE_BUSY_NOTE : undefined}
+          onClick={confirmUse}
+        >
+          {isBusy ? 'Kaydediliyor…' : confirmUseLabel(payment.amount)}
+        </Button>
+        <Button disabled={isBusy} onClick={() => setIsUsing(false)}>
+          Vazgeç
+        </Button>
+      </div>
+    </div>
+  )
 
   const text = visibleText(word.text)
   const hasPicture = picture.src !== null
@@ -133,12 +208,36 @@ export function TrueWordDetails({ entry, holderName, onDone, layout }: TrueWordD
         <p className="text-sm text-ink-muted">Bu True Word artık listede yok; oyuncuda kalır.</p>
       ) : null}
 
+      {canUse && !isUsing ? (
+        <Button
+          variant="primary"
+          disabled={isTableBusy}
+          title={isTableBusy ? TABLE_BUSY_NOTE : undefined}
+          onClick={startUse}
+          className="h-11 w-full text-[15px] font-semibold"
+        >
+          <BoltIcon />
+          Kullan
+        </Button>
+      ) : null}
+      {canUse && isUsing ? useStep : null}
+      {canUse && !isDm && !isUsing ? <TableBusyNote /> : null}
+      {lastUse !== null && !isUsing ? (
+        <p role="status" className="text-sm text-ink">
+          {lastUse > 0
+            ? `${word.name} kullanıldı (${formatDelta(-lastUse)} LP).`
+            : `${word.name} kullanıldı.`}
+        </p>
+      ) : null}
+
       {failure ? (
         <p
           role="alert"
           className="rounded-lg border border-danger-line bg-pane-raised p-3 text-sm text-danger-ink"
         >
-          {wordFailureMessage(failure, holderName)}
+          {failure.kind === 'insufficient'
+            ? shortfallNote(holderName, failure.balance, failure.amount)
+            : wordFailureMessage(failure, holderName)}
         </p>
       ) : null}
 

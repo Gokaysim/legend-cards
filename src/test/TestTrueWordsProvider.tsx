@@ -31,6 +31,7 @@ const SUCCEEDING_ACTIONS: TrueWordActions = {
   teachWord: () => Promise.resolve('test-record'),
   takeBackWord: () => Promise.resolve(),
   setActive: () => Promise.resolve(),
+  recordWordUse: () => Promise.resolve('test-use'),
 }
 
 /** Provides fixed words, known words and open drafts, and fake steps, to components under test, without Firebase. */

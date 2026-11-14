@@ -51,7 +51,10 @@ function usedSentence(event: LogEvent & { holding: Holding }, nameOf: NameOf): S
   const { holding } = event
   const owner = event.by === holding.uid ? '' : `${genitive(nameOf(holding.uid))} `
   const where = holding.usedOn === null ? '' : ` ${holding.usedOn} üzerinde`
-  return [owner, card(holding.cardName), ` kartını${where} kullandı.`]
+  // A paid use shows its payment; a free one, and one from before payments, shows none.
+  const payment =
+    holding.useCost !== null && holding.useCost > 0 ? ` (${formatDelta(-holding.useCost)} LP)` : ''
+  return [owner, card(holding.cardName), ` kartını${where} kullandı${payment}.`]
 }
 
 const RARITY_LABELS = { common: 'Common', rare: 'Rare', blessed: 'Blessed' } as const
@@ -431,6 +434,18 @@ export function describeEvent(
         ],
         reason: null,
       }
+    case 'wordUsed': {
+      const { use } = event
+      // The DM's use of a player's word names the player; a free use shows no payment.
+      const owner = event.by === use.uid ? '' : `${genitive(nameOf(use.uid))} `
+      const payment = use.cost > 0 ? ` (${formatDelta(-use.cost)} LP)` : ''
+      return {
+        parts: [owner, card(use.wordName), ` True Word'ünü kullandı${payment}.`].filter(
+          (part) => part !== '',
+        ),
+        reason: null,
+      }
+    }
     case 'wordTakenBack':
       return {
         parts: [

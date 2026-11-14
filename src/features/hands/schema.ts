@@ -63,6 +63,13 @@ export const holdingSchema = z
     usedOn: z.string().min(1).max(HOLDING_LIMITS.usedOn).nullable(),
     /** For a transferred card: the receiver's new holding. */
     transferredTo: id.nullable(),
+    /**
+     * For a used card: the LP paid for the use, 0 when it was free. Written only when the holding closes as used;
+     * holdings closed before payments, and open ones, read as `null`.
+     */
+    useCost: z.number().int().min(0).nullable().default(null),
+    /** For a use that paid more than 0: the ledger entry of the payment. */
+    useEntryId: id.nullable().default(null),
   })
   .superRefine((holding, context) => {
     const issue = (path: string, message: string) => {
@@ -80,6 +87,15 @@ export const holdingSchema = z
     if (holding.usedOn !== null && holding.returnReason !== 'used') {
       issue('usedOn', 'only a holding closed as used names a character')
     }
+    if (holding.useCost !== null && holding.returnReason !== 'used') {
+      issue('useCost', 'only a holding closed as used records a payment')
+    }
+    if ((holding.useEntryId !== null) !== (holding.useCost !== null && holding.useCost > 0)) {
+      issue(
+        'useEntryId',
+        'a use that paid more than 0 names its ledger entry, and only such a use does',
+      )
+    }
     if ((holding.returnReason === 'transferred') !== (holding.transferredTo !== null)) {
       issue(
         'transferredTo',
@@ -89,6 +105,9 @@ export const holdingSchema = z
   })
 
 export type StoredHolding = z.infer<typeof holdingSchema>
+
+/** The fields a new holding is created with: the payment fields come only with its close as used. */
+export type NewHolding = Omit<StoredHolding, 'useCost' | 'useEntryId'>
 
 /** A holding as features see it: the stored fields plus the document ID as `id`. */
 export type Holding = StoredHolding & { id: string }

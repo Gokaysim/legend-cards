@@ -55,6 +55,10 @@ const draftPayment = {
 
 const draftRefund = { ...draftPayment, delta: 3, balanceAfter: 5, by: 'dm' }
 
+const usePayment = { ...drawEntry, delta: -2, balanceAfter: 3, source: 'use', drawId: 'holding-1' }
+
+const wordUsePayment = { ...drawEntry, delta: -5, source: 'wordUse', drawId: 'use-1' }
+
 const accepts = (entry: object) => ledgerEntrySchema.safeParse(entry).success
 
 describe('ledgerEntrySchema', () => {
@@ -100,6 +104,11 @@ describe('ledgerEntrySchema', () => {
     expect(accepts(draftRefund)).toBe(true)
   })
 
+  it('accepts the payments for a card and a True Word use: LP, no reason, and the holding or word use', () => {
+    expect(accepts(usePayment)).toBe(true)
+    expect(accepts(wordUsePayment)).toBe(true)
+  })
+
   it.each([
     ['a change by hand without a reason', { ...lpEntry, reason: null }],
     ['a change by hand that names a draw', { ...lpEntry, drawId: 'draw-1' }],
@@ -112,6 +121,12 @@ describe('ledgerEntrySchema', () => {
     ['a draft payment in GP', { ...draftPayment, currency: 'gp', account: 'party' }],
     ['a draft payment with a reason', { ...draftPayment, reason: 'True Word draft' }],
     ['a draft refund without its draft', { ...draftRefund, drawId: null }],
+    ['a card use payment in GP', { ...usePayment, currency: 'gp', account: 'party' }],
+    ['a card use payment with a reason', { ...usePayment, reason: 'Kart kullanımı' }],
+    ['a card use payment without its holding', { ...usePayment, drawId: null }],
+    ['a word use payment in GP', { ...wordUsePayment, currency: 'gp', account: 'party' }],
+    ['a word use payment with a reason', { ...wordUsePayment, reason: 'Abyss' }],
+    ['a word use payment without its use', { ...wordUsePayment, drawId: null }],
   ])('rejects %s', (_case, entry) => {
     expect(accepts(entry)).toBe(false)
   })

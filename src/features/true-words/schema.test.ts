@@ -12,6 +12,7 @@ import {
   playerWordsSchema,
   trueWordSchema,
   wordDraftSchema,
+  wordUseSchema,
 } from './schema'
 
 const at = Timestamp.fromMillis(1000)
@@ -200,5 +201,36 @@ describe('wordDraftSchema', () => {
     ['an ended draft without who ended it', { ...skipped, closedBy: null }],
   ])('rejects %s', (_case, draft) => {
     expect(wordDraftSchema.safeParse(draft).success).toBe(false)
+  })
+})
+
+describe('wordUseSchema', () => {
+  const paid = {
+    uid: 'ayla',
+    wordId: 'tw-abyss',
+    wordName: 'Abyss',
+    recordId: 'r1',
+    by: 'ayla',
+    at,
+    cost: 5,
+    entryId: 'e1',
+  }
+
+  it.each([
+    ['a paid use', paid],
+    ['a free use', { ...paid, cost: 0, entryId: null }],
+    ['a use whose server time is still pending', { ...paid, at: null }],
+  ])('accepts %s', (_case, use) => {
+    expect(wordUseSchema.safeParse(use).success).toBe(true)
+  })
+
+  it.each([
+    ['a paid use without its entry', { ...paid, entryId: null }],
+    ['a free use that names an entry', { ...paid, cost: 0 }],
+    ['a negative cost', { ...paid, cost: -1 }],
+    ['a fractional cost', { ...paid, cost: 1.5 }],
+    ['a use without its record', { ...paid, recordId: '' }],
+  ])('rejects %s', (_case, use) => {
+    expect(wordUseSchema.safeParse(use).success).toBe(false)
   })
 })
