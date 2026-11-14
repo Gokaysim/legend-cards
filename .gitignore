@@ -11,6 +11,8 @@ coverage/
 # Firebase
 .firebase/
 .firebase-emulator-data/
+# Exports the emulators write to the project root when they cannot export to .firebase-emulator-data/
+firebase-export-*/
 *-debug.log
 
 # Editors and OS
