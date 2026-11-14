@@ -77,6 +77,16 @@ describe('theme tokens', () => {
     expect(contrastRatio(token('green'), token('badge-active'))).toBeGreaterThanOrEqual(4.5)
   })
 
+  // The status badges on the faces of "+ Kart ver", on the canvas, and the deck's count, canvas text on gold.
+  for (const ink of ['green', 'gold', 'true-word', 'cursed-soft']) {
+    it(`${ink} badge text on the canvas has at least 4.5:1 contrast`, () => {
+      expect(contrastRatio(token(ink), token('canvas'))).toBeGreaterThanOrEqual(4.5)
+    })
+  }
+  it("the deck's count, canvas text on gold, has at least 4.5:1 contrast", () => {
+    expect(contrastRatio(token('canvas'), token('gold'))).toBeGreaterThanOrEqual(4.5)
+  })
+
   // Card frames are non-text graphics: WCAG asks for at least 3:1 against the surface they sit on.
   for (const frame of ['common', 'gold', 'blessed', 'cursed']) {
     for (const surface of ['pane', 'pane-raised']) {

@@ -8,7 +8,6 @@ import {
   type CardFilterValue,
 } from '@/features/definitions/statusFilterOptions'
 import { STATUS_LABELS } from '@/features/definitions/status'
-import type { SetIndex } from '@/features/sets/index'
 import { useSetIndex } from '@/features/sets/setsContext'
 import type { SubscriptionError } from '@/lib/firestore/errors'
 import type { Subscription } from '@/lib/firestore/subscription'
@@ -19,6 +18,7 @@ import type { Deck } from './cardsContext'
 import { CardTable } from './CardTable'
 import { cardHaystack, cardMatchesQuery, NO_VALUE, setLabel } from './display'
 import type { Card } from './schema'
+import { setChoices } from './setChoices'
 import {
   type CardSort,
   compareLabels,
@@ -40,22 +40,6 @@ function errorMessage(error: SubscriptionError): string {
   return error.kind === 'invalid-data'
     ? 'Kartlar yüklenemedi: kart verisi beklenen biçimde değil. Kart import’unu yeniden çalıştırmak gerekebilir.'
     : 'Kartlar yüklenemedi.'
-}
-
-/**
- * The set filter's options: the sets that have cards, in the stored order (codes that no stored set has after them,
- * alphabetically), followed by "Blessed" when Blessed cards exist. Values are the shown labels.
- */
-function setOptions(cards: readonly Card[], index: SetIndex): string[] {
-  const known = new Map<string, number>()
-  let hasBlessed = false
-  for (const card of cards) {
-    if (card.kind === 'blessed') hasBlessed = true
-    else if (card.setCode !== null)
-      known.set(setLabel(card, index.setName) ?? card.setCode, index.setRank(card.setCode))
-  }
-  const sets = [...known].sort(([a, orderA], [b, orderB]) => orderA - orderB || compareLabels(a, b))
-  return [...sets.map(([label]) => label), ...(hasBlessed ? ['Blessed'] : [])]
 }
 
 /** The mechanic pack filter's options: the packs that have cards, in Turkish alphabetical order. */
@@ -143,7 +127,10 @@ function LoadedCardBrowser({
     [cards, setName],
   )
   const sets = useMemo(
-    () => (deck === 'legend' ? setOptions(cards, setIndex) : []),
+    () =>
+      deck === 'legend'
+        ? setChoices(cards, setIndex, { withBlessed: true }).map((choice) => choice.label)
+        : [],
     [cards, deck, setIndex],
   )
   const mechanics = useMemo(() => (deck === 'legend' ? mechanicOptions(cards) : []), [cards, deck])

@@ -280,7 +280,7 @@ describe('draws in the İşlem Logu', () => {
       id: 'd-dm',
       by: 'dana',
       at: on(8, 40),
-      filters: { cost: null, mechanicPack: null, rarity: 'rare', keyword: null },
+      filters: { setCode: null, cost: null, mechanicPack: null, rarity: 'rare', keyword: null },
     })
     renderLog({ records: ready(records({ draws: [dmDraw] })) })
 

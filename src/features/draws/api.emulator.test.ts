@@ -176,7 +176,13 @@ describe('drawing under the real rules', () => {
   })
 
   it("charges nothing for the DM's draw and stores its filters", async () => {
-    const filters = { cost: null, mechanicPack: null, rarity: 'rare' as const, keyword: 'rite' }
+    const filters = {
+      setCode: null,
+      cost: null,
+      mechanicPack: null,
+      rarity: 'rare' as const,
+      keyword: 'rite',
+    }
     const result = await drawCard(as('dana'), {
       kind: 'random',
       uid: 'ayla',

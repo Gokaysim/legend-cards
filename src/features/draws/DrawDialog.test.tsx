@@ -5,13 +5,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ArtManifest } from '@/features/art/schema'
 import type { Card } from '@/features/cards/schema'
 import type { UserProfile } from '@/features/users/schema'
-import { testArt } from '@/test/artFixtures'
+import type { CardSet } from '@/features/sets/schema'
+import { testArt, testPicturePath, testPictureUrl } from '@/test/artFixtures'
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 import { ready, testProfile, testUser } from '@/test/fixtures'
+import { TEST_SETS, TEST_SETS_WITH_PICTURES } from '@/test/setFixtures'
 import { TestArtProvider } from '@/test/TestArtProvider'
 import { TestAuthProvider } from '@/test/TestAuthProvider'
 import { TestCardsProvider } from '@/test/TestCardsProvider'
 import { TestDrawsProvider } from '@/test/TestDrawsProvider'
+import { TestSetsProvider } from '@/test/TestSetsProvider'
 import { TestUsersProvider } from '@/test/TestUsersProvider'
 
 import type { DrawCardInput, DrawResult } from './api'
@@ -50,6 +53,7 @@ type Setup = {
   cards?: Card[]
   drawCard?: DrawActions['drawCard']
   art?: ArtManifest
+  sets?: readonly CardSet[]
 }
 
 function setup({
@@ -59,19 +63,23 @@ function setup({
   cards = CARDS,
   drawCard,
   art,
+  sets = TEST_SETS,
 }: Setup = {}) {
   const user = userEvent.setup()
   const draw = vi.fn<DrawActions['drawCard']>(drawCard ?? drawsInTurn())
   const onClose = vi.fn()
+  const setsReady = ready([...sets])
   const tree = (current: UserProfile) => (
     <TestArtProvider manifest={art}>
       <TestAuthProvider state={{ status: 'signedIn', user: testUser }}>
         <TestUsersProvider currentProfile={ready(asDm ? dm : me)}>
-          <TestCardsProvider cards={ready(cards)}>
-            <TestDrawsProvider actions={{ drawCard: draw }}>
-              <DrawDialog mode={mode} owner={current} onClose={onClose} />
-            </TestDrawsProvider>
-          </TestCardsProvider>
+          <TestSetsProvider sets={setsReady}>
+            <TestCardsProvider cards={ready(cards)}>
+              <TestDrawsProvider actions={{ drawCard: draw }}>
+                <DrawDialog mode={mode} owner={current} onClose={onClose} />
+              </TestDrawsProvider>
+            </TestCardsProvider>
+          </TestSetsProvider>
         </TestUsersProvider>
       </TestAuthProvider>
     </TestArtProvider>
@@ -82,14 +90,23 @@ function setup({
 
 const control = (name: string | RegExp) => screen.getByRole('button', { name })
 const backs = () => screen.queryAllByRole('button', { name: /^Kart \d+: çevir$/ })
+/** The player's LP pill: "Bakiye: 3 LP" for screen readers, "3 LP" on screen. */
+const balance = () => screen.getByText(/Bakiye:/).parentElement as HTMLElement
+const deckCount = () => screen.getByText(/uygun kart$/)
+const pill = (name: RegExp) => screen.getByRole('button', { name })
+const item = (name: string) => screen.getByRole('menuitemradio', { name })
+const menuNames = () =>
+  screen.getAllByRole('menuitemradio').map((menuItem) => menuItem.getAttribute('aria-label'))
 
 describe("a player's draw", () => {
   it('shows the live LP, draws for 1 LP from the whole pool, and shows the card face down', async () => {
     const { user, draw, setOwner } = setup()
 
     expect(screen.getByRole('dialog', { name: '🎲 Kart Çek · Ayla' })).toBeInTheDocument()
-    expect(screen.getByText(/Bakiye:/)).toHaveTextContent('Bakiye: 3 LP · Her kart 1 LP')
-    await user.click(control('🎲 Kart Çek (1 LP)'))
+    expect(balance()).toHaveTextContent('Bakiye: 3 LP')
+    expect(screen.getByText('Her kart 1 LP')).toBeInTheDocument()
+    expect(deckCount()).toHaveTextContent('3 uygun kart')
+    await user.click(control('🎲 Çek · 1 LP'))
 
     expect(draw).toHaveBeenCalledExactlyOnceWith({
       kind: 'random',
@@ -101,23 +118,25 @@ describe("a player's draw", () => {
     })
     expect(backs().map((back) => back.getAttribute('aria-label'))).toEqual(['Kart 1: çevir'])
     expect(screen.queryByText("Aboleth's Eyes")).not.toBeInTheDocument()
-    // The spread: an overlapping row whose card lifts under the pointer or the focus, unless motion is reduced.
+    // The fan: overlapping, slightly turned cards that lift under the pointer or the focus, unless motion is reduced.
     expect(backs()[0]?.closest('li')).toHaveClass(
       '-mr-3',
+      'motion-safe:-rotate-3',
       'motion-safe:hover:-translate-y-2.5',
       'motion-safe:focus-within:-translate-y-2.5',
       'hover:z-50',
     )
+    expect(backs()[0]?.closest('li')?.className).not.toMatch(/(^|\s)-?rotate-/)
 
     setOwner({ ...me, lp: 2 })
-    expect(screen.getByText(/Bakiye:/)).toHaveTextContent('Bakiye: 2 LP')
+    expect(balance()).toHaveTextContent('Bakiye: 2 LP')
   })
 
   it('draws three times in a row and keeps every card, in order', async () => {
     const { user, draw, setOwner } = setup({ owner: { ...me, lp: 5 } })
 
     for (const lp of [4, 3, 2]) {
-      await user.click(control('🎲 Kart Çek (1 LP)'))
+      await user.click(control('🎲 Çek · 1 LP'))
       setOwner({ ...me, lp })
     }
 
@@ -130,66 +149,139 @@ describe("a player's draw", () => {
     expect(screen.getByRole('status')).toHaveTextContent(
       "3 kart çekildi ve Ayla'nın eline eklendi.",
     )
-    expect(screen.getByText(/Bakiye:/)).toHaveTextContent('Bakiye: 2 LP')
+    expect(balance()).toHaveTextContent('Bakiye: 2 LP')
   })
 
   it('disables the control at 0 LP, with a note', () => {
     setup({ owner: { ...me, lp: 0 } })
 
-    expect(control('🎲 Kart Çek (1 LP)')).toBeDisabled()
+    expect(control('🎲 Çek · 1 LP')).toBeDisabled()
     expect(screen.getByText('Kart çekmek için 1 LP gerekiyor.')).toBeInTheDocument()
   })
 
-  it('offers no filters', () => {
+  it('offers no filters and no look into the deck', () => {
     setup()
 
-    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
-    expect(screen.queryByText(/uygun kart/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: 'Filtreler' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Destede ne var?' })).not.toBeInTheDocument()
   })
 })
 
 describe("the DM's draw", () => {
   const ayla = testProfile({ id: 'ayla', displayName: 'Ayla', lp: 0 })
+  const DESERT = testCard('Desert Rite', {
+    setCode: 'Kesqer',
+    rarity: 'rare',
+    cost: '1',
+    mechanicPack: 'Risk & Reward',
+  })
+  const OATH = testCard('Sand Oath', { setCode: 'Kesqer', rarity: 'rare', cost: '5' })
+  const MARKET = testCard('Market Day', { setCode: 'Kesqer', rarity: 'common', cost: '1' })
+  const HARBOR = testCard('Harbor Light', { setCode: 'Havenholm', rarity: 'rare', cost: '2' })
+  const SONG = testCard('Last Song', {
+    setCode: 'Ulagal',
+    holder: { uid: 'bora', userCardId: 'h9' },
+  })
+  const SET_CARDS = [DESERT, OATH, MARKET, HARBOR, SONG, WIND, VISIONS]
 
-  it('is free, offers the filters, and counts the matching cards', async () => {
+  const choose = async (
+    user: ReturnType<typeof userEvent.setup>,
+    pillName: RegExp,
+    itemName: string,
+  ) => {
+    await user.click(pill(pillName))
+    await user.click(item(itemName))
+  }
+
+  it('is free, offers the filter pills, and counts the matching cards on the deck', async () => {
     const { user, draw } = setup({ asDm: true, owner: ayla })
 
     expect(screen.getByText('DM çekilişi ücretsizdir.')).toBeInTheDocument()
-    expect(screen.getByText(/uygun kart/)).toHaveTextContent('3 uygun kart')
-    const rarity = screen.getByRole('combobox', { name: 'Rarity' })
-    expect(
-      within(rarity)
-        .getAllByRole('option')
-        .map((option) => option.textContent),
-    ).toEqual(['Tümü', 'Common', 'Rare', 'Blessed'])
-    expect(
-      within(screen.getByRole('combobox', { name: 'Cost' }))
-        .getAllByRole('option')
-        .map((option) => option.textContent),
-    ).toEqual(['Tümü', '1', '2'])
+    expect(deckCount()).toHaveTextContent('3 uygun kart')
+    await user.click(pill(/^Rarity/))
+    expect(menuNames()).toEqual(['Tümü', 'Common, 1 kart', 'Rare, 1 kart', 'Blessed, 1 kart'])
+    await user.click(item('Rare, 1 kart'))
+    await user.click(pill(/^Cost/))
+    expect(menuNames()).toEqual(['Tümü', '1, 0 kart', '2, 1 kart'])
+    await user.keyboard('{Escape}')
 
-    await user.selectOptions(rarity, 'Rare')
-    expect(screen.getByText(/uygun kart/)).toHaveTextContent('1 uygun kart')
-    await user.click(control('🎲 Kart Çek'))
+    expect(deckCount()).toHaveTextContent('1 uygun kart')
+    await user.click(control('🎲 Çek'))
 
     expect(draw).toHaveBeenCalledExactlyOnceWith({
       kind: 'random',
       uid: 'ayla',
       by: testUser.uid,
       paid: false,
-      filters: { cost: null, mechanicPack: null, rarity: 'rare', keyword: null },
+      filters: { setCode: null, cost: null, mechanicPack: null, rarity: 'rare', keyword: null },
       candidates: [RITE],
     })
+  })
+
+  it('draws from one set, and records its code', async () => {
+    const { user, draw } = setup({ asDm: true, owner: ayla, cards: SET_CARDS })
+
+    await choose(user, /^Set/, 'Kesqerian Nights, 3 kart')
+    await choose(user, /^Rarity/, 'Rare, 2 kart')
+    expect(deckCount()).toHaveTextContent('2 uygun kart')
+    await user.click(control('🎲 Çek'))
+
+    expect(draw.mock.calls[0]?.[0]).toMatchObject({
+      filters: { setCode: 'Kesqer', cost: null, mechanicPack: null, rarity: 'rare', keyword: null },
+      candidates: [DESERT, OATH],
+    })
+  })
+
+  it('lists the sets with drawable cards in the shop order, without "Blessed"', async () => {
+    const { user } = setup({ asDm: true, owner: ayla, cards: SET_CARDS })
+
+    await user.click(pill(/^Set/))
+
+    // The shop order puts Kesqer (5) before Havenholm (8); Ulagal's only card is held.
+    expect(menuNames()).toEqual(['Tümü', 'Kesqerian Nights, 3 kart', 'Throne of Havenholm, 1 kart'])
+  })
+
+  it('counts each choice under the other filters, and keeps a chosen value at 0', async () => {
+    const { user } = setup({ asDm: true, owner: ayla, cards: SET_CARDS })
+
+    await choose(user, /^Set/, 'Kesqerian Nights, 3 kart')
+    await user.click(pill(/^Rarity/))
+    expect(menuNames()).toEqual(['Tümü', 'Common, 1 kart', 'Rare, 2 kart', 'Blessed, 0 kart'])
+    await user.click(item('Tümü'))
+
+    await choose(user, /^Cost/, '5, 1 kart')
+    await choose(user, /^Mechanic Pack/, 'Risk & Reward, 0 kart')
+    expect(pill(/^Cost: 5/)).toBeInTheDocument()
+    await user.click(pill(/^Cost: 5/))
+    expect(item('5, 0 kart')).toHaveAttribute('aria-checked', 'true')
+    await user.keyboard('{Escape}')
+    expect(deckCount()).toHaveTextContent('0 uygun kart')
+    expect(control('🎲 Çek')).toBeDisabled()
+  })
+
+  it('clears the filters with "Temizle", and starts without filters when opened again', async () => {
+    const { user } = setup({ asDm: true, owner: ayla, cards: SET_CARDS })
+    await choose(user, /^Set/, 'Kesqerian Nights, 3 kart')
+    await choose(user, /^Rarity/, 'Rare, 2 kart')
+
+    await user.click(control('Temizle'))
+    expect(deckCount()).toHaveTextContent('5 uygun kart')
+    expect(pill(/^Set$/)).toBeInTheDocument()
+
+    await choose(user, /^Rarity/, 'Rare, 3 kart')
+    await user.click(control('✕ Kapat'))
+    setup({ asDm: true, owner: ayla, cards: SET_CARDS })
+    expect(screen.getAllByText(/uygun kart$/).at(-1)).toHaveTextContent('5 uygun kart')
   })
 
   it('records no filters when none is set, and matches the keyword as the library search does', async () => {
     const { user, draw } = setup({ asDm: true, owner: ayla })
 
-    await user.click(control('🎲 Kart Çek'))
+    await user.click(control('🎲 Çek'))
     expect(draw.mock.calls[0]?.[0].filters).toBeNull()
 
     await user.type(screen.getByRole('searchbox', { name: 'Kelime' }), 'blood, battle')
-    expect(screen.getByText(/uygun kart/)).toHaveTextContent('1 uygun kart')
+    expect(deckCount()).toHaveTextContent('1 uygun kart')
   })
 
   it('shows 0 matching cards and disables the control when nothing matches', async () => {
@@ -197,8 +289,42 @@ describe("the DM's draw", () => {
 
     await user.type(screen.getByRole('searchbox', { name: 'Kelime' }), 'zzz')
 
-    expect(screen.getByText(/uygun kart/)).toHaveTextContent('0 uygun kart')
-    expect(control('🎲 Kart Çek')).toBeDisabled()
+    expect(deckCount()).toHaveTextContent('0 uygun kart')
+    expect(control('🎲 Çek')).toBeDisabled()
+  })
+
+  it('looks into the deck: the matching cards face up, by name, without changing the draw', async () => {
+    const { user, draw } = setup({ asDm: true, owner: ayla, cards: SET_CARDS })
+    await choose(user, /^Set/, 'Kesqerian Nights, 3 kart')
+
+    await user.click(control('Destede ne var?'))
+
+    const peek = screen.getByRole('list', { name: 'Destedeki kartlar' })
+    expect(
+      within(peek)
+        .getAllByRole('article')
+        .map((face) => face.getAttribute('aria-label')),
+    ).toEqual(['Desert Rite', 'Market Day', 'Sand Oath'])
+    await user.click(control('🎲 Çek'))
+    expect(draw.mock.calls[0]?.[0].candidates).toEqual([DESERT, OATH, MARKET])
+
+    await user.click(control('Destede ne var?'))
+    expect(screen.queryByRole('list', { name: 'Destedeki kartlar' })).not.toBeInTheDocument()
+  })
+
+  it('shows 20 cards of the deck at a time', async () => {
+    const many = Array.from({ length: 25 }, (_, index) =>
+      testCard(`Card ${String(index).padStart(2, '0')}`),
+    )
+    const { user } = setup({ asDm: true, owner: ayla, cards: many })
+
+    await user.click(control('Destede ne var?'))
+    const faces = () =>
+      within(screen.getByRole('list', { name: 'Destedeki kartlar' })).getAllByRole('article')
+    expect(faces()).toHaveLength(20)
+    await user.click(control('Daha fazla göster'))
+    expect(faces()).toHaveLength(25)
+    expect(screen.queryByRole('button', { name: 'Daha fazla göster' })).not.toBeInTheDocument()
   })
 })
 
@@ -209,6 +335,8 @@ describe('the Cursed draw', () => {
     expect(screen.getByRole('dialog', { name: '☠ Cursed Kart Çek · Ayla' })).toBeInTheDocument()
     expect(screen.getByText('Ücretsiz')).toBeInTheDocument()
     expect(screen.queryByText(/Bakiye:/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: 'Filtreler' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Destede ne var?' })).not.toBeInTheDocument()
     await user.click(control('☠ Cursed Kart Çek'))
     await user.click(control('☠ Cursed Kart Çek'))
 
@@ -227,7 +355,7 @@ describe('the Cursed draw', () => {
 describe('double-clicking a drawn card', () => {
   it('turns a face-down card over without zooming it', async () => {
     const { user } = setup()
-    await user.click(control('🎲 Kart Çek (1 LP)'))
+    await user.click(control('🎲 Çek · 1 LP'))
     const back = backs()[0] as HTMLElement
 
     // In a browser, the first click turns the card and the second lands on the face that appeared.
@@ -243,7 +371,7 @@ describe('double-clicking a drawn card', () => {
 
   it('zooms a turned card on a double click', async () => {
     const { user } = setup()
-    await user.click(control('🎲 Kart Çek (1 LP)'))
+    await user.click(control('🎲 Çek · 1 LP'))
     await user.click(backs()[0] as HTMLElement)
 
     await user.dblClick(screen.getByRole('article', { name: "Aboleth's Eyes" }))
@@ -264,13 +392,47 @@ describe('the backs of drawn cards', () => {
 
   it("keeps the neutral back for a random draw's Blessed card, as for any other", async () => {
     const { user } = setup({ cards: [WIND, EYES], art: BACKS })
-    await user.click(control('🎲 Kart Çek (1 LP)'))
-    await user.click(control('🎲 Kart Çek (1 LP)'))
+    await user.click(control('🎲 Çek · 1 LP'))
+    await user.click(control('🎲 Çek · 1 LP'))
 
     const [blessedBack, normalBack] = backs()
     expect(blessedBack?.querySelector('img')).toBeNull()
     expect(blessedBack).toHaveTextContent('✦')
     expect(blessedBack?.outerHTML.replace('Kart 1', 'Kart 2')).toBe(normalBack?.outerHTML)
+  })
+
+  it("shows the chosen set's cardback on the deck and on the cards drawn under it", async () => {
+    const KESQER_BACK = testPictureUrl(testPicturePath('set', 'kesqer'))
+    // Test cards are of the set Kesqer unless they say otherwise.
+    const harbor = testCard('Harbor Light', { setCode: 'Havenholm' })
+    const { user } = setup({
+      asDm: true,
+      cards: [harbor, EYES],
+      art: BACKS,
+      sets: TEST_SETS_WITH_PICTURES,
+    })
+    const deckBack = () => screen.getByTestId('deck-pile').getAttribute('data-back')
+
+    expect(deckBack()).toBe('css-neutral')
+    await user.click(control('🎲 Çek'))
+    await user.click(pill(/^Set/))
+    await user.click(item('Kesqerian Nights, 1 kart'))
+    expect(deckBack()).toBe(KESQER_BACK)
+    await user.click(control('🎲 Çek'))
+
+    const [first, second] = backs()
+    expect(first?.querySelector('img')).toBeNull()
+    expect(second?.querySelector('img')).toHaveAttribute('src', KESQER_BACK)
+  })
+
+  it('keeps the neutral back for a draw with only a rarity', async () => {
+    const { user } = setup({ asDm: true, cards: [RITE], art: BACKS, sets: TEST_SETS_WITH_PICTURES })
+    await user.click(pill(/^Rarity/))
+    await user.click(item('Rare, 1 kart'))
+    await user.click(control('🎲 Çek'))
+
+    expect(screen.getByTestId('deck-pile')).toHaveAttribute('data-back', 'css-neutral')
+    expect(backs()[0]?.querySelector('img')).toBeNull()
   })
 
   it('shows the Cursed cardback for a Cursed draw', async () => {
@@ -299,7 +461,7 @@ describe('the shocked Cardmaker', () => {
 
   it('appears when a drawn Blessed card is turned, and leaves after 1.1 s', async () => {
     const { user } = setup({ cards: [WIND, EYES], art: PAIR })
-    await user.click(control('🎲 Kart Çek (1 LP)'))
+    await user.click(control('🎲 Çek · 1 LP'))
     vi.useFakeTimers()
 
     fireEvent.click(control('Kart 1: çevir'))
@@ -314,7 +476,7 @@ describe('the shocked Cardmaker', () => {
 
   it('does not appear for a card that is not Blessed', async () => {
     const { user } = setup({ cards: [EYES], art: PAIR })
-    await user.click(control('🎲 Kart Çek (1 LP)'))
+    await user.click(control('🎲 Çek · 1 LP'))
 
     await user.click(control('Kart 1: çevir'))
 
@@ -326,7 +488,7 @@ describe('the shocked Cardmaker', () => {
 describe('the drawn cards', () => {
   it('turn over when selected', async () => {
     const { user } = setup()
-    await user.click(control('🎲 Kart Çek (1 LP)'))
+    await user.click(control('🎲 Çek · 1 LP'))
 
     await user.click(control('Kart 1: çevir'))
 
@@ -337,7 +499,7 @@ describe('the drawn cards', () => {
 
   it('stay drawn when the dialog closes without flipping', async () => {
     const { user, draw, onClose } = setup()
-    await user.click(control('🎲 Kart Çek (1 LP)'))
+    await user.click(control('🎲 Çek · 1 LP'))
 
     await user.click(control('✕ Kapat'))
 
@@ -356,7 +518,7 @@ describe('while drawing and when a draw fails', () => {
         }),
     })
 
-    await user.click(control('🎲 Kart Çek (1 LP)'))
+    await user.click(control('🎲 Çek · 1 LP'))
     const busy = control('Çekiliyor…')
     expect(busy).toBeDisabled()
     expect(busy).toHaveAttribute('aria-busy', 'true')
@@ -382,7 +544,7 @@ describe('while drawing and when a draw fails', () => {
   ])('explains %s in Turkish and adds no card', async (error, message) => {
     const { user } = setup({ drawCard: () => Promise.reject(error) })
 
-    await user.click(control('🎲 Kart Çek (1 LP)'))
+    await user.click(control('🎲 Çek · 1 LP'))
 
     expect(screen.getByRole('alert')).toHaveTextContent(message)
     expect(backs()).toHaveLength(0)
@@ -392,7 +554,7 @@ describe('while drawing and when a draw fails', () => {
     vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
     const { user, draw } = setup()
 
-    await user.click(control('🎲 Kart Çek (1 LP)'))
+    await user.click(control('🎲 Çek · 1 LP'))
 
     expect(screen.getByRole('alert')).toHaveTextContent(
       'Bağlantı yok: kart çekmek için internet bağlantısı gerekiyor.',
@@ -404,14 +566,14 @@ describe('while drawing and when a draw fails', () => {
     setup({ cards: [HELD, VISIONS] })
 
     expect(screen.getByText('Çekilebilecek kart yok.')).toBeInTheDocument()
-    expect(control('🎲 Kart Çek (1 LP)')).toBeDisabled()
+    expect(control('🎲 Çek · 1 LP')).toBeDisabled()
   })
 })
 
 describe('zooming a drawn card', () => {
   it('zooms a turned card, and closing the zoom view leaves the draw open', async () => {
     const { user, onClose } = setup()
-    await user.click(control('🎲 Kart Çek (1 LP)'))
+    await user.click(control('🎲 Çek · 1 LP'))
     await user.click(control('Kart 1: çevir'))
     const draw = screen.getByRole('dialog', { name: '🎲 Kart Çek · Ayla' })
 

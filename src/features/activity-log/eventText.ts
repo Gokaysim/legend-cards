@@ -59,10 +59,14 @@ function usedSentence(event: LogEvent & { holding: Holding }, nameOf: NameOf): S
 
 const RARITY_LABELS = { common: 'Common', rare: 'Rare', blessed: 'Blessed' } as const
 
-/** The DM's filters as the log shows them ("filtre: Rare · Blood & Battle"), or `null` without filters. */
-function filtersText(filters: DrawFilters | null): string | null {
+/**
+ * The DM's filters as the log shows them ("filtre: Kesqerian Nights · Rare · Blood & Battle"), or `null` without
+ * filters. A set shows by its official name, or by its code when no stored set has it.
+ */
+function filtersText(filters: DrawFilters | null, setName: SetName): string | null {
   if (filters === null) return null
   const parts = [
+    filters.setCode === null ? null : setName(filters.setCode),
     filters.rarity === null ? null : RARITY_LABELS[filters.rarity],
     filters.mechanicPack,
     filters.cost === null ? null : `Cost ${filters.cost}`,
@@ -75,12 +79,12 @@ function filtersText(filters: DrawFilters | null): string | null {
  * A draw: "Aboleth's Eyes kartını çekti (−1 LP).", or into another hand (the DM's draw) "Bora'ya Aboleth's Eyes
  * kartını çekti (filtre: Rare · Blood & Battle)." A Cursed draw: "Cursed kart çekti: Visions of Death."
  */
-function drawnSentence(draw: CardDraw, nameOf: NameOf): SentencePart[] {
+function drawnSentence(draw: CardDraw, { nameOf, setName }: LogNames): SentencePart[] {
   const into = draw.by === draw.uid ? '' : `${dative(nameOf(draw.uid))} `
   if (draw.kind === 'cursed') return [`${into}Cursed kart çekti: `, card(draw.cardName), '.']
   const details = [
     draw.paidWith === 'lp' ? `${formatDelta(-draw.cost)} LP` : null,
-    filtersText(draw.filters),
+    filtersText(draw.filters, setName),
   ].filter((part) => part !== null)
   const suffix = details.length === 0 ? '' : ` (${details.join('; ')})`
   return [into, card(draw.cardName), ` kartını çekti${suffix}.`]
@@ -420,7 +424,7 @@ export function describeEvent(
       }
     }
     case 'drawn':
-      return { parts: drawnSentence(event.draw, nameOf), reason: null }
+      return { parts: drawnSentence(event.draw, names), reason: null }
     case 'pack':
       return { parts: packSentence(event.pack, names), reason: null }
     case 'wordDraft':

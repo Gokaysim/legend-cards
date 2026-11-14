@@ -1,16 +1,15 @@
 import { describe, expect, it } from 'vitest'
 
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
-import { testSetName } from '@/test/setFixtures'
+import { testSetIndex, testSetName } from '@/test/setFixtures'
 
+import { matchesFilters } from './filters'
 import {
   activeFilters,
   cursedPool,
   type DrawFilters,
   drawablePool,
-  drawFilterOptions,
   isDrawable,
-  matchesFilters,
   NO_FILTERS,
   poolDistribution,
 } from './pool'
@@ -31,7 +30,7 @@ const dmOnlyBlessed = testBlessedCard('Secret Blessing', { dmOnly: true })
 const dmOnlyCursed = testCursedCard('Crown of Ash', { dmOnly: true })
 
 const filtered = (filters: Partial<DrawFilters>) => (card: Card) =>
-  matchesFilters(card, { ...NO_FILTERS, ...filters }, testSetName)
+  matchesFilters(card, { ...NO_FILTERS, ...filters }, testSetIndex)
 
 describe('the pool', () => {
   it('holds the active normal cards without a holder and every active Blessed card', () => {
@@ -114,6 +113,18 @@ describe('matchesFilters', () => {
     expect([pool, blessed].filter(filtered({ keyword: 'blessed' }))).toEqual([blessed])
   })
 
+  it('filters by set through the stored set, its code or an alias, never giving a Blessed card', () => {
+    const kesqer = testCard('Desert Wind', { setCode: 'Kesqer' })
+    const nigh = testCard('Last Hour', { setCode: 'The End Is Nigh' })
+    const alias = testCard('Final Bell', { setCode: 'endisnigh' })
+    const unknown = testCard('Odd One', { setCode: 'Atlantis' })
+    const cards = [kesqer, nigh, alias, unknown, blessed]
+    expect(cards.filter(filtered({ setCode: 'Kesqer' }))).toEqual([kesqer])
+    expect(cards.filter(filtered({ setCode: 'The End is Nigh' }))).toEqual([nigh, alias])
+    expect(cards.filter(filtered({ setCode: 'Atlantis' }))).toEqual([unknown])
+    expect(cards.filter(filtered({ setCode: 'Blessed' }))).toEqual([])
+  })
+
   it('combines filters', () => {
     const cards = [pool, rare, blessed, costX]
     expect(cards.filter(filtered({ rarity: 'rare', cost: '2', keyword: 'rite' }))).toEqual([rare])
@@ -131,30 +142,11 @@ describe('activeFilters', () => {
       rarity: 'rare',
     })
   })
-})
 
-describe('drawFilterOptions', () => {
-  it('offers the costs and packs of the drawable cards, in order, and every rarity', () => {
-    const cards = [
-      testCard('A', { cost: '10', mechanicPack: 'Risk & Reward' }),
-      testCard('B', { cost: '2', mechanicPack: 'Arcanus Divine' }),
-      testCard('C', { cost: 'X', mechanicPack: 'Çılgın Bilim' }),
-      testCard('D', { cost: 'd6', mechanicPack: 'Blood & Battle' }),
-      testCard('E', { cost: '0' }),
-      testCard('F', { cost: 'x' }),
-      testCard('G', {
-        cost: '7',
-        mechanicPack: 'Held Pack',
-        holder: { uid: 'a', userCardId: 'h' },
-      }),
-      testBlessedCard('H', { mechanicPack: 'Zen' }),
-      testCursedCard('I', { cost: '5' }),
-      testCard('J', { cost: '9', mechanicPack: 'Secret Pack', dmOnly: true }),
-    ]
-    expect(drawFilterOptions(cards)).toEqual({
-      costs: ['0', '2', '10', 'd6', 'X'],
-      mechanicPacks: ['Arcanus Divine', 'Blood & Battle', 'Çılgın Bilim', 'Risk & Reward', 'Zen'],
-      rarities: ['common', 'rare', 'blessed'],
+  it('keeps a set as a filter on its own', () => {
+    expect(activeFilters({ ...NO_FILTERS, setCode: ' Kesqer ' })).toEqual({
+      ...NO_FILTERS,
+      setCode: 'Kesqer',
     })
   })
 })

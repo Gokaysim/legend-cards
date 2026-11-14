@@ -1,11 +1,4 @@
-import {
-  cardHaystack,
-  cardMatchesQuery,
-  numericCost,
-  rarityLabel,
-  type SetName,
-  setLabel,
-} from './display'
+import { numericCost, rarityLabel, type SetName, setLabel } from './display'
 import type { Card } from './schema'
 import { compareLabels } from './sort'
 
@@ -19,6 +12,8 @@ export type DrawRarity = (typeof DRAW_RARITIES)[number]
 
 /** The DM's filters for a random draw. `null` leaves that filter out. */
 export type DrawFilters = {
+  /** The set's code: the stored set's own code, or the card's code as written when no stored set has it. */
+  setCode: string | null
   /** The written cost, compared trimmed and ignoring case. */
   cost: string | null
   mechanicPack: string | null
@@ -29,6 +24,7 @@ export type DrawFilters = {
 
 /** No filter set: the whole pool. */
 export const NO_FILTERS: DrawFilters = {
+  setCode: null,
   cost: null,
   mechanicPack: null,
   rarity: null,
@@ -62,22 +58,25 @@ export function drawRarity(card: Card): DrawRarity | null {
   return card.kind === 'blessed' ? 'blessed' : card.rarity
 }
 
-const costKey = (cost: string | null) => cost?.trim().toLowerCase() || null
+/** A written cost as filters compare it: trimmed and in lower case, or `null` without a cost. */
+export const costKey = (cost: string | null) => cost?.trim().toLowerCase() || null
 
-/** True when the card passes every filter that is set. The keyword also finds a set's official name. */
-export function matchesFilters(card: Card, filters: DrawFilters, setName: SetName): boolean {
-  return (
-    (filters.cost === null || costKey(card.cost) === costKey(filters.cost)) &&
-    (filters.mechanicPack === null || card.mechanicPack === filters.mechanicPack) &&
-    (filters.rarity === null || drawRarity(card) === filters.rarity) &&
-    (filters.keyword === null || cardMatchesQuery(cardHaystack(card, setName), filters.keyword))
-  )
+/** How filters find a card's set: by its official name, and by the stored set its code or an alias names. */
+export type SetLookup = {
+  setName: SetName
+  setOf: (code: string) => { code: string } | undefined
+}
+
+/** The code a set filter stores for a card's set: the stored set's own code, or the code as written. */
+export function setFilterCode(setCode: string, sets: SetLookup): string {
+  return sets.setOf(setCode)?.code ?? setCode.trim()
 }
 
 /** The filters to store with a draw: blank values dropped, and `null` when no filter is left. */
 export function activeFilters(filters: DrawFilters): DrawFilters | null {
   const text = (value: string | null) => value?.trim() || null
   const active: DrawFilters = {
+    setCode: text(filters.setCode),
     cost: text(filters.cost),
     mechanicPack: text(filters.mechanicPack),
     rarity: filters.rarity,
@@ -86,32 +85,8 @@ export function activeFilters(filters: DrawFilters): DrawFilters | null {
   return Object.values(active).some((value) => value !== null) ? active : null
 }
 
-export type DrawFilterOptions = {
-  /** The written costs, numbers first in numeric order, then the others ("X", "d6") alphabetically. */
-  costs: string[]
-  /** In Turkish alphabetical order. */
-  mechanicPacks: string[]
-  /** Always all three. */
-  rarities: readonly DrawRarity[]
-}
-
-/** The filter choices, from the drawable cards: only values that some drawable card has. */
-export function drawFilterOptions(cards: readonly Card[]): DrawFilterOptions {
-  const costs = new Map<string, string>()
-  const packs = new Set<string>()
-  for (const card of drawablePool(cards)) {
-    const key = costKey(card.cost)
-    if (key !== null && card.cost !== null && !costs.has(key)) costs.set(key, card.cost.trim())
-    if (card.mechanicPack !== null) packs.add(card.mechanicPack)
-  }
-  return {
-    costs: [...costs.values()].sort(compareCosts),
-    mechanicPacks: [...packs].sort(compareLabels),
-    rarities: DRAW_RARITIES,
-  }
-}
-
-function compareCosts(a: string, b: string): number {
+/** Costs as the filters order them: numbers first in numeric order, then the others ("X", "d6") alphabetically. */
+export function compareCosts(a: string, b: string): number {
   const left = numericCost(a)
   const right = numericCost(b)
   if (left !== null && right !== null) return left - right

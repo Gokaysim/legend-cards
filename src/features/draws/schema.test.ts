@@ -19,8 +19,14 @@ const paid = {
 }
 
 const free = { ...paid, by: 'dana', paidWith: 'none', cost: 0, entryId: null }
-const filters = { cost: '2', mechanicPack: 'Blood & Battle', rarity: 'rare', keyword: 'kan' }
-const noFilters = { cost: null, mechanicPack: null, rarity: null, keyword: null }
+const filters = {
+  setCode: 'Kesqer',
+  cost: '2',
+  mechanicPack: 'Blood & Battle',
+  rarity: 'rare',
+  keyword: 'kan',
+}
+const noFilters = { setCode: null, cost: null, mechanicPack: null, rarity: null, keyword: null }
 
 const cursed = {
   ...free,
@@ -44,6 +50,10 @@ describe('drawSchema', () => {
       { ...free, filters: { ...noFilters, rarity: 'blessed' } },
     ],
     ['a Cursed draw', cursed],
+    [
+      'a draw from before the set filter, without a set code',
+      { ...free, filters: { cost: null, mechanicPack: null, rarity: 'rare', keyword: null } },
+    ],
     ['a draw whose server time is still pending', { ...paid, at: null }],
   ])('accepts %s', (_case, draw) => {
     expect(accepts(draw)).toBe(true)
@@ -68,10 +78,22 @@ describe('drawSchema', () => {
       'a keyword over the limit',
       { ...free, filters: { ...filters, keyword: 'x'.repeat(DRAW_LIMITS.keyword + 1) } },
     ],
+    [
+      'a set code over the limit',
+      { ...free, filters: { ...filters, setCode: 'x'.repeat(DRAW_LIMITS.setCode + 1) } },
+    ],
     ['filters without a field', { ...free, filters: { cost: null } }],
     ['a missing holding', { ...paid, holdingId: undefined }],
   ])('rejects %s', (_case, draw) => {
     expect(accepts(draw)).toBe(false)
+  })
+
+  it('reads a missing set code as no set', () => {
+    const old = {
+      ...free,
+      filters: { cost: null, mechanicPack: null, rarity: 'rare', keyword: null },
+    }
+    expect(drawSchema.parse(old)).toMatchObject({ filters: { ...noFilters, rarity: 'rare' } })
   })
 })
 

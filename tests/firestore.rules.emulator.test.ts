@@ -2434,7 +2434,13 @@ describe('draws (draws/{drawId} with its holding, card, ledger entry and LP)', (
   const DRAFT_CARD = { cardId: HOLDINGS_SEED.DRAFT, cardName: 'New Card', cardKind: 'normal' }
   /** A second normal card in the pool. */
   const OTHER_CARD = { cardId: 'legend-bloodrite', cardName: 'Blood Rite', cardKind: 'normal' }
-  const FILTERS = { cost: '1', mechanicPack: 'Arcanus Divine', rarity: 'common', keyword: 'eyes' }
+  const FILTERS = {
+    setCode: 'Kesqer',
+    cost: '1',
+    mechanicPack: 'Arcanus Divine',
+    rarity: 'common',
+    keyword: 'eyes',
+  }
 
   beforeEach(async () => {
     await seedHoldings()
@@ -2586,6 +2592,18 @@ describe('draws (draws/{drawId} with its holding, card, ledger entry and LP)', (
       expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 0 })
     })
 
+    it("allows the DM's draw with only a set filter", async () => {
+      const filters = {
+        setCode: 'Kesqer',
+        cost: null,
+        mechanicPack: null,
+        rarity: null,
+        keyword: null,
+      }
+      await assertSucceeds(draw('dana', { uid: 'ayla', draw: { filters } }))
+      expect(await readAsAdmin('draws/d-new')).toMatchObject({ filters })
+    })
+
     it("allows the DM's Cursed draw into a player's hand", async () => {
       await assertSucceeds(draw('dana', { uid: 'bora', card: CURSED_CARD }))
     })
@@ -2624,6 +2642,19 @@ describe('draws (draws/{drawId} with its holding, card, ledger entry and LP)', (
     it("denies a player's free random draw, and a player's draw with filters", async () => {
       await assertFails(draw('ayla', { paid: false }))
       await assertFails(draw('ayla', { draw: { filters: FILTERS } }))
+      await assertFails(
+        draw('ayla', {
+          draw: {
+            filters: {
+              setCode: 'Kesqer',
+              cost: null,
+              mechanicPack: null,
+              rarity: null,
+              keyword: null,
+            },
+          },
+        }),
+      )
       await assertFails(draw('ayla', { paid: false, draw: { filters: FILTERS } }))
     })
 
@@ -2876,6 +2907,14 @@ describe('draws (draws/{drawId} with its holding, card, ledger entry and LP)', (
         draw('dana', { uid: 'ayla', draw: { filters: { ...FILTERS, keyword: 'x'.repeat(101) } } }),
       )
       await assertFails(draw('dana', { uid: 'ayla', draw: { filters: { rarity: 'rare' } } }))
+      await assertFails(
+        draw('dana', { uid: 'ayla', draw: { filters: { ...FILTERS, setCode: 'x'.repeat(101) } } }),
+      )
+      await assertFails(
+        draw('dana', { uid: 'ayla', draw: { filters: { ...FILTERS, setCode: '' } } }),
+      )
+      const { setCode: _setCode, ...withoutSet } = FILTERS
+      await assertFails(draw('dana', { uid: 'ayla', draw: { filters: withoutSet } }))
     })
 
     it('denies updating or deleting a draw, even by the DM', async () => {

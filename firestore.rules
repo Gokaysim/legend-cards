@@ -1004,11 +1004,12 @@ service cloud.firestore {
 
       // The DM's filters, or null. Limits: keep in step with DRAW_LIMITS in src/features/draws/schema.ts.
       function validFilters(filters) {
-        let fields = ['cost', 'mechanicPack', 'rarity', 'keyword'];
+        let fields = ['setCode', 'cost', 'mechanicPack', 'rarity', 'keyword'];
         return filters == null
           || (filters is map
             && filters.keys().hasOnly(fields)
             && filters.keys().hasAll(fields)
+            && validFilterText(filters.setCode, 100)
             && validFilterText(filters.cost, 10)
             && validFilterText(filters.mechanicPack, 100)
             && (filters.rarity == null || filters.rarity in ['common', 'rare', 'blessed'])

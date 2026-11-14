@@ -330,7 +330,7 @@ describe('drawing on the hand', () => {
     })
 
     await user.click(main().getByRole('button', { name: '🎲 Kart Çek' }))
-    await user.click(screen.getByRole('button', { name: '🎲 Kart Çek (1 LP)' }))
+    await user.click(screen.getByRole('button', { name: '🎲 Çek · 1 LP' }))
     expect(screen.getByRole('button', { name: 'Kart 1: çevir' })).toBeInTheDocument()
 
     // The draw's holding and the new LP arrive through the subscriptions.
@@ -351,7 +351,7 @@ describe('drawing on the hand', () => {
       "Aboleth's Eyes",
       'Blood Rite',
     ])
-    expect(screen.getByText(/Bakiye:/)).toHaveTextContent('Bakiye: 2 LP')
+    expect(screen.getByText(/Bakiye:/).parentElement).toHaveTextContent('Bakiye: 2 LP')
   })
 })
 

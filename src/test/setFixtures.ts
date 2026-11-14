@@ -56,8 +56,11 @@ export function testSetByCode(code: string, sets: readonly CardSet[] = TEST_SETS
   return set
 }
 
+/** The index of the 12 test sets: `useSetIndex()` with `TEST_SETS` stored. */
+export const testSetIndex = setIndex(TEST_SETS)
+
 /** How the 12 test sets name a set code: `useSetIndex().setName` with `TEST_SETS` stored. */
-export const testSetName = setIndex(TEST_SETS).setName
+export const testSetName = testSetIndex.setName
 
 /** A set change record for tests: the DM renaming Ulagal at `millis`, unless overridden. */
 export function testSetChange(millis: number, overrides: Partial<SetChange> = {}): SetChange {

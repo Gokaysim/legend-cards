@@ -67,6 +67,7 @@ export const DRAW_PRICE = 1
 
 /** The longest filter values. Keep in step with `validFilters` in `firestore.rules`. */
 export const DRAW_LIMITS = {
+  setCode: CARD_LIMITS.setCode,
   cost: CARD_LIMITS.cost,
   mechanicPack: CARD_LIMITS.mechanicPack,
   keyword: 100,
@@ -77,7 +78,9 @@ const id = z.string().min(1)
 const serverTime = z.instanceof(Timestamp).nullable()
 const filterText = (max: number) => z.string().min(1).max(max).nullable()
 
+/** The DM's filters on a draw. A record from before the set filter has no `setCode`: it reads as no set. */
 export const drawFiltersSchema: z.ZodType<DrawFilters> = z.object({
+  setCode: filterText(DRAW_LIMITS.setCode).default(null),
   cost: filterText(DRAW_LIMITS.cost),
   mechanicPack: filterText(DRAW_LIMITS.mechanicPack),
   rarity: z.enum(DRAW_RARITIES).nullable(),

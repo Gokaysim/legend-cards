@@ -165,6 +165,7 @@ describe('describing draws', () => {
       "Bora'ya Aboleth's Eyes kartını çekti.",
     )
     const filters = {
+      setCode: null,
       cost: '2',
       mechanicPack: 'Blood & Battle',
       rarity: 'rare' as const,
@@ -179,12 +180,36 @@ describe('describing draws', () => {
           draws: [
             testDmDraw(eyes, 'bora', 1000, {
               by: 'dana',
-              filters: { cost: null, mechanicPack: null, rarity: 'rare', keyword: null },
+              filters: {
+                setCode: null,
+                cost: null,
+                mechanicPack: null,
+                rarity: 'rare',
+                keyword: null,
+              },
             }),
           ],
         }),
       ),
     ).toBe("Bora'ya Aboleth's Eyes kartını çekti (filtre: Rare).")
+  })
+
+  it("names a draw's set filter by the set's official name, or by its code without a stored set", () => {
+    const setDraw = (setCode: string) =>
+      only({
+        draws: [
+          testDmDraw(eyes, 'bora', 1000, {
+            by: 'dana',
+            filters: { setCode, cost: null, mechanicPack: null, rarity: 'rare', keyword: null },
+          }),
+        ],
+      })
+    expect(text(setDraw('Kesqer'))).toBe(
+      "Bora'ya Aboleth's Eyes kartını çekti (filtre: Kesqerian Nights · Rare).",
+    )
+    expect(text(setDraw('Atlantis'))).toBe(
+      "Bora'ya Aboleth's Eyes kartını çekti (filtre: Atlantis · Rare).",
+    )
   })
 
   it("describes the DM's draw into the DM's own hand without a receiver", () => {
