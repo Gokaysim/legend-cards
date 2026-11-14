@@ -307,7 +307,7 @@ A card's or a True Word's use payment SHALL appear only inside its use event, ne
 - **THEN** the log shows one event for the use with "−5 LP", and no separate LP change
 
 ### Requirement: A True Word use is one event
-A True Word use SHALL appear as one event, at the time it was used. It names who used the word, the player whose word it is when the DM used it, the word, and the LP paid, if more than 0.
+A True Word use SHALL appear as one event, at the time it was used. It names who used the word, the player whose word it is when the DM used it, the word, the character it was used on, if one was given, and the LP paid, if more than 0.
 
 #### Scenario: A player uses a word
 - **WHEN** Ayla uses "Abyss" for 5 LP
@@ -320,3 +320,7 @@ A True Word use SHALL appear as one event, at the time it was used. It names who
 #### Scenario: A free use
 - **WHEN** Ayla uses "Chaos", which costs 0
 - **THEN** the event reads "Chaos True Word'ünü kullandı.", with Ayla as the user
+
+#### Scenario: A use on a character
+- **WHEN** Ayla uses "Abyss" on "Thorin" for 5 LP
+- **THEN** the event reads "Abyss True Word'ünü Thorin üzerinde kullandı (−5 LP).", with Ayla as the user

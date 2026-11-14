@@ -244,7 +244,7 @@ The hand SHALL list the player's open holdings in the order they were received, 
 - **THEN** the screen says in Turkish that the hand has no cards yet
 
 ### Requirement: Hand summary
-Above the hand, the screen SHALL show how many cards the hand holds, how many effects are active, how many distinct sets the cards come from, how many are Cursed, and how many True Words the player knows. The active effects SHALL count the active cards and the active True Words. It SHALL list the active cards with their visible text, marking the Cursed ones, then the active True Words, marked ✦, and the sets with their card counts. True Words SHALL NOT count as cards. The active effects list SHALL open from the "Aktif efekt ⓘ" stat and the sets list from the "Farklı set ⓘ" stat: while the pointer rests on the stat, while the stat has the keyboard focus, and after a tap on it until the focus leaves it. Screen readers SHALL be able to read both lists at all times. The lists SHALL NOT widen the page.
+Above the hand, the screen SHALL show how many cards the hand holds, how many effects are active, how many distinct sets the cards come from, how many are Cursed, and how many True Words the player knows. The active effects SHALL count the active cards, the active True Words, and the stored effects on the player's active characters. It SHALL list the active cards with their visible text, marking the Cursed ones, then the active True Words, marked ✦, then each active character's stored effects under its name, and the sets with their card counts. True Words SHALL NOT count as cards. The active effects list SHALL open from the "Aktif efekt ⓘ" stat and the sets list from the "Farklı set ⓘ" stat: while the pointer rests on the stat, while the stat has the keyboard focus, and after a tap on it until the focus leaves it. Screen readers SHALL be able to read both lists at all times. The lists SHALL NOT widen the page.
 
 #### Scenario: Reading the summary
 - **WHEN** Ayla holds 3 Kesqer cards, 1 Havenholm card, and 1 Cursed card, and 2 of the cards are active
@@ -253,6 +253,10 @@ Above the hand, the screen SHALL show how many cards the hand holds, how many ef
 #### Scenario: True Words in the summary
 - **WHEN** Ayla holds 5 cards, 2 of them active, and knows 3 True Words, 1 of them "Abyss", which is active
 - **THEN** the summary shows 5 cards, 3 active, and 3 True Words, and lists "Abyss" marked ✦ after the 2 active cards
+
+#### Scenario: Character effects in the summary
+- **WHEN** Ayla holds 1 active card, "Thorin" has 2 stored effects, and her archived "Kuzgun" has 1
+- **THEN** the summary shows 3 active, and lists the active card, then "Thorin" with its 2 effects
 
 #### Scenario: Pointing at the active effects
 - **WHEN** a user rests the mouse pointer on the "Aktif efekt ⓘ" stat of Ayla's hand
@@ -547,3 +551,18 @@ A holding closed as used on a chosen character SHALL record that character and i
 #### Scenario: An old holding
 - **WHEN** a user opens the İşlem Logu, and a holding was closed as used on "Thorin" before characters existed
 - **THEN** the event still shows "Thorin"
+
+### Requirement: Adding the effect of a card's use
+When a character is chosen from the list, the use step SHALL show "Aktif efekt olarak ekle", checked. With it checked, the use SHALL add the card's effect to that character in the same step (spec: character-effects, "Effects of a use"). Without a chosen character, with a typed name, or with the box unchecked, the use SHALL add no effect.
+
+#### Scenario: Checked by default
+- **WHEN** Ayla chooses "Thorin" in the use step of "Lord Vulfric's Valour" and confirms
+- **THEN** the card is used, and "Thorin" has its effect
+
+#### Scenario: An instant card
+- **WHEN** Ayla chooses "Thorin", unchecks "Aktif efekt olarak ekle", and confirms
+- **THEN** the card is used on "Thorin", and no effect is added
+
+#### Scenario: A typed name
+- **WHEN** the DM chooses "Başka (yaz)…" and types "Goblin şefi"
+- **THEN** the step shows no "Aktif efekt olarak ekle", and the use adds no effect
