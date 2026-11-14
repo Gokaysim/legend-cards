@@ -7,7 +7,7 @@ Provides the frame that signed-in users work in: the navigation between the main
 ## Requirements
 
 ### Requirement: Main screen navigation
-The shell SHALL offer navigation to nine screens, with these labels in this order: "Oyuncu elleri", "Shops", "True Words", "Custom Card Draft", "Kart kütüphanesi", "Cursed Deck", "İşlem Logu", "Kurallar", "Veri / Yedek". Each screen SHALL have its own URL, so it can be bookmarked and reloaded. The navigation SHALL mark the current screen.
+The shell SHALL offer navigation to ten screens, with these labels in this order: "Oyuncu elleri", "Shops", "True Words", "Custom Card Draft", "Kart kütüphanesi", "Setler", "Cursed Deck", "İşlem Logu", "Kurallar", "Veri / Yedek". Each screen SHALL have its own URL, so it can be bookmarked and reloaded. The navigation SHALL mark the current screen.
 
 #### Scenario: Navigating between screens
 - **WHEN** a signed-in user selects "Kurallar" in the navigation
@@ -20,6 +20,10 @@ The shell SHALL offer navigation to nine screens, with these labels in this orde
 #### Scenario: Default screen
 - **WHEN** a signed-in user opens the application's root URL
 - **THEN** the "Oyuncu elleri" screen is shown
+
+#### Scenario: The Setler screen
+- **WHEN** a signed-in user selects "Setler" in the navigation
+- **THEN** the Setler screen is shown under its own URL, and "Setler" is marked, between "Kart kütüphanesi" and "Cursed Deck"
 
 ### Requirement: Placeholder screens
 Until a screen's feature exists, that screen SHALL show its title row and, under it, a "Yakında" panel: a neutral card back that drifts slowly, "YAKINDA" in gold over an ornament line, and the note "Bu ekran henüz hazır değil." in smaller, muted text. With reduced motion, the card SHALL stay still. The screen SHALL NOT show data or controls that do nothing.

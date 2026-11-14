@@ -22,7 +22,7 @@ The server SHALL deny every read and write to any stored data path, or any path 
 - **THEN** the server denies it
 
 ### Requirement: Signed-out users have no access
-The server SHALL deny every read and write from a request without a signed-in user, for every data path and every file. This holds for paths opened by later changes too. The one exception SHALL be reading a stored card or word picture, which anyone may open by its address (spec: card-images, "Anyone may open a stored picture").
+The server SHALL deny every read and write from a request without a signed-in user, for every data path and every file. This holds for paths opened by later changes too. The one exception SHALL be reading a stored card, word or set picture, which anyone may open by its address (spec: card-images, "Anyone may open a stored picture").
 
 #### Scenario: Signed-out read
 - **WHEN** a request without a signed-in user tries to read any document
@@ -37,8 +37,12 @@ The server SHALL deny every read and write from a request without a signed-in us
 - **THEN** the server allows it
 
 #### Scenario: Signed-out picture write
-- **WHEN** a request without a signed-in user tries to store or delete a card or word picture
+- **WHEN** a request without a signed-in user tries to store or delete a card, word or set picture
 - **THEN** the server denies it
+
+#### Scenario: Signed-out set read
+- **WHEN** a request without a signed-in user tries to read the stored set "Kesqer"
+- **THEN** the server denies the read
 
 ### Requirement: Access rules are tested
 Every access rule SHALL have automated tests that run against a local server emulator. The tests SHALL show both that intended access is allowed and that every other access is denied. A data path SHALL NOT be opened without such tests.
