@@ -16,6 +16,7 @@ import { PageHeader } from '@/components/ui/PageHeader'
 import { Spinner } from '@/components/ui/Spinner'
 import { useAuth } from '@/features/auth/authContext'
 import { useCardsById } from '@/features/cards/cardsContext'
+import { heldEffects } from '@/features/characters/heldEffects'
 import { useHandCharacters } from '@/features/characters/useHandCharacters'
 import { DrawButtons } from '@/features/draws/DrawButtons'
 import { DmNote, PlayerNote } from '@/features/player-notes/HandNotes'
@@ -196,7 +197,6 @@ function HandContent({ profile }: { profile: UserProfile }) {
   const [cardSelection, setCardSelection] = useState<Selection | null>(null)
   const [wordSelection, setWordSelection] = useState<Selection | null>(null)
   const tab = tabOf(params.get(HAND_TAB_PARAM), isDm)
-  const handCharacters = useHandCharacters(profile, isWide)
   // Crossing 1024 px clears a selection made in the other layout, during this render (design D2): a dialog never opens
   // by itself, and going back does not bring the old selection back.
   if (cardSelection !== null && cardSelection.isWide !== isWide) setCardSelection(null)
@@ -224,6 +224,11 @@ function HandContent({ profile }: { profile: UserProfile }) {
         : null,
     [holdings, cardsById, profile.id],
   )
+
+  // What the hand puts on every one of the player's characters: its active cards and True Words (design D6 of
+  // add-character-effects).
+  const held = useMemo(() => heldEffects(entries ?? [], wordEntries), [entries, wordEntries])
+  const handCharacters = useHandCharacters(profile, isWide, held)
 
   if (holdings.status === 'error' || cardsById.status === 'error') {
     return (

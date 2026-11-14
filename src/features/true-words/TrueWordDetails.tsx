@@ -18,6 +18,8 @@ import {
   type UsePayer,
 } from '@/features/balances/paymentPlan'
 import { UsePayment } from '@/features/balances/UsePayment'
+import { CharacterPicker } from '@/features/characters/CharacterPicker'
+import { useCharacterChoice } from '@/features/characters/useCharacterChoice'
 import { visibleText } from '@/features/cards/text'
 import { cn } from '@/lib/cn'
 import { TABLE_BUSY_NOTE } from '@/features/table/errors'
@@ -71,6 +73,8 @@ export function TrueWordDetails({ entry, holderName, onDone, layout }: TrueWordD
   const [lastUse, setLastUse] = useState<number | null>(null)
   const [isBusy, setIsBusy] = useState(false)
   const [failure, setFailure] = useState<WordFailure | null>(null)
+  // The use step's character, the player's group first (spec: true-words, "The use step of a word").
+  const choice = useCharacterChoice(record.uid, () => setFailure({ kind: 'character-unavailable' }))
 
   const canUse = isDm || (uid !== null && uid === record.uid)
   // The player's LP pays for a use, live. Until the profiles load, the payment is not known and a use waits.
@@ -120,7 +124,16 @@ export function TrueWordDetails({ entry, holderName, onDone, layout }: TrueWordD
       return
     }
     void run(
-      () => actions.recordWordUse({ recordId: record.id, by: uid, amount }).then(() => undefined),
+      () =>
+        actions
+          .recordWordUse({
+            recordId: record.id,
+            by: uid,
+            amount,
+            target: choice.target,
+            addEffect: choice.addEffect,
+          })
+          .then(() => undefined),
       () => {
         setIsUsing(false)
         setLastUse(amount)
@@ -130,6 +143,7 @@ export function TrueWordDetails({ entry, holderName, onDone, layout }: TrueWordD
 
   const useStep = (
     <div className="flex flex-col gap-2 rounded-xl border border-line bg-pane-raised p-3">
+      <CharacterPicker choice={choice} onInput={() => setFailure(null)} />
       <UsePayment
         plan={payment}
         payer={payer}

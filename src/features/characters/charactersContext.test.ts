@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest'
 
-import { testCharacter } from '@/test/characterFixtures'
+import { testCharacter, testEffect } from '@/test/characterFixtures'
 import { testProfile } from '@/test/fixtures'
 
-import { characterGroups, charactersOf, sortCharacters } from './charactersContext'
+import {
+  characterGroups,
+  charactersOf,
+  effectsOf,
+  sortCharacters,
+  sortEffects,
+} from './charactersContext'
 
 const AYLA = testProfile({ id: 'ayla', displayName: 'Ayla' })
 const BORA = testProfile({ id: 'bora', displayName: 'Bora' })
@@ -67,6 +73,29 @@ describe('characterGroups', () => {
       ['Ayla', ['Thorin', 'Kuzgun']],
       ['Bora', ['Elara']],
       ['Dana', ['Goblin']],
+    ])
+  })
+})
+
+describe('sortEffects and effectsOf', () => {
+  const early = testEffect('Early', thorin, { addedAtMillis: 1000 })
+  const late = testEffect('Late', thorin, { addedAtMillis: 3000 })
+  const pending = testEffect('Pending', thorin, { createdAt: null })
+  const other = testEffect('Other', elara, { addedAtMillis: 2000 })
+
+  it('orders effects newest first, a pending one first of all', () => {
+    expect(sortEffects([early, other, late, pending]).map((effect) => effect.name)).toEqual([
+      'Pending',
+      'Late',
+      'Other',
+      'Early',
+    ])
+  })
+
+  it("lists one character's effects", () => {
+    expect(effectsOf(sortEffects([early, other, late]), thorin.id).map((e) => e.name)).toEqual([
+      'Late',
+      'Early',
     ])
   })
 })

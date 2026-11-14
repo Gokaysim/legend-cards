@@ -440,9 +440,11 @@ export function describeEvent(
       const owner = event.by === use.uid ? '' : `${genitive(nameOf(use.uid))} `
       const payment = use.cost > 0 ? ` (${formatDelta(-use.cost)} LP)` : ''
       return {
-        parts: [owner, card(use.wordName), ` True Word'ünü kullandı${payment}.`].filter(
-          (part) => part !== '',
-        ),
+        parts: [
+          owner,
+          card(use.wordName),
+          ` True Word'ünü${use.usedOn === null ? '' : ` ${use.usedOn} üzerinde`} kullandı${payment}.`,
+        ].filter((part) => part !== ''),
         reason: null,
       }
     }

@@ -391,6 +391,7 @@ describe.each(HOSTS)('the card details in $name', (current) => {
         by: testUser.uid,
         reason: 'used',
         target: { kind: 'character', characterId: thorin.id },
+        addEffect: true,
         amount: 3,
       })
       expect(host.isClosed()).toBe(true)
@@ -424,6 +425,7 @@ describe.each(HOSTS)('the card details in $name', (current) => {
         by: testUser.uid,
         reason: 'used',
         target: { kind: 'none' },
+        addEffect: false,
         amount: 0,
       })
     })
@@ -624,6 +626,52 @@ describe.each(HOSTS)('the card details in $name', (current) => {
 
       expect(actions.closeHolding).toHaveBeenCalledWith(
         expect.objectContaining({ target: { kind: 'none' } }),
+      )
+    })
+
+    const effectBox = () => details().queryByRole('checkbox', { name: /Aktif efekt olarak ekle/ })
+
+    it('offers the effect for a chosen character, checked, and sends it', async () => {
+      const { user, actions } = await openDetails({ characters: CHARACTERS })
+
+      await user.click(details().getByRole('button', { name: 'Kullan' }))
+      expect(effectBox()).not.toBeInTheDocument()
+      await user.selectOptions(picker(), 'Thorin')
+      expect(effectBox()).toBeChecked()
+      await user.click(details().getByRole('button', { name: 'Kullanımı onayla (3 LP)' }))
+
+      expect(actions.closeHolding).toHaveBeenCalledWith(
+        expect.objectContaining({
+          target: { kind: 'character', characterId: thorin.id },
+          addEffect: true,
+        }),
+      )
+    })
+
+    it('sends no effect when the box is unchecked', async () => {
+      const { user, actions } = await openDetails({ characters: CHARACTERS })
+
+      await user.click(details().getByRole('button', { name: 'Kullan' }))
+      await user.selectOptions(picker(), 'Thorin')
+      await user.click(effectBox() as HTMLElement)
+      await user.click(details().getByRole('button', { name: 'Kullanımı onayla (3 LP)' }))
+
+      expect(actions.closeHolding).toHaveBeenCalledWith(
+        expect.objectContaining({ addEffect: false }),
+      )
+    })
+
+    it('offers no effect for a typed name', async () => {
+      const { user, actions } = await openDetails({ characters: CHARACTERS })
+
+      await user.click(details().getByRole('button', { name: 'Kullan' }))
+      await user.selectOptions(picker(), 'Başka (yaz)…')
+      await user.type(details().getByRole('textbox', { name: 'Karakterin adı' }), 'Goblin şefi')
+
+      expect(effectBox()).not.toBeInTheDocument()
+      await user.click(details().getByRole('button', { name: 'Kullanımı onayla (3 LP)' }))
+      expect(actions.closeHolding).toHaveBeenCalledWith(
+        expect.objectContaining({ addEffect: false }),
       )
     })
 

@@ -1,5 +1,6 @@
 import { Timestamp } from 'firebase/firestore'
 
+import type { CharacterEffect } from '@/features/characters/effects'
 import type { Character } from '@/features/characters/schema'
 import { picturePath } from '@/features/definitions/picturePath'
 
@@ -30,6 +31,33 @@ export function testCharacter(
     archived: false,
     createdAt: Timestamp.fromMillis(addedAtMillis),
     createdBy: uid,
+    ...overrides,
+  }
+}
+
+/**
+ * An effect on `character` for tests: a player's own effect named `name`, added by the character's owner at
+ * `addedAtMillis`, unless overridden. A card or word effect also needs `sourceId`.
+ */
+export function testEffect(
+  name: string,
+  character: Pick<Character, 'id' | 'uid'>,
+  {
+    addedAtMillis = 2000,
+    ...overrides
+  }: Partial<CharacterEffect> & { addedAtMillis?: number } = {},
+): CharacterEffect {
+  return {
+    id: `fx-${name.replace(/[^A-Za-z0-9]/g, '')}`,
+    characterId: character.id,
+    uid: character.uid,
+    source: 'own',
+    sourceId: null,
+    name,
+    text: `${name} text.`,
+    cursed: false,
+    createdBy: character.uid,
+    createdAt: Timestamp.fromMillis(addedAtMillis),
     ...overrides,
   }
 }

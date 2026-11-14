@@ -1840,6 +1840,8 @@ describe('card uses and their payments (userCards with ledger/{entryId} and user
     balance?: Record<string, unknown> | null
     /** A normal card whose holder the use releases. */
     release?: string
+    /** Other writes in the same batch, such as the use's effect. */
+    extra?: (batch: ReturnType<typeof writeBatch>, db: Firestore) => void
   }
 
   /** One use of `holdingId` by `by` for `amount` LP, as the application writes it: in one batch with its payment. */
@@ -1879,6 +1881,7 @@ describe('card uses and their payments (userCards with ledger/{entryId} and user
         ...spec.balance,
       })
     }
+    spec.extra?.(batch, db)
     return batch.commit()
   }
 
@@ -2096,6 +2099,88 @@ describe('card uses and their payments (userCards with ledger/{entryId} and user
     ])('denies a use on %s', async (_case, spec) => {
       await assertFails(use('ayla', 'h-ayla-cursed', 1, spec))
       await assertFails(use('dana', 'h-ayla-cursed', 0, spec))
+    })
+
+    /** The card's effect on `characterId`, as the application adds it to the use's batch. */
+    const cardEffect =
+      (
+        by: string,
+        holdingId: string,
+        characterId = THORIN,
+        overrides: Record<string, unknown> = {},
+      ) =>
+      (batch: ReturnType<typeof writeBatch>, db: Firestore) => {
+        batch.set(doc(db, 'characterEffects/fx-card'), {
+          characterId,
+          uid: characterId === ELARA ? 'bora' : 'ayla',
+          source: 'card',
+          sourceId: holdingId,
+          name: 'Visions of Death',
+          text: 'Visions of Death text.',
+          cursed: true,
+          createdBy: by,
+          createdAt: serverTimestamp(),
+          ...overrides,
+        })
+      }
+
+    it('allows a use with its effect in one batch, by the holder and by the DM', async () => {
+      await assertSucceeds(
+        use('ayla', 'h-ayla-cursed', 1, {
+          ...on(THORIN, 'Thorin'),
+          extra: cardEffect('ayla', 'h-ayla-cursed'),
+        }),
+      )
+      expect(await readAsAdmin('characterEffects/fx-card')).toMatchObject({
+        source: 'card',
+        sourceId: 'h-ayla-cursed',
+        cursed: true,
+      })
+    })
+
+    it("allows the heaviest request: a player's paid use of a normal card, released to the pool, on a character, with its effect", async () => {
+      await assertSucceeds(
+        use('bora', 'h-bora', 1, {
+          payer: 'bora',
+          lpBefore: 5,
+          release: HOLDINGS_SEED.HELD,
+          ...on(ELARA, 'Elara'),
+          extra: cardEffect('bora', 'h-bora', ELARA, { name: 'Greedy Hands', cursed: false }),
+        }),
+      )
+    })
+
+    it('denies a card effect that does not follow its use', async () => {
+      // Without the use in the same request.
+      const db = asUser('ayla')
+      const alone = writeBatch(db)
+      cardEffect('ayla', 'h-ayla-cursed')(alone, db)
+      await assertFails(alone.commit())
+      // On another character than the use's.
+      await assertFails(
+        use('ayla', 'h-ayla-cursed', 1, {
+          ...on(THORIN, 'Thorin'),
+          extra: cardEffect('ayla', 'h-ayla-cursed', ELARA),
+        }),
+      )
+      // For a use without a character.
+      await assertFails(
+        use('ayla', 'h-ayla-cursed', 1, { extra: cardEffect('ayla', 'h-ayla-cursed') }),
+      )
+      // Named for another user.
+      await assertFails(
+        use('ayla', 'h-ayla-cursed', 1, {
+          ...on(THORIN, 'Thorin'),
+          extra: cardEffect('ayla', 'h-ayla-cursed', THORIN, { createdBy: 'dana' }),
+        }),
+      )
+      // A Cursed card's effect that is not marked Cursed.
+      await assertFails(
+        use('ayla', 'h-ayla-cursed', 1, {
+          ...on(THORIN, 'Thorin'),
+          extra: cardEffect('ayla', 'h-ayla-cursed', THORIN, { cursed: false }),
+        }),
+      )
     })
 
     it('denies a character on a discard', async () => {
@@ -4387,6 +4472,8 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
     entry?: Record<string, unknown> | null
     /** Overrides of the new LP, or `null` to leave it alone. Written only when the use pays. */
     balance?: Record<string, unknown> | null
+    /** Other writes in the same batch, such as the use's effect. */
+    extra?: (batch: ReturnType<typeof writeBatch>, db: Firestore) => void
   }
 
   /**
@@ -4427,11 +4514,106 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
     if (cost > 0 && spec.balance !== null) {
       batch.update(doc(db, `users/${uid}`), { lp: lpAfter, lpEntryId: 'e-word', ...spec.balance })
     }
+    spec.extra?.(batch, db)
     return batch.commit()
   }
 
   const setWordCost = async (wordId: string, cost: string | null) =>
     updateDocAsAdmin(`trueWords/${wordId}`, { cost })
+
+  describe('using a word on a character, with its effect', () => {
+    const THORIN = 'ThorinAyla0123456789'
+    const KUZGUN = 'KuzgunAyla0123456789'
+
+    beforeEach(async () => {
+      await testEnv.withSecurityRulesDisabled(async (admin) => {
+        const db = firestoreOf(admin)
+        const character = (name: string, archived = false) => ({
+          uid: 'ayla',
+          name,
+          picture: null,
+          archived,
+          createdAt: Timestamp.fromMillis(1000),
+          createdBy: 'ayla',
+        })
+        await setDoc(doc(db, `characters/${THORIN}`), character('Thorin'))
+        await setDoc(doc(db, `characters/${KUZGUN}`), character('Kuzgun', true))
+      })
+    })
+
+    const on = (usedOnCharacterId: string | null, usedOn: string | null) => ({
+      use: { usedOnCharacterId, usedOn },
+    })
+
+    /** The word's effect on `characterId`, as the application adds it to the use's batch. */
+    const wordEffect =
+      (by: string, characterId = THORIN, overrides: Record<string, unknown> = {}) =>
+      (batch: ReturnType<typeof writeBatch>, db: Firestore) => {
+        batch.set(doc(db, 'characterEffects/fx-word'), {
+          characterId,
+          uid: 'ayla',
+          source: 'word',
+          sourceId: 'u-new',
+          name: 'Chaos',
+          text: 'Chaos text.',
+          cursed: false,
+          createdBy: by,
+          createdAt: serverTimestamp(),
+          ...overrides,
+        })
+      }
+
+    it('allows a use on a character whose name it keeps, a typed name, and a use without one', async () => {
+      await assertSucceeds(useWord('ayla', on(THORIN, 'Thorin')))
+      expect(await readAsAdmin('wordUses/u-new')).toMatchObject({
+        usedOn: 'Thorin',
+        usedOnCharacterId: THORIN,
+      })
+      await deleteAsAdmin('wordUses/u-new')
+      await assertSucceeds(useWord('dana', { cost: 0, ...on(null, 'Goblin şefi') }))
+      await deleteAsAdmin('wordUses/u-new')
+      await assertSucceeds(useWord('dana', { cost: 0 }))
+    })
+
+    it.each([
+      ['an unknown character', on('Ghost012345678901234', 'Ghost')],
+      ['an archived character', on(KUZGUN, 'Kuzgun')],
+      ["a name that is not the character's", on(THORIN, 'Elara')],
+      ['a character without a name', on(THORIN, null)],
+      ['an empty name', on(null, '')],
+    ])('denies a use on %s', async (_case, spec) => {
+      await assertFails(useWord('ayla', spec))
+      await assertFails(useWord('dana', { cost: 0, ...spec }))
+    })
+
+    it('allows the use with its effect in one batch', async () => {
+      await assertSucceeds(useWord('ayla', { ...on(THORIN, 'Thorin'), extra: wordEffect('ayla') }))
+      expect(await readAsAdmin('characterEffects/fx-word')).toMatchObject({
+        source: 'word',
+        sourceId: 'u-new',
+      })
+    })
+
+    it('denies an effect without its use, on another character, or for another user', async () => {
+      const db = asUser('ayla')
+      const alone = writeBatch(db)
+      wordEffect('ayla')(alone, db)
+      await assertFails(alone.commit())
+      await assertFails(
+        useWord('ayla', {
+          ...on(THORIN, 'Thorin'),
+          extra: wordEffect('ayla', KUZGUN),
+        }),
+      )
+      await assertFails(useWord('ayla', { extra: wordEffect('ayla') }))
+      await assertFails(
+        useWord('ayla', {
+          ...on(THORIN, 'Thorin'),
+          extra: wordEffect('ayla', THORIN, { createdBy: 'dana' }),
+        }),
+      )
+    })
+  })
 
   describe('using a word', () => {
     it('lets a player use their word for its price, which keeps the word', async () => {
@@ -4969,5 +5151,132 @@ describe('characters (characters/{characterId})', () => {
       await assertFails(deleteDoc(doc(asUser('ayla'), `characters/${THORIN}`)))
       expect(await readAsAdmin(`characters/${THORIN}`)).toMatchObject(STORED)
     })
+  })
+})
+
+describe('character effects by hand and deleting (characterEffects/{effectId})', () => {
+  const THORIN = 'ThorinAyla0123456789'
+  const KUZGUN = 'KuzgunAyla0123456789'
+
+  const character = (uid: string, name: string, archived = false) => ({
+    uid,
+    name,
+    picture: null,
+    archived,
+    createdAt: Timestamp.fromMillis(1000),
+    createdBy: uid,
+  })
+
+  /** A stored effect on Thorin. */
+  const stored = (source: string, createdBy: string, sourceId: string | null = null) => ({
+    characterId: THORIN,
+    uid: 'ayla',
+    source,
+    sourceId,
+    name: `${source} effect`,
+    text: 'Some text.',
+    cursed: false,
+    createdBy,
+    createdAt: Timestamp.fromMillis(2000),
+  })
+
+  beforeEach(async () => {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const db = firestoreOf(admin)
+      await setDoc(doc(db, 'users/ayla'), seededUser('player', 'Ayla'))
+      await setDoc(doc(db, 'users/bora'), seededUser('player', 'Bora'))
+      await setDoc(doc(db, 'users/dana'), seededUser('dm', 'Dana'))
+      await setDoc(doc(db, `characters/${THORIN}`), character('ayla', 'Thorin'))
+      await setDoc(doc(db, `characters/${KUZGUN}`), character('ayla', 'Kuzgun', true))
+      await setDoc(doc(db, 'characterEffects/fx-card'), stored('card', 'bora', 'h1'))
+      await setDoc(doc(db, 'characterEffects/fx-word'), stored('word', 'bora', 'u1'))
+      await setDoc(doc(db, 'characterEffects/fx-own'), stored('own', 'ayla'))
+      await setDoc(doc(db, 'characterEffects/fx-dm'), stored('dm', 'dana'))
+    })
+  })
+
+  /** An effect written by hand, as the application adds it. */
+  const byHand = (by: string, overrides: Record<string, unknown> = {}) =>
+    setDoc(doc(asUser(by), 'characterEffects/fx-new'), {
+      characterId: THORIN,
+      uid: 'ayla',
+      source: by === 'dana' ? 'dm' : 'own',
+      sourceId: null,
+      name: 'Kutsal su',
+      text: '+1 to saves until dawn.',
+      cursed: false,
+      createdBy: by,
+      createdAt: serverTimestamp(),
+      ...overrides,
+    })
+
+  it.each(['ayla', 'bora', 'dana'])('lets %s read every effect', async (uid) => {
+    await assertSucceeds(getDocs(collection(asUser(uid), 'characterEffects')))
+  })
+
+  it('denies a signed-out read', async () => {
+    await assertFails(
+      getDocs(collection(firestoreOf(testEnv.unauthenticatedContext()), 'characterEffects')),
+    )
+  })
+
+  it('lets a player add their own effect, and the DM a DM effect, even while a pack is open', async () => {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(firestoreOf(admin), 'table/main'), { openPackId: 'p-open' })
+    })
+    await assertSucceeds(byHand('ayla'))
+    await deleteAsAdmin('characterEffects/fx-new')
+    await assertSucceeds(byHand('dana'))
+    await deleteAsAdmin('characterEffects/fx-new')
+    await assertSucceeds(byHand('ayla', { name: 'ğ'.repeat(60), text: 'ğ'.repeat(500) }))
+  })
+
+  it.each([
+    ['an own effect on another player’s character', 'bora', { uid: 'ayla' }],
+    ['an own effect that claims another owner', 'bora', { uid: 'bora' }],
+    ['a DM effect by a player', 'ayla', { source: 'dm' }],
+    ['an effect on an archived character', 'ayla', { characterId: KUZGUN }],
+    ['a DM effect on an archived character', 'dana', { characterId: KUZGUN }],
+    ['a name over 60', 'ayla', { name: 'x'.repeat(61) }],
+    ['an empty text', 'ayla', { text: '' }],
+    ['a text over 500', 'dana', { text: 'x'.repeat(501) }],
+    ['an effect by hand that names a use', 'ayla', { sourceId: 'h1' }],
+    ['a Cursed effect by hand', 'dana', { cursed: true }],
+    ['a forged creator', 'ayla', { createdBy: 'dana' }],
+    ['a card effect by hand', 'dana', { source: 'card', sourceId: 'h1' }],
+    ['an extra field', 'ayla', { extra: true }],
+  ])('denies %s', async (_case, by, overrides) => {
+    await assertFails(byHand(by, overrides))
+  })
+
+  it.each([
+    ['fx-card', ['ayla', 'bora', 'dana']],
+    ['fx-word', ['ayla', 'bora', 'dana']],
+    ['fx-own', ['ayla', 'dana']],
+    ['fx-dm', ['dana']],
+  ] as const)('lets only the allowed users delete %s', async (id, allowed) => {
+    for (const uid of ['ayla', 'bora', 'dana']) {
+      const ref = doc(asUser(uid), `characterEffects/${id}`)
+      if ((allowed as readonly string[]).includes(uid)) {
+        await assertSucceeds(deleteDoc(ref))
+        await testEnv.withSecurityRulesDisabled(async (admin) => {
+          const source = id.slice(3)
+          const createdBy =
+            { card: 'bora', word: 'bora', own: 'ayla', dm: 'dana' }[source] ?? 'ayla'
+          const sourceId = source === 'card' ? 'h1' : source === 'word' ? 'u1' : null
+          await setDoc(
+            doc(firestoreOf(admin), `characterEffects/${id}`),
+            stored(source, createdBy, sourceId),
+          )
+        })
+      } else {
+        await assertFails(deleteDoc(ref))
+      }
+    }
+  })
+
+  it('denies any change to an effect', async () => {
+    await assertFails(updateDoc(doc(asUser('dana'), 'characterEffects/fx-dm'), { text: 'x' }))
+    await assertFails(updateDoc(doc(asUser('ayla'), 'characterEffects/fx-own'), { text: 'x' }))
   })
 })

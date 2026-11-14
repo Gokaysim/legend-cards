@@ -1,4 +1,5 @@
 import { formatAmount } from '@/features/balances/format'
+import { CharacterUnavailableError } from '@/features/characters/errors'
 import { shortfallNote } from '@/features/balances/paymentPlan'
 import { TABLE_BUSY_MESSAGE, TableBusyError } from '@/features/table/errors'
 import { firebaseCode } from '@/lib/firestore/errors'
@@ -81,6 +82,7 @@ export function toHoldingFailure(error: unknown): HoldingFailure {
         return { kind: error.kind }
     }
   }
+  if (error instanceof CharacterUnavailableError) return { kind: 'character-unavailable' }
   if (error instanceof TableBusyError) return { kind: 'table-busy' }
   switch (firebaseCode(error)) {
     case 'permission-denied':

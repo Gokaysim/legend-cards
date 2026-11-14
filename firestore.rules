@@ -251,6 +251,18 @@ service cloud.firestore {
         && get(userPath(request.auth.uid)).data.role == 'dm';
     }
 
+    // A use on a stored character (design D7 of add-characters, D4 of add-character-effects): no character (the field
+    // missing, as from the previous app, or null), or an existing, unarchived character whose name the use keeps in
+    // `usedOn`. Used by card uses (userCards) and True Word uses (wordUses).
+    function usedCharacterMatches(next) {
+      let characterId = next.get('usedOnCharacterId', null);
+      return characterId == null
+        || (characterId is string
+          && exists(characterPath(characterId))
+          && get(characterPath(characterId)).data.archived == false
+          && get(characterPath(characterId)).data.name == next.get('usedOn', null));
+    }
+
     // True when an update changes no field outside `keys`.
     function onlyChanges(keys) {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
@@ -893,17 +905,6 @@ service cloud.firestore {
           && (next.useCost == 0
             ? next.useEntryId == null
             : next.useEntryId is string && paidByUseEntry(next.useEntryId, next.useCost));
-      }
-
-      // A use on a stored character (design D7 of add-characters): no character (the field missing, as from the
-      // previous app, or null), or an existing, unarchived character whose name the holding keeps in `usedOn`.
-      function usedCharacterMatches(next) {
-        let characterId = next.get('usedOnCharacterId', null);
-        return characterId == null
-          || (characterId is string
-            && exists(characterPath(characterId))
-            && get(characterPath(characterId)).data.archived == false
-            && get(characterPath(characterId)).data.name == next.usedOn);
       }
 
       // The card's cost in this hand: the DM's override, or the card's own cost (missing: none).
@@ -1848,12 +1849,16 @@ service cloud.firestore {
           || isDm());
       allow update, delete: if false;
 
-      // Exactly the stored fields, used now by the signed-in user, for a word the player knows, with its payment.
+      // The stored fields, used now by the signed-in user, for a word the player knows, with its payment, and the
+      // character it was used on, if any.
       function validWordUse() {
         let data = request.resource.data;
         let fields = ['uid', 'wordId', 'wordName', 'recordId', 'by', 'at', 'cost', 'entryId'];
-        return data.keys().hasOnly(fields)
+        return data.keys().hasOnly(fields.concat(['usedOn', 'usedOnCharacterId']))
           && data.keys().hasAll(fields)
+          && (data.get('usedOn', null) == null
+            || (data.usedOn is string && data.usedOn.size() >= 1 && data.usedOn.size() <= 100))
+          && usedCharacterMatches(data)
           && data.uid is string
           && data.wordId is string
           && data.recordId is string
@@ -1942,6 +1947,88 @@ service cloud.firestore {
           && (data.picture == null
             || (data.picture is string
               && data.picture.matches('characters/' + characterId + '/[0-9a-f]{10}[.]webp')));
+      }
+    }
+
+    // Effects on a character (design D1-D3 of add-character-effects). Everyone signed in reads them. An effect is
+    // created and deleted, never changed. A card's or a True Word's effect is created only with its use, in the same
+    // request, by the user who makes the use; a player writes their own effect on their own character, and the DM
+    // one on any character. Effects by hand are not table actions: an open pack does not stop them.
+    match /characterEffects/{effectId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && validEffect(request.resource.data)
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && (
+          (request.resource.data.source == 'card' && followsCardUse(request.resource.data))
+          || (request.resource.data.source == 'word' && followsWordUse(request.resource.data))
+          || (request.resource.data.source == 'own' && writtenByHand(request.resource.data)
+            && isSelf(request.resource.data.uid) && onOpenCharacter(request.resource.data))
+          || (request.resource.data.source == 'dm' && writtenByHand(request.resource.data)
+            && isDm() && onOpenCharacter(request.resource.data))
+        );
+      allow update: if false;
+      // A use's effect: the character's owner, the user who made the use, or the DM. An own effect: the owner or the
+      // DM. A DM effect: the DM alone.
+      allow delete: if isSignedIn()
+        && (
+          ((resource.data.source == 'card' || resource.data.source == 'word')
+            && (isSelf(resource.data.uid) || request.auth.uid == resource.data.createdBy || isDm()))
+          || (resource.data.source == 'own' && (isSelf(resource.data.uid) || isDm()))
+          || (resource.data.source == 'dm' && isDm())
+        );
+
+      // Exactly the stored fields. A use's effect names its use; one by hand names none. Only a card's is Cursed.
+      // Keep in step with src/features/characters/effects.ts.
+      function validEffect(data) {
+        let fields = ['characterId', 'uid', 'source', 'sourceId', 'name', 'text', 'cursed', 'createdBy',
+          'createdAt'];
+        let fromUse = data.source == 'card' || data.source == 'word';
+        return data.keys().hasOnly(fields)
+          && data.keys().hasAll(fields)
+          && data.characterId is string
+          && data.uid is string
+          && data.source in ['card', 'word', 'own', 'dm']
+          && (fromUse ? data.sourceId is string : data.sourceId == null)
+          && textOfSize(data.name, 200)
+          && data.text is string
+          && data.text.size() <= 2000
+          && data.cursed is bool
+          && (data.source == 'card' || data.cursed == false);
+      }
+
+      // An effect written by hand: a name of 1 to 60 characters and a text of 1 to 500.
+      function writtenByHand(data) {
+        return textOfSize(data.name, 60) && textOfSize(data.text, 500);
+      }
+
+      // The character exists, is not archived, and belongs to the effect's `uid`.
+      function onOpenCharacter(data) {
+        let character = get(characterPath(data.characterId)).data;
+        return character.archived == false && character.uid == data.uid;
+      }
+
+      // A card's use in this same request: the holding was open, and is now closed as used by the signed-in user on
+      // this character, which belongs to the effect's `uid`. A Cursed card's effect is Cursed.
+      function followsCardUse(data) {
+        let after = getAfter(holdingPath(data.sourceId)).data;
+        return get(holdingPath(data.sourceId)).data.returnReason == null
+          && after.returnReason == 'used'
+          && after.returnedBy == request.auth.uid
+          && after.get('usedOnCharacterId', null) == data.characterId
+          && data.cursed == (after.cardKind == 'cursed')
+          && get(characterPath(data.characterId)).data.uid == data.uid;
+      }
+
+      // A True Word's use created in this same request by the signed-in user, on this character, which belongs to
+      // the effect's `uid`.
+      function followsWordUse(data) {
+        let use = getAfter(wordUsePath(data.sourceId)).data;
+        return createdNow(wordUsePath(data.sourceId))
+          && use.by == request.auth.uid
+          && use.get('usedOnCharacterId', null) == data.characterId
+          && get(characterPath(data.characterId)).data.uid == data.uid;
       }
     }
 

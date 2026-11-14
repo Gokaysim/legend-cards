@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type { BalanceActions } from '@/features/balances/balancesContext'
 import { testCard, testCursedCard } from '@/test/cardFixtures'
+import { testCharacter, testEffect } from '@/test/characterFixtures'
 
 import { ready, testProfile, testUser } from '@/test/fixtures'
 import { testHolding } from '@/test/holdingFixtures'
@@ -172,6 +173,40 @@ describe('Legend Points on the hand', () => {
     expect(
       within(screen.getByLabelText('El özeti')).queryByText('Legend Point'),
     ).not.toBeInTheDocument()
+  })
+})
+
+describe('character effects in the hand summary', () => {
+  const stat = (label: string) =>
+    within(screen.getByLabelText('El özeti')).getByText(label).nextElementSibling?.textContent
+
+  it("counts and lists the stored effects of the player's active characters, not an archived one's", () => {
+    const owl = testCard('Night Owl')
+    const thorin = testCharacter('Thorin', 'ayla', { addedAtMillis: 1000 })
+    const kuzgun = testCharacter('Kuzgun', 'ayla', { addedAtMillis: 2000, archived: true })
+    renderApp({
+      path: '/hands/ayla',
+      users: { profiles: ready([ayla, me]) },
+      cards: { cards: ready([owl]) },
+      holdings: { openHoldings: ready([testHolding(owl, 'ayla', 1000, { active: true })]) },
+      characters: {
+        characters: ready([thorin, kuzgun]),
+        effects: ready([
+          testEffect('Kutsal su', thorin, { addedAtMillis: 3000 }),
+          testEffect('Kutsanmış kalkan', thorin, { addedAtMillis: 4000, source: 'dm' }),
+          testEffect('Unutulmuş', kuzgun),
+        ]),
+      },
+    })
+
+    expect(stat('Aktif efekt')).toBe('3')
+    const list = within(screen.getByRole('region', { name: 'Aktif Efektler' }))
+    expect(list.getByText('Night Owl')).toBeInTheDocument()
+    expect(list.getByText('Thorin')).toBeInTheDocument()
+    expect(list.getByText('Kutsanmış kalkan')).toBeInTheDocument()
+    expect(list.getByText('Kutsal su')).toBeInTheDocument()
+    expect(list.queryByText('Unutulmuş')).not.toBeInTheDocument()
+    expect(list.queryByText('Kuzgun')).not.toBeInTheDocument()
   })
 })
 

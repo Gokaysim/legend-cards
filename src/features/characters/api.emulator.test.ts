@@ -3,7 +3,15 @@ import {
   type RulesTestContext,
   type RulesTestEnvironment,
 } from '@firebase/rules-unit-testing'
-import { doc, type Firestore, getDoc, setDoc, Timestamp } from 'firebase/firestore'
+import {
+  collection,
+  doc,
+  type Firestore,
+  getDoc,
+  getDocs,
+  setDoc,
+  Timestamp,
+} from 'firebase/firestore'
 import { type FirebaseStorage, getMetadata, ref, uploadBytes } from 'firebase/storage'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -11,7 +19,7 @@ import { cloudPictureStore, type PictureStore } from '@/features/definitions/pic
 
 import firestoreRules from '../../../firestore.rules?raw'
 import storageRules from '../../../storage.rules?raw'
-import { addCharacter, saveCharacter, setCharacterArchived } from './api'
+import { addCharacter, addEffect, removeEffect, saveCharacter, setCharacterArchived } from './api'
 import { PhotoNeedsConnectionError } from './errors'
 import type { Character } from './schema'
 
@@ -240,5 +248,66 @@ describe('setCharacterArchived', () => {
   it("denies another player's archive", async () => {
     const error = await failureOf(setCharacterArchived(as('bora'), THORIN_ID, true))
     expect(error).toMatchObject({ code: 'permission-denied' })
+  })
+})
+
+describe('effects by hand', () => {
+  async function effects(): Promise<{ id: string; data: Record<string, unknown> }[]> {
+    let docs: { id: string; data: Record<string, unknown> }[] = []
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      docs = (await getDocs(collection(firestoreOf(admin), 'characterEffects'))).docs.map(
+        (entry) => ({ id: entry.id, data: entry.data() }),
+      )
+    })
+    return docs
+  }
+
+  const add = (by: string, isDm = false) =>
+    addEffect(as(by), {
+      character: THORIN,
+      name: ' Kutsal su ',
+      text: '+1 to saves until dawn.',
+      by,
+      isDm,
+    })
+
+  it("adds the owner's own effect and the DM's effect", async () => {
+    await add('ayla')
+    await add('dana', true)
+
+    const stored = (await effects()).map((effect) => effect.data)
+    expect(stored).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: 'own',
+          name: 'Kutsal su',
+          uid: 'ayla',
+          createdBy: 'ayla',
+        }),
+        expect.objectContaining({ source: 'dm', uid: 'ayla', createdBy: 'dana' }),
+      ]),
+    )
+  })
+
+  it("denies another player's effect", async () => {
+    const error = await failureOf(add('bora'))
+    expect(error).toMatchObject({ code: 'permission-denied' })
+  })
+
+  it('lets the owner and the DM remove an own effect, and only the DM a DM effect', async () => {
+    await add('ayla')
+    await add('ayla')
+    await add('dana', true)
+    const all = await effects()
+    const own = all.filter((effect) => effect.data.source === 'own').map((effect) => effect.id)
+    const dm = all.find((effect) => effect.data.source === 'dm')?.id ?? ''
+
+    await removeEffect(as('ayla'), own[0] ?? '')
+    await removeEffect(as('dana'), own[1] ?? '')
+    expect(await failureOf(removeEffect(as('ayla'), dm))).toMatchObject({
+      code: 'permission-denied',
+    })
+    await removeEffect(as('dana'), dm)
+    expect(await effects()).toEqual([])
   })
 })

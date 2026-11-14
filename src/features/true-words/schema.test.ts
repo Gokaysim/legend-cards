@@ -220,6 +220,11 @@ describe('wordUseSchema', () => {
     ['a paid use', paid],
     ['a free use', { ...paid, cost: 0, entryId: null }],
     ['a use whose server time is still pending', { ...paid, at: null }],
+    [
+      'a use on a character',
+      { ...paid, usedOn: 'Thorin', usedOnCharacterId: 'ThorinAyla0123456789' },
+    ],
+    ['a use on a typed name', { ...paid, usedOn: 'Goblin şefi', usedOnCharacterId: null }],
   ])('accepts %s', (_case, use) => {
     expect(wordUseSchema.safeParse(use).success).toBe(true)
   })
@@ -230,7 +235,18 @@ describe('wordUseSchema', () => {
     ['a negative cost', { ...paid, cost: -1 }],
     ['a fractional cost', { ...paid, cost: 1.5 }],
     ['a use without its record', { ...paid, recordId: '' }],
+    ['a character without its name', { ...paid, usedOnCharacterId: 'ThorinAyla0123456789' }],
+    ['an empty name', { ...paid, usedOn: '' }],
+    ['a name over 100 characters', { ...paid, usedOn: 'x'.repeat(101) }],
   ])('rejects %s', (_case, use) => {
     expect(wordUseSchema.safeParse(use).success).toBe(false)
+  })
+
+  it('reads a use from before characters as one without a character', () => {
+    const result = wordUseSchema.safeParse(paid)
+    expect(result.success && [result.data.usedOn, result.data.usedOnCharacterId]).toEqual([
+      null,
+      null,
+    ])
   })
 })

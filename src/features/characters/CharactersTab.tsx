@@ -10,10 +10,17 @@ export type CharacterTileProps = {
   character: Character
   isSelected: boolean
   onSelect: () => void
+  /** How many effects are on it, held ones included (spec: character-effects, "The effect count on a tile"). */
+  effectCount?: number
 }
 
 /** A character's tile (spec: characters, "Character tiles"): its 3:4 frame and its name, a button that selects it. */
-export function CharacterTile({ character, isSelected, onSelect }: CharacterTileProps) {
+export function CharacterTile({
+  character,
+  isSelected,
+  onSelect,
+  effectCount = 0,
+}: CharacterTileProps) {
   return (
     <button
       type="button"
@@ -24,8 +31,22 @@ export function CharacterTile({ character, isSelected, onSelect }: CharacterTile
         isSelected ? 'border-gold' : 'border-line',
       )}
     >
-      <CharacterPortrait character={character} isDecorative />
-      <span className="truncate px-1 text-sm font-medium text-ink">{character.name}</span>
+      <span className="relative">
+        <CharacterPortrait character={character} isDecorative />
+        {effectCount > 0 ? (
+          <span
+            aria-hidden="true"
+            data-effect-count=""
+            className="absolute top-1 right-1 rounded-full border border-gold/60 bg-sidebar px-1.5 py-0.5 text-xs font-semibold text-gold"
+          >
+            ✦ {effectCount}
+          </span>
+        ) : null}
+      </span>
+      <span className="truncate px-1 text-sm font-medium text-ink">
+        {character.name}
+        {effectCount > 0 ? <span className="sr-only">, {effectCount} aktif efekt</span> : null}
+      </span>
     </button>
   )
 }
@@ -35,6 +56,8 @@ export type CharactersTabProps = {
   name: string
   /** Their active characters, in the order added. */
   active: readonly Character[]
+  /** How many effects each active character has, by its ID. */
+  effectCounts?: ReadonlyMap<string, number>
   /** Their archived characters, in the order added. */
   archived: readonly Character[]
   /** Whether the signed-in user may add and edit them: the hand's user or the DM. */
@@ -52,6 +75,7 @@ export type CharactersTabProps = {
 export function CharactersTab({
   name,
   active,
+  effectCounts,
   archived,
   canEdit,
   selectedId,
@@ -86,6 +110,7 @@ export function CharactersTab({
                 character={character}
                 isSelected={character.id === selectedId}
                 onSelect={() => onSelect(character.id)}
+                effectCount={effectCounts?.get(character.id) ?? 0}
               />
             </li>
           ))}

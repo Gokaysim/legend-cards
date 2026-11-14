@@ -25,6 +25,9 @@ import { TableBusyError } from '@/features/table/errors'
 import { openPackIdOf } from '@/features/table/schema'
 import { firebaseCode } from '@/lib/firestore/errors'
 import { cryptoRandom, type RandomSource, sample } from '@/lib/random'
+import { readUseTarget, setUseEffect } from '@/features/characters/api'
+import type { UseTarget } from '@/features/characters/useTarget'
+import { visibleText } from '@/features/cards/text'
 
 import { WordError } from './errors'
 import {
@@ -37,7 +40,7 @@ import {
   playerWordsConverter,
   type StoredLearnedWord,
   type StoredWordDraft,
-  type StoredWordUse,
+  type NewWordUse,
   type TrueWord,
   trueWordConverter,
   WORD_DRAFT_SIZE,
@@ -534,6 +537,10 @@ export type RecordWordUseInput = {
    * any whole amount for the DM, 0 for free (spec: true-words, "Using a True Word").
    */
   amount: number
+  /** On which character the word was used. None by default. */
+  target?: UseTarget
+  /** Adds the word's effect to the chosen character in the same step. Ignored without a chosen character. */
+  addEffect?: boolean
 }
 
 /** At most this many tries when the rules deny a use because another device moved the player's LP first. */
@@ -576,7 +583,7 @@ export async function recordWordUse(db: Firestore, input: RecordWordUseInput): P
 
 function recordWordUseOnce(
   db: Firestore,
-  { recordId, by, amount }: RecordWordUseInput,
+  { recordId, by, amount, target, addEffect }: RecordWordUseInput,
   read: { uid: string | null; lp: number | null },
 ): Promise<string> {
   const useDoc = doc(collection(db, WORD_USES_COLLECTION))
@@ -589,6 +596,7 @@ function recordWordUseOnce(
     if (!word || (word.status !== 'active' && word.status !== 'retired')) {
       throw new WordError('unavailable')
     }
+    const usedOn = await readUseTarget(transaction, db, target)
     if (by === record.uid) {
       const price = priceOfUse(word.cost)
       if (!priceAllows(price, amount)) {
@@ -606,7 +614,7 @@ function recordWordUseOnce(
       balanceAfter = balance - amount
     }
 
-    const use: WithFieldValue<StoredWordUse> = {
+    const use: WithFieldValue<NewWordUse> = {
       uid: record.uid,
       wordId: record.wordId,
       wordName: word.name,
@@ -615,8 +623,20 @@ function recordWordUseOnce(
       at: serverTimestamp(),
       cost: amount,
       entryId: amount > 0 ? entryDoc.id : null,
+      // Written only for a use on a character (design D4 of add-character-effects).
+      ...(usedOn === null ? {} : { usedOn: usedOn.name }),
+      ...(usedOn?.characterId ? { usedOnCharacterId: usedOn.characterId } : {}),
     }
     transaction.set(useDoc, use)
+    if (addEffect === true) {
+      setUseEffect(transaction, db, {
+        target: usedOn,
+        source: 'word',
+        sourceId: useDoc.id,
+        content: { name: word.name, text: visibleText(word.text), cursed: false },
+        by,
+      })
+    }
     if (balanceAfter !== null) {
       transaction.set(
         entryDoc,

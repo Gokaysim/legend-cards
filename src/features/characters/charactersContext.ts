@@ -4,7 +4,8 @@ import { profileName } from '@/features/users/usersContext'
 import type { UserProfile } from '@/features/users/schema'
 import type { Subscription } from '@/lib/firestore/subscription'
 
-import type { AddCharacterInput, SaveCharacterInput } from './api'
+import type { AddCharacterInput, AddEffectInput, SaveCharacterInput } from './api'
+import type { CharacterEffect } from './effects'
 import type { Character } from './schema'
 
 /** The character steps (spec: characters), bound to a Firestore and a picture store. */
@@ -12,11 +13,17 @@ export type CharacterActions = {
   addCharacter: (input: AddCharacterInput) => Promise<string>
   saveCharacter: (input: SaveCharacterInput) => Promise<void>
   setCharacterArchived: (characterId: string, archived: boolean) => Promise<void>
+  /** Adds an effect written by hand: queued offline, so callers need not wait. */
+  addEffect: (input: AddEffectInput) => Promise<void>
+  /** Deletes an effect: queued offline, so callers need not wait. */
+  removeEffect: (effectId: string) => Promise<void>
 }
 
 export type CharactersContextValue = {
   /** Every character, archived ones included, in the order they were added. */
   characters: Subscription<Character[]>
+  /** Every effect, archived characters' included, newest first. */
+  effects: Subscription<CharacterEffect[]>
   actions: CharacterActions
 }
 
@@ -31,6 +38,11 @@ function useCharactersContext(): CharactersContextValue {
 /** Every character, archived ones included, in the order they were added, live. */
 export function useCharacters(): Subscription<Character[]> {
   return useCharactersContext().characters
+}
+
+/** Every effect on every character, newest first, live (spec: character-effects). */
+export function useCharacterEffects(): Subscription<CharacterEffect[]> {
+  return useCharactersContext().effects
 }
 
 /** The character steps. Must be used inside `<CharactersProvider>`. */
@@ -86,4 +98,18 @@ export function characterGroups(
       characters: charactersOf(characters, profile.id),
     }))
     .filter((group) => group.characters.length > 0)
+}
+
+/** Effects newest first; a pending creation time counts as now, so a new effect is first. */
+export function sortEffects(effects: readonly CharacterEffect[]): CharacterEffect[] {
+  const at = (effect: CharacterEffect) => effect.createdAt?.toMillis() ?? Number.POSITIVE_INFINITY
+  return [...effects].sort((a, b) => at(b) - at(a) || a.id.localeCompare(b.id))
+}
+
+/** One character's stored effects, in the order given (newest first from `useCharacterEffects`). */
+export function effectsOf(
+  effects: readonly CharacterEffect[],
+  characterId: string,
+): CharacterEffect[] {
+  return effects.filter((effect) => effect.characterId === characterId)
 }

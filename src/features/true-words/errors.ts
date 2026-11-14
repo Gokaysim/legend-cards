@@ -2,6 +2,7 @@ import { formatAmount } from '@/features/balances/format'
 import { TABLE_BUSY_MESSAGE, TableBusyError } from '@/features/table/errors'
 import { firebaseCode } from '@/lib/firestore/errors'
 import { genitive } from '@/lib/turkish'
+import { CharacterUnavailableError } from '@/features/characters/errors'
 
 /** A True Word step that the current data does not allow, found before anything is written. */
 export type WordErrorKind =
@@ -65,6 +66,8 @@ export type WordFailure =
   /** The word's fixed price changed between showing it and confirming a use: confirm again at the new price. */
   | { kind: 'price-changed'; price: number }
   /** A pack is open: the table waits for it, True Words included. */
+  /** The character chosen for a use was archived meanwhile, or does not exist. */
+  | { kind: 'character-unavailable' }
   | { kind: 'table-busy' }
   /** No connection: True Word steps are transactions, and transactions need the server. */
   | { kind: 'offline' }
@@ -84,6 +87,7 @@ export function toWordFailure(error: unknown): WordFailure {
       ? { kind: 'unknown' }
       : { kind: 'insufficient', ...error.shortfall }
   }
+  if (error instanceof CharacterUnavailableError) return { kind: 'character-unavailable' }
   if (error instanceof TableBusyError) return { kind: 'table-busy' }
   switch (firebaseCode(error)) {
     case 'permission-denied':
@@ -122,6 +126,8 @@ export function wordFailureMessage(failure: WordFailure, name: string): string {
       return `${name} bu True Word'ü artık bilmiyor.`
     case 'price-changed':
       return `Bu True Word'ün bedeli değişti: şimdi ${formatAmount(failure.price)} LP. Yeni bedelle tekrar onayla.`
+    case 'character-unavailable':
+      return 'Bu karakter artık seçilemiyor. Başka bir karakter seç.'
     case 'table-busy':
       return TABLE_BUSY_MESSAGE
     case 'offline':

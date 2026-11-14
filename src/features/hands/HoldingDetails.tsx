@@ -15,7 +15,8 @@ import {
 } from '@/features/balances/paymentPlan'
 import { UsePayment } from '@/features/balances/UsePayment'
 import { CardFace } from '@/features/cards/CardFace'
-import { characterGroups, useCharacters } from '@/features/characters/charactersContext'
+import { CharacterPicker } from '@/features/characters/CharacterPicker'
+import { useCharacterChoice } from '@/features/characters/useCharacterChoice'
 import { cardFrame, type FaceGlow, faceGlow, NO_VALUE } from '@/features/cards/display'
 import { useSetIndex } from '@/features/sets/setsContext'
 import { TABLE_BUSY_NOTE } from '@/features/table/errors'
@@ -27,16 +28,12 @@ import { cn } from '@/lib/cn'
 import { useOnlineStatus } from '@/lib/useOnlineStatus'
 import { useSavedField } from '@/lib/useSavedField'
 
-import type { UseTarget } from './api'
 import { type HoldingFailure, holdingFailureMessage, toHoldingFailure } from './errors'
 import type { HandEntry } from './handEntries'
 import { holdingBadges } from './holdingBadges'
 import { holdingInfo } from './holdingInfo'
 import { useHoldingActions } from './holdingsContext'
 import { HOLDING_LIMITS } from './schema'
-
-/** The use step's choice that reveals the text field for a character without a record. */
-const TYPED = 'typed'
 
 const fieldClasses =
   'w-full rounded-lg border border-control-line bg-control px-3 py-2 text-sm text-ink placeholder:text-ink-muted'
@@ -100,9 +97,6 @@ export function HoldingDetails({ entry, holderName, onDone, layout }: HoldingDet
   const busyTitle = isTableBusy ? TABLE_BUSY_NOTE : undefined
 
   const [step, setStep] = useState<Step>('idle')
-  // The use step's character: '' for none, TYPED for a typed name, or a character's ID.
-  const [target, setTarget] = useState('')
-  const [typedName, setTypedName] = useState('')
   const [entered, setEntered] = useState('')
   const [receiver, setReceiver] = useState('')
   const [isBusy, setIsBusy] = useState(false)
@@ -117,30 +111,10 @@ export function HoldingDetails({ entry, holderName, onDone, layout }: HoldingDet
     (value) => value.trim(),
   )
 
-  // The table's active characters, the holder's first, live (spec: card-holdings, "Choosing the character of a use").
-  const characters = useCharacters()
-  const groups =
-    characters.status === 'ready' && profiles.status === 'ready'
-      ? characterGroups(characters.data, profiles.data, holding.uid)
-      : []
-  const isCharacterChosen = target !== '' && target !== TYPED
-  // A chosen character archived meanwhile, here or on another device, cannot be used on: say so at once.
-  if (
-    isCharacterChosen &&
-    characters.status === 'ready' &&
-    !groups.some((group) => group.characters.some((character) => character.id === target))
-  ) {
-    setTarget('')
-    setFailure({ kind: 'character-unavailable' })
-  }
-  const useTarget: UseTarget =
-    target === ''
-      ? { kind: 'none' }
-      : target === TYPED
-        ? typedName.trim() === ''
-          ? { kind: 'none' }
-          : { kind: 'typed', name: typedName }
-        : { kind: 'character', characterId: target }
+  // The use step's character, the holder's group first (spec: card-holdings, "Choosing the character of a use").
+  const choice = useCharacterChoice(holding.uid, () =>
+    setFailure({ kind: 'character-unavailable' }),
+  )
 
   const receivers =
     profiles.status === 'ready' ? profiles.data.filter((profile) => profile.id !== holding.uid) : []
@@ -194,45 +168,7 @@ export function HoldingDetails({ entry, holderName, onDone, layout }: HoldingDet
 
   const useStep = (
     <div className="flex flex-col gap-2 rounded-xl border border-line bg-pane-raised p-3">
-      <label htmlFor={`${ids}-used-on`} className="text-sm font-medium text-ink">
-        Hangi karakter üzerinde?
-      </label>
-      <select
-        id={`${ids}-used-on`}
-        value={target}
-        onChange={(event) => {
-          setFailure(null)
-          setTarget(event.target.value)
-        }}
-        className={fieldClasses}
-      >
-        <option value="">Karakter seçilmedi</option>
-        {groups.map((group) => (
-          <optgroup key={group.uid} label={group.name}>
-            {group.characters.map((character) => (
-              <option key={character.id} value={character.id}>
-                {character.name}
-              </option>
-            ))}
-          </optgroup>
-        ))}
-        <option value={TYPED}>Başka (yaz)…</option>
-      </select>
-      {target === TYPED ? (
-        <>
-          <label htmlFor={`${ids}-typed`} className="sr-only">
-            Karakterin adı
-          </label>
-          <input
-            id={`${ids}-typed`}
-            value={typedName}
-            maxLength={HOLDING_LIMITS.usedOn}
-            placeholder="Örneğin Goblin şefi"
-            onChange={(event) => setTypedName(event.target.value)}
-            className={fieldClasses}
-          />
-        </>
-      ) : null}
+      <CharacterPicker choice={choice} onInput={() => setFailure(null)} />
       <UsePayment
         plan={payment}
         payer={payer}
@@ -253,7 +189,8 @@ export function HoldingDetails({ entry, holderName, onDone, layout }: HoldingDet
                 holdingId: holding.id,
                 by,
                 reason: 'used',
-                target: useTarget,
+                target: choice.target,
+                addEffect: choice.addEffect,
                 amount,
               }),
             )

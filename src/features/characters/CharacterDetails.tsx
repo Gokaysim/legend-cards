@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react'
+
 import { Button } from '@/components/ui/Button'
 import { Dialog } from '@/components/ui/Dialog'
 import { cn } from '@/lib/cn'
@@ -17,11 +19,13 @@ export type CharacterDetailsProps = {
   onArchive: () => void
   /** `panel` beside the tiles on a wide window, `dialog` on a narrow one. */
   layout: 'panel' | 'dialog'
+  /** The character's "Aktif efektler" (spec: character-effects). */
+  effects?: ReactNode
 }
 
 /**
  * A character's details (spec: characters, "Character details beside the tiles", "Editing in the details"): its photo,
- * its name and its owner, and for the owner and the DM "✎ Düzenle" and "Arşivle".
+ * its name and its owner, for the owner and the DM "✎ Düzenle" and "Arşivle", then its active effects.
  */
 export function CharacterDetails({
   character,
@@ -30,6 +34,7 @@ export function CharacterDetails({
   onEdit,
   onArchive,
   layout,
+  effects,
 }: CharacterDetailsProps) {
   return (
     <div className="flex flex-col gap-4">
@@ -49,6 +54,7 @@ export function CharacterDetails({
           </Button>
         </div>
       ) : null}
+      {effects}
     </div>
   )
 }

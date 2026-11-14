@@ -92,6 +92,8 @@ export function testWordUse(
     at: Timestamp.fromMillis(4000),
     cost: 1,
     entryId: `e-${id}`,
+    usedOn: null,
+    usedOnCharacterId: null,
     ...overrides,
   }
 }

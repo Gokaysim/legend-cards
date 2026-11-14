@@ -5,6 +5,12 @@ import { BalanceDialog } from '@/features/balances/BalanceDialog'
 import { formatAmount } from '@/features/balances/format'
 import { compareLabels } from '@/features/cards/sort'
 import { visibleText } from '@/features/cards/text'
+import {
+  charactersOf,
+  effectsOf,
+  useCharacterEffects,
+  useCharacters,
+} from '@/features/characters/charactersContext'
 import type { SetIndex } from '@/features/sets/index'
 import { useSetIndex } from '@/features/sets/setsContext'
 import { TABLE_BUSY_NOTE } from '@/features/table/errors'
@@ -109,10 +115,12 @@ function ListTrigger({ id, controls, onOpen, onClose, onToggle }: ListTriggerPro
 
 /**
  * The stats above the hand (v2.2.8's `.stats`): a player's Legend Points (the DM changes them here; the DM has none),
- * how many cards the hand holds, how many effects are active (cards and True Words), from how many sets the cards
+ * how many cards the hand holds, how many effects are active (cards, True Words, and the stored effects on the player's
+ * active characters), from how many sets the cards
  * come, how many are Cursed, and how many True Words the player knows. True Words are not cards.
  *
- * "Aktif efekt ⓘ" opens the list of the active cards with their visible text, then the active True Words marked ✦;
+ * "Aktif efekt ⓘ" opens the list of the active cards with their visible text, then the active True Words marked ✦,
+ * then each active character's stored effects under its name;
  * "Farklı set ⓘ" opens the sets with their card counts (design D6). A list opens while a mouse or pen rests on its stat,
  * while the stat has the focus from the keyboard, and after a tap until the next tap, a press elsewhere, or Escape. It
  * lies under the whole stats block, so it never widens the page. Closed, it is `sr-only`: screen readers and search
@@ -138,6 +146,16 @@ export function HandSummary({
   const playerName = profileName(profile)
   const active = entries.filter((entry) => entry.holding.active)
   const activeWords = words.filter((entry) => entry.record.active)
+  // The stored effects on the player's active characters, by character (spec: card-holdings, "Hand summary").
+  const characters = useCharacters()
+  const effects = useCharacterEffects()
+  const characterEffects =
+    characters.status === 'ready' && effects.status === 'ready'
+      ? charactersOf(characters.data, profile.id)
+          .map((character) => ({ character, effects: effectsOf(effects.data, character.id) }))
+          .filter((group) => group.effects.length > 0)
+      : []
+  const storedCount = characterEffects.reduce((sum, group) => sum + group.effects.length, 0)
   const sets = handSets(entries, setIndex)
   const cursedCount = entries.filter((entry) => entry.card.kind === 'cursed').length
 
@@ -220,7 +238,7 @@ export function HandSummary({
         <StatTile label="Eldeki kart" value={entries.length} />
         <StatTile
           label="Aktif efekt"
-          value={active.length + activeWords.length}
+          value={active.length + activeWords.length + storedCount}
           hasInfo
           cover={trigger('active')}
         />
@@ -230,7 +248,7 @@ export function HandSummary({
       </dl>
       {list(
         'active',
-        active.length === 0 && activeWords.length === 0 ? (
+        active.length === 0 && activeWords.length === 0 && storedCount === 0 ? (
           <p className="text-sm text-ink-muted">Aktif efekt yok.</p>
         ) : (
           <ul className="flex flex-col gap-2">
@@ -267,6 +285,27 @@ export function HandSummary({
                 <p lang="en" className="break-words whitespace-pre-line text-ink-muted">
                   {visibleText(word.text) || 'Efekt metni yok.'}
                 </p>
+              </li>
+            ))}
+            {characterEffects.map(({ character, effects: list }) => (
+              <li key={character.id} className="flex flex-col gap-1 text-sm">
+                <p className="font-semibold break-words text-gold">{character.name}</p>
+                <ul className="flex flex-col gap-1">
+                  {list.map((effect) => (
+                    <li
+                      key={effect.id}
+                      className={cn(
+                        'border-l-2 pl-2',
+                        effect.cursed ? 'border-cursed' : 'border-line',
+                      )}
+                    >
+                      <p className="font-semibold break-words text-ink">{effect.name}</p>
+                      <p className="break-words whitespace-pre-line text-ink-muted">
+                        {effect.text || 'Efekt metni yok.'}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
               </li>
             ))}
           </ul>

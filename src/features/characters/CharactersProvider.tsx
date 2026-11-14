@@ -6,39 +6,58 @@ import { db } from '@/lib/firebase/firestore'
 import { storage } from '@/lib/firebase/storage'
 import { useCollection } from '@/lib/firestore/useCollection'
 
-import { addCharacter, charactersRef, saveCharacter, setCharacterArchived } from './api'
+import {
+  addCharacter,
+  addEffect,
+  characterEffectsRef,
+  charactersRef,
+  removeEffect,
+  saveCharacter,
+  setCharacterArchived,
+} from './api'
 import {
   type CharacterActions,
   CharactersContext,
   type CharactersContextValue,
   sortCharacters,
+  sortEffects,
 } from './charactersContext'
 
 const characters = charactersRef(db)
+const effects = characterEffectsRef(db)
 const pictures = cloudPictureStore(storage)
 
 const actions: CharacterActions = {
   addCharacter: (input) => addCharacter(db, input, pictures),
   saveCharacter: (input) => saveCharacter(db, input, pictures),
   setCharacterArchived: (characterId, archived) => setCharacterArchived(db, characterId, archived),
+  addEffect: (input) => addEffect(db, input),
+  removeEffect: (effectId) => removeEffect(db, effectId),
 }
 
 /**
- * Shares every character in real time, with one subscription for the whole app, and the character steps (design D2
- * of add-characters). Every signed-in user reads every character; signed out, it subscribes to nothing.
+ * Shares every character and every effect in real time, with one subscription each for the whole app, and the
+ * character steps (design D2 of add-characters, D7 of add-character-effects). Every signed-in user reads them all;
+ * signed out, it subscribes to nothing.
  */
 export function CharactersProvider({ children }: { children: ReactNode }) {
   const auth = useAuth()
-  const subscription = useCollection(auth.status === 'signedIn' ? characters : null)
+  const isSignedIn = auth.status === 'signedIn'
+  const subscription = useCollection(isSignedIn ? characters : null)
+  const effectSubscription = useCollection(isSignedIn ? effects : null)
   const value = useMemo<CharactersContextValue>(
     () => ({
       characters:
         subscription.status === 'ready'
           ? { ...subscription, data: sortCharacters(subscription.data) }
           : subscription,
+      effects:
+        effectSubscription.status === 'ready'
+          ? { ...effectSubscription, data: sortEffects(effectSubscription.data) }
+          : effectSubscription,
       actions,
     }),
-    [subscription],
+    [subscription, effectSubscription],
   )
   return <CharactersContext value={value}>{children}</CharactersContext>
 }

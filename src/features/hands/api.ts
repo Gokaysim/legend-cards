@@ -17,8 +17,10 @@ import {
 
 import { LEDGER_COLLECTION, newLedgerEntry } from '@/features/balances/api'
 import { cardRef } from '@/features/cards/api'
+import { visibleText } from '@/features/cards/text'
 import { MAX_USE_AMOUNT, priceAllows, priceOfUse } from '@/features/cards/display'
-import { characterConverter, CHARACTERS_COLLECTION } from '@/features/characters/schema'
+import { readUseTarget, setUseEffect } from '@/features/characters/api'
+import type { UseTarget } from '@/features/characters/useTarget'
 import type { Card } from '@/features/cards/schema'
 import { explainDenial } from '@/features/table/api'
 import { profileRef, USERS_COLLECTION } from '@/features/users/api'
@@ -167,15 +169,6 @@ function giveCardOnce(
   })
 }
 
-/**
- * On which character a card is used (spec: card-holdings, "Choosing the character of a use"): none, one of the table's
- * characters, or a name typed for one that has no record (blank means none).
- */
-export type UseTarget =
-  { kind: 'none' } | { kind: 'character'; characterId: string } | { kind: 'typed'; name: string }
-
-export const NO_USE_TARGET: UseTarget = { kind: 'none' }
-
 export type CloseHoldingInput = {
   holdingId: string
   /** The signed-in user: the holder, or the DM. */
@@ -185,6 +178,11 @@ export type CloseHoldingInput = {
       reason: 'used'
       /** On which character the card was used. None by default. */
       target?: UseTarget
+      /**
+       * Adds the card's effect to the chosen character in the same step (spec: card-holdings, "Adding the effect of a
+       * card's use"). Ignored without a chosen character.
+       */
+      addEffect?: boolean
       /**
        * The LP the user confirmed for the use, taken from the holder's LP: the price of the card's cost in this hand
        * for the holder's own use, any whole amount for the DM, 0 for free (spec: card-holdings, "The price of a
@@ -309,41 +307,24 @@ function closeHoldingOnce(db: Firestore, input: CloseHoldingInput, read: LpRead)
         // Written only for a chosen character, so a typed name stores no field (design D7 of add-characters).
         ...(usedOn?.characterId ? { usedOnCharacterId: usedOn.characterId } : {}),
       })
+      if (input.addEffect === true) {
+        setUseEffect(transaction, db, {
+          target: usedOn,
+          source: 'card',
+          sourceId: holdingId,
+          content: {
+            name: current.name,
+            text: visibleText(current.text),
+            cursed: current.kind === 'cursed',
+          },
+          by,
+        })
+      }
     } else {
       transaction.update(writableHolding(db, holdingId), closing)
     }
     if (current && isHolderOf(current, holdingId)) transaction.update(card, { holder: null })
   })
-}
-
-/**
- * The name a use keeps, and the character it names: a chosen character's current name, read in the transaction, or a
- * typed name. Fails with `HoldingError` `character-unavailable` when the chosen character is missing or archived.
- */
-async function readUseTarget(
-  transaction: Transaction,
-  db: Firestore,
-  target: UseTarget = NO_USE_TARGET,
-): Promise<{ name: string; characterId: string | null } | null> {
-  switch (target.kind) {
-    case 'none':
-      return null
-    case 'typed': {
-      const name = cleanText(target.name, HOLDING_LIMITS.usedOn)
-      return name === null ? null : { name, characterId: null }
-    }
-    case 'character': {
-      const character = (
-        await transaction.get(
-          doc(db, CHARACTERS_COLLECTION, target.characterId).withConverter(characterConverter),
-        )
-      ).data()
-      if (character === undefined || character.archived) {
-        throw new HoldingError('character-unavailable')
-      }
-      return { name: character.name, characterId: character.id }
-    }
-  }
 }
 
 export type TransferHoldingInput = {

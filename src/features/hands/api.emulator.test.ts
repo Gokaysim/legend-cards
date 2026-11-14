@@ -3,7 +3,15 @@ import {
   type RulesTestContext,
   type RulesTestEnvironment,
 } from '@firebase/rules-unit-testing'
-import { doc, type Firestore, getDoc, setDoc, Timestamp } from 'firebase/firestore'
+import {
+  collection,
+  doc,
+  type Firestore,
+  getDoc,
+  getDocs,
+  setDoc,
+  Timestamp,
+} from 'firebase/firestore'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import firestoreRules from '../../../firestore.rules?raw'
@@ -339,6 +347,73 @@ describe('closing holdings under the real rules', () => {
         usedOn: 'Thorin Oakenshield',
         usedOnCharacterId: THORIN,
       })
+    })
+
+    async function effects(): Promise<Record<string, unknown>[]> {
+      let docs: Record<string, unknown>[] = []
+      await testEnv.withSecurityRulesDisabled(async (admin) => {
+        docs = (await getDocs(collection(firestoreOf(admin), 'characterEffects'))).docs.map(
+          (entry) => entry.data(),
+        )
+      })
+      return docs
+    }
+
+    it("adds the card's effect with its visible text, Cursed for a Cursed card", async () => {
+      await seedThorin()
+      await testEnv.withSecurityRulesDisabled(async (admin) => {
+        await setDoc(doc(firestoreOf(admin), `cards/${CURSED}`), {
+          ...storedCard('cursed', 'Visions of Death'),
+          text: 'Roll twice [hidden note] and take the lower.',
+        })
+      })
+      const id = await giveCard(as('dana'), { cardId: CURSED, uid: 'ayla', by: 'dana' })
+
+      await closeHolding(as('ayla'), {
+        holdingId: id,
+        by: 'ayla',
+        reason: 'used',
+        target: { kind: 'character', characterId: THORIN },
+        addEffect: true,
+        amount: 3,
+      })
+
+      expect(await effects()).toEqual([
+        expect.objectContaining({
+          characterId: THORIN,
+          uid: 'ayla',
+          source: 'card',
+          sourceId: id,
+          name: 'Visions of Death',
+          text: 'Roll twice and take the lower.',
+          cursed: true,
+          createdBy: 'ayla',
+        }),
+      ])
+    })
+
+    it('adds no effect without addEffect, or for a typed name', async () => {
+      await seedThorin()
+      const first = await giveCard(as('dana'), { cardId: CURSED, uid: 'ayla', by: 'dana' })
+      const second = await giveCard(as('dana'), { cardId: CURSED, uid: 'ayla', by: 'dana' })
+
+      await closeHolding(as('ayla'), {
+        holdingId: first,
+        by: 'ayla',
+        reason: 'used',
+        target: { kind: 'character', characterId: THORIN },
+        amount: 3,
+      })
+      await closeHolding(as('ayla'), {
+        holdingId: second,
+        by: 'ayla',
+        reason: 'used',
+        target: { kind: 'typed', name: 'Goblin şefi' },
+        addEffect: true,
+        amount: 3,
+      })
+
+      expect(await effects()).toEqual([])
     })
 
     it.each([

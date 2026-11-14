@@ -497,6 +497,105 @@ describe('using a word under the real rules', () => {
   const use = (by: string, recordId: string, amount: number) =>
     recordWordUse(as(by), { recordId, by, amount })
 
+  describe('on a character', () => {
+    const THORIN = 'ThorinAyla0123456789'
+
+    async function seedThorin(archived = false) {
+      await testEnv.withSecurityRulesDisabled(async (admin) => {
+        await setDoc(doc(firestoreOf(admin), `characters/${THORIN}`), {
+          uid: 'ayla',
+          name: 'Thorin',
+          picture: null,
+          archived,
+          createdAt: Timestamp.fromMillis(0),
+          createdBy: 'ayla',
+        })
+      })
+    }
+
+    async function effects(): Promise<Record<string, unknown>[]> {
+      let docs: Record<string, unknown>[] = []
+      await testEnv.withSecurityRulesDisabled(async (admin) => {
+        docs = (await getDocs(collection(firestoreOf(admin), 'characterEffects'))).docs.map(
+          (entry) => entry.data(),
+        )
+      })
+      return docs
+    }
+
+    it('records the character and adds the word effect', async () => {
+      await seedThorin()
+      const recordId = await teach('ayla', AID)
+
+      const useId = await recordWordUse(as('ayla'), {
+        recordId,
+        by: 'ayla',
+        amount: 1,
+        target: { kind: 'character', characterId: THORIN },
+        addEffect: true,
+      })
+
+      expect(await stored(`wordUses/${useId}`)).toMatchObject({
+        usedOn: 'Thorin',
+        usedOnCharacterId: THORIN,
+      })
+      expect(await effects()).toEqual([
+        expect.objectContaining({
+          characterId: THORIN,
+          uid: 'ayla',
+          source: 'word',
+          sourceId: useId,
+          name: 'Aid',
+          cursed: false,
+          createdBy: 'ayla',
+        }),
+      ])
+    })
+
+    it('records the character without an effect, and a typed name without either', async () => {
+      await seedThorin()
+      const recordId = await teach('ayla', AID)
+
+      const onThorin = await recordWordUse(as('ayla'), {
+        recordId,
+        by: 'ayla',
+        amount: 1,
+        target: { kind: 'character', characterId: THORIN },
+      })
+      const typed = await recordWordUse(as('dana'), {
+        recordId,
+        by: 'dana',
+        amount: 0,
+        target: { kind: 'typed', name: 'Goblin şefi' },
+        addEffect: true,
+      })
+
+      expect(await stored(`wordUses/${onThorin}`)).toMatchObject({ usedOnCharacterId: THORIN })
+      const typedUse = await stored(`wordUses/${typed}`)
+      expect(typedUse).toMatchObject({ usedOn: 'Goblin şefi' })
+      expect(typedUse).not.toHaveProperty('usedOnCharacterId')
+      expect(await effects()).toEqual([])
+    })
+
+    it('refuses an archived character, and the LP does not change', async () => {
+      await seedThorin(true)
+      const recordId = await teach('ayla', AID)
+
+      const error = await failureOf(
+        recordWordUse(as('ayla'), {
+          recordId,
+          by: 'ayla',
+          amount: 1,
+          target: { kind: 'character', characterId: THORIN },
+          addEffect: true,
+        }),
+      )
+
+      expect(toWordFailure(error)).toEqual({ kind: 'character-unavailable' })
+      expect(await stored('users/ayla')).toMatchObject({ lp: 5 })
+    })
+  })
+
   async function setCost(word: TrueWord, cost: string) {
     await testEnv.withSecurityRulesDisabled(async (admin) => {
       await setDoc(doc(firestoreOf(admin), `trueWords/${word.id}`), storedWord({ ...word, cost }))

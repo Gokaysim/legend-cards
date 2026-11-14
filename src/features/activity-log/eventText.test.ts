@@ -285,6 +285,21 @@ describe('describeEvent: True Words', () => {
     )
   })
 
+  it('names the character a word was used on, paid or free', () => {
+    const paid = testWordUse('u1', abyss, 'ayla', {
+      cost: 5,
+      usedOn: 'Thorin',
+      usedOnCharacterId: 'ThorinAyla0123456789',
+    })
+    expect(text(only({ wordUses: [paid] }))).toBe(
+      "Abyss True Word'ünü Thorin üzerinde kullandı (−5 LP).",
+    )
+    const free = testWordUse('u2', abyss, 'ayla', { cost: 0, entryId: null, usedOn: 'Goblin şefi' })
+    expect(text(only({ wordUses: [free] }))).toBe(
+      "Abyss True Word'ünü Goblin şefi üzerinde kullandı.",
+    )
+  })
+
   it("describes a player's use of their word, with its payment", () => {
     const event = only({ wordUses: [testWordUse('u1', abyss, 'ayla', { cost: 5 })] })
     expect(text(event)).toBe("Abyss True Word'ünü kullandı (−5 LP).")

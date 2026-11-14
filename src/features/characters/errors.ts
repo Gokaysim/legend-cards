@@ -12,6 +12,18 @@ export class PhotoNeedsConnectionError extends Error {
   }
 }
 
+/**
+ * The character chosen for a use is missing or archived (spec: card-holdings, "The character of a use is recorded").
+ * Thrown inside a use's transaction before anything is written.
+ */
+export class CharacterUnavailableError extends Error {
+  override readonly name = 'CharacterUnavailableError'
+
+  constructor() {
+    super('The chosen character is no longer available')
+  }
+}
+
 /** Why a character step failed, as the interface explains it. */
 export type CharacterFailure =
   | { kind: 'photo-offline' }
@@ -43,7 +55,7 @@ export function characterFailureMessage(failure: CharacterFailure): string {
     case 'offline':
       return 'Bağlantı yok: fotoğraf yüklenemedi. Bağlantı gelince tekrar kaydet.'
     case 'permission-denied':
-      return 'Bu karakteri değiştirmek için yetkin yok.'
+      return 'Bu işlem için yetkin yok.'
     case 'unknown':
       return 'Kaydedilemedi. Tekrar dene.'
   }

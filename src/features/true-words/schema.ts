@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import { picturePathSchema } from '@/features/definitions/picturePath'
 import { DEFINITION_STATUSES } from '@/features/definitions/status'
+import { USED_ON_MAX } from '@/features/characters/useTarget'
 import { createConverter } from '@/lib/firestore/converter'
 
 /** Field limits. Keep in step with `WORD_LIMITS` in `scripts/lib/trueWordRows.ts`. */
@@ -247,8 +248,22 @@ export const wordUseSchema = z
     cost: z.number().int().min(0).max(WORD_USE_COST_MAX),
     /** The payment's ledger entry; `null` when free. */
     entryId: id.nullable(),
+    /**
+     * On which character it was used, as its name was then (design D4 of add-character-effects). Written only when a
+     * character was given; older uses read as `null`.
+     */
+    usedOn: z.string().min(1).max(USED_ON_MAX).nullable().default(null),
+    /** The stored character, when it was chosen from the list rather than typed. */
+    usedOnCharacterId: id.nullable().default(null),
   })
   .superRefine((use, context) => {
+    if (use.usedOnCharacterId !== null && use.usedOn === null) {
+      context.addIssue({
+        code: 'custom',
+        path: ['usedOnCharacterId'],
+        message: 'a use on a character also keeps its name',
+      })
+    }
     if (use.cost > 0 !== (use.entryId !== null)) {
       context.addIssue({
         code: 'custom',
@@ -259,5 +274,9 @@ export const wordUseSchema = z
   })
 
 export type StoredWordUse = z.infer<typeof wordUseSchema>
+
+/** A new word use as written: the character fields come only with a use on a character. */
+export type NewWordUse = Omit<StoredWordUse, 'usedOn' | 'usedOnCharacterId'> &
+  Partial<Pick<StoredWordUse, 'usedOn' | 'usedOnCharacterId'>>
 export type WordUse = StoredWordUse & { id: string }
 export const wordUseConverter = createConverter(wordUseSchema, { idField: 'id' })

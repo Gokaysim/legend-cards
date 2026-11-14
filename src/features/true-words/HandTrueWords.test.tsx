@@ -5,7 +5,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { ArtManifest } from '@/features/art/schema'
 import { TABLE_BUSY_NOTE } from '@/features/table/errors'
+import type { Character } from '@/features/characters/schema'
 import { testPicturePath } from '@/test/artFixtures'
+import { testCharacter } from '@/test/characterFixtures'
 import { ready, testProfile, testUser } from '@/test/fixtures'
 import { stubWideWindow } from '@/test/media'
 import { renderApp } from '@/test/renderApp'
@@ -201,7 +203,12 @@ describe('using a word', () => {
   function renderOwnTab({
     lp = 6,
     table,
-  }: { lp?: number; table?: { openPackId: string | null } } = {}) {
+    characters = [],
+  }: {
+    lp?: number
+    table?: { openPackId: string | null }
+    characters?: Character[]
+  } = {}) {
     const recordWordUse = vi.fn<TrueWordActions['recordWordUse']>(() => Promise.resolve('u-new'))
     const player = testProfile({ displayName: 'Gökay', lp })
     const view = renderApp({
@@ -216,6 +223,7 @@ describe('using a word', () => {
         actions: { recordWordUse },
       },
       table,
+      characters: { characters: ready(characters) },
     })
     return { ...view, recordWordUse, user: userEvent.setup() }
   }
@@ -227,13 +235,15 @@ describe('using a word', () => {
     const dialog = within(screen.getByRole('dialog', { name: '✦ Abyss' }))
     await user.click(dialog.getByRole('button', { name: 'Kullan' }))
     expect(dialog.getByText('6 LP → 1 LP')).toBeInTheDocument()
-    expect(dialog.queryByRole('textbox', { name: /Hangi karakter/ })).not.toBeInTheDocument()
+    expect(dialog.getByRole('combobox', { name: 'Hangi karakter üzerinde?' })).toHaveValue('')
     await user.click(dialog.getByRole('button', { name: 'Kullanımı onayla (5 LP)' }))
 
     expect(recordWordUse).toHaveBeenCalledExactlyOnceWith({
       recordId: 'r-abyss',
       by: testUser.uid,
       amount: 5,
+      target: { kind: 'none' },
+      addEffect: false,
     })
     expect(dialog.getByRole('status')).toHaveTextContent('Abyss kullanıldı (−5 LP).')
     expect(dialog.getByRole('button', { name: 'Kullan' })).toBeInTheDocument()
@@ -248,11 +258,9 @@ describe('using a word', () => {
     await user.type(dialog.getByRole('spinbutton', { name: 'Kaç LP ödenecek?' }), '2')
     await user.click(dialog.getByRole('button', { name: 'Kullanımı onayla (2 LP)' }))
 
-    expect(recordWordUse).toHaveBeenCalledWith({
-      recordId: 'r-dragon',
-      by: testUser.uid,
-      amount: 2,
-    })
+    expect(recordWordUse).toHaveBeenCalledWith(
+      expect.objectContaining({ recordId: 'r-dragon', by: testUser.uid, amount: 2 }),
+    )
   })
 
   it('does not let a player use a word that costs more than their LP', async () => {
@@ -280,7 +288,9 @@ describe('using a word', () => {
     await user.type(amount, '0')
     await user.click(dialog.getByRole('button', { name: 'Kullanımı onayla' }))
 
-    expect(recordWordUse).toHaveBeenCalledWith({ recordId: 'r2', by: testUser.uid, amount: 0 })
+    expect(recordWordUse).toHaveBeenCalledWith(
+      expect.objectContaining({ recordId: 'r2', by: testUser.uid, amount: 0 }),
+    )
     expect(dialog.getByRole('status')).toHaveTextContent('Abyss kullanıldı.')
   })
 
@@ -292,6 +302,79 @@ describe('using a word', () => {
 
     expect(dialog.getByRole('button', { name: 'Kullan' })).toBeDisabled()
     expect(dialog.getByText(TABLE_BUSY_NOTE)).toBeVisible()
+  })
+
+  describe('on a character', () => {
+    const thorin = testCharacter('Thorin', testUser.uid, { addedAtMillis: 1000 })
+    const kuzgun = testCharacter('Kuzgun', testUser.uid, { addedAtMillis: 2000 })
+    const elara = testCharacter('Elara', 'ayla')
+
+    async function openUseStep(characters: Character[]) {
+      const view = renderOwnTab({ characters })
+      await view.user.click(main().getByRole('button', { name: 'Abyss: ayrıntılar' }))
+      const dialog = within(screen.getByRole('dialog', { name: '✦ Abyss' }))
+      await view.user.click(dialog.getByRole('button', { name: 'Kullan' }))
+      const picker = dialog.getByRole('combobox', { name: 'Hangi karakter üzerinde?' })
+      return { ...view, dialog, picker }
+    }
+
+    it("lists the player's characters first, then the others", async () => {
+      const { picker } = await openUseStep([elara, thorin, kuzgun])
+
+      const groups = Array.from(picker.querySelectorAll('optgroup')).map(
+        (group) =>
+          `${group.label}: ${Array.from(group.children)
+            .map((option) => option.textContent)
+            .join(', ')}`,
+      )
+      expect(groups).toEqual(['Gökay: Thorin, Kuzgun', 'Ayla: Elara'])
+    })
+
+    it('uses the word on a character with its effect, or without', async () => {
+      const { user, dialog, picker, recordWordUse } = await openUseStep([thorin])
+
+      await user.selectOptions(picker, 'Thorin')
+      const box = dialog.getByRole('checkbox', { name: /Aktif efekt olarak ekle/ })
+      expect(box).toBeChecked()
+      await user.click(dialog.getByRole('button', { name: 'Kullanımı onayla (5 LP)' }))
+
+      expect(recordWordUse).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          target: { kind: 'character', characterId: thorin.id },
+          addEffect: true,
+        }),
+      )
+    })
+
+    it('sends a typed name without an effect', async () => {
+      const { user, dialog, picker, recordWordUse } = await openUseStep([thorin])
+
+      await user.selectOptions(picker, 'Başka (yaz)…')
+      await user.type(dialog.getByRole('textbox', { name: 'Karakterin adı' }), 'Goblin şefi')
+      expect(dialog.queryByRole('checkbox')).not.toBeInTheDocument()
+      await user.click(dialog.getByRole('button', { name: 'Kullanımı onayla (5 LP)' }))
+
+      expect(recordWordUse).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          target: { kind: 'typed', name: 'Goblin şefi' },
+          addEffect: false,
+        }),
+      )
+    })
+
+    it('says so when the chosen character is archived meanwhile', async () => {
+      const { user, dialog, picker, setCharacters, recordWordUse } = await openUseStep([
+        thorin,
+        kuzgun,
+      ])
+      await user.selectOptions(picker, 'Kuzgun')
+
+      setCharacters({ characters: ready([thorin, { ...kuzgun, archived: true }]) })
+
+      expect(dialog.getByRole('alert')).toHaveTextContent('Bu karakter artık seçilemiyor.')
+      expect(picker).toHaveValue('')
+      expect(recordWordUse).not.toHaveBeenCalled()
+    })
   })
 
   it('does not try a use offline, and says that a connection is needed', async () => {

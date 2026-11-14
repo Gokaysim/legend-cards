@@ -70,6 +70,8 @@ function setup({
     addCharacter: vi.fn(() => Promise.resolve('NewCharacter01234567')),
     saveCharacter: vi.fn(() => Promise.resolve()),
     setCharacterArchived: vi.fn(() => Promise.resolve()),
+    addEffect: vi.fn(() => Promise.resolve()),
+    removeEffect: vi.fn(() => Promise.resolve()),
     ...actions,
   }
   const me = asDm ? dm : ayla

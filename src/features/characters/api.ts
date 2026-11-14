@@ -1,10 +1,12 @@
 import {
   collection,
   type CollectionReference,
+  deleteDoc,
   doc,
   type Firestore,
   serverTimestamp,
   setDoc,
+  type Transaction,
   updateDoc,
 } from 'firebase/firestore'
 
@@ -13,13 +15,20 @@ import { picturePath } from '@/features/definitions/picturePath'
 import { NO_PICTURE_STORE, type PictureStore } from '@/features/definitions/pictureStore'
 import { cleanText } from '@/lib/text'
 
-import { PhotoNeedsConnectionError } from './errors'
+import {
+  type CharacterEffect,
+  characterEffectConverter,
+  CHARACTER_EFFECTS_COLLECTION,
+  EFFECT_LIMITS,
+} from './effects'
+import { CharacterUnavailableError, PhotoNeedsConnectionError } from './errors'
 import {
   type Character,
   CHARACTER_LIMITS,
   characterConverter,
   CHARACTERS_COLLECTION,
 } from './schema'
+import { NO_USE_TARGET, type ResolvedUseTarget, USED_ON_MAX, type UseTarget } from './useTarget'
 
 // The character steps (design D3, D4 of add-characters). They are plain writes, not transactions: without a new
 // photo, a step is queued offline and shows at once. A new photo is uploaded first, then the document is written and
@@ -163,4 +172,114 @@ export function setCharacterArchived(
   archived: boolean,
 ): Promise<void> {
   return updateDoc(doc(db, CHARACTERS_COLLECTION, characterId), { archived })
+}
+
+/**
+ * Reads a use's target inside its transaction (design D5 of add-character-effects): a chosen character's current
+ * name, or a typed name. Throws `CharacterUnavailableError` when the chosen character is missing or archived.
+ */
+export async function readUseTarget(
+  transaction: Transaction,
+  db: Firestore,
+  target: UseTarget = NO_USE_TARGET,
+): Promise<ResolvedUseTarget | null> {
+  switch (target.kind) {
+    case 'none':
+      return null
+    case 'typed': {
+      const name = cleanText(target.name, USED_ON_MAX)
+      return name === null ? null : { name, characterId: null, ownerUid: null }
+    }
+    case 'character': {
+      const character = (
+        await transaction.get(
+          doc(db, CHARACTERS_COLLECTION, target.characterId).withConverter(characterConverter),
+        )
+      ).data()
+      if (character === undefined || character.archived) throw new CharacterUnavailableError()
+      return { name: character.name, characterId: character.id, ownerUid: character.uid }
+    }
+  }
+}
+
+/** Every effect, validated and with the document ID as `id`. Every signed-in user reads them all. */
+export function characterEffectsRef(db: Firestore): CollectionReference<CharacterEffect> {
+  return collection(db, CHARACTER_EFFECTS_COLLECTION).withConverter(characterEffectConverter)
+}
+
+/** Cuts a text to `max` characters by code points, so an emoji at the limit is never split in half. */
+function cut(text: string, max: number): string {
+  return Array.from(text).slice(0, max).join('')
+}
+
+/** What a use's effect copies: the card's or word's name and visible text at the time, and whether it is Cursed. */
+export type UseEffectContent = { name: string; text: string; cursed: boolean }
+
+/**
+ * Adds the effect of a use to the use's transaction (design D2 of add-character-effects), on the character the use
+ * names. Does nothing for a use without a chosen character. The caller has already read everything it needs: a
+ * transaction writes only after its reads.
+ */
+export function setUseEffect(
+  transaction: Transaction,
+  db: Firestore,
+  input: {
+    target: ResolvedUseTarget | null
+    source: 'card' | 'word'
+    /** The holding of a card's use, or the new word use. */
+    sourceId: string
+    content: UseEffectContent
+    by: string
+  },
+): void {
+  const { target } = input
+  if (target?.characterId == null || target.ownerUid === null) return
+  transaction.set(doc(collection(db, CHARACTER_EFFECTS_COLLECTION)), {
+    characterId: target.characterId,
+    uid: target.ownerUid,
+    source: input.source,
+    sourceId: input.sourceId,
+    name: cut(input.content.name, EFFECT_LIMITS.fromUse.name),
+    text: cut(input.content.text, EFFECT_LIMITS.fromUse.text),
+    cursed: input.source === 'card' && input.content.cursed,
+    createdBy: input.by,
+    createdAt: serverTimestamp(),
+  })
+}
+
+export type AddEffectInput = {
+  character: Pick<Character, 'id' | 'uid'>
+  name: string
+  text: string
+  /** The signed-in user: the character's owner, or the DM. */
+  by: string
+  /** Whether the user is the DM: the effect is then the DM's (`dm`), otherwise the owner's own (`own`). */
+  isDm: boolean
+}
+
+/**
+ * Adds an effect written by hand (spec: character-effects, "Own effects and DM effects"; design D3). A plain write:
+ * offline, it is queued and shows at once, so the caller need not wait for the server.
+ */
+export function addEffect(db: Firestore, input: AddEffectInput): Promise<void> {
+  const ref = doc(collection(db, CHARACTER_EFFECTS_COLLECTION))
+  const name = cleanText(input.name, EFFECT_LIMITS.byHand.name)
+  const text = cleanText(input.text, EFFECT_LIMITS.byHand.text)
+  if (name === null || text === null) throw new Error('An effect needs a name and a text')
+  return setDoc(ref, {
+    characterId: input.character.id,
+    uid: input.character.uid,
+    source: input.isDm ? 'dm' : 'own',
+    sourceId: null,
+    name,
+    text,
+    cursed: false,
+    createdBy: input.by,
+    createdAt: serverTimestamp(),
+  })
+}
+
+/** Removes an effect by deleting it (spec: character-effects, "Removing an effect"). A plain write, queued offline. */
+export function removeEffect(db: Firestore, effectId: string): Promise<void> {
+  return deleteDoc(doc(db, CHARACTER_EFFECTS_COLLECTION, effectId))
 }
