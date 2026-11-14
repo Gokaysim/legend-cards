@@ -10,6 +10,7 @@ import type { Card } from '@/features/cards/schema'
 import { compareLabels } from '@/features/cards/sort'
 import { statusLabel } from '@/features/cards/status'
 import { searchTerms } from '@/features/cards/text'
+import { useSetIndex } from '@/features/sets/setsContext'
 import type { UserProfile } from '@/features/users/schema'
 import { profileName, useProfiles } from '@/features/users/usersContext'
 import { genitive } from '@/lib/turkish'
@@ -41,6 +42,7 @@ export function GiveCardDialog({ receiver, onClose }: GiveCardDialogProps) {
   const auth = useAuth()
   const uid = auth.status === 'signedIn' ? auth.user.uid : null
   const cards = useCards()
+  const { setName } = useSetIndex()
   const profiles = useProfiles()
   const statuses = useCardStatuses()
   const actions = useHoldingActions()
@@ -57,9 +59,11 @@ export function GiveCardDialog({ receiver, onClose }: GiveCardDialogProps) {
   const haystacks = useMemo(
     () =>
       new Map(
-        cards.status === 'ready' ? cards.data.map((card) => [card.id, cardHaystack(card)]) : [],
+        cards.status === 'ready'
+          ? cards.data.map((card) => [card.id, cardHaystack(card, setName)])
+          : [],
       ),
-    [cards],
+    [cards, setName],
   )
   const hasQuery = searchTerms(deferredQuery).length > 0
   const matches = useMemo(() => {
@@ -195,7 +199,7 @@ export function GiveCardDialog({ receiver, onClose }: GiveCardDialogProps) {
                     </p>
                     <p className="text-xs text-ink-muted">
                       {[
-                        card.kind === 'normal' ? setLabel(card) : null,
+                        card.kind === 'normal' ? setLabel(card, setName) : null,
                         kind ?? (status ? statusLabel(card, status) : null),
                       ]
                         .filter((part) => part !== null)

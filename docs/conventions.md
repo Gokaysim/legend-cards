@@ -19,7 +19,7 @@ Turkish interface strings are written directly in the components. There is no tr
 src/
   main.tsx              entry: config check -> App (or ConfigErrorScreen)
   app/                  composition root
-    App.tsx             ArtProvider + AuthProvider + UsersProvider + BalancesProvider + CardsProvider
+    App.tsx             ArtProvider + AuthProvider + UsersProvider + BalancesProvider + SetsProvider + CardsProvider
                         + HoldingsProvider + TableProvider + PacksProvider + ActivityLogProvider
                         + DrawsProvider + TrueWordsProvider + PlayerNotesProvider + router
     screens.ts          the single lists of screens (main menu and Shops sub-screens)
@@ -38,9 +38,13 @@ src/
     cards/              card definitions: schema (statuses, isComplete), api (cardsRef for the DM,
                         playerVisibleCardsQuery for a player), CardsProvider, useCards, useDeckCards,
                         useDeckDefinitions (the DM's status filter), useCardsById,
-                        the official sets, search and sort helpers, the pool and its distribution (pool),
+                        the mechanic packs, search and sort helpers, the pool and its distribution (pool),
                         the card browser (CardBrowser, CardFace, CardTable), the cost badge (CostBadge), and the
                         zoom view (CardZoomDialog, opened from a face's magnifier)
+    sets/               the card sets (spec: card-sets): schema (sets and their change records), the index (setIndex:
+                        setOf, setName, setRank), api (addSet, saveSet, moveSet, deleteSet, each a transaction with
+                        its record), errors, validation, SetsProvider (useSets, useSetIndex, useSetActions), SetArt
+                        (the sets' cardbacks and Cardmakers in useArt), and the Setler screen (SetsPage, SetFormDialog)
     hands/              card holdings: schema, api (the card movements), errors, HoldingsProvider,
                         useOpenHoldings, and the "Oyuncu elleri" screen (HandsPage, the stats (HandSummary,
                         StatTile), the hand (HandView, HandTable), the card details (HoldingDetails, shown in
@@ -198,7 +202,7 @@ Styling uses Tailwind CSS utility classes, written directly in JSX.
   - `useIsDm()`, which is `true` only for a loaded DM profile; loading or missing profiles count as a player
 - **DM-only controls go inside `<DmOnly>`.** Hiding is only a convenience. `firestore.rules` is the real check, so every DM-only write needs its own rule and rules test.
 - **Roles change only through the admin script** (`npm run set-role`, see [Scripts](#scripts)). Never add a client write that touches `role`.
-- **Tests** render components inside `TestAuthProvider` and `TestUsersProvider` (`src/test/`) with fixed states, instead of talking to Firebase. `renderApp` takes `users`, `balances`, `cards`, `holdings`, `table`, `packs`, `trueWords`, `notes`, `activityLog`, `draws` and `art` options, and returns `setUsers`, `setBalances`, `setCards`, `setHoldings`, `setTable`, `setPacks`, `setTrueWords`, `setNotes` and `setActivityLog` to simulate a real-time change. The `draws` option takes fake draws; by default a draw gives its first candidate. The `table` option takes an `openPackId`; by default no pack is open. The `packs` option takes the open `pack` and fake pack steps, which succeed by default. The `trueWords` option takes the `words`, the `knownWords` records, the `openDrafts` and fake True Word steps, which succeed by default (fixtures in `src/test/trueWordFixtures.ts`). The `notes` option takes the `playerNotes` and `dmNotes` by uid (each a subscription, for example `ready(note)`), fake saves, which succeed by default, and `onUseDmNote`, which is called with every uid whose DM note a component reads, so a test can show that a player's screen never asks for one. The `art` option takes a picture manifest; by default it is `EMPTY_ART`, so every test sees the CSS look unless it gives pictures.
+- **Tests** render components inside `TestAuthProvider` and `TestUsersProvider` (`src/test/`) with fixed states, instead of talking to Firebase. `renderApp` takes `users`, `sets`, `balances`, `cards`, `holdings`, `table`, `packs`, `trueWords`, `notes`, `activityLog`, `draws` and `art` options, and returns `setUsers`, `setSets`, `setBalances`, `setCards`, `setHoldings`, `setTable`, `setPacks`, `setTrueWords`, `setNotes` and `setActivityLog` to simulate a real-time change. The `sets` option takes the stored `sets` and fake set steps; by default the 12 sets of `data/sets.csv` without pictures (`src/test/setFixtures.ts`), and steps that succeed. A component that names sets without the rest of the app renders with `renderWithSets`. The `draws` option takes fake draws; by default a draw gives its first candidate. The `table` option takes an `openPackId`; by default no pack is open. The `packs` option takes the open `pack` and fake pack steps, which succeed by default. The `trueWords` option takes the `words`, the `knownWords` records, the `openDrafts` and fake True Word steps, which succeed by default (fixtures in `src/test/trueWordFixtures.ts`). The `notes` option takes the `playerNotes` and `dmNotes` by uid (each a subscription, for example `ready(note)`), fake saves, which succeed by default, and `onUseDmNote`, which is called with every uid whose DM note a component reads, so a test can show that a player's screen never asks for one. The `art` option takes a picture manifest; by default it is `EMPTY_ART`, so every test sees the CSS look unless it gives pictures.
 
 ## Data access
 
@@ -214,6 +218,7 @@ All stored data lives in Firestore and is read in real time.
   - `error`: show a Turkish message based on `error.kind` (`permission-denied`, `invalid-data`, `unknown`).
 - **Shared data comes from a provider.** Data that many screens need is subscribed to once, in a provider mounted in `App.tsx`, and read through hooks. Each provider has a test provider in `src/test/` that `renderApp` uses, so unit tests never touch Firebase.
   - Profiles: `useCurrentProfile()`, `useProfiles()`, `useIsDm()` (`UsersProvider`).
+  - Sets: `useSets()` for every stored set in the shop order, `useSetIndex()` for how a card's set code finds its set (`setName`, `setRank`, `setOf`; outside a provider or while loading, every code shows as written), and `useSetActions()` for the DM's steps (`SetsProvider`, one subscription to `sets`). Pure code takes the index or a `SetName` as a parameter.
   - Cards: `useCards()` for every active card, and `useDeckCards('legend' | 'cursed')` for one deck. Drafts and retired cards are never in them, and on a player's device neither are DM-only cards. `useCardsById()` maps every card the device reads by its ID, retired and DM-only ones included, so a hand can still show a held card that was retired or is DM-only, and `useDeckDefinitions(deck)` lists one deck's cards whatever their status, for the DM's status filter (`CardsProvider`, one subscription: the whole collection on the DM's device, `playerVisibleCardsQuery` on a player's, so a draft never reaches a player; the rules are not filters).
   - Balances: a player's LP is `lp` on their profile. `usePartyPurse()` gives the party's GP (`null` before the first change, which counts as 0), and `useBalanceActions()` the DM's changes (`BalancesProvider`).
   - The table: `useOpenPackId()` gives the open pack's ID, or `null`, and `useIsTableBusy()` whether a pack is open (`TableProvider`, one subscription to `table/main`). A loading or unreadable table counts as free: the rules are the real check.
@@ -240,15 +245,16 @@ All stored data lives in Firestore and is read in real time.
 Pictures come from two places:
 
 - **Card and True Word pictures** are files in Cloud Storage, `cards/<id>/<hash>.webp` and `words/<id>/<hash>.webp`. The definition's `picture` field holds the path (`src/features/definitions/picturePath.ts`). `npm run import-pictures` and the DM's forms store them (see [The picture import](#the-picture-import)).
-- **Cardbacks, pack pictures and the Cardmaker** are static files on Hosting: `npm run build-art` writes them with a manifest to `public/art/` (see [The picture build](#the-picture-build)). Vite serves that folder in development and copies it into `dist/`.
+- **Set cardbacks and set Cardmakers** are files in Cloud Storage, `sets/<setId>/<hash>.webp`. The set's `cardback` and `mascot` fields hold the paths. `npm run import-sets` and the DM's set form store them (see [The set import](#the-set-import)).
+- **The Blessed and Cursed cardbacks, pack pictures and the screens' Cardmaker** are static files on Hosting: `npm run build-art` writes them with a manifest to `public/art/` (see [The picture build](#the-picture-build)). Vite serves that folder in development and copies it into `dist/`.
 
 How components use them:
 
 - **Read them with `useArt()`** (`src/features/art/`). It gives:
   - `pictureUrl(card.picture)` for a card's or word's stored picture
-  - `backUrl(key)`, `packUrl(key)` and `mascotUrl(stem)` for the built pictures
+  - `backUrl(key)`, `packUrl(key)` and `mascotUrl(stem)` for the built pictures, and `backUrl(setCode)`, `setMascotUrl(setCode)` and `mascotUrl(setMascotStem(setCode))` for a stored set's (`SetArt` in `src/features/sets/` adds them inside the sets' provider)
 
-  Each gives the picture's URL or `null`. Set and pack keys are compared as set names are, so a set code written "The End Is Nigh" in the data finds the picture of "The End is Nigh".
+  Each gives the picture's URL or `null`. A set code finds its stored set as card data does, so a code written "The End Is Nigh" or the alias "endisnigh" finds the cardback of "The End is Nigh". Pack keys are compared ignoring case, accents and punctuation.
 
 - **`ArtProvider`** fetches `art/manifest.json` once at start. A failed request, an HTML answer (Vite and Hosting answer a missing file with `index.html`) or an invalid manifest gives `EMPTY_ART`: no built pictures. A stored picture's address is built from the bucket setting without a request (`storedPictureUrl`), because `storage.rules` let anyone read the pictures. `TestArtProvider` builds `testPictureUrl(path)` instead. Give a test card a picture with `testPicturePath(target, id)`.
 - **A definition's `picture` has three states.** No field means it never had a picture, `null` means the DM removed it, and a path is its picture. The app reads both empty states as `null`, and writes `picture` only when a step changes it, so the picture import can still tell them apart.
@@ -309,17 +315,17 @@ Cloud Storage is closed the same way (`storage.rules`). A new file path gets its
 
 ## Scripts
 
-Admin scripts in `scripts/` change data with the Admin SDK, outside the security rules: the roles (`set-role`), the card definitions (`import-cards`), the True Words (`import-true-words`) and the card and word pictures (`import-pictures`). They work the same way against the emulators and against a real project, so data work is done once. The picture build (`build-art`) lives there too, but never touches Firebase.
+Admin scripts in `scripts/` change data with the Admin SDK, outside the security rules: the roles (`set-role`), the sets and their pictures (`import-sets`), the card definitions (`import-cards`), the True Words (`import-true-words`) and the card and word pictures (`import-pictures`). They work the same way against the emulators and against a real project, so data work is done once. The picture build (`build-art`) lives there too, but never touches Firebase.
 
 - **Layout.**
   - One file per command in `scripts/`, for example `set-role.ts`.
   - Shared code lives in `scripts/lib/`:
     - `target.ts`: target choice, confirmation, Admin SDK start, and the Cloud Storage bucket (`--bucket`, else `<project>.firebasestorage.app`)
     - `messages.ts`: the Turkish CLI text
-    - one module per task with the logic, for example `setRole.ts`, `cardRows.ts`, `importCards.ts`, `trueWordRows.ts`, `importTrueWords.ts`, `artFiles.ts`, `artWrite.ts` and `importPictures.ts`
-    - `archives.ts`: the owner's picture archives, extracted with 7-Zip, shared by `build-art` and `import-pictures`
-    - `csv.ts`: reading a CSV file and comparing header names, shared by both imports
-    - `cardCatalog.ts`: the official sets and the mechanic packs the import checks against
+    - one module per task with the logic, for example `setRole.ts`, `setRows.ts`, `importSets.ts`, `cardRows.ts`, `importCards.ts`, `trueWordRows.ts`, `importTrueWords.ts`, `artFiles.ts`, `artWrite.ts` and `importPictures.ts`
+    - `archives.ts`: the owner's picture archives, extracted with 7-Zip, shared by `build-art`, `import-sets` and `import-pictures`
+    - `csv.ts`: reading a CSV file and comparing header names, shared by the imports
+    - `cardCatalog.ts`: the name normalization, and the mechanic packs the card import checks against. The sets are stored data: scripts read them from Firestore.
   - Logic returns results. It does not print and does not exit, so it can be tested. The command file turns results into messages and exit codes.
 - **Running.**
   - Scripts run on Node 24 directly (`node scripts/<name>.ts`), with an npm script per command, for example `npm run set-role -- --email … --role dm`.
@@ -343,12 +349,23 @@ Admin scripts in `scripts/` change data with the Admin SDK, outside the security
 `npm run import-cards` loads the card definitions from the owner's CSV files in `data/` (see `data/README.md`).
 
 - **Files.** Without options it imports `data/legend-cards.csv` and `data/cursed-cards.csv`. `--legend <csv>` or `--cursed <csv>` imports only the decks named, and leaves the other deck alone.
-- **Check first.** Every file is checked completely before anything is written. Any error stops the run with the file and row number, and nothing changes. An empty value is not an error. Warnings (an unknown set code or mechanic pack) do not stop it.
+- **Check first.** Every file is checked completely before anything is written. Any error stops the run with the file and row number, and nothing changes. An empty value is not an error. Warnings do not stop it: a mechanic pack that is not one of the eight, and a set code that no stored set has as its code or alias. For the set codes, the import reads the stored sets with the Admin SDK, also in a dry run, and passes their spellings to `unknownSetWarnings` in `cardRows.ts`. With no sets stored, every set code is warned about: run `import-sets` first.
 - **It only adds.** A card's ID is its deck plus its normalized name (`legend-abolethseyes`). A row is left alone when its deck already has a card with that ID or that `nameKey`, so a card the DM renamed is not added again. Every other row is created (never set, so nothing is overwritten), as `active`, or as `draft` when a column its kind uses is empty (`ParsedCard.missing`). The import never changes, retires or deletes a stored card: the DM does that in the app (design D7 of `add-card-and-word-editing`).
 - **Upgrade.** A stored card without a `status` gets one from its old `retired` flag, and the flag is deleted. Nothing else about it changes.
 - **Records.** After the additions, the import writes up to two `definitionChanges` records with `step: 'imported'` and `by: null`: a public one of the active additions and a DM-only one of the drafts. Each added card's `changeId` points at its record. A run that adds nothing writes none. `writeImport` in `importCards.ts` does this for both imports.
 - **Dry run.** `--dry-run` prints the same report without writing. Use it first against a real project.
-- **One catalog, two copies.** Scripts do not import app code, so the official sets, the eight mechanic packs and the name normalization live both in `scripts/lib/cardCatalog.ts` and in `src/features/cards/`. `scripts/lib/cardCatalog.drift.test.ts` fails when the two disagree: change both together.
+- **One catalog, two copies.** Scripts do not import app code, so the eight mechanic packs and the name normalization live both in `scripts/lib/cardCatalog.ts` and in `src/features/cards/` (`mechanicPacks.ts`, `text.ts`). `scripts/lib/cardCatalog.drift.test.ts` fails when the two disagree: change both together. The sets are no longer in either copy: they are stored data.
+
+### The set import
+
+`npm run import-sets -- [--file <csv>] [--source <folder>] [--dry-run] [--project <id>] [--yes] [--bucket <name>]` loads the sets from `data/sets.csv`, or from `--file <csv>`, and with `--source` their cardbacks and Cardmakers from the owner's archives (design D10 of `add-set-management`). Run it before `import-cards`.
+
+- **Check first.** `setRows.ts` checks the whole file before anything is written: the columns Code, Name, Aliases and Packs, an empty code or name, a value over 100 characters, more than 10 aliases, a Packs value other than `standard` or `pandemonium`, the code `Blessed`, and two rows sharing a name or a spelling among their codes and aliases (compared with `normalize`). Every problem is reported with its row number, and nothing changes. With `--source`, the alias table's set rows are checked against the sets after the import, before anything is extracted.
+- **It only adds.** A set's ID is its normalized code (`kesqer`). A row is left alone when a stored set has its code as its code or alias, so a set the DM renamed is not added again. Every other row is created (never set) after the stored sets, at the next positions in the file's order, without `cardback` or `mascot` fields. The import never changes, reorders or deletes a stored set.
+- **Pictures.** With `--source`, `importSets.ts` plans the archives in the `sets` mode of `artFiles.ts` against the stored and added sets: `<set>_cb` is a set's cardback and `cardmaker_<set>` its Cardmaker, the set named by its code, official name or alias, plus the alias table's set rows. It converts as the build does (`convertPicture`: WebP quality 82, a cardback at its own size, a Cardmaker at most 480 pixels high with its transparency), stores the file at `sets/<setId>/<hash>.webp` with the app's metadata (`Content-Disposition` with `<setId>-cardback.webp` or `<setId>-cardmaker.webp`), and sets the field in a transaction that checks it is still absent. A set with a picture, or whose picture the DM removed (`null`), is left alone, and a picture saved meanwhile wins: the upload is deleted again.
+- **Records.** Each run that adds sets or stores pictures writes one `setChanges` record with `step: 'imported'` and `by: null`, listing the added sets and the sets that got a picture by name. The added sets' `changeId` points at it. It is written at the end, also after a failure halfway. A run that changes nothing writes none.
+- **Dry run.** `--dry-run` plans and reports without writing, converting or storing.
+- **Tests.** `setRows.test.ts` checks `data/sets.csv` and every invalid case. `tests/import-sets.emulator.test.ts` covers a first run, a second run that changes nothing, a renamed set, a removed Cardmaker, and pictures from small PNG files made by `sharp`.
 
 ### The True Words import
 
@@ -360,19 +377,19 @@ Admin scripts in `scripts/` change data with the Admin SDK, outside the security
 
 ### The picture build
 
-`npm run build-art -- --source <folder> [--dry-run]` builds the cardbacks, pack pictures and Cardmaker from the owner's archives (see [data/README.md](../data/README.md#pictures)). The card and True Word pictures are left to [the picture import](#the-picture-import).
+`npm run build-art -- --source <folder> [--dry-run]` builds the Blessed and Cursed cardbacks, the pack pictures and the screens' Cardmaker from the owner's archives (see [data/README.md](../data/README.md#pictures)). The card and True Word pictures are left to [the picture import](#the-picture-import), and the sets' cardbacks and Cardmakers to [the set import](#the-set-import): the build no longer builds set pictures, and needs no set list.
 
 - **Read only.** It never changes the source folder, and never reads or writes Firestore or Cloud Storage, so it takes no `--project` and does not use `target.ts`.
 - **7-Zip.** It runs `7zz` (`brew install sevenzip`), and stops without it. `archives.ts` extracts each archive with `7zz e` into its own folder inside a temporary folder, which is removed at the end, after a failure or Ctrl+C too.
 - **Check first.** The alias table's asset rows are checked before anything is extracted. An asset row that names nothing stops the run with its row number.
-- **Pure matching.** `artFiles.ts` holds the rules: `planArt(files, data, aliases, mode)` returns the assignments, duplicates, unknown files, the files left to the other script, and coverage. `readAliases(text, data, mode)` checks the table. It never touches files. The build plans in the `assets` mode, against no definitions: every file that is no asset is left to the picture import. `artWrite.ts` converts with `sharp` and writes the manifest last, so a run that fails halfway leaves no manifest and the app keeps its CSS look.
-- **Tests.** `artFiles.test.ts` covers each rule in both modes. `artInventory.test.ts` plans the archives' real file names (`artInventory.fixture.ts`): the assets against the catalog, and the cards and words against the definitions the repository data would store (`definitionsOfRows`). So a data or alias change that loses a picture fails there. Regenerate the fixture from `7zz l` when the archives change.
+- **Pure matching.** `artFiles.ts` holds the rules: `planArt(files, data, aliases, mode)` returns the assignments, duplicates, unknown files, the files left to the other scripts (`leftTo`, by script), and coverage. `readAliases(text, data, mode)` checks the table. It never touches files. There are three modes, one per script: `assets` for the build, `sets` for the set import and `definitions` for the picture import. A file's name alone says which script it belongs to: `blessed_cb`, `cursed_cb`, the screens' `CARDMAKER_STEMS` and the named packs are the build's; every other `*_cb` and `cardmaker_*` is the set import's; the rest is the picture import's. So the build plans against no definitions and no sets, and counts the set files as left to the set import. `<set>_std`, `_prm`, `_crs` and `_gold` are no pictures. `artWrite.ts` converts with `sharp` and writes the manifest last, so a run that fails halfway leaves no manifest and the app keeps its CSS look.
+- **Tests.** `artFiles.test.ts` covers each rule in every mode. `artInventory.test.ts` plans the archives' real file names (`artInventory.fixture.ts`): the assets on their own, the set pictures against the sets of `data/sets.csv`, and the cards and words against the definitions the repository data would store (`definitionsOfRows`). So a data or alias change that loses a picture fails there. Regenerate the fixture from `7zz l` when the archives change.
 
 ### The picture import
 
 `npm run import-pictures -- --source <folder> [--dry-run] [--project <id>] [--yes] [--bucket <name>]` stores the owner's card and True Word pictures in Cloud Storage (design D9 of `upload-card-and-word-pictures`).
 
-- **Against the stored definitions.** It reads every card and word, whatever its status, and plans the archives in the `definitions` mode. A file finds the definition whose ID its name gives (`legend-<name>`, `cursed-<name>`, `tw-<name>`), or else the one with that `nameKey`, so a renamed card keeps its picture and a card added in the app is found. The alias table's card and word rows are checked against the stored definitions before anything is extracted.
+- **Against the stored definitions.** It reads every card and word, whatever its status, and plans the archives in the `definitions` mode, leaving the asset files to the build and the set files to the set import. A file finds the definition whose ID its name gives (`legend-<name>`, `cursed-<name>`, `tw-<name>`), or else the one with that `nameKey`, so a renamed card keeps its picture and a card added in the app is found. The alias table's card and word rows are checked against the stored definitions before anything is extracted.
 - **It only adds.** A definition gets a picture only while it has no `picture` field. A path means it has one, and `null` means the DM removed it: both are left alone, and the report counts them. The field is set in a transaction that checks it is still absent, so a picture the DM saves meanwhile wins, and the upload is deleted again.
 - **The files.** `importPictures.ts` converts with `convertPicture` (WebP, quality 82, own size), names the file `cards/<id>/<hash>.webp` or `words/<id>/<hash>.webp` with `contentHash`, and stores it with the app's metadata: `image/webp`, a year of immutable caching, and `Content-Disposition` with `<id>.webp` for "İndir".
 - **Records.** At the end, also after a failure halfway, it writes `step: 'imported'`, `what: 'pictures'` records of what it added: for cards and for words, a public one of the active and retired definitions that are not DM-only, a DM-only one of the drafts, and for cards a DM-only one of the other DM-only cards. `changeId` is not changed. A run that stops halfway is completed by running it again.

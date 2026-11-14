@@ -47,18 +47,19 @@ describe('artLookup', () => {
     expect(art.mascotUrl('cardmaker_keep')).toBeNull()
   })
 
-  it('finds sets and packs by any spelling of their set or mechanic pack', () => {
-    // The card data writes "The End Is Nigh"; the official code is "The End is Nigh".
-    expect(art.backUrl('The End Is Nigh')).toBe('/art/backs/the-end-is-nigh.0123456789.webp')
-    expect(art.backUrl('endisnigh')).toBe('/art/backs/the-end-is-nigh.0123456789.webp')
-    expect(art.backUrl('kesqer')).toBe('/art/backs/kesqer.0123456789.webp')
-    expect(art.packUrl('standard:The End Is Nigh')).toBe(
-      '/art/packs/standard-the-end-is-nigh.0123456789.webp',
-    )
+  it('finds a back and a pack by any spelling of its key', () => {
+    expect(art.backUrl('Cursed')).toBe('/art/backs/cursed.0123456789.webp')
     expect(art.packUrl('mechanic:Blood & Battle')).toBe(
       '/art/packs/mechanic-blood-battle.0123456789.webp',
     )
+    expect(art.packUrl('mechanic:blood battle')).toBe(
+      '/art/packs/mechanic-blood-battle.0123456789.webp',
+    )
     expect(art.packUrl('premium:The End Is Nigh')).toBeNull()
+  })
+
+  it('knows no set Cardmaker by itself: the stored sets add them', () => {
+    expect(art.setMascotUrl('Kesqer')).toBeNull()
   })
 
   it('gives no card or word picture without a way to build its address', () => {

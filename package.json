@@ -21,6 +21,7 @@
     "test:watch": "vitest --project unit",
     "test:emulator": "firebase emulators:exec --only auth,firestore,storage --project demo-legend-cards \"vitest run --project emulator\"",
     "set-role": "node scripts/set-role.ts",
+    "import-sets": "node scripts/import-sets.ts",
     "import-cards": "node scripts/import-cards.ts",
     "import-true-words": "node scripts/import-true-words.ts",
     "build-art": "node scripts/build-art.ts",

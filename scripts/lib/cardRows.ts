@@ -1,4 +1,4 @@
-import { isKnownMechanicPack, isKnownSetCode, normalize } from './cardCatalog.ts'
+import { isKnownMechanicPack, normalize } from './cardCatalog.ts'
 import { normalizeHeader, readRecords } from './csv.ts'
 
 /** The two card files: Legend cards (normal and Blessed) and Cursed cards. */
@@ -48,7 +48,10 @@ export type CardFileError =
   | { kind: 'blessed-with-rarity'; row: number; name: string; rarity: string }
   | { kind: 'duplicate'; rows: [number, number]; name: string }
 
-/** A finding that does not stop the import. */
+/**
+ * A finding that does not stop the import. `parseCardFile` gives the mechanic pack warnings; the set warnings need the
+ * stored sets, which `unknownSetWarnings` checks against.
+ */
 export type CardFileWarning =
   | { kind: 'unknown-set'; setCode: string; count: number }
   | { kind: 'unknown-mechanic-pack'; mechanicPack: string; count: number }
@@ -212,11 +215,6 @@ export function parseCardFile(text: string, deck: Deck): ParsedCardFile {
     cards.push({ row, card, missing: missingColumns })
   })
 
-  const unknownSets = tally(
-    cards.flatMap(({ card }) =>
-      card.setCode !== null && !isKnownSetCode(card.setCode) ? [card.setCode] : [],
-    ),
-  )
   const unknownMechanicPacks = tally(
     cards.flatMap(({ card }) =>
       card.mechanicPack !== null && !isKnownMechanicPack(card.mechanicPack)
@@ -225,11 +223,6 @@ export function parseCardFile(text: string, deck: Deck): ParsedCardFile {
     ),
   )
   warnings.push(
-    ...unknownSets.map(({ value, count }) => ({
-      kind: 'unknown-set' as const,
-      setCode: value,
-      count,
-    })),
     ...unknownMechanicPacks.map(({ value, count }) => ({
       kind: 'unknown-mechanic-pack' as const,
       mechanicPack: value,
@@ -238,4 +231,21 @@ export function parseCardFile(text: string, deck: Deck): ParsedCardFile {
   )
 
   return { cards, errors, warnings }
+}
+
+/**
+ * One warning per set code that is no stored set's code or alias (spec: admin-scripts, "Import report"), with its card
+ * count. `knownSpellings` are the stored sets' codes and aliases; case, accents and spaces are ignored. With no sets
+ * stored, every set code is warned about. Pure.
+ */
+export function unknownSetWarnings(
+  cards: readonly Pick<ParsedCard, 'card'>[],
+  knownSpellings: readonly string[],
+): CardFileWarning[] {
+  const known = new Set(knownSpellings.map(normalize))
+  return tally(
+    cards.flatMap(({ card }) =>
+      card.setCode !== null && !known.has(normalize(card.setCode)) ? [card.setCode] : [],
+    ),
+  ).map(({ value, count }) => ({ kind: 'unknown-set', setCode: value, count }))
 }

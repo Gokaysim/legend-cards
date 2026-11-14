@@ -11,6 +11,7 @@ import {
 import { useArt } from '@/features/art/artContext'
 import { CardPicture } from '@/features/art/CardPicture'
 import { usePicture } from '@/features/art/usePicture'
+import { useSetIndex } from '@/features/sets/setsContext'
 import { cn } from '@/lib/cn'
 
 import { CardZoomDialog } from './CardZoomDialog'
@@ -186,6 +187,7 @@ export function CardFace({
   openLabel,
 }: CardFaceProps) {
   const picture = usePicture(useArt().pictureUrl(card.picture))
+  const { setName } = useSetIndex()
   const infoId = useId()
   // A tap shows the set symbol's note until the symbol loses the focus; a pointer resting on it shows it too (CSS).
   const [isInfoShown, setIsInfoShown] = useState(false)
@@ -284,7 +286,7 @@ export function CardFace({
       <dl className="flex flex-col gap-0.5 text-xs text-ink-muted">
         <div className="flex flex-wrap gap-x-1">
           <dt className="sr-only">Set</dt>
-          <dd className="after:ml-1 after:content-['·']">{setLabel(card) ?? NO_VALUE}</dd>
+          <dd className="after:ml-1 after:content-['·']">{setLabel(card, setName) ?? NO_VALUE}</dd>
           <dt className="sr-only">Rarity</dt>
           <dd>{rarityLabel(card) ?? NO_VALUE}</dd>
         </div>

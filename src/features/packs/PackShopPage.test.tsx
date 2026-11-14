@@ -2,13 +2,16 @@ import { act, fireEvent, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { testArt } from '@/test/artFixtures'
+import type { CardSet } from '@/features/sets/schema'
+import { testArt, testPictureUrl } from '@/test/artFixtures'
 import { testCursedCard } from '@/test/cardFixtures'
 import { ready, testProfile, testUser } from '@/test/fixtures'
 import { testPartyPurse } from '@/test/ledgerFixtures'
 import { SHOP_CARDS, testPack } from '@/test/packFixtures'
 import { stubPhoneWidth, stubWideHover } from '@/test/media'
 import { renderApp } from '@/test/renderApp'
+import { TEST_SETS } from '@/test/setFixtures'
+import type { TestSets } from '@/test/TestSetsProvider'
 
 import { PackError } from './errors'
 import type { PackActions } from './packsContext'
@@ -18,6 +21,27 @@ const ayla = testProfile({ id: 'ayla', displayName: 'Ayla', lp: 4 })
 const bora = testProfile({ id: 'bora', displayName: 'Bora', lp: 3 })
 const dm = testProfile({ role: 'dm', displayName: 'Dana', lp: 0 })
 
+/** The stored sets with the given pictures. */
+function setsWith(
+  pictures: Record<string, Partial<Pick<CardSet, 'cardback' | 'mascot'>>>,
+): TestSets {
+  return { sets: ready(TEST_SETS.map((set) => ({ ...set, ...pictures[set.code] }))) }
+}
+
+const KESQER_BACK = testPictureUrl('sets/kesqer/0123456789.webp')
+const PANDEMONIUM_BACK = testPictureUrl('sets/pandemonium/0123456789.webp')
+const ULAGAL_MASCOT = testPictureUrl('sets/ulagal/abcdef0123.webp')
+
+/** The shop's sets: Kesqer and Pandemonium with a cardback, Ulagal and Pandemonium with a Cardmaker. */
+const SHOP_SETS = setsWith({
+  Kesqer: { cardback: 'sets/kesqer/0123456789.webp' },
+  Pandemonium: {
+    cardback: 'sets/pandemonium/0123456789.webp',
+    mascot: 'sets/pandemonium/abcdef0123.webp',
+  },
+  Ulagal: { mascot: 'sets/ulagal/abcdef0123.webp' },
+})
+
 const main = () => within(screen.getByRole('main'))
 const packButton = (title: string) => main().getByRole('button', { name: `${title} aç` })
 
@@ -26,15 +50,20 @@ function renderShop({
   viewer = me,
   cards = SHOP_CARDS,
   openPack,
+  sets = SHOP_SETS,
   ...rest
 }: {
   path?: string
   viewer?: typeof me
   cards?: typeof SHOP_CARDS
   openPack?: PackActions['openPack']
-} & Pick<Parameters<typeof renderApp>[0] & object, 'table' | 'packs' | 'balances' | 'art'> = {}) {
+} & Pick<
+  Parameters<typeof renderApp>[0] & object,
+  'table' | 'packs' | 'balances' | 'art' | 'sets'
+> = {}) {
   return renderApp({
     path,
+    sets,
     users: { currentProfile: ready(viewer), profiles: ready([ayla, bora, viewer]) },
     cards: { cards: ready(cards) },
     ...rest,
@@ -63,6 +92,18 @@ describe('Pack Shop layout', () => {
     const items = within(mechanics).getAllByRole('listitem')
     expect(items.at(-1)).toHaveTextContent('Golden Packs')
     expect(within(mechanics).queryByText('4 LP / 10.000 GP', { selector: 'button *' })).toBeNull()
+  })
+
+  it('follows the stored order live: a set moved to the top leads Set Packs', () => {
+    const { setSets } = renderShop()
+    setSets({
+      sets: ready(
+        TEST_SETS.map((set) => (set.code === 'Pandemonium' ? { ...set, position: 0 } : set)),
+      ),
+    })
+
+    const sets = within(main().getByRole('region', { name: 'Set Packs' }))
+    expect(sets.getAllByRole('link')[0]).toHaveAccessibleName('Pandemonium Packs: paketleri gör')
   })
 
   it("opens a set's packs with their prices and a way back, kept in the URL", async () => {
@@ -104,10 +145,6 @@ describe('pack pictures', () => {
       'mechanic:Blood & Battle': '/art/packs/mechanic-blood-battle.0123456789.webp',
       golden: '/art/packs/golden.0123456789.webp',
       cursedGolden: '/art/packs/cursedgolden.0123456789.webp',
-    },
-    cardbacks: {
-      Kesqer: '/art/backs/kesqer.0123456789.webp',
-      Pandemonium: '/art/backs/pandemonium.0123456789.webp',
     },
   })
   const pictureOf = (title: string) => packButton(title).querySelector('img')
@@ -151,7 +188,7 @@ describe('pack pictures', () => {
       ['Kesqerian Nights Cursed Pack', 'Cursed', '1 LP / 2.500 GP'],
     ] as const
     for (const [title, name, price] of tiles) {
-      expect(pictureOf(title)).toHaveAttribute('src', '/art/backs/kesqer.0123456789.webp')
+      expect(pictureOf(title)).toHaveAttribute('src', KESQER_BACK)
       expect(partsOf(title)).toEqual(['picture', 'name', 'price'])
       expect(nameOf(title)).toHaveTextContent(new RegExp(`^${name}$`))
       expect(priceOf(title)).toHaveTextContent(price)
@@ -170,6 +207,7 @@ describe('pack pictures', () => {
       ['Pandemonium Pack', 'Pandemonium'],
       ['Pandemonium Cursed Pack', 'Cursed'],
     ] as const) {
+      expect(pictureOf(title)).toHaveAttribute('src', PANDEMONIUM_BACK)
       expect(partsOf(title)).toEqual(['picture', 'name', 'price'])
       expect(nameOf(title)).toHaveTextContent(new RegExp(`^${name}$`))
       expect(priceOf(title)).toHaveTextContent('3 LP / 7.500 GP')
@@ -185,6 +223,22 @@ describe('pack pictures', () => {
       expect(nameOf(title)).toHaveTextContent(new RegExp(`^${name}$`))
       expect(priceOf(title)).toHaveTextContent(price)
     }
+  })
+
+  it("names a one-pack set's Pack by the set inside its group", () => {
+    renderShop({
+      path: '/shops/packs?group=Ulagal',
+      sets: {
+        sets: ready(
+          TEST_SETS.map((set) =>
+            set.code === 'Ulagal' ? { ...set, packLayout: 'pandemonium' as const } : set,
+          ),
+        ),
+      },
+    })
+    expect(nameOf('Ballad of Ulagal Pack')).toHaveTextContent(/^Ballad of Ulagal$/)
+    expect(nameOf('Ballad of Ulagal Cursed Pack')).toHaveTextContent(/^Cursed$/)
+    expect(main().queryByRole('button', { name: 'Ballad of Ulagal Standard Pack aç' })).toBeNull()
   })
 
   it('keeps the glyph, the short name and the price for a pack without a picture', () => {
@@ -209,7 +263,6 @@ describe('pack pictures', () => {
 describe('group pictures', () => {
   const ART = testArt({
     packs: { golden: '/art/packs/golden.0123456789.webp' },
-    cardbacks: { Kesqer: '/art/backs/kesqer.0123456789.webp' },
   })
   const groupLink = (title: string) => main().getByRole('link', { name: `${title}: paketleri gör` })
 
@@ -217,7 +270,7 @@ describe('group pictures', () => {
     renderShop({ art: ART })
 
     const kesqer = groupLink('Kesqerian Nights Packs')
-    expect(kesqer.querySelector('img')).toHaveAttribute('src', '/art/backs/kesqer.0123456789.webp')
+    expect(kesqer.querySelector('img')).toHaveAttribute('src', KESQER_BACK)
     expect(kesqer.querySelector('img')).toHaveAttribute('alt', '')
     expect(kesqer.lastElementChild).toHaveTextContent('Kesqerian Nights Packs')
     expect(kesqer).not.toHaveTextContent('♜')
@@ -242,7 +295,7 @@ describe('group pictures', () => {
   })
 
   it('shows every glyph with its name where no pictures are built', () => {
-    renderShop()
+    renderShop({ sets: {} })
 
     for (const title of ['Kesqerian Nights Packs', 'Pandemonium Packs']) {
       expect(groupLink(title).querySelector('img')).toBeNull()
@@ -258,10 +311,6 @@ describe('pack frames', () => {
       'mechanic:Blood & Battle': '/art/packs/mechanic-blood-battle.0123456789.webp',
       golden: '/art/packs/golden.0123456789.webp',
       cursedGolden: '/art/packs/cursedgolden.0123456789.webp',
-    },
-    cardbacks: {
-      Kesqer: '/art/backs/kesqer.0123456789.webp',
-      Pandemonium: '/art/backs/pandemonium.0123456789.webp',
     },
   })
   const frameOf = (title: string) =>
@@ -312,8 +361,6 @@ describe("the groups' Cardmakers", () => {
   const ART = testArt({
     mascots: {
       cardmaker_shop: '/art/mascots/cardmaker_shop.0123456789.webp',
-      cardmaker_ulagal: '/art/mascots/cardmaker_ulagal.0123456789.webp',
-      cardmaker_pandemonium: '/art/mascots/cardmaker_pandemonium.0123456789.webp',
       cardmaker_gold: '/art/mascots/cardmaker_gold.0123456789.webp',
     },
   })
@@ -342,16 +389,16 @@ describe("the groups' Cardmakers", () => {
   it("shows a set group's own Cardmaker with the group's title, instead of the shop's", () => {
     renderShop({ path: '/shops/packs?group=Ulagal', art: ART })
 
-    expect(mascots()).toEqual(['cardmaker_ulagal'])
+    expect(mascots()).toEqual(['set:Ulagal'])
     expect(groupRow('Ballad of Ulagal Packs')?.querySelector('img')).toHaveAttribute(
       'src',
-      '/art/mascots/cardmaker_ulagal.0123456789.webp',
+      ULAGAL_MASCOT,
     )
   })
 
   it("shows Pandemonium's Cardmaker, and the Golden Packs' larger", () => {
     const { unmount } = renderShop({ path: '/shops/packs?group=Pandemonium', art: ART })
-    expect(mascots()).toEqual(['cardmaker_pandemonium'])
+    expect(mascots()).toEqual(['set:Pandemonium'])
     unmount()
 
     renderShop({ path: '/shops/packs?group=golden', art: ART })
@@ -383,9 +430,9 @@ describe("the groups' Cardmakers", () => {
     it("stands a set group's own Cardmaker in the corner, and none by the group's title", () => {
       renderShop({ path: '/shops/packs?group=Ulagal', art: ART })
 
-      expect(corner()).toHaveAttribute('data-corner-cardmaker', 'cardmaker_ulagal')
+      expect(corner()).toHaveAttribute('data-corner-cardmaker', 'set:Ulagal')
       expect(groupRow('Ballad of Ulagal Packs')?.querySelector('img')).toBeNull()
-      expect(mascots()).toEqual(['cardmaker_ulagal'])
+      expect(mascots()).toEqual(['set:Ulagal'])
     })
 
     it("stands the Golden Packs' Cardmaker in the corner, larger", () => {

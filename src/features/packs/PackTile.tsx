@@ -3,6 +3,7 @@ import { CardPicture } from '@/features/art/CardPicture'
 import { type SpeechLine, useSpeechTrigger } from '@/features/art/cardmakerSpeech'
 import { usePicture } from '@/features/art/usePicture'
 import { isCursedPackType } from '@/features/draws/schema'
+import { useSetIndex } from '@/features/sets/setsContext'
 import { cn } from '@/lib/cn'
 
 import { type PackDef, packShortName, packTitle, priceLabel } from './catalog'
@@ -41,17 +42,17 @@ export type PackTileProps = {
  * price. The button's label always names the pack in full. Selecting it opens the confirmation. A pack that cannot be
  * opened shows why. Cursed types are drawn in the cursed tone.
  *
- * The picture is the pack's own, or for a set's pack without one its set's cardback (design D8 of add-card-images).
+ * The picture is a set's pack's set's cardback, and any other pack's own (spec: card-images, "Pack pictures in the
+ * shop").
  * A set's Premium Pack frames its picture in ridged gold, and the Cursed types in ridged red (spec: visual-effects).
  */
 export function PackTile({ def, disabledReason, onOpen, variant, speech = null }: PackTileProps) {
   const art = useArt()
+  const { setName } = useSetIndex()
   // On the <li>, not the button: a pack that cannot be opened still makes her speak, as in v2.2.8.
   const speechTrigger = useSpeechTrigger(speech)
-  const picture = usePicture(
-    art.packUrl(def.key) ?? (def.setCode === null ? null : art.backUrl(def.setCode)),
-  )
-  const title = packTitle(def)
+  const picture = usePicture(def.setCode === null ? art.packUrl(def.key) : art.backUrl(def.setCode))
+  const title = packTitle(def, setName)
   const isCursed = isCursedPackType(def.type)
   // A set's Premium Pack gets the gold frame and the Cursed types the red one, as in v2.2.8.
   const frame = def.type === 'premium' ? 'premium' : isCursed ? 'cursed' : null
@@ -98,7 +99,7 @@ export function PackTile({ def, disabledReason, onOpen, variant, speech = null }
               scale.name,
             )}
           >
-            {isInGroup ? packShortName(def) : title}
+            {isInGroup ? packShortName(def, setName) : title}
           </span>
           {isInGroup ? (
             <span

@@ -1,5 +1,6 @@
 import { NO_VALUE, rarityLabel, setLabel } from '@/features/cards/display'
 import { visibleText } from '@/features/cards/text'
+import { useSetIndex } from '@/features/sets/setsContext'
 import { cn } from '@/lib/cn'
 
 import type { HandEntry } from './handEntries'
@@ -23,6 +24,7 @@ export type HandTableProps = {
  * and its name is marked `aria-current` for screen readers (spec: card-holdings, "Card details beside the hand").
  */
 export function HandTable({ entries, onSelect, selectedId = null }: HandTableProps) {
+  const { setName } = useSetIndex()
   return (
     <div className="overflow-x-auto rounded-xl border border-line bg-pane">
       <table className="w-full min-w-3xl border-collapse text-left text-sm">
@@ -69,7 +71,7 @@ export function HandTable({ entries, onSelect, selectedId = null }: HandTablePro
                   ) : null}
                 </th>
                 <td className="px-3 py-2 whitespace-nowrap text-ink">
-                  {setLabel(card) ?? NO_VALUE}
+                  {setLabel(card, setName) ?? NO_VALUE}
                 </td>
                 <td className="px-3 py-2 whitespace-nowrap text-ink">{cost ?? NO_VALUE}</td>
                 <td className="px-3 py-2 whitespace-nowrap text-ink">

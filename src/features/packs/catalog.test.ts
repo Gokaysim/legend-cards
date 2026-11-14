@@ -4,7 +4,9 @@ import { artLookup } from '@/features/art/artContext'
 import type { Card } from '@/features/cards/schema'
 import { testArt } from '@/test/artFixtures'
 import { PACK_TYPES } from '@/features/draws/schema'
+import { setIndex } from '@/features/sets/index'
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
+import { TEST_SETS, testSet, testSetName } from '@/test/setFixtures'
 
 import {
   burstArtUrl,
@@ -12,15 +14,22 @@ import {
   groupArtUrl,
   PACK_PRICES,
   type PackDef,
-  packCatalog,
+  packCatalog as catalogOf,
   packDefOf,
   packPools,
-  packShortName,
-  packStatus,
-  packTitle,
+  packShortName as shortNameOf,
+  packStatus as statusOf,
+  packTitle as titleOf,
   priceLabel,
   spreadBackOf,
 } from './catalog'
+
+const SETS = setIndex(TEST_SETS)
+const packCatalog = (cards: readonly Card[], sets = SETS) => catalogOf(cards, sets)
+const packTitle = (def: PackDef) => titleOf(def, testSetName)
+const packStatus = (def: PackDef, cards: readonly Card[]) => statusOf(def, cards, testSetName)
+const packShortName = (def: Pick<PackDef, 'type'>) =>
+  shortNameOf({ ...def, setCode: 'Pandemonium' }, testSetName)
 
 /** `count` normal pool cards named `<prefix> 1..count`, with `overrides`. */
 function cardsOf(
@@ -100,6 +109,40 @@ describe('packCatalog', () => {
       'Kesqerian Nights Standard Pack',
       'Kesqerian Nights Premium Pack',
       'Kesqerian Nights Cursed Pack',
+    ])
+  })
+
+  it('follows the stored order, and a set of the one-pack layout gets two packs', () => {
+    const sets = setIndex([
+      ...TEST_SETS.filter((set) => set.code !== 'Pandemonium' && set.code !== 'Kesqer'),
+      testSet('Pandemonium', 'Pandemonium', 0, { packLayout: 'pandemonium' }),
+      testSet('Kesqer', 'Kesqerian Nights', 5, { packLayout: 'pandemonium' }),
+    ])
+    const { setGroups } = packCatalog(cards, sets)
+    expect(setGroups.map((group) => group.title)).toEqual([
+      'Pandemonium Packs',
+      'The End is Nigh Packs',
+      'Kesqerian Nights Packs',
+      'The Lost City of Gurgitea Packs',
+    ])
+    expect(setGroups[2]?.packs.map((def) => titleOf(def, sets.setName))).toEqual([
+      'Kesqerian Nights Pack',
+      'Kesqerian Nights Cursed Pack',
+    ])
+    expect(setGroups[2]?.packs.map((def) => shortNameOf(def, sets.setName))).toEqual([
+      'Kesqerian Nights',
+      'Cursed',
+    ])
+  })
+
+  it('gives a set code that no stored set has the three standard packs, after the stored sets', () => {
+    const zaddir = testCard('Zaddir Card', { setCode: 'Zaddir' })
+    const { setGroups } = packCatalog([...cards, zaddir])
+    expect(setGroups.at(-1)?.title).toBe('Zaddir Packs')
+    expect(setGroups.at(-1)?.packs.map(packTitle)).toEqual([
+      'Zaddir Standard Pack',
+      'Zaddir Premium Pack',
+      'Zaddir Cursed Pack',
     ])
   })
 
@@ -326,8 +369,8 @@ describe('groupArtUrl', () => {
     packs: [{ key: `standard:${setCode}`, type: 'standard' as const, setCode, mechanicPack: null }],
   })
 
-  it("gives a set's group its first pack's own picture, or else the set's cardback", () => {
-    expect(groupArtUrl(art, group('Havenholm'))).toBe('/art/h.webp')
+  it("gives a set's group its set's cardback, never a set pack's own picture", () => {
+    expect(groupArtUrl(art, group('Havenholm'))).toBeNull()
     expect(groupArtUrl(art, group('Kesqer'))).toBe('/art/backs/kesqer.0123456789.webp')
     expect(groupArtUrl(art, group('Ulagal'))).toBeNull()
   })

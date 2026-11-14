@@ -16,7 +16,8 @@ import { TRUE_WORDS_COLLECTION } from './importTrueWords.ts'
 
 // The picture import (design D9 of upload-card-and-word-pictures): the owner's card and True Word pictures, matched
 // against the stored definitions, converted as the build converts them, stored in Cloud Storage, and set on the
-// definitions that never had a picture. It only adds: a picture the DM uploaded or removed is never touched.
+// definitions that never had a picture. It only adds: a picture the DM uploaded or removed is never touched. The set
+// pictures are the set import's (`importSets.ts`), and the cardbacks, packs and Cardmaker the build's.
 
 /** A stored definition's picture (design D3): no field, `null` (the DM removed it), or the path of its picture. */
 export type PictureState =
@@ -46,7 +47,7 @@ export type PlannedPicture<F extends ArtFile> = {
 }
 
 export type PicturePlan<F extends ArtFile> = {
-  /** The matching, with its duplicates, unknown files and the asset files left to the build. */
+  /** The matching, with its duplicates, unknown files and the files left to the build and the set import. */
   art: ArtPlan<F>
   /** One per matched definition, in the report's order. */
   pictures: PlannedPicture<F>[]
@@ -109,6 +110,7 @@ export function artDataOf(definitions: readonly PictureDefinition[]): ArtData {
     words: definitions
       .filter(({ target }) => target === 'word')
       .map(({ id, name, nameKey }) => ({ id, name, nameKey })),
+    sets: [],
   }
 }
 

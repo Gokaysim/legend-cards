@@ -1,6 +1,14 @@
 import type { Card } from './schema'
-import { setDisplayName } from './sets'
 import { matchesAllTerms, normalize, searchTerms } from './text'
+
+/**
+ * How a set code is shown: its stored set's official name, or the code as written (`useSetIndex().setName`, spec:
+ * card-library, "Official set names").
+ */
+export type SetName = (setCode: string) => string
+
+/** Every set code as written: for code that shows no set names, and for tests. */
+export const AS_WRITTEN: SetName = (setCode) => setCode
 
 /** Shown where a card has no value, for example the cost of a Blessed card. */
 export const NO_VALUE = '—'
@@ -73,9 +81,9 @@ export function kindLabel(card: Pick<Card, 'kind'>): string | null {
 }
 
 /** The set as shown: the official name, "Blessed" for Blessed cards, nothing for Cursed cards. */
-export function setLabel(card: Pick<Card, 'kind' | 'setCode'>): string | null {
+export function setLabel(card: Pick<Card, 'kind' | 'setCode'>, setName: SetName): string | null {
   if (card.kind === 'blessed') return 'Blessed'
-  return card.setCode === null ? null : setDisplayName(card.setCode)
+  return card.setCode === null ? null : setName(card.setCode)
 }
 
 /** "Common", "Rare", or nothing. */
@@ -87,12 +95,12 @@ export function rarityLabel(card: Pick<Card, 'rarity'>): string | null {
  * Everything a search looks in, normalized once per card: name, set code and official name, cost, rarity,
  * mechanic pack, the raw text with its bracket metadata, and the kind word of Blessed and Cursed cards.
  */
-export function cardHaystack(card: Card): string {
+export function cardHaystack(card: Card, setName: SetName): string {
   return normalize(
     [
       card.name,
       card.setCode,
-      setLabel(card),
+      setLabel(card, setName),
       card.cost,
       rarityLabel(card),
       card.mechanicPack,

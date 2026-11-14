@@ -33,26 +33,27 @@ npm run dev
 
 ## Scripts
 
-| Script                      | What it does                                                                                                                               |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `npm run dev`               | Start the Firebase emulators and the Vite dev server together                                                                              |
-| `npm run dev:web`           | Start only the Vite dev server                                                                                                             |
-| `npm run emulators`         | Start only the Auth, Firestore and Storage emulators, keeping their data between runs                                                      |
-| `npm run build`             | Type-check and build the production files into `dist/`                                                                                     |
-| `npm run preview`           | Serve the built `dist/` locally                                                                                                            |
-| `npm run typecheck`         | Run the TypeScript compiler without emitting files                                                                                         |
-| `npm run lint`              | Run ESLint                                                                                                                                 |
-| `npm run format`            | Format all files with Prettier                                                                                                             |
-| `npm run format:check`      | Check formatting without changing files                                                                                                    |
-| `npm run test`              | Run the unit tests (no Firebase)                                                                                                           |
-| `npm run test:watch`        | Run the unit tests in watch mode                                                                                                           |
-| `npm run test:emulator`     | Start the Firebase emulators, run the emulator-backed tests, then stop them                                                                |
-| `npm run check`             | Type check, lint, format check and unit tests: run this before every commit                                                                |
-| `npm run set-role`          | Set a user's role (`dm` or `player`); see [Making someone the DM](#making-someone-the-dm)                                                  |
-| `npm run import-cards`      | Load the card definitions from `data/` into Firestore; see [Loading the cards](#loading-the-cards)                                         |
-| `npm run import-true-words` | Load the True Words from `data/true-words.csv` into Firestore; see [Loading the cards](#loading-the-cards)                                 |
-| `npm run build-art`         | Build the cardbacks, packs and Cardmaker from the owner's archives into `public/art/`; see [Building the pictures](#building-the-pictures) |
-| `npm run import-pictures`   | Store the card and True Word pictures from the owner's archives in Cloud Storage; see [Building the pictures](#building-the-pictures)      |
+| Script                      | What it does                                                                                                                                                                   |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `npm run dev`               | Start the Firebase emulators and the Vite dev server together                                                                                                                  |
+| `npm run dev:web`           | Start only the Vite dev server                                                                                                                                                 |
+| `npm run emulators`         | Start only the Auth, Firestore and Storage emulators, keeping their data between runs                                                                                          |
+| `npm run build`             | Type-check and build the production files into `dist/`                                                                                                                         |
+| `npm run preview`           | Serve the built `dist/` locally                                                                                                                                                |
+| `npm run typecheck`         | Run the TypeScript compiler without emitting files                                                                                                                             |
+| `npm run lint`              | Run ESLint                                                                                                                                                                     |
+| `npm run format`            | Format all files with Prettier                                                                                                                                                 |
+| `npm run format:check`      | Check formatting without changing files                                                                                                                                        |
+| `npm run test`              | Run the unit tests (no Firebase)                                                                                                                                               |
+| `npm run test:watch`        | Run the unit tests in watch mode                                                                                                                                               |
+| `npm run test:emulator`     | Start the Firebase emulators, run the emulator-backed tests, then stop them                                                                                                    |
+| `npm run check`             | Type check, lint, format check and unit tests: run this before every commit                                                                                                    |
+| `npm run set-role`          | Set a user's role (`dm` or `player`); see [Making someone the DM](#making-someone-the-dm)                                                                                      |
+| `npm run import-sets`       | Load the sets from `data/sets.csv` into Firestore, and with `--source` their cardbacks and Cardmakers into Cloud Storage; see [Loading the cards](#loading-the-cards)          |
+| `npm run import-cards`      | Load the card definitions from `data/` into Firestore; see [Loading the cards](#loading-the-cards)                                                                             |
+| `npm run import-true-words` | Load the True Words from `data/true-words.csv` into Firestore; see [Loading the cards](#loading-the-cards)                                                                     |
+| `npm run build-art`         | Build the Blessed and Cursed cardbacks, the packs and the screens' Cardmaker from the owner's archives into `public/art/`; see [Building the pictures](#building-the-pictures) |
+| `npm run import-pictures`   | Store the card and True Word pictures from the owner's archives in Cloud Storage; see [Building the pictures](#building-the-pictures)                                          |
 
 ## Local Firebase emulators
 
@@ -87,25 +88,32 @@ The settings are `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIR
 
 ## Loading the cards
 
-The owner's card data lives in `data/` as CSV files (see [data/README.md](data/README.md)). A fresh emulator has no cards, so load them once:
+The owner's card data lives in `data/` as CSV files (see [data/README.md](data/README.md)). A fresh emulator has no sets and no cards, so load them once, the sets first:
 
 ```sh
 npm run dev            # in one terminal: the emulators and the app
-npm run import-cards   # in another: loads 591 Legend cards (3 of them drafts) and 154 Cursed cards
+npm run import-sets -- --source ~/Downloads   # in another: adds the 12 sets, with their cardbacks and Cardmakers
+npm run import-cards   # then: loads 591 Legend cards (3 of them drafts) and 154 Cursed cards
 npm run import-true-words   # then: loads the 53 True Words
 ```
 
-The emulators keep the cards and the words between runs. An import only adds what is not stored yet: it never changes, retires or deletes a stored card or word, because from then on the DM changes them in the app. A card or word with an empty value is added as a draft, which only the DM sees (see [data/README.md](data/README.md)). Each import that adds something is listed in the İşlem Logu. Running an import again writes nothing new.
+The emulators keep the sets, the cards and the words between runs. An import only adds what is not stored yet: it never changes, reorders, retires or deletes a stored set, card or word, because from then on the DM changes them in the app (Setler, Kart kütüphanesi, Cursed Deck, True Words). A card or word with an empty value is added as a draft, which only the DM sees (see [data/README.md](data/README.md)). Each import that adds something is listed in the İşlem Logu. Running an import again writes nothing new.
+
+The card import warns about every set code that no stored set has as its code or alias, so run `import-sets` first. Such a card is still imported, and shows its set code as written until the DM adds the set on the Setler screen.
 
 Cards and words stored before definitions had a status get one on the next import: run both imports once after updating an older checkout.
 
 - `--dry-run` shows what the import would do, without writing.
+- `npm run import-sets` without `--source` adds the sets without pictures. `--source <folder>` reads the owner's archives (see [Building the pictures](#building-the-pictures)) and gives each set its cardback and Cardmaker, only where the set never had one. Running it again with `--source` later adds the pictures of the sets that have none.
+- `npm run import-sets -- --file <csv>` imports the sets from another file.
 - `--legend <csv>` or `--cursed <csv>` imports only that deck.
 - `npm run import-true-words -- --file <csv>` imports the True Words from another file.
 
 Against a real project (see below), look first, then import:
 
 ```sh
+npm run import-sets -- --source <folder> --dry-run --project <project-id>
+npm run import-sets -- --source <folder> --project <project-id>
 npm run import-cards -- --dry-run --project <project-id>
 npm run import-cards -- --project <project-id>
 npm run import-true-words -- --dry-run --project <project-id>
@@ -114,27 +122,33 @@ npm run import-true-words -- --project <project-id>
 
 ## Building the pictures
 
-The pictures come from the owner's five `.7z` archives (about 560 MB of PNG). They stay outside the repository. Two scripts read them from a folder and convert them to WebP:
+The pictures come from the owner's five `.7z` archives (about 560 MB of PNG). They stay outside the repository. Three scripts read them from a folder and convert them to WebP:
 
-- **Cardbacks, pack pictures and the Cardmaker** are static files. `build-art` writes them with a manifest to `public/art/`, which is not committed.
+- **The Blessed and Cursed cardbacks, the pack pictures and the screens' Cardmaker** are static files. `build-art` writes them with a manifest to `public/art/`, which is not committed.
+- **The sets' cardbacks and Cardmakers** live in Cloud Storage, and each set holds where its pictures are. `import-sets --source` stores them once, matched against the stored sets by code, official name or alias (see [Loading the cards](#loading-the-cards)). After that the DM changes them in the set form on the Setler screen.
 - **Card and True Word pictures** live in Cloud Storage, and each card or word holds where its picture is. `import-pictures` stores them once, matched against the stored cards and words. After that the DM uploads, replaces, downloads and removes pictures in the card and True Word forms.
 
 ```sh
 npm run build-art -- --source ~/Downloads --dry-run         # report only: what matches, what is missing
 npm run build-art -- --source ~/Downloads                   # write public/art/
 
+npm run import-sets -- --source ~/Downloads --dry-run       # with the emulators running
+npm run import-sets -- --source ~/Downloads                 # add the sets, and store their cardbacks and Cardmakers
+
 npm run import-pictures -- --source ~/Downloads --dry-run   # with the emulators running, after the imports
 npm run import-pictures -- --source ~/Downloads             # store the card and word pictures
 ```
 
-- Neither script changes the archives. They extract them into a temporary folder that they always remove, and take loose `.png` files in the folder as they are.
-- They match each file by its name, and by the alias table `data/image-aliases.csv` for names that differ from the data (see [data/README.md](data/README.md#pictures)). The picture import matches against the stored cards and words, so a card the DM renamed or added is found too.
+- No script changes the archives. They extract them into a temporary folder that they always remove, and take loose `.png` files in the folder as they are.
+- They match each file by its name, and by the alias table `data/image-aliases.csv` for names that differ from the data (see [data/README.md](data/README.md#pictures)). The set import matches against the stored sets, and the picture import against the stored cards and words, so a set or card the DM renamed or added is found too.
 - Each prints a Turkish report:
-  - The build counts the cardbacks, packs and Cardmaker and names the missing ones.
+  - The build counts the cardbacks, packs and Cardmaker and names the missing ones. It also says how many files it left to the picture import and how many to the set import.
+  - The set import counts the cardbacks and Cardmakers it stores, names the sets still without one, and lists the files that match no set.
   - The picture import counts, per kind, the pictures it adds, the cards and words that already have one, and those whose picture the DM removed. It also names every card and word left without a picture, and lists the duplicate and unknown files.
   - A row of the alias table that names nothing stops the run before anything is written.
 - Run the build again after the archives or the alias table change. It replaces the earlier pictures. A changed picture gets a new address, so browsers never show an old one.
-- The picture import only adds. It never replaces a picture, and never brings back one the DM removed, so running it again adds only new cards' pictures. A run that stops halfway is completed by running it again. Each run that adds pictures is listed in the İşlem Logu.
+- The set import and the picture import only add. They never replace a picture, and never bring back one the DM removed, so running them again adds only the pictures of new sets and cards. A run that stops halfway is completed by running it again. Each run that adds pictures is listed in the İşlem Logu.
+- Builds from before the sets were stored data put the sets' cardbacks and Cardmakers into `public/art/`. The app no longer reads them there, and the next build drops them.
 
 Without the pictures the app still works and draws every card, back, pack and True Word with CSS. `npm run dev` serves the built pictures as soon as they exist; reload the page. The stored pictures stay in the Storage emulator between runs, with the rest of the emulator data.
 
@@ -182,7 +196,7 @@ Not needed for development. When the app is ready to go online:
 
    `storage.rules` read the DM's role from Firestore. On the first deploy, the Firebase CLI asks to give Cloud Storage access to Firestore: accept it, or the DM cannot upload pictures.
 
-8. Load the data, then the pictures: run `import-cards` and `import-true-words` (see [Loading the cards](#loading-the-cards)), then `npm run import-pictures -- --source <folder> --project <project-id>`. Add `--bucket <name>` when the bucket is not `<project-id>.firebasestorage.app`.
+8. Load the data, then the pictures: run `npm run import-sets -- --source <folder> --project <project-id>` first, then `import-cards` and `import-true-words` (see [Loading the cards](#loading-the-cards)), then `npm run import-pictures -- --source <folder> --project <project-id>`. Add `--bucket <name>` to `import-sets` and `import-pictures` when the bucket is not `<project-id>.firebasestorage.app`.
 
 `firebase deploy` publishes the app and the security rules to the real project. Only run it on purpose.
 

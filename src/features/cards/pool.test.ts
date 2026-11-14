@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
+import { testSetName } from '@/test/setFixtures'
 
 import {
   activeFilters,
@@ -30,7 +31,7 @@ const dmOnlyBlessed = testBlessedCard('Secret Blessing', { dmOnly: true })
 const dmOnlyCursed = testCursedCard('Crown of Ash', { dmOnly: true })
 
 const filtered = (filters: Partial<DrawFilters>) => (card: Card) =>
-  matchesFilters(card, { ...NO_FILTERS, ...filters })
+  matchesFilters(card, { ...NO_FILTERS, ...filters }, testSetName)
 
 describe('the pool', () => {
   it('holds the active normal cards without a holder and every active Blessed card', () => {
@@ -173,7 +174,7 @@ describe('poolDistribution', () => {
       retired,
       cursed,
     ]
-    expect(poolDistribution(cards)).toEqual({
+    expect(poolDistribution(cards, testSetName)).toEqual({
       total: 420,
       rarities: [
         {
@@ -209,7 +210,7 @@ describe('poolDistribution', () => {
       testCard('A', { rarity: 'rare', setCode: 'Pentagon' }),
       testCard('B', { setCode: 'Ashavir' }),
     ]
-    const { rarities, sets } = poolDistribution(cards)
+    const { rarities, sets } = poolDistribution(cards, testSetName)
     expect(rarities.map((rarity) => rarity.label)).toEqual(['Common', 'Rare'])
     expect(sets.map((set) => set.label)).toEqual([
       'Conclave at Pentagon',
@@ -219,10 +220,14 @@ describe('poolDistribution', () => {
   })
 
   it('is empty for an empty pool', () => {
-    expect(poolDistribution([held, retired, cursed])).toEqual({ total: 0, rarities: [], sets: [] })
+    expect(poolDistribution([held, retired, cursed], testSetName)).toEqual({
+      total: 0,
+      rarities: [],
+      sets: [],
+    })
   })
 
   it('leaves the DM-only cards out', () => {
-    expect(poolDistribution([pool, dmOnly, dmOnlyBlessed]).total).toBe(1)
+    expect(poolDistribution([pool, dmOnly, dmOnlyBlessed], testSetName).total).toBe(1)
   })
 })

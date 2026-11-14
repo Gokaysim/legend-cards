@@ -1,10 +1,11 @@
-// Builds the cardback, pack and Cardmaker pictures from the owner's archives:
+// Builds the Blessed and Cursed cardbacks, the pack pictures and the screens' Cardmaker from the owner's archives:
 //   npm run build-art -- --source <folder> [--dry-run]
 // Reads the folder's .7z archives (extracted with 7-Zip into a temporary folder) and loose .png files, never
 // changing them. Matches the files by the legacy asset names and the alias table, reports in Turkish, and, unless
 // this is a dry run, writes the WebP pictures and their manifest to public/art/. The card and True Word pictures are
-// left to `npm run import-pictures`, which stores them in Cloud Storage (design D10 of upload-card-and-word-pictures).
-// Never reads or writes Firestore or Cloud Storage.
+// left to `npm run import-pictures`, which stores them in Cloud Storage (design D10 of upload-card-and-word-pictures),
+// and the sets' cardbacks and Cardmakers (`<set>_cb`, `cardmaker_<set>`) to `npm run import-sets` (design D10 of
+// add-set-management). Never reads or writes Firestore or Cloud Storage.
 import { readFile } from 'node:fs/promises'
 import { relative } from 'node:path'
 import { fileURLToPath } from 'node:url'

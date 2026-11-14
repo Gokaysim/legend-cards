@@ -3,9 +3,10 @@ import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { BalanceDialog } from '@/features/balances/BalanceDialog'
 import { formatAmount } from '@/features/balances/format'
-import { setDisplayName, setOrder } from '@/features/cards/sets'
 import { compareLabels } from '@/features/cards/sort'
 import { visibleText } from '@/features/cards/text'
+import type { SetIndex } from '@/features/sets/index'
+import { useSetIndex } from '@/features/sets/setsContext'
 import { TABLE_BUSY_NOTE } from '@/features/table/errors'
 import type { KnownWordEntry } from '@/features/true-words/trueWordsContext'
 import { useIsTableBusy } from '@/features/table/tableContext'
@@ -18,16 +19,19 @@ import { genitive } from '@/lib/turkish'
 import type { HandEntry } from './handEntries'
 import { StatTile } from './StatTile'
 
-/** The sets of the hand's normal cards with their card counts, in shop order. Blessed and Cursed have no set. */
-function handSets(entries: readonly HandEntry[]): { name: string; count: number }[] {
+/** The sets of the hand's normal cards with their card counts, in the stored order. Blessed and Cursed have no set. */
+function handSets(
+  entries: readonly HandEntry[],
+  sets: SetIndex,
+): { name: string; count: number }[] {
   const counts = new Map<string, { name: string; order: number; count: number }>()
   for (const { card } of entries) {
     // A held card is active or retired, so a normal one has a set; the check is for the types.
     if (card.kind !== 'normal' || card.setCode === null) continue
-    const name = setDisplayName(card.setCode)
+    const name = sets.setName(card.setCode)
     const current = counts.get(name)
     if (current) current.count += 1
-    else counts.set(name, { name, order: setOrder(card.setCode), count: 1 })
+    else counts.set(name, { name, order: sets.setRank(card.setCode), count: 1 })
   }
   return [...counts.values()].sort((a, b) => a.order - b.order || compareLabels(a.name, b.name))
 }
@@ -129,11 +133,12 @@ export function HandSummary({
   const [isChangingLp, setIsChangingLp] = useState(false)
   const [openList, setOpenList] = useState<ListId | null>(null)
   const isTableBusy = useIsTableBusy()
+  const setIndex = useSetIndex()
   const isPlayer = profile.role === 'player'
   const playerName = profileName(profile)
   const active = entries.filter((entry) => entry.holding.active)
   const activeWords = words.filter((entry) => entry.record.active)
-  const sets = handSets(entries)
+  const sets = handSets(entries, setIndex)
   const cursedCount = entries.filter((entry) => entry.card.kind === 'cursed').length
 
   // An open list closes with Escape, or with a press outside its stat (a tap elsewhere on a phone).

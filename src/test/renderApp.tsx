@@ -15,6 +15,7 @@ import { type TestDefinitions, TestDefinitionsProvider } from './TestDefinitions
 import { type TestDraws, TestDrawsProvider } from './TestDrawsProvider'
 import { type TestHoldings, TestHoldingsProvider } from './TestHoldingsProvider'
 import { type TestPacks, TestPacksProvider } from './TestPacksProvider'
+import { type TestSets, TestSetsProvider } from './TestSetsProvider'
 import { type TestNotes, TestPlayerNotesProvider } from './TestPlayerNotesProvider'
 import { type TestTable, TestTableProvider } from './TestTableProvider'
 import { type TestTrueWords, TestTrueWordsProvider } from './TestTrueWordsProvider'
@@ -26,6 +27,8 @@ export type RenderAppOptions = {
   signOut?: () => Promise<void>
   /** Profiles to provide. Defaults to `testUser` as a ready player. */
   users?: TestUsers
+  /** The stored sets and fake set steps. Defaults to the 12 sets of `data/sets.csv`, without pictures. */
+  sets?: TestSets
   /** Cards to provide. Defaults to a ready, empty list. */
   cards?: TestCards
   /** Open holdings to provide. Defaults to a ready, empty list. */
@@ -52,6 +55,7 @@ export type RenderAppOptions = {
 
 type Data = {
   users: TestUsers
+  sets: TestSets
   cards: TestCards
   holdings: TestHoldings
   balances: TestBalances
@@ -66,17 +70,18 @@ type Data = {
 }
 
 /**
- * Renders the real route table at `path`, with a fixed auth state (signed in by default), fixed profiles, cards,
+ * Renders the real route table at `path`, with a fixed auth state (signed in by default), fixed profiles, sets, cards,
  * open holdings, party purse, table lock, open pack, True Words, notes, log records and pictures, and fake draws,
- * pack and True Word steps and note saves. `setUsers`, `setCards`, `setHoldings`, `setBalances`, `setTable`,
- * `setPacks`, `setTrueWords`, `setNotes` and `setActivityLog` re-render the same app with other data, as a real-time
- * update would, without remounting.
+ * pack, set and True Word steps and note saves. `setUsers`, `setSets`, `setCards`, `setHoldings`, `setBalances`,
+ * `setTable`, `setPacks`, `setTrueWords`, `setNotes` and `setActivityLog` re-render the same app with other data, as a
+ * real-time update would, without remounting.
  */
 export function renderApp({
   path = '/',
   state = { status: 'signedIn', user: testUser },
   signOut,
   users = {},
+  sets = {},
   cards = {},
   holdings = {},
   balances = {},
@@ -92,6 +97,7 @@ export function renderApp({
   const router = createMemoryRouter(routes, { initialEntries: [path] })
   let current: Data = {
     users,
+    sets,
     cards,
     holdings,
     balances,
@@ -109,25 +115,27 @@ export function renderApp({
       <TestAuthProvider state={state} signOut={signOut}>
         <TestUsersProvider {...data.users}>
           <TestBalancesProvider {...data.balances}>
-            <TestCardsProvider {...data.cards}>
-              <TestHoldingsProvider {...data.holdings}>
-                <TestTableProvider {...data.table}>
-                  <TestPacksProvider {...data.packs}>
-                    <TestActivityLogProvider {...data.activityLog}>
-                      <TestDrawsProvider {...data.draws}>
-                        <TestTrueWordsProvider {...data.trueWords}>
-                          <TestPlayerNotesProvider {...data.notes}>
-                            <TestDefinitionsProvider {...data.definitions}>
-                              <RouterProvider router={router} />
-                            </TestDefinitionsProvider>
-                          </TestPlayerNotesProvider>
-                        </TestTrueWordsProvider>
-                      </TestDrawsProvider>
-                    </TestActivityLogProvider>
-                  </TestPacksProvider>
-                </TestTableProvider>
-              </TestHoldingsProvider>
-            </TestCardsProvider>
+            <TestSetsProvider {...data.sets}>
+              <TestCardsProvider {...data.cards}>
+                <TestHoldingsProvider {...data.holdings}>
+                  <TestTableProvider {...data.table}>
+                    <TestPacksProvider {...data.packs}>
+                      <TestActivityLogProvider {...data.activityLog}>
+                        <TestDrawsProvider {...data.draws}>
+                          <TestTrueWordsProvider {...data.trueWords}>
+                            <TestPlayerNotesProvider {...data.notes}>
+                              <TestDefinitionsProvider {...data.definitions}>
+                                <RouterProvider router={router} />
+                              </TestDefinitionsProvider>
+                            </TestPlayerNotesProvider>
+                          </TestTrueWordsProvider>
+                        </TestDrawsProvider>
+                      </TestActivityLogProvider>
+                    </TestPacksProvider>
+                  </TestTableProvider>
+                </TestHoldingsProvider>
+              </TestCardsProvider>
+            </TestSetsProvider>
           </TestBalancesProvider>
         </TestUsersProvider>
       </TestAuthProvider>
@@ -142,6 +150,7 @@ export function renderApp({
     ...view,
     router,
     setUsers: (next: TestUsers) => update({ users: next }),
+    setSets: (next: TestSets) => update({ sets: next }),
     setCards: (next: TestCards) => update({ cards: next }),
     setHoldings: (next: TestHoldings) => update({ holdings: next }),
     setBalances: (next: TestBalances) => update({ balances: next }),

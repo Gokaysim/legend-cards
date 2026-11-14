@@ -1,8 +1,23 @@
-import type { AliasError, AliasKind, ArtCoverage, ArtFile, ArtGroup, ArtPlan } from './artFiles.ts'
+import type {
+  AliasError,
+  AliasKind,
+  ArtCoverage,
+  ArtFile,
+  ArtGroup,
+  ArtPlan,
+  ArtPlanMode,
+} from './artFiles.ts'
 import type { CardFileError, CardFileWarning, Deck, LimitedField } from './cardRows.ts'
 import type { CardOutcome, DeckPlan, Upgrade } from './importCards.ts'
 import type { PictureDefinition, PictureOutcome, PicturePlan } from './importPictures.ts'
+import type {
+  SetImportPlan,
+  SetImportWritten,
+  SetPictureField,
+  SetPictureOutcome,
+} from './importSets.ts'
 import type { WordPlan } from './importTrueWords.ts'
+import type { SetFileError, SetTextField } from './setRows.ts'
 import type { TrueWordFileError, WordLimitedField } from './trueWordRows.ts'
 
 const DECK_LABELS: Readonly<Record<Deck, string>> = {
@@ -88,7 +103,7 @@ function cardFileError(file: string, error: CardFileError): string {
 function cardFileWarning(file: string, warning: CardFileWarning): string {
   switch (warning.kind) {
     case 'unknown-set':
-      return `${file}: "${warning.setCode}" set kodunun resmi adı bilinmiyor (${warning.count} kart). Uygulama kodu olduğu gibi gösterir.`
+      return `${file}: "${warning.setCode}" set kodu kayıtlı setler arasında yok (${warning.count} kart). Seti Setler ekranında ekle (ya da npm run import-sets çalıştır); o zamana kadar uygulama kodu olduğu gibi gösterir.`
     case 'unknown-mechanic-pack':
       return `${file}: "${warning.mechanicPack}" bilinen 8 mechanic pack'ten biri değil (${warning.count} kart).`
   }
@@ -163,31 +178,41 @@ const ART_GROUP_LABELS: Readonly<Record<ArtGroup, string>> = {
   word: 'True Words',
   back: "Cardback'ler",
   pack: 'Pack görselleri',
-  setPack: 'Set pack görselleri',
   mascot: 'Cardmaker',
+  setBack: "Set cardback'leri",
+  setMascot: "Set Cardmaker'ları",
 }
 
 /** A file in the report: its name, and the archive it came from. */
 type ReportedFile = ArtFile & { from?: string | null }
 const fileLabel = ({ name, from }: ReportedFile) => (from ? `${name} (${from})` : name)
 
-/** What the report says of the files the other script plans. */
-const SKIPPED_LABELS: Readonly<Record<ArtPlan<ArtFile>['mode'], string>> = {
-  assets: 'Kart ve True Word dosyaları (npm run import-pictures yükler)',
-  definitions: 'Cardback, pack ve Cardmaker dosyaları (npm run build-art hazırlar)',
+/** What the report says of the files each script plans, when another script leaves them to it. */
+const LEFT_TO_LABELS: Readonly<Record<ArtPlanMode, string>> = {
+  definitions: 'Kart ve True Word dosyaları (npm run import-pictures yükler)',
+  assets: 'Blessed/Cursed cardback, pack ve ekran Cardmaker dosyaları (npm run build-art hazırlar)',
+  sets: 'Set cardback ve Cardmaker dosyaları (npm run import-sets yükler)',
 }
 
-/** The duplicates, the unknown files (for the picture import) and how many files the other script plans. */
-function fileLines<F extends ReportedFile>(plan: ArtPlan<F>): string[] {
+/** The duplicates of a plan. */
+function duplicateLines<F extends ReportedFile>(plan: ArtPlan<F>): string[] {
   const lines = [`Çift dosyalar (kullanılmadı): ${plan.duplicates.length}`]
   for (const { file, target, winner } of plan.duplicates) {
     lines.push(`  ${fileLabel(file)} → ${target.label}; kullanılan: ${fileLabel(winner)}`)
   }
-  if (plan.mode === 'definitions') {
+  return lines
+}
+
+/** The duplicates, the unknown files (for an import) and how many files each other script plans. */
+function fileLines<F extends ReportedFile>(plan: ArtPlan<F>): string[] {
+  const lines = duplicateLines(plan)
+  if (plan.mode !== 'assets') {
     lines.push(`Tanınmayan dosyalar (atlandı): ${plan.unknown.length}`)
     for (const file of plan.unknown) lines.push(`  ${fileLabel(file)}`)
   }
-  lines.push(`${SKIPPED_LABELS[plan.mode]}: ${plan.skipped.length}`)
+  for (const mode of Object.keys(LEFT_TO_LABELS) as ArtPlanMode[]) {
+    if (mode !== plan.mode) lines.push(`${LEFT_TO_LABELS[mode]}: ${plan.leftTo[mode].length}`)
+  }
   return lines
 }
 
@@ -199,10 +224,6 @@ function artReport<F extends ReportedFile>(plan: ArtPlan<F>, fileCount: number):
     ArtCoverage,
   ][]) {
     const label = ART_GROUP_LABELS[group]
-    if (group === 'setPack') {
-      lines.push(`  ${label}: ${found} (görseli olmayan set pack'te setin cardback'i gösterilir)`)
-      continue
-    }
     const count = `  ${label}: ${found}/${expected}`
     lines.push(missing.length > 0 ? `${count} · görseli yok: ${missing.join(', ')}` : count)
   }
@@ -234,6 +255,120 @@ function picturesReport<F extends ReportedFile>(plan: PicturePlan<F>, fileCount:
     lines.push(`  ${ART_GROUP_LABELS[groupOf(definition)]}: ${definition.name}${removed}`)
   }
   return [...lines, ...fileLines(plan.art)]
+}
+
+const SET_FIELD_LABELS: Readonly<Record<SetTextField, string>> = {
+  code: 'Code',
+  name: 'Name',
+  alias: 'Alias',
+}
+
+/** The set file's columns as it writes them. */
+const SET_COLUMN_LABELS: Readonly<Record<string, string>> = {
+  code: 'Code',
+  name: 'Name',
+  aliases: 'Aliases',
+  packs: 'Packs',
+}
+
+function setFileError(file: string, error: SetFileError): string {
+  switch (error.kind) {
+    case 'unreadable':
+      return `${file}: CSV okunamadı (${error.detail}).`
+    case 'missing-columns':
+      return `${file}: eksik sütun: ${error.columns.map((column) => SET_COLUMN_LABELS[column] ?? column).join(', ')}. Sütunlar Code, Name, Aliases, Packs olmalı.`
+    case 'empty-cell':
+      return `${file}, satır ${error.row}: ${error.column} boş.`
+    case 'without-letters':
+      return `${file}, satır ${error.row}: ${SET_FIELD_LABELS[error.field]} "${error.value}" içinde harf ya da rakam yok.`
+    case 'too-long':
+      return `${file}, satır ${error.row}: ${SET_FIELD_LABELS[error.field]} en fazla ${error.max} karakter olabilir.`
+    case 'too-many-aliases':
+      return `${file}, satır ${error.row}: ${error.count} alias var; en fazla ${error.max} olabilir.`
+    case 'unknown-packs':
+      return `${file}, satır ${error.row}: Packs ${error.value ? `"${error.value}"` : 'boş'}; standard ya da pandemonium olmalı.`
+    case 'blessed-code':
+      return `${file}, satır ${error.row}: "Blessed" bir set kodu olamaz: Blessed kartların seti yoktur.`
+    case 'duplicate':
+      return error.field === 'name'
+        ? `${file}, satır ${error.rows[0]} ve ${error.rows[1]}: "${error.value}" adı iki kez var.`
+        : `${file}, satır ${error.rows[0]} ve ${error.rows[1]}: "${error.value}" iki setin kodu ya da alias'ı.`
+  }
+}
+
+/** A set's picture fields in report order (`SET_PICTURE_FIELDS`, kept here so messages load no Firebase or sharp). */
+const SET_PICTURE_FIELDS: readonly SetPictureField[] = ['cardback', 'mascot']
+
+const SET_PICTURE_LABELS: Readonly<Record<SetPictureField, string>> = {
+  cardback: 'Cardback',
+  mascot: 'Cardmaker',
+}
+
+const SET_WITHOUT_LABELS: Readonly<Record<SetPictureField, string>> = {
+  cardback: "Cardback'i olmayacak setler",
+  mascot: "Cardmaker'ı olmayacak setler",
+}
+
+const SET_OUTCOME_LABELS = {
+  added: { done: 'eklendi', planned: 'eklenecek' },
+  existing: { done: 'zaten kayıtlıydı (dokunulmadı)', planned: 'zaten kayıtlı (dokunulmayacak)' },
+  list: { done: 'Eklenenler', planned: 'Eklenecekler' },
+} as const
+
+/**
+ * What a set import does (spec: admin-scripts, "Set import report and dry run"): the sets added, by name, and the
+ * ones already stored; with an archive folder, per picture the ones given, already there and removed by the DM, the
+ * sets still without each, the duplicates and the files that match no set.
+ */
+function setsReport<F extends ReportedFile>(
+  plan: SetImportPlan<F>,
+  fileCount: number | null,
+  dryRun: boolean,
+): string[] {
+  const tense = dryRun ? 'planned' : 'done'
+  const { added, existing } = plan.sets
+  const lines = [
+    `Setler: ${added.length} ${SET_OUTCOME_LABELS.added[tense]}, ${existing.length} ${SET_OUTCOME_LABELS.existing[tense]}.`,
+  ]
+  if (added.length > 0) {
+    lines.push(`  ${SET_OUTCOME_LABELS.list[tense]}: ${added.map(({ name }) => name).join(', ')}`)
+  }
+  const pictures = plan.pictures
+  if (pictures === null) return lines
+  if (fileCount !== null) lines.push(`${fileCount} dosya okundu.`)
+  for (const field of SET_PICTURE_FIELDS) {
+    const count = (outcome: SetPictureOutcome) =>
+      pictures.pictures.filter((picture) => picture.field === field && picture.outcome === outcome)
+        .length
+    lines.push(
+      `  ${SET_PICTURE_LABELS[field]}: ${count('add')} resim eklenir · ${count('has')} zaten resimli · ${count('removed')} resmini DM kaldırmış`,
+    )
+  }
+  for (const field of SET_PICTURE_FIELDS) {
+    const without = pictures.without[field]
+    lines.push(`${SET_WITHOUT_LABELS[field]}: ${without.length}`)
+    for (const set of without) {
+      const removed = set.pictures[field].kind === 'removed' ? ' (resmini DM kaldırmış)' : ''
+      lines.push(`  ${set.name}${removed}`)
+    }
+  }
+  lines.push(...duplicateLines(pictures.art))
+  lines.push(`Hiçbir setle eşleşmeyen dosyalar (atlandı): ${pictures.art.unknown.length}`)
+  for (const file of pictures.art.unknown) lines.push(`  ${fileLabel(file)}`)
+  return lines
+}
+
+/** What a set import wrote, after its report. */
+function setsWritten({ added, pictured, changedMeanwhile, recordId }: SetImportWritten): string {
+  if (recordId === null && changedMeanwhile.length === 0) {
+    return 'Hiçbir şey yazılmadı: dosyadaki her set zaten kayıtlı, verilecek resim de yok.'
+  }
+  const summary = `${added.length} set eklendi, ${pictured.length} set resmi yüklendi.`
+  if (changedMeanwhile.length === 0) return summary
+  const names = changedMeanwhile.map(
+    ({ set, field }) => `${set.name} (${SET_PICTURE_LABELS[field]})`,
+  )
+  return `${summary} Bu arada başka yerden resim verilen ${names.length} resme dokunulmadı: ${names.join(', ')}.`
 }
 
 /** Turkish messages printed by the admin scripts. Code and comments stay in English. */
@@ -294,7 +429,7 @@ export const messages = {
       : `${count} True Word yazıldı.`,
   usageBuildArt:
     'Kullanım: npm run build-art -- --source <klasör> [--dry-run]\n' +
-    'Klasördeki .7z arşivlerini ve .png dosyalarını okur, onlara dokunmaz; cardback, pack ve Cardmaker görsellerini public/art/ klasörüne yazar. Kart ve True Word resimlerini npm run import-pictures yükler.',
+    "Klasördeki .7z arşivlerini ve .png dosyalarını okur, onlara dokunmaz; Blessed ve Cursed cardback'lerini, pack görsellerini ve ekranların Cardmaker görsellerini public/art/ klasörüne yazar. Kart ve True Word resimlerini npm run import-pictures, setlerin cardback ve Cardmaker resimlerini npm run import-sets yükler.",
   sevenZipMissing:
     '7-Zip bulunamadı (`7zz` komutu yok). Kurmak için: brew install sevenzip. Hiçbir şey yazılmadı.',
   sourceUnreadable: (folder: string, detail: string) =>
@@ -322,6 +457,21 @@ export const messages = {
       : `${count} resim yüklendi. Bu arada başka yerden resim verilen ${changedMeanwhile.length} tanıma dokunulmadı: ${changedMeanwhile.join(', ')}.`,
   picturesFailed: (detail: string) =>
     `Resim yükleme yarıda kaldı: ${detail}. O ana kadar yüklenenler kaldı; aynı komutu yeniden çalıştırınca kalanlar eklenir.`,
+  usageImportSets:
+    'Kullanım: npm run import-sets -- [--file <csv>] [--source <klasör>] [--dry-run] [--project <proje-kimliği>] [--yes] [--bucket <bucket>]\n' +
+    "Dosya verilmezse data/sets.csv kullanılır. Kayıtlı olmayan setleri ekler; kayıtlı bir sete dokunmaz. --source verilirse klasördeki .7z arşivlerinden ve .png dosyalarından setlerin cardback ve Cardmaker resimlerini Cloud Storage'a yükler; resmi olan ya da resmini DM'in kaldırdığı setlere dokunmaz.",
+  setFileUnreadable: (file: string, detail: string) =>
+    `"${file}" okunamadı: ${detail}. Hiçbir set değişmedi.`,
+  setFileError,
+  setFileInvalid: (count: number) =>
+    `Set dosyasında ${count} hata var. Hiçbir set değişmedi: önce dosyayı düzelt.`,
+  dryRunSetsHeader:
+    'Deneme (--dry-run): hiçbir set yazılmadı, hiçbir resim yüklenmedi. Gerçek bir import şunu yapardı:',
+  setsReport,
+  setsProgress: (done: number, total: number) => `Set resimleri yükleniyor: ${done}/${total}`,
+  setsWritten,
+  setsFailed: (detail: string) =>
+    `Set import'u yarıda kaldı: ${detail}. O ana kadar eklenenler kaldı; aynı komutu yeniden çalıştırınca kalanlar eklenir.`,
   artProgress: (done: number, total: number) => `Görseller dönüştürülüyor: ${done}/${total}`,
   artWritten: (count: number, folder: string) => `${count} görsel ve manifest yazıldı: ${folder}`,
   artWriteFailed: (detail: string) =>

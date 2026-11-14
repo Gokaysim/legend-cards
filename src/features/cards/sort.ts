@@ -1,4 +1,4 @@
-import { numericCost, rarityLabel, setLabel } from './display'
+import { AS_WRITTEN, numericCost, rarityLabel, type SetName, setLabel } from './display'
 import type { Card } from './schema'
 import { visibleText } from './text'
 
@@ -19,12 +19,17 @@ export const DEFAULT_SORT: CardSort = { key: 'name', direction: 'asc' }
 const collator = new Intl.Collator('tr', { numeric: true, sensitivity: 'base' })
 
 /** The value a column sorts by: what the column shows. `null` when the card has no value there. */
-function sortValue(card: Card, key: SortKey, statusText: StatusText): string | null {
+function sortValue(
+  card: Card,
+  key: SortKey,
+  statusText: StatusText,
+  setName: SetName,
+): string | null {
   switch (key) {
     case 'name':
       return card.name
     case 'set':
-      return setLabel(card)
+      return setLabel(card, setName)
     case 'cost':
       return card.cost
     case 'rarity':
@@ -47,9 +52,10 @@ export function compareCards(
   b: Card,
   { key, direction }: CardSort,
   statusText: StatusText = NO_STATUS,
+  setName: SetName = AS_WRITTEN,
 ): number {
-  const left = sortValue(a, key, statusText)
-  const right = sortValue(b, key, statusText)
+  const left = sortValue(a, key, statusText, setName)
+  const right = sortValue(b, key, statusText, setName)
   if (left === null || right === null) {
     if (left !== right) return left === null ? 1 : -1
   } else {
@@ -64,13 +70,14 @@ export function compareCards(
   return collator.compare(a.name, b.name) || a.id.localeCompare(b.id)
 }
 
-/** A sorted copy. `statusText` gives the Durum column's values. */
+/** A sorted copy. `statusText` gives the Durum column's values, and `setName` the Set column's. */
 export function sortCards(
   cards: readonly Card[],
   sort: CardSort,
   statusText: StatusText = NO_STATUS,
+  setName: SetName = AS_WRITTEN,
 ): Card[] {
-  return [...cards].sort((a, b) => compareCards(a, b, sort, statusText))
+  return [...cards].sort((a, b) => compareCards(a, b, sort, statusText, setName))
 }
 
 /** Compares two names or labels the way the lists do, for building filter options. */

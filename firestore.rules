@@ -66,6 +66,14 @@ service cloud.firestore {
       return /databases/$(database)/documents/definitionChanges/$(changeId);
     }
 
+    function setPath(setId) {
+      return /databases/$(database)/documents/sets/$(setId);
+    }
+
+    function setChangePath(changeId) {
+      return /databases/$(database)/documents/setChanges/$(changeId);
+    }
+
     // Definition statuses (spec: definition-editing). A player reads only active and retired definitions; a draft
     // reaches the DM only. Keep in step with src/features/definitions/status.ts.
     function playerVisible(status) {
@@ -1281,6 +1289,120 @@ service cloud.firestore {
           && data.step == stepFor(statusOf(data.before), statusOf(data.after))
           && data.public == (visibleSnapshot(data.before) || visibleSnapshot(data.after))
           && data.name == (data.after != null ? data.after.name : data.before.name)
+          && data.by == request.auth.uid
+          && data.at == request.time;
+      }
+    }
+
+    // Card sets (spec: card-sets). Everyone signed in reads them; only the DM adds, edits, moves and deletes one, each
+    // together with its record in setChanges. The ID is the normalized code, which the client computes: the rules
+    // cannot normalize, so they check the shape and keep the code from changing. A change of the pack layout and a
+    // delete wait for an open pack. The import writes with the Admin SDK.
+    match /sets/{setId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && setId.matches('[a-z0-9]+')
+        && validSet(request.resource.data)
+        && setRecorded(request.resource.data.changeId, 'added')
+        && isDm();
+      allow update: if isSignedIn()
+        && validSet(request.resource.data)
+        && request.resource.data.code == resource.data.code
+        && request.resource.data.changeId != resource.data.get('changeId', null)
+        && (movedNow() || editedNow())
+        && isDm();
+      allow delete: if isSignedIn()
+        && deletionRecorded()
+        && tableFree()
+        && isDm();
+
+      function setKeys() {
+        return ['code', 'name', 'aliases', 'position', 'packLayout', 'cardback', 'mascot', 'changeId'];
+      }
+
+      // A set picture: absent (never had one), null (removed, or added without one), or a file of this set.
+      function validSetPicture(data, key) {
+        return data.get(key, null) == null
+          || (data[key] is string && data[key].matches('sets/' + setId + '/[0-9a-f]{10}[.]webp'));
+      }
+
+      // The limits of SET_LIMITS in src/features/sets/schema.ts.
+      function validSet(data) {
+        return data.keys().hasOnly(setKeys())
+          && data.keys().hasAll(['code', 'name', 'aliases', 'position', 'packLayout', 'changeId'])
+          && data.code is string && data.code.size() >= 1 && data.code.size() <= 100
+          && data.name is string && data.name.size() >= 1 && data.name.size() <= 100
+          && data.aliases is list && data.aliases.size() <= 10
+          && data.position is int
+          && data.packLayout in ['standard', 'pandemonium']
+          && validSetPicture(data, 'cardback')
+          && validSetPicture(data, 'mascot')
+          && data.changeId is string;
+      }
+
+      // The set's newest record is created in this same request, for this step.
+      function setRecorded(changeId, step) {
+        return changeId is string
+          && createdNow(setChangePath(changeId))
+          && getAfter(setChangePath(changeId)).data.step == step
+          && (step == 'moved' || getAfter(setChangePath(changeId)).data.setId == setId);
+      }
+
+      // A move changes only the position; its one record covers both sets that swap places.
+      function movedNow() {
+        return onlyChanges(['position', 'changeId'])
+          && setRecorded(request.resource.data.changeId, 'moved');
+      }
+
+      // An edit keeps the position, and changes the pack layout only while no pack is open.
+      function editedNow() {
+        return request.resource.data.position == resource.data.position
+          && (request.resource.data.packLayout == resource.data.packLayout || tableFree())
+          && setRecorded(request.resource.data.changeId, 'edited');
+      }
+
+      function deletionRecorded() {
+        let changeId = resource.data.get('changeId', null);
+        return changeId is string
+          && setRecorded(deleteRecordId(setId, changeId), 'deleted');
+      }
+    }
+
+    // The set change records (spec: card-sets, "Set change records"). Everyone signed in reads them; the DM creates
+    // one with each set step, and none is ever changed or deleted. The import writes its records with the Admin SDK.
+    match /setChanges/{changeId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && validSetChange() && isDm();
+      allow update, delete: if false;
+
+      function setChangeKeys() {
+        return ['by', 'at', 'step', 'setId', 'code', 'name', 'fields', 'direction', 'added', 'pictured'];
+      }
+
+      // The record belongs to a step in this request: the set now points at it, or, for a delete, it has the ID that
+      // the deleted set's newest record fixes and the set is gone.
+      function explainsSet(data) {
+        let path = setPath(data.setId);
+        return data.step == 'deleted'
+          ? exists(path)
+            && !existsAfter(path)
+            && changeId == deleteRecordId(data.setId, get(path).data.get('changeId', ''))
+          : existsAfter(path) && getAfter(path).data.changeId == changeId;
+      }
+
+      function validSetChange() {
+        let data = request.resource.data;
+        return data.keys().hasOnly(setChangeKeys())
+          && data.keys().hasAll(setChangeKeys())
+          && data.step in ['added', 'edited', 'moved', 'deleted']
+          && data.setId is string
+          && data.code is string
+          && data.name is string
+          && data.fields is list && data.fields.size() <= 5
+          && (data.step == 'moved' ? data.direction in ['up', 'down'] : data.direction == null)
+          && data.added == []
+          && data.pictured == []
+          && explainsSet(data)
           && data.by == request.auth.uid
           && data.at == request.time;
       }

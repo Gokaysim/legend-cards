@@ -13,6 +13,7 @@ import { testDmDraw, testDraw } from '@/test/drawFixtures'
 import { testHolding } from '@/test/holdingFixtures'
 import { testGpEntry, testLedgerEntry } from '@/test/ledgerFixtures'
 import { testLearnedWord, testTrueWord, testWordDraft } from '@/test/trueWordFixtures'
+import { testSetChange, testSetName } from '@/test/setFixtures'
 import type { WordDraft } from '@/features/true-words/schema'
 
 import { deriveEvents, EMPTY_LOG_RECORDS, type LogEvent, type LogRecords } from './events'
@@ -20,6 +21,7 @@ import { describeEvent, sentenceText } from './eventText'
 
 const NAMES: Record<string, string> = { ayla: 'Ayla', bora: 'Bora', cem: 'Cem', dana: 'Dana' }
 const nameOf = (uid: string) => NAMES[uid] ?? 'İsimsiz oyuncu'
+const NAMES_OF = { nameOf, setName: testSetName }
 
 const eyes = testCard("Aboleth's Eyes")
 const at = (millis: number) => Timestamp.fromMillis(millis)
@@ -31,7 +33,7 @@ function only(records: Partial<LogRecords>): LogEvent {
 }
 
 const text = (event: LogEvent, other?: Parameters<typeof describeEvent>[2]) =>
-  sentenceText(describeEvent(event, nameOf, other))
+  sentenceText(describeEvent(event, NAMES_OF, other))
 
 const closed = (
   uid: string,
@@ -65,7 +67,7 @@ describe('describeEvent', () => {
   it('describes a card the DM gave', () => {
     const event = only({ given: [testHolding(eyes, 'ayla', 1000, { givenBy: 'dana' })] })
     expect(text(event)).toBe("Aboleth's Eyes kartını Ayla'ya verdi.")
-    expect(describeEvent(event, nameOf).parts[0]).toEqual({ card: "Aboleth's Eyes" })
+    expect(describeEvent(event, NAMES_OF).parts[0]).toEqual({ card: "Aboleth's Eyes" })
   })
 
   it('describes a card its holder used, with and without a character', () => {
@@ -101,7 +103,7 @@ describe('describeEvent', () => {
   it('describes an LP change with the balance before and after, and its reason', () => {
     const sentence = describeEvent(
       only({ entries: [testLedgerEntry(1000, { account: 'ayla' })] }),
-      nameOf,
+      NAMES_OF,
     )
     expect(sentenceText(sentence)).toBe('Ayla: +2 LP (5 → 7)')
     expect(sentence.reason).toBe("Boss'u yendi")
@@ -123,7 +125,7 @@ describe('describing draws', () => {
   it("describes a player's paid draw", () => {
     const event = only({ draws: [testDraw(eyes, 'ayla', 1000)] })
     expect(text(event)).toBe("Aboleth's Eyes kartını çekti (−1 LP).")
-    expect(describeEvent(event, nameOf)).toEqual({
+    expect(describeEvent(event, NAMES_OF)).toEqual({
       parts: ['', { card: "Aboleth's Eyes" }, ' kartını çekti (−1 LP).'],
       reason: null,
     })
@@ -169,9 +171,9 @@ describe('describing draws', () => {
     expect(text(only({ draws: [testDmDraw(visions, 'cem', 1000, { by: 'dana' })] }))).toBe(
       "Cem'e Cursed kart çekti: Visions of Death.",
     )
-    expect(describeEvent(only({ draws: [testDraw(visions, 'ayla', 1000)] }), nameOf).parts).toEqual(
-      ['Cursed kart çekti: ', { card: 'Visions of Death' }, '.'],
-    )
+    expect(
+      describeEvent(only({ draws: [testDraw(visions, 'ayla', 1000)] }), NAMES_OF).parts,
+    ).toEqual(['Cursed kart çekti: ', { card: 'Visions of Death' }, '.'])
   })
 })
 
@@ -194,7 +196,7 @@ describe('describeEvent: True Words', () => {
     expect(text(only({ drafts: [draft(learned)] }))).toBe(
       "True Word draft'ı açtı ve Abyss True Word'ünü öğrendi (−3 LP).",
     )
-    expect(describeEvent(only({ drafts: [draft(learned)] }), nameOf).parts).toContainEqual({
+    expect(describeEvent(only({ drafts: [draft(learned)] }), NAMES_OF).parts).toContainEqual({
       card: 'Abyss',
     })
   })
@@ -258,7 +260,7 @@ describe('describeEvent: True Words', () => {
 describe('describing definition changes', () => {
   const eyesBefore = testCardSnapshot("Aboleth's Eyes")
   const describe_ = (change: LogRecords['changes']) =>
-    describeEvent(only({ changes: change }), nameOf)
+    describeEvent(only({ changes: change }), NAMES_OF)
 
   it('lists each changed field of an edit, "eski → yeni", with official set names', () => {
     const sentence = describe_([
@@ -427,10 +429,51 @@ describe('describing definition changes', () => {
             }),
           ],
         }),
-        nameOf,
+        NAMES_OF,
       )
       expect(sentenceText(sentence)).toBe("1 DM'e özel karta resim ekledi.")
       expect(sentence.names).toEqual(['The Last Wish'])
     })
+  })
+})
+
+describe('describing set changes', () => {
+  const setEvent = (change: Parameters<typeof testSetChange>[1]) =>
+    describeEvent(only({ setChanges: [testSetChange(1000, change)] }), NAMES_OF)
+
+  it('names an edit and its changed fields, never their values', () => {
+    const sentence = setEvent({ fields: ['name', 'cardback'] })
+    expect(sentenceText(sentence)).toBe('Ballad of Ulagal setini düzenledi.')
+    expect(sentence.lines).toEqual(['Ad, Cardback'])
+  })
+
+  it.each([
+    [{ step: 'added' as const, fields: [] }, 'Ballad of Ulagal setini ekledi.'],
+    [
+      { step: 'moved' as const, direction: 'up' as const },
+      'Ballad of Ulagal setini sırada yukarı taşıdı.',
+    ],
+    [
+      { step: 'moved' as const, direction: 'down' as const },
+      'Ballad of Ulagal setini sırada aşağı taşıdı.',
+    ],
+    [{ step: 'deleted' as const }, 'Ballad of Ulagal setini sildi.'],
+  ])('describes %o', (change, text) => {
+    expect(sentenceText(setEvent(change))).toBe(text)
+  })
+
+  it('describes the set import with the sets it added and gave pictures', () => {
+    const sentence = setEvent({
+      step: 'imported',
+      by: null,
+      setId: null,
+      code: null,
+      name: null,
+      fields: [],
+      added: ['Kesqerian Nights', 'Pandemonium'],
+      pictured: ['Kesqerian Nights'],
+    })
+    expect(sentenceText(sentence)).toBe('2 set ekledi; 1 sete resim ekledi.')
+    expect(sentence.names).toEqual(['Kesqerian Nights', 'Pandemonium'])
   })
 })

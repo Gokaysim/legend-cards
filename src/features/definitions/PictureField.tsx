@@ -6,7 +6,12 @@ import { CardPicture } from '@/features/art/CardPicture'
 import { usePicture } from '@/features/art/usePicture'
 
 import { pictureErrorMessage } from './errors'
-import { PICTURE_INPUT_TYPES, preparePicture } from './picture'
+import {
+  CARD_PICTURE_BOX,
+  CARDMAKER_PICTURE_BOX,
+  PICTURE_INPUT_TYPES,
+  preparePicture,
+} from './picture'
 import { KEEP_DRAFT, type PictureDraft } from './pictureDraft'
 
 /** The link classes of "İndir": it looks like the form's other buttons. */
@@ -22,7 +27,19 @@ export type PictureFieldProps = {
   name: string
   /** No connection: no picture can be chosen. */
   disabled: boolean
+  /** The section's heading. "Resim" by default; the set form has "Cardback" and "Cardmaker". */
+  title?: string
+  /**
+   * What the picture is: a card's, word's or cardback's (`card`, at the card's proportions and at most 563 × 788 pixels),
+   * or a Cardmaker (`cardmaker`, at most 480 pixels high, shown whole).
+   */
+  shape?: 'card' | 'cardmaker'
 }
+
+const HINTS = {
+  card: 'PNG, JPEG ya da WebP; en fazla 563 × 788 piksele küçültülür.',
+  cardmaker: 'PNG, JPEG ya da WebP; en fazla 480 piksel yüksekliğe küçültülür, saydamlığı kalır.',
+} as const
 
 /**
  * The "Resim" section of the DM's card and True Word forms (spec: definition-editing, "The picture in the forms",
@@ -30,7 +47,15 @@ export type PictureFieldProps = {
  * prepares a PNG, JPEG or WebP file as a WebP, "Resmi kaldır" removes the picture, "Vazgeç" drops an unsaved choice,
  * and "İndir" downloads the stored picture. Nothing is stored until the form is saved.
  */
-export function PictureField({ stored, draft, onChange, name, disabled }: PictureFieldProps) {
+export function PictureField({
+  stored,
+  draft,
+  onChange,
+  name,
+  disabled,
+  title = 'Resim',
+  shape = 'card',
+}: PictureFieldProps) {
   const ids = useId()
   const input = useRef<HTMLInputElement>(null)
   const [isPreparing, setIsPreparing] = useState(false)
@@ -50,7 +75,11 @@ export function PictureField({ stored, draft, onChange, name, disabled }: Pictur
     setError(null)
     setIsPreparing(true)
     try {
-      const prepared = await preparePicture(file)
+      const prepared = await preparePicture(
+        file,
+        undefined,
+        shape === 'cardmaker' ? CARDMAKER_PICTURE_BOX : CARD_PICTURE_BOX,
+      )
       onChange({ kind: 'new', prepared, previewUrl: URL.createObjectURL(prepared.blob) })
     } catch (failure) {
       setError(pictureErrorMessage(failure) ?? 'Resim hazırlanamadı. Başka bir dosya dene.')
@@ -76,11 +105,18 @@ export function PictureField({ stored, draft, onChange, name, disabled }: Pictur
   return (
     <section aria-labelledby={`${ids}-title`} className="flex flex-col gap-2">
       <h3 id={`${ids}-title`} className="text-sm text-ink-muted">
-        Resim
+        {title}
       </h3>
       <div className="flex flex-wrap items-start gap-3">
         <div className="w-28 shrink-0">
-          {shown !== null ? (
+          {shown !== null && shape === 'cardmaker' ? (
+            <img
+              src={shown}
+              alt={name}
+              onError={draft.kind === 'keep' ? storedPicture.onError : undefined}
+              className="block aspect-[563/788] h-auto w-full object-contain"
+            />
+          ) : shown !== null ? (
             <CardPicture
               src={shown}
               alt={name}
@@ -131,7 +167,7 @@ export function PictureField({ stored, draft, onChange, name, disabled }: Pictur
             ref={input}
             type="file"
             accept={PICTURE_INPUT_TYPES.join(',')}
-            aria-label="Resim dosyası"
+            aria-label={`${title} dosyası`}
             hidden
             disabled={disabled || isPreparing}
             onChange={(event) => void choose(event.target.files?.[0])}
@@ -142,9 +178,7 @@ export function PictureField({ stored, draft, onChange, name, disabled }: Pictur
               {error}
             </p>
           ) : null}
-          <p className="text-xs text-ink-muted">
-            PNG, JPEG ya da WebP; en fazla 563 × 788 piksele küçültülür.
-          </p>
+          <p className="text-xs text-ink-muted">{HINTS[shape]}</p>
         </div>
       </div>
     </section>

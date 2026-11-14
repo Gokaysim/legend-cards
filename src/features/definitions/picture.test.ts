@@ -8,6 +8,7 @@ import {
   PictureUnsupportedError,
 } from './errors'
 import {
+  CARDMAKER_PICTURE_BOX,
   fitWithin,
   type PictureCodec,
   pictureHash,
@@ -60,6 +61,38 @@ describe('fitWithin', () => {
     ],
   ])('fits %o into %o', (natural, fitted) => {
     expect(fitWithin(natural)).toEqual(fitted)
+  })
+
+  it.each([
+    [
+      { width: 1000, height: 1500 },
+      { width: 320, height: 480 },
+    ],
+    // A wide Cardmaker keeps her width: only the height is limited.
+    [
+      { width: 2000, height: 960 },
+      { width: 1000, height: 480 },
+    ],
+    [
+      { width: 300, height: 400 },
+      { width: 300, height: 400 },
+    ],
+  ])('fits the Cardmaker %o into %o', (natural, fitted) => {
+    expect(fitWithin(natural, CARDMAKER_PICTURE_BOX)).toEqual(fitted)
+  })
+})
+
+describe('preparePicture with a box', () => {
+  it('prepares a Cardmaker at most 480 pixels high', async () => {
+    const codec = fakeCodec({ natural: { width: 1000, height: 1500 } })
+    const picture = await preparePicture(fileOf('image/png'), codec, CARDMAKER_PICTURE_BOX)
+
+    expect(picture).toMatchObject({ width: 320, height: 480 })
+    expect(codec.encode).toHaveBeenCalledWith(
+      expect.any(Blob),
+      { width: 320, height: 480 },
+      PICTURE_QUALITY,
+    )
   })
 })
 

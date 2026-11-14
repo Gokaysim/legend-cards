@@ -7,6 +7,7 @@ import { testDmDraw, testDraw } from '@/test/drawFixtures'
 import { testHolding } from '@/test/holdingFixtures'
 import { testGpEntry, testLedgerEntry } from '@/test/ledgerFixtures'
 import { testPack } from '@/test/packFixtures'
+import { testSetChange } from '@/test/setFixtures'
 import { testLearnedWord, testTrueWord, testWordDraft } from '@/test/trueWordFixtures'
 
 import { deriveEvents, EMPTY_LOG_RECORDS, type LogRecords, newestEvents } from './events'
@@ -47,6 +48,18 @@ const transferredTo = testHolding(eyes, 'bora', 5000, {
 const records = (parts: Partial<LogRecords>): LogRecords => ({ ...EMPTY_LOG_RECORDS, ...parts })
 
 describe('deriveEvents', () => {
+  it('turns a set change record into one set event, by whoever made it', () => {
+    const change = testSetChange(5000)
+    expect(deriveEvents(records({ setChanges: [change] }))).toEqual([
+      { kind: 'set', key: `set:${change.id}`, at: change.at, by: 'dana', change },
+    ])
+  })
+
+  it('counts the set changes for "Daha fazla"', () => {
+    const changes = [testSetChange(1), testSetChange(2)]
+    expect(newestEvents(records({ setChanges: changes }), 2).mayHaveMore).toBe(true)
+  })
+
   it('turns a holding given by the DM into a given event', () => {
     expect(deriveEvents(records({ given: [given] }))).toEqual([
       { kind: 'given', key: 'given:h-given', at: at(1000), by: 'dana', holding: given },

@@ -1,4 +1,11 @@
-import { cardHaystack, cardMatchesQuery, numericCost, rarityLabel, setLabel } from './display'
+import {
+  cardHaystack,
+  cardMatchesQuery,
+  numericCost,
+  rarityLabel,
+  type SetName,
+  setLabel,
+} from './display'
 import type { Card } from './schema'
 import { compareLabels } from './sort'
 
@@ -57,13 +64,13 @@ export function drawRarity(card: Card): DrawRarity | null {
 
 const costKey = (cost: string | null) => cost?.trim().toLowerCase() || null
 
-/** True when the card passes every filter that is set. */
-export function matchesFilters(card: Card, filters: DrawFilters): boolean {
+/** True when the card passes every filter that is set. The keyword also finds a set's official name. */
+export function matchesFilters(card: Card, filters: DrawFilters, setName: SetName): boolean {
   return (
     (filters.cost === null || costKey(card.cost) === costKey(filters.cost)) &&
     (filters.mechanicPack === null || card.mechanicPack === filters.mechanicPack) &&
     (filters.rarity === null || drawRarity(card) === filters.rarity) &&
-    (filters.keyword === null || cardMatchesQuery(cardHaystack(card), filters.keyword))
+    (filters.keyword === null || cardMatchesQuery(cardHaystack(card, setName), filters.keyword))
   )
 }
 
@@ -144,12 +151,12 @@ function countBy<K>(items: readonly K[]): Map<K, number> {
  * The pool by rarity and by set, over the drawable cards. Every drawable card has the same chance in a random
  * draw, so the shares are also the odds. A Blessed card counts as the rarity and the set "Blessed".
  */
-export function poolDistribution(cards: readonly Card[]): PoolDistribution {
+export function poolDistribution(cards: readonly Card[], setName: SetName): PoolDistribution {
   const pool = drawablePool(cards)
   const total = pool.length
   const share = (count: number) => percent.format(count / total)
   const rarityOf = (card: Card) => rarityLabel(card) ?? 'Blessed'
-  const setOf = (card: Card) => setLabel(card) ?? 'Blessed'
+  const setOf = (card: Card) => setLabel(card, setName) ?? 'Blessed'
 
   const rarities = [...countBy(pool.map(rarityOf))].map(([label, count]) => ({
     label,

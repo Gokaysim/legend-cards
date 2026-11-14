@@ -3,7 +3,9 @@ import { readFileSync } from 'node:fs'
 
 import { describe, expect, it } from 'vitest'
 
-import { parseCardFile } from './cardRows.ts'
+import { parseCardFile, unknownSetWarnings } from './cardRows.ts'
+import { setSpellings } from './importSets.ts'
+import { parseSetFile } from './setRows.ts'
 
 const dataFile = (name: string) =>
   readFileSync(new URL(`../../data/${name}`, import.meta.url), 'utf8')
@@ -284,18 +286,54 @@ describe('parseCardFile: names and limits', () => {
   })
 })
 
+/** The spellings of the sets `data/sets.csv` would store: their codes and aliases. */
+const REPOSITORY_SPELLINGS = setSpellings(parseSetFile(dataFile('sets.csv')).sets)
+
+describe('unknownSetWarnings', () => {
+  const cards = parseCardFile(
+    legend(
+      'A,Kesqeria,1,Common,No,T.,Permamancy,0',
+      'B,Kesqeria,1,Common,No,T.,Permamancy,0',
+      'C,The End Is Nigh,1,Common,No,T.,Permamancy,0',
+      'D,Ragnarök,1,Common,No,T.,Permamancy,0',
+      'E,KESQER,1,Common,No,T.,Permamancy,0',
+      'F,Blessed,—,—,No,T.,Permamancy,0',
+    ),
+    'legend',
+  ).cards
+
+  it('warns once per set code no stored set has as its code or alias, with its card count', () => {
+    expect(cards).toHaveLength(6)
+    expect(unknownSetWarnings(cards, REPOSITORY_SPELLINGS)).toEqual([
+      { kind: 'unknown-set', setCode: 'Kesqeria', count: 2 },
+    ])
+  })
+
+  it('warns about every set code when no set is stored', () => {
+    expect(unknownSetWarnings(cards, [])).toEqual([
+      { kind: 'unknown-set', setCode: 'Kesqeria', count: 2 },
+      { kind: 'unknown-set', setCode: 'The End Is Nigh', count: 1 },
+      { kind: 'unknown-set', setCode: 'Ragnarök', count: 1 },
+      { kind: 'unknown-set', setCode: 'KESQER', count: 1 },
+    ])
+  })
+
+  it('knows a set the DM added in the app, by its code or alias', () => {
+    expect(unknownSetWarnings(cards, [...REPOSITORY_SPELLINGS, 'kesqeria'])).toEqual([])
+  })
+
+  it("finds every set code of the repository's cards among the repository's sets", () => {
+    const repository = parseCardFile(dataFile('legend-cards.csv'), 'legend').cards
+    expect(unknownSetWarnings(repository, REPOSITORY_SPELLINGS)).toEqual([])
+    expect(unknownSetWarnings(repository, [])).toHaveLength(12)
+  })
+})
+
 describe('parseCardFile: warnings', () => {
-  it('warns once per unknown set code, with its card count, and still imports the cards', () => {
-    const result = parseCardFile(
-      legend(
-        'A,Kesqeria,1,Common,No,T.,Permamancy,0',
-        'B,Kesqeria,1,Common,No,T.,Permamancy,0',
-        'C,The End Is Nigh,1,Common,No,T.,Permamancy,0',
-      ),
-      'legend',
-    )
-    expect(result.cards).toHaveLength(3)
-    expect(result.warnings).toEqual([{ kind: 'unknown-set', setCode: 'Kesqeria', count: 2 }])
+  it('leaves the set codes to unknownSetWarnings', () => {
+    const result = parseCardFile(legend('A,Kesqeria,1,Common,No,T.,Permamancy,0'), 'legend')
+    expect(result.cards).toHaveLength(1)
+    expect(result.warnings).toEqual([])
   })
 
   it('warns about a mechanic pack that is not one of the eight', () => {

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { testPicturePath, testPictureUrl } from '@/test/artFixtures'
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 import { TestArtProvider } from '@/test/TestArtProvider'
+import { renderWithSets } from '@/test/renderWithSets'
 
 import { CardFace } from './CardFace'
 
@@ -13,7 +14,7 @@ const face = (name: string) => screen.getByRole('article', { name })
 
 describe('CardFace', () => {
   it('shows the cost, name, visible text, official set name, rarity and mechanic pack', () => {
-    render(
+    renderWithSets(
       <CardFace
         card={testCard('Night Owl', {
           cost: '2',
@@ -40,13 +41,13 @@ describe('CardFace', () => {
     ['a Blessed card', testBlessedCard('B'), 'blessed', 'border-blessed'],
     ['a Cursed card', testCursedCard('X'), 'cursed', 'border-cursed'],
   ])('frames %s by its kind', (_case, card, frame, className) => {
-    render(<CardFace card={card} />)
+    renderWithSets(<CardFace card={card} />)
     expect(face(card.name)).toHaveAttribute('data-frame', frame)
     expect(face(card.name)).toHaveClass(className)
   })
 
   it('hides the bracket text', () => {
-    render(
+    renderWithSets(
       <CardFace
         card={testCard("Hrolf's Hornswaggle", {
           text: '[Uno] Add +10 a d20 roll. If this is your only card, add +20.',
@@ -60,7 +61,7 @@ describe('CardFace', () => {
   })
 
   it('shows a missing cost as "—" and keeps a cost such as d6 as written', () => {
-    render(
+    renderWithSets(
       <>
         <CardFace card={testCard('No Cost', { cost: null })} />
         <CardFace card={testCard('Dice', { cost: 'd6' })} />
@@ -71,7 +72,7 @@ describe('CardFace', () => {
   })
 
   it('shows "Blessed" in place of a set, "—" as the rarity, and the mechanic pack of a Blessed card', () => {
-    render(
+    renderWithSets(
       <CardFace card={testBlessedCard('Dawn of Fortune', { mechanicPack: 'Risk & Reward' })} />,
     )
 
@@ -82,7 +83,7 @@ describe('CardFace', () => {
   })
 
   it('leaves out set, rarity and mechanic pack on a Cursed card', () => {
-    render(<CardFace card={testCursedCard('Visions of Death', { cost: '1' })} />)
+    renderWithSets(<CardFace card={testCursedCard('Visions of Death', { cost: '1' })} />)
 
     const card = face('Visions of Death')
     expect(card).toHaveTextContent('Cost: 1')
@@ -95,7 +96,7 @@ describe('CardFace', () => {
 
 describe("CardFace in the DM's library", () => {
   it('marks a DM-only card "🔒 DM" when asked', () => {
-    const view = render(
+    const view = renderWithSets(
       <CardFace card={testCard('The Last Wish', { dmOnly: true })} isDmOnlyMarked />,
     )
     expect(face('The Last Wish')).toHaveTextContent('🔒 DM')
@@ -108,7 +109,7 @@ describe('CardFace in a hand', () => {
   const cost = (name: string) => within(face(name)).getByText(/^Cost:/).parentElement
 
   it('shows the cost in the hand, marked lower when it is below the card cost', () => {
-    render(<CardFace card={testCard('Cheap', { cost: '3' })} handCost="1" />)
+    renderWithSets(<CardFace card={testCard('Cheap', { cost: '3' })} handCost="1" />)
 
     expect(face('Cheap')).toHaveTextContent('Cost: 1')
     expect(cost('Cheap')).toHaveAttribute('data-cost-change', 'lower')
@@ -117,7 +118,7 @@ describe('CardFace in a hand', () => {
   })
 
   it('marks a cost above the card cost as higher', () => {
-    render(<CardFace card={testCard('Dear', { cost: '1' })} handCost="2,5" />)
+    renderWithSets(<CardFace card={testCard('Dear', { cost: '1' })} handCost="2,5" />)
 
     expect(cost('Dear')).toHaveAttribute('data-cost-change', 'higher')
     expect(cost('Dear')).toHaveClass('text-cursed')
@@ -131,19 +132,19 @@ describe('CardFace in a hand', () => {
     ['a non-numeric card cost', 'd6', '2'],
     ['no hand cost', null, null],
   ])('does not mark %s', (_case, cardCost, handCost) => {
-    render(<CardFace card={testCard('Same', { cost: cardCost })} handCost={handCost} />)
+    renderWithSets(<CardFace card={testCard('Same', { cost: cardCost })} handCost={handCost} />)
 
     expect(cost('Same')).not.toHaveAttribute('data-cost-change')
     expect(face('Same')).not.toHaveTextContent('bu elde')
   })
 
   it('shows the hand cost in place of the card cost', () => {
-    render(<CardFace card={testCard('Dice', { cost: '2' })} handCost="d6" />)
+    renderWithSets(<CardFace card={testCard('Dice', { cost: '2' })} handCost="d6" />)
     expect(face('Dice')).toHaveTextContent('Cost: d6')
   })
 
   it('marks an active card in its frame color', () => {
-    render(
+    renderWithSets(
       <>
         <CardFace card={testCard('Owl', { rarity: 'rare' })} handCost="1" isActive />
         <CardFace card={testCursedCard('Hex')} handCost="1" isActive />
@@ -155,7 +156,7 @@ describe('CardFace in a hand', () => {
   })
 
   it('marks an extra copy, and shows a note as the icon in the bottom-left corner instead of a mark', () => {
-    render(<CardFace card={testCard('Owl')} handCost="1" hasNote isExtraCopy />)
+    renderWithSets(<CardFace card={testCard('Owl')} handCost="1" hasNote isExtraCopy />)
 
     const card = face('Owl')
     const marks = card.querySelector('[data-marks]')
@@ -172,7 +173,7 @@ describe('CardFace in a hand', () => {
   })
 
   it('shows the note icon on hover or keyboard focus, and at all times without hover', () => {
-    render(<CardFace card={testCard('Owl')} handCost="1" hasNote />)
+    renderWithSets(<CardFace card={testCard('Owl')} handCost="1" hasNote />)
 
     expect(face('Owl').querySelector('[data-note-icon]')).toHaveClass(
       'opacity-0',
@@ -184,13 +185,13 @@ describe('CardFace in a hand', () => {
   })
 
   it('has no marks row when the note is its only mark', () => {
-    render(<CardFace card={testCard('Owl')} handCost="1" hasNote />)
+    renderWithSets(<CardFace card={testCard('Owl')} handCost="1" hasNote />)
 
     expect(face('Owl').querySelector('[data-marks]')).toBeNull()
   })
 
   it('shows no marks without them, and none outside a hand', () => {
-    render(
+    renderWithSets(
       <>
         <CardFace card={testCard('Plain')} handCost="1" />
         <CardFace card={testCard('Library')} />
@@ -212,7 +213,7 @@ describe('CardFace magnifier', () => {
     within(face(name)).getByRole('button', { name: `${name}: büyüt` })
 
   it('sits in the top-right corner, shown on hover or keyboard focus, and at all times without hover', () => {
-    render(<CardFace card={testCard('Night Owl')} />)
+    renderWithSets(<CardFace card={testCard('Night Owl')} />)
 
     expect(magnifier('Night Owl')).toHaveClass(
       'absolute',
@@ -228,14 +229,14 @@ describe('CardFace magnifier', () => {
   })
 
   it('leaves out the magnifier when the face is not zoomable', () => {
-    render(<CardFace card={testCard('Night Owl')} isZoomable={false} />)
+    renderWithSets(<CardFace card={testCard('Night Owl')} isZoomable={false} />)
 
     expect(within(face('Night Owl')).queryByRole('button')).not.toBeInTheDocument()
   })
 
   it('opens the zoom view outside the face, and gives the focus back to the magnifier when it closes', async () => {
     const user = userEvent.setup()
-    render(<CardFace card={testCard('Night Owl', { cost: '2', rarity: 'rare' })} />)
+    renderWithSets(<CardFace card={testCard('Night Owl', { cost: '2', rarity: 'rare' })} />)
     // The zoom view shows the face without pictures again, so the page's face is taken first.
     const card = face('Night Owl')
 
@@ -253,7 +254,7 @@ describe('CardFace magnifier', () => {
 
   it('closes the zoom view when the browser closes it, as on Escape, and gives the focus back', async () => {
     const user = userEvent.setup()
-    render(<CardFace card={testCard('Night Owl')} />)
+    renderWithSets(<CardFace card={testCard('Night Owl')} />)
 
     await user.click(magnifier('Night Owl'))
     const zoom = screen.getByRole<HTMLDialogElement>('dialog', { name: 'Night Owl' })
@@ -265,7 +266,9 @@ describe('CardFace magnifier', () => {
 
   it('zooms a hand card with its cost in the hand', async () => {
     const user = userEvent.setup()
-    render(<CardFace card={testCard('Night Owl', { cost: '3' })} handCost="1" isActive hasNote />)
+    renderWithSets(
+      <CardFace card={testCard('Night Owl', { cost: '3' })} handCost="1" isActive hasNote />,
+    )
 
     await user.click(magnifier('Night Owl'))
 
@@ -284,7 +287,7 @@ describe('CardFace opened as a whole', () => {
   it('opens with onOpen from the face, first in the Tab order, below the magnifier', async () => {
     const user = userEvent.setup()
     const onOpen = vi.fn()
-    render(
+    renderWithSets(
       <CardFace
         card={testCard('Night Owl')}
         handCost="1"
@@ -312,7 +315,7 @@ describe('CardFace opened as a whole', () => {
   })
 
   it('has no whole-face control without onOpen', () => {
-    render(<CardFace card={testCard('Night Owl')} />)
+    renderWithSets(<CardFace card={testCard('Night Owl')} />)
 
     expect(within(face('Night Owl')).getAllByRole('button')).toHaveLength(1)
   })
@@ -330,7 +333,7 @@ const ABOLETH_URL = testPictureUrl(testPicturePath('card', 'legend-abolethseyes'
 const HEX_WITH_PICTURE = testCursedCard('Hex', { picture: testPicturePath('card', 'cursed-hex') })
 
 /** Renders with the test pictures: Aboleth's Eyes and the Cursed card Hex have one. */
-const renderWithArt = (ui: ReactNode) => render(<TestArtProvider>{ui}</TestArtProvider>)
+const renderWithArt = (ui: ReactNode) => renderWithSets(<TestArtProvider>{ui}</TestArtProvider>)
 
 describe('CardFace with a picture', () => {
   it('shows the picture without a frame of its own, with no text under it', () => {
@@ -493,12 +496,12 @@ describe('CardFace glow', () => {
     ['a Cursed card', testCursedCard('X'), 'active-cursed'],
     ['a Blessed card', testBlessedCard('B'), 'active-blessed'],
   ])('makes an active %s glow by its kind', (_case, card, glow) => {
-    render(<CardFace card={card} handCost={card.cost} isActive />)
+    renderWithSets(<CardFace card={card} handCost={card.cost} isActive />)
     expect(glowOf(face(card.name))).toBe(glow)
   })
 
   it('gives an inactive hand card no glow', () => {
-    render(<CardFace card={testCard('Owl')} handCost="1" />)
+    renderWithSets(<CardFace card={testCard('Owl')} handCost="1" />)
     expect(glowOf(face('Owl'))).toBeNull()
   })
 
@@ -508,12 +511,12 @@ describe('CardFace glow', () => {
     ['a Cursed card', testCursedCard('X'), 'reveal-cursed'],
     ['a Blessed card', testBlessedCard('B'), 'reveal-blessed'],
   ])('makes a revealed %s glow by its kind', (_case, card, glow) => {
-    render(<CardFace card={card} isRevealed />)
+    renderWithSets(<CardFace card={card} isRevealed />)
     expect(glowOf(face(card.name))).toBe(glow)
   })
 
   it('makes a held library card glow, and a card in the pool not', () => {
-    render(
+    renderWithSets(
       <>
         <CardFace card={testCard('Held')} heldBy={['Ayla']} />
         <CardFace card={testCard('Free')} />
@@ -525,12 +528,14 @@ describe('CardFace glow', () => {
   })
 
   it("lets an active card's state win over its kind", () => {
-    render(<CardFace card={testCard('R', { rarity: 'rare' })} handCost="1" isActive isRevealed />)
+    renderWithSets(
+      <CardFace card={testCard('R', { rarity: 'rare' })} handCost="1" isActive isRevealed />,
+    )
     expect(glowOf(face('R'))).toBe('active')
   })
 
   it('makes a selected hand card glow gold, and marks its open control as current', () => {
-    render(
+    renderWithSets(
       <>
         <CardFace card={testCard('Owl')} handCost="1" isSelected onOpen={vi.fn()} openLabel="Owl" />
         <CardFace card={testCard('Bat')} handCost="1" onOpen={vi.fn()} openLabel="Bat" />
@@ -544,7 +549,7 @@ describe('CardFace glow', () => {
   })
 
   it('keeps the active glow of a selected active card', () => {
-    render(
+    renderWithSets(
       <CardFace
         card={testCursedCard('X')}
         handCost="1"
@@ -596,7 +601,7 @@ describe('CardFace double click', () => {
 
   it('zooms a face on a double click with a mouse, and gives the focus to the magnifier on close', async () => {
     const user = userEvent.setup()
-    render(<CardFace card={testCard('Night Owl', { cost: '2', rarity: 'rare' })} />)
+    renderWithSets(<CardFace card={testCard('Night Owl', { cost: '2', rarity: 'rare' })} />)
 
     await user.dblClick(within(face('Night Owl')).getByRole('heading', { name: 'Night Owl' }))
 
@@ -609,7 +614,7 @@ describe('CardFace double click', () => {
   it('zooms a picture face on a double click, and the hand face beside the details too', async () => {
     const user = userEvent.setup()
     const onOpen = vi.fn()
-    render(
+    renderWithSets(
       <TestArtProvider>
         <CardFace
           card={testCard("Aboleth's Eyes", { picture: testPicturePath('card', 'legend-eyes') })}
@@ -627,7 +632,7 @@ describe('CardFace double click', () => {
   })
 
   it('does not zoom on a double tap', () => {
-    render(<CardFace card={testCard('Night Owl')} />)
+    renderWithSets(<CardFace card={testCard('Night Owl')} />)
     const card = face('Night Owl')
 
     fireEvent.pointerDown(card, { pointerType: 'touch' })
@@ -647,7 +652,7 @@ describe('CardFace double click', () => {
   })
 
   it('does not zoom when the first press landed somewhere else', () => {
-    render(<CardFace card={testCard('Night Owl')} />)
+    renderWithSets(<CardFace card={testCard('Night Owl')} />)
     const card = face('Night Owl')
 
     // As on a turned card, or a face in a dialog that opened under the pointer: only the second press is its own.
@@ -660,7 +665,7 @@ describe('CardFace double click', () => {
   it('does not zoom from a double click on the edit control', async () => {
     const user = userEvent.setup()
     const onEdit = vi.fn()
-    render(<CardFace card={testCard('Night Owl')} onEdit={onEdit} />)
+    renderWithSets(<CardFace card={testCard('Night Owl')} onEdit={onEdit} />)
 
     await user.dblClick(screen.getByRole('button', { name: 'Night Owl: düzenle' }))
 
@@ -670,7 +675,7 @@ describe('CardFace double click', () => {
 
   it('does not zoom on a double click where its first click opens a dialog', async () => {
     const user = userEvent.setup()
-    render(
+    renderWithSets(
       <CardFace
         card={testCard('Night Owl')}
         onOpen={vi.fn()}

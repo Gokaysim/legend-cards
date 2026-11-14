@@ -18,6 +18,7 @@ import {
   matchesFilters,
   NO_FILTERS,
 } from '@/features/cards/pool'
+import { useSetIndex } from '@/features/sets/setsContext'
 import type { UserProfile } from '@/features/users/schema'
 import { profileName, useIsDm } from '@/features/users/usersContext'
 import { genitive } from '@/lib/turkish'
@@ -67,6 +68,7 @@ export function DrawDialog({ mode, owner, onClose }: DrawDialogProps) {
   const uid = auth.status === 'signedIn' ? auth.user.uid : null
   const isDm = useIsDm()
   const cards = useCards()
+  const { setName } = useSetIndex()
   const actions = useDrawActions()
   const isOnline = useOnlineStatus()
   const ownerName = profileName(owner)
@@ -90,8 +92,8 @@ export function DrawDialog({ mode, owner, onClose }: DrawDialogProps) {
   )
   const candidates = useMemo(() => {
     if (pool === null || !hasFilters) return pool
-    return pool.filter((card) => matchesFilters(card, filters))
-  }, [pool, hasFilters, filters])
+    return pool.filter((card) => matchesFilters(card, filters, setName))
+  }, [pool, hasFilters, filters, setName])
 
   const isShort = paid && owner.lp < DRAW_PRICE
   const canDraw =

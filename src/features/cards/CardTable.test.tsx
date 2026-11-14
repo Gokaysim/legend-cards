@@ -1,9 +1,10 @@
-import { render, screen, within } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { describe, expect, it } from 'vitest'
 
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
+import { renderWithSets } from '@/test/renderWithSets'
 
 import type { Deck } from './cardsContext'
 import { CardTable } from './CardTable'
@@ -50,7 +51,7 @@ describe('CardTable', () => {
     const wish = testCard('The Last Wish', { dmOnly: true })
     const eyes = testCard("Aboleth's Eyes")
     const props = { deck: 'legend' as const, sort: DEFAULT_SORT, onSort: () => {} }
-    const view = render(<CardTable {...props} cards={[eyes, wish]} marksDmOnly />)
+    const view = renderWithSets(<CardTable {...props} cards={[eyes, wish]} marksDmOnly />)
     expect(screen.getByRole('rowheader', { name: /The Last Wish/ })).toHaveTextContent('🔒 DM')
     expect(screen.getByRole('rowheader', { name: /Aboleth's Eyes/ })).not.toHaveTextContent('🔒')
     view.rerender(<CardTable {...props} cards={[eyes, wish]} />)
@@ -58,17 +59,17 @@ describe('CardTable', () => {
   })
 
   it('has the Legend columns Kart, Set, Cost, Rarity, Mechanic Pack, Metin and Durum', () => {
-    render(<SortableTable deck="legend" cards={[testCard('A')]} />)
+    renderWithSets(<SortableTable deck="legend" cards={[testCard('A')]} />)
     expect(headers()).toEqual(['Kart', 'Set', 'Cost', 'Rarity', 'Mechanic Pack', 'Metin', 'Durum'])
   })
 
   it('has the Cursed columns Kart, Cost, Metin and Durum', () => {
-    render(<SortableTable deck="cursed" cards={[testCursedCard('Hex')]} />)
+    renderWithSets(<SortableTable deck="cursed" cards={[testCursedCard('Hex')]} />)
     expect(headers()).toEqual(['Kart', 'Cost', 'Metin', 'Durum'])
   })
 
   it('shows the official set name, "Blessed", "—" for missing values, and the visible text', () => {
-    render(
+    renderWithSets(
       <SortableTable
         deck="legend"
         cards={[
@@ -86,7 +87,7 @@ describe('CardTable', () => {
   })
 
   it('starts sorted by name', () => {
-    render(
+    renderWithSets(
       <SortableTable
         deck="legend"
         cards={[testCard('Çelik'), testCard('Zor'), testCard('Ağır')]}
@@ -101,7 +102,7 @@ describe('CardTable', () => {
 
   it('sorts by Cost, then reverses the order when the heading is selected again', async () => {
     const user = userEvent.setup()
-    render(
+    renderWithSets(
       <SortableTable
         deck="legend"
         cards={[
@@ -137,7 +138,7 @@ describe('CardTable', () => {
       Ağır: 'Elde: Bora',
       Çelik: 'Elde: Ayla',
     }
-    render(
+    renderWithSets(
       <SortableTable
         deck="legend"
         cards={[testCard('Zor'), testCard('Ağır'), testCard('Çelik')]}

@@ -15,6 +15,7 @@ import { testPack } from '@/test/packFixtures'
 import { testLearnedWord, testTrueWord, testWordDraft } from '@/test/trueWordFixtures'
 import { renderApp } from '@/test/renderApp'
 import type { TestActivityLog } from '@/test/TestActivityLogProvider'
+import { testSetChange } from '@/test/setFixtures'
 
 import { EMPTY_LOG_RECORDS, type LogRecords } from './events'
 
@@ -89,6 +90,17 @@ describe('ActivityLogPage', () => {
     const [first, second] = rows()
     expect(first).toHaveTextContent('Ayla: +2 LP (5 → 7)')
     expect(second).toHaveTextContent("Aboleth's Eyes kartını Ayla'ya verdi.")
+  })
+
+  it('lists a set change among the other events, newest first, for every user', () => {
+    const rename = testSetChange(on(8, 50).toMillis())
+    renderLog({ records: ready(records({ entries: [lpForAyla], setChanges: [rename] })) })
+
+    const [first, second] = rows()
+    expect(first).toHaveTextContent('Ballad of Ulagal setini düzenledi.')
+    expect(first).toHaveTextContent('Ad')
+    expect(first).not.toHaveTextContent('Yalnızca DM')
+    expect(second).toHaveTextContent('Ayla: +2 LP (5 → 7)')
   })
 
   it('shows a new event at the top without a reload', () => {

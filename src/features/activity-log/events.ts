@@ -2,6 +2,7 @@ import type { LedgerEntry } from '@/features/balances/schema'
 import type { DefinitionStepRecord, ImportRecord } from '@/features/definitions/schema'
 import type { CardDraw, Draw, PackOpening } from '@/features/draws/schema'
 import type { Holding } from '@/features/hands/schema'
+import type { SetChange } from '@/features/sets/schema'
 import type { LearnedWord, WordDraft } from '@/features/true-words/schema'
 
 /** A server time, or `null` while it is pending in the local snapshot. */
@@ -11,7 +12,8 @@ export type EventTime = Holding['givenAt']
  * The records the log is read from, each source newest first and limited to the same `n`: the holdings the DM gave
  * or transferred, by the time they were given; closed holdings, by the time they were closed; draws and pack
  * openings; the ledger's changes by hand; True Word drafts; the words the DM taught, by the time they were taught;
- * the words the DM took back, by the time they were taken back; and the definition changes this device may read. The
+ * the words the DM took back, by the time they were taken back; the definition changes this device may read; and the
+ * set changes. The
  * holdings and entries of draws, packs and drafts, and the words learned from drafts, are not among them.
  */
 export type LogRecords = {
@@ -23,6 +25,8 @@ export type LogRecords = {
   taught: readonly LearnedWord[]
   takenBack: readonly LearnedWord[]
   changes: readonly (DefinitionStepRecord | ImportRecord)[]
+  /** Every user reads every set change (spec: activity-log, "Set changes are events"). */
+  setChanges: readonly SetChange[]
 }
 
 /** No records at all. */
@@ -35,6 +39,7 @@ export const EMPTY_LOG_RECORDS: LogRecords = {
   taught: [],
   takenBack: [],
   changes: [],
+  setChanges: [],
 }
 
 type EventBase = {
@@ -72,6 +77,7 @@ export type LogEvent =
   | (EventBase & { kind: 'wordTaught' | 'wordTakenBack'; record: LearnedWord })
   | (EventBase & { kind: 'definition'; change: DefinitionStepRecord })
   | (EventBase & { kind: 'import'; change: ImportRecord })
+  | (EventBase & { kind: 'set'; change: SetChange })
 
 type TransferEvent = Extract<LogEvent, { kind: 'transferred' }>
 
@@ -192,6 +198,10 @@ export function deriveEvents(records: LogRecords): LogEvent[] {
         : { kind: 'definition', key, at: change.at, by: change.by, change },
     )
   }
+  for (const change of records.setChanges) {
+    const key = `set:${change.id}`
+    events.set(key, { kind: 'set', key, at: change.at, by: change.by, change })
+  }
   return [...events.values()]
 }
 
@@ -220,6 +230,7 @@ export function newestEvents(
     records.drafts.length >= limit ||
     records.taught.length >= limit ||
     records.takenBack.length >= limit ||
-    records.changes.length >= limit
+    records.changes.length >= limit ||
+    records.setChanges.length >= limit
   return { events: events.slice(0, limit), mayHaveMore }
 }

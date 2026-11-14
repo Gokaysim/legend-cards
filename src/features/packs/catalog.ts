@@ -1,12 +1,12 @@
 import type { ArtLookup } from '@/features/art/artContext'
 import { CURSED_BACK, NEUTRAL_BACK, type SpreadBack } from '@/features/art/spreadBack'
 import { formatAmount } from '@/features/balances/format'
+import { AS_WRITTEN, type SetName } from '@/features/cards/display'
 import { cursedPool, isDrawable } from '@/features/cards/pool'
 import type { Card } from '@/features/cards/schema'
-import { officialSet, setDisplayName, setOrder } from '@/features/cards/sets'
 import { compareLabels } from '@/features/cards/sort'
-import { normalize } from '@/features/cards/text'
 import { type PackType, SET_PACK_TYPES } from '@/features/draws/schema'
+import type { SetIndex } from '@/features/sets/index'
 
 // The Pack Shop's packs, their prices, and when each can be opened (docs/domain.md, Packs). Pure helpers on the
 // cards: the pool is the cards' `holder`, as in `cards/pool.ts`.
@@ -48,25 +48,22 @@ export function priceLabel(type: PackType): string {
  * group"; design D4 of `polish-cards-packs-and-mascots`). "Standart" is the owner's Turkish spelling, on the tile
  * alone: everywhere else a pack keeps its full `packTitle`.
  */
-const SHORT_NAMES: Record<PackType, string> = {
+const SHORT_NAMES: Record<Exclude<PackType, 'pandemonium'>, string> = {
   standard: 'Standart',
   premium: 'Premium',
   cursed: 'Cursed',
-  pandemonium: 'Pandemonium',
   pandemoniumCursed: 'Cursed',
   golden: 'Golden',
   cursedGolden: 'Cursed Golden',
   mechanic: 'Mechanic',
 }
 
-/** A pack's short name on its tile inside a group: "Standart", "Premium", "Cursed", "Golden"… */
-export function packShortName(def: Pick<PackDef, 'type'>): string {
-  return SHORT_NAMES[def.type]
-}
-
-/** True for the Pandemonium set, which has its own two packs instead of Standard, Premium and Cursed. */
-export function isPandemoniumSet(setCode: string): boolean {
-  return officialSet(setCode)?.code === 'Pandemonium'
+/**
+ * A pack's short name on its tile inside a group: "Standart", "Premium", "Cursed", "Golden"…, and a one-pack set's Pack
+ * by its set's name, as "Pandemonium".
+ */
+export function packShortName(def: Pick<PackDef, 'type' | 'setCode'>, setName: SetName): string {
+  return def.type === 'pandemonium' ? setName(def.setCode ?? '') : SHORT_NAMES[def.type]
 }
 
 const SET_TYPE_SUFFIX: Partial<Record<PackType, string>> = {
@@ -78,20 +75,29 @@ const SET_TYPE_SUFFIX: Partial<Record<PackType, string>> = {
 }
 
 /** The pack's name, with the official set name: "Kesqerian Nights Standard Pack", "Golden Pack". */
-export function packTitle(def: Pick<PackDef, 'type' | 'setCode' | 'mechanicPack'>): string {
+export function packTitle(
+  def: Pick<PackDef, 'type' | 'setCode' | 'mechanicPack'>,
+  setName: SetName,
+): string {
   if (def.type === 'golden') return 'Golden Pack'
   if (def.type === 'cursedGolden') return 'Cursed Golden Pack'
   if (def.type === 'mechanic') return `${def.mechanicPack ?? ''} Mechanic Pack`
-  return `${setDisplayName(def.setCode ?? '')} ${SET_TYPE_SUFFIX[def.type] ?? 'Pack'}`
+  return `${setName(def.setCode ?? '')} ${SET_TYPE_SUFFIX[def.type] ?? 'Pack'}`
 }
 
 /** The name of the pack a record opened, from its type and its set or mechanic pack. */
-export function packOpeningTitle(pack: {
-  packType: PackType
-  setCode: string | null
-  mechanicPack: string | null
-}): string {
-  return packTitle({ type: pack.packType, setCode: pack.setCode, mechanicPack: pack.mechanicPack })
+export function packOpeningTitle(
+  pack: {
+    packType: PackType
+    setCode: string | null
+    mechanicPack: string | null
+  },
+  setName: SetName,
+): string {
+  return packTitle(
+    { type: pack.packType, setCode: pack.setCode, mechanicPack: pack.mechanicPack },
+    setName,
+  )
 }
 
 function setPack(type: PackType, setCode: string): PackDef {
@@ -103,14 +109,6 @@ export const GOLDEN_PACKS: readonly PackDef[] = [
   { key: 'cursedGolden', type: 'cursedGolden', setCode: null, mechanicPack: null },
 ]
 
-/**
- * The Cardmaker of a set's group in the shop (design D9): `cardmaker_` and the set code in lowercase without spaces,
- * as the legacy app names them: `cardmaker_kesqer`, `cardmaker_theendisnigh`, `cardmaker_pandemonium`.
- */
-export function groupMascotStem(setCode: string): string {
-  return `cardmaker_${normalize(officialSet(setCode)?.code ?? setCode)}`
-}
-
 /** The Golden Packs group's Cardmaker, shown larger. */
 export const GOLDEN_GROUP_MASCOT = 'cardmaker_gold'
 
@@ -118,7 +116,7 @@ export const GOLDEN_GROUP_MASCOT = 'cardmaker_gold'
 export type SetGroup = { setCode: string; title: string; packs: PackDef[] }
 
 export type PackCatalog = {
-  /** One group per set, in the official order, with Pandemonium last. */
+  /** One group per set, in the stored order, then set codes that no stored set has, alphabetically. */
   setGroups: SetGroup[]
   /** One Mechanic Pack per mechanic pack, in Turkish alphabetical order. */
   mechanicPacks: PackDef[]
@@ -126,11 +124,15 @@ export type PackCatalog = {
   goldenPacks: readonly PackDef[]
 }
 
-/** The packs of one set: Pandemonium has its own two, every other set Standard, Premium and Cursed. */
-export function setPacks(setCode: string): PackDef[] {
-  const types: PackType[] = isPandemoniumSet(setCode)
-    ? ['pandemonium', 'pandemoniumCursed']
-    : ['standard', 'premium', 'cursed']
+/**
+ * The packs of one set, by its pack layout (spec: pack-shop, "Pack types"): a Pack and a Cursed Pack for the
+ * `pandemonium` layout, else a Standard, a Premium and a Cursed Pack, also for a code no stored set has.
+ */
+export function setPacks(setCode: string, sets: SetIndex): PackDef[] {
+  const types: PackType[] =
+    sets.setOf(setCode)?.packLayout === 'pandemonium'
+      ? ['pandemonium', 'pandemoniumCursed']
+      : ['standard', 'premium', 'cursed']
   return types.map((type) => setPack(type, setCode))
 }
 
@@ -138,25 +140,20 @@ export function setPacks(setCode: string): PackDef[] {
  * The shop's packs, from the active cards: a group for every set that has a normal card, and a Mechanic Pack for
  * every mechanic pack of a normal or Blessed card. Whether each can be opened is `packStatus`.
  */
-export function packCatalog(cards: readonly Card[]): PackCatalog {
-  const sets = new Set<string>()
+export function packCatalog(cards: readonly Card[], sets: SetIndex): PackCatalog {
+  const codes = new Set<string>()
   const mechanics = new Set<string>()
   for (const card of cards) {
     if (card.status !== 'active' || card.kind === 'cursed') continue
-    if (card.kind === 'normal' && card.setCode !== null) sets.add(card.setCode)
+    if (card.kind === 'normal' && card.setCode !== null) codes.add(card.setCode)
     if (card.mechanicPack !== null) mechanics.add(card.mechanicPack)
   }
-  const setGroups = [...sets]
-    .sort(
-      (a, b) =>
-        Number(isPandemoniumSet(a)) - Number(isPandemoniumSet(b)) ||
-        setOrder(a) - setOrder(b) ||
-        compareLabels(a, b),
-    )
+  const setGroups = [...codes]
+    .sort((a, b) => sets.setRank(a) - sets.setRank(b) || compareLabels(a, b))
     .map((setCode) => ({
       setCode,
-      title: `${setDisplayName(setCode)} Packs`,
-      packs: setPacks(setCode),
+      title: `${sets.setName(setCode)} Packs`,
+      packs: setPacks(setCode, sets),
     }))
   const mechanicPacks = [...mechanics].sort(compareLabels).map((mechanicPack) => ({
     key: `mechanic:${mechanicPack}`,
@@ -214,14 +211,13 @@ export function burstArtUrl(
 }
 
 /**
- * The picture of a group's tile in the shop's main view (spec: card-images, design D8): its first pack's own picture,
- * or else that pack's set's cardback, as in v2.2.8. For the Golden Packs, that is the Golden Pack's picture. `null`
- * keeps the group's glyph.
+ * The picture of a group's tile in the shop's main view (spec: card-images, "Pictures of the pack groups"): a set's
+ * cardback, or for the Golden Packs the Golden Pack's picture. `null` keeps the group's glyph.
  */
 export function groupArtUrl(art: ArtLookup, group: { packs: readonly PackDef[] }): string | null {
   const first = group.packs[0]
   if (first === undefined) return null
-  return art.packUrl(first.key) ?? (first.setCode === null ? null : art.backUrl(first.setCode))
+  return first.setCode === null ? art.packUrl(first.key) : art.backUrl(first.setCode)
 }
 
 /** The pack a record or a link names, rebuilt from its type and scope. */
@@ -315,8 +311,12 @@ const PREMIUM_RARES = 3
  * What a pack's threshold counts, and its name in a reason. Blessed cards count only for a Mechanic Pack, as in the
  * legacy app; the rare packs count their Rares without the Blessed cards they add.
  */
-function countFor(def: PackDef, cards: readonly Card[]): { count: number; what: string } {
-  const set = setDisplayName(def.setCode ?? '')
+function countFor(
+  def: PackDef,
+  cards: readonly Card[],
+  setName: SetName,
+): { count: number; what: string } {
+  const set = setName(def.setCode ?? '')
   switch (def.type) {
     case 'standard':
     case 'premium':
@@ -344,15 +344,22 @@ function tooFew(needed: number, count: number, what: string): PackStatus {
   }
 }
 
-/** Whether the pool has enough cards for the pack, and the Cursed Deck a card for a Cursed type. */
-export function packStatus(def: PackDef, cards: readonly Card[]): PackStatus {
+/**
+ * Whether the pool has enough cards for the pack, and the Cursed Deck a card for a Cursed type. `setName` names the set
+ * in the reason.
+ */
+export function packStatus(
+  def: PackDef,
+  cards: readonly Card[],
+  setName: SetName = AS_WRITTEN,
+): PackStatus {
   const needed = THRESHOLDS[def.type]
-  const { count, what } = countFor(def, cards)
+  const { count, what } = countFor(def, cards, setName)
   if (count < needed) return tooFew(needed, count, what)
   if (def.type === 'premium') {
     const rares = inSet(cards, def.setCode).filter(isRare).length
     if (rares < PREMIUM_RARES) {
-      return tooFew(PREMIUM_RARES, rares, `${setDisplayName(def.setCode ?? '')} Rare kartı`)
+      return tooFew(PREMIUM_RARES, rares, `${setName(def.setCode ?? '')} Rare kartı`)
     }
   }
   if (packPools(def, cards).cursed?.length === 0) {

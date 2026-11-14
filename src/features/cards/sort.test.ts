@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
+import { testSetName } from '@/test/setFixtures'
 
 import { sortCards } from './sort'
 
@@ -74,11 +75,9 @@ describe('sortCards by other columns', () => {
       testBlessedCard('Halo'),
     ]
     // Blessed, Kesqerian Nights, The Overlord of Ashavir
-    expect(names(sortCards(cards, { key: 'set', direction: 'asc' }))).toEqual([
-      'Halo',
-      'From Kesqer',
-      'From Ashavir',
-    ])
+    expect(
+      names(sortCards(cards, { key: 'set', direction: 'asc' }, undefined, testSetName)),
+    ).toEqual(['Halo', 'From Kesqer', 'From Ashavir'])
   })
 
   it('orders the text column by the visible text', () => {

@@ -4,11 +4,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { ArtManifest } from '@/features/art/schema'
 import type { PackOpening } from '@/features/draws/schema'
-import { testArt } from '@/test/artFixtures'
+import { testArt, testPictureUrl } from '@/test/artFixtures'
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 import { ready, testProfile, testUser } from '@/test/fixtures'
 import { testPack } from '@/test/packFixtures'
 import { renderApp } from '@/test/renderApp'
+import { TEST_SETS } from '@/test/setFixtures'
+import type { TestSets } from '@/test/TestSetsProvider'
 
 import type { PackActions } from './packsContext'
 
@@ -40,14 +42,17 @@ function watch({
   pack = testPack('ayla'),
   actions = fakeActions(),
   art,
+  sets,
 }: {
   viewer?: typeof bora
   pack?: PackOpening
   actions?: ReturnType<typeof fakeActions>
   art?: ArtManifest
+  sets?: TestSets
 } = {}) {
   const view = renderApp({
     art,
+    sets,
     path: '/library',
     users: { currentProfile: ready(viewer), profiles: ready([ayla, viewer]) },
     cards: { cards: ready([...CARDS, VISIONS, WIND]) },
@@ -57,6 +62,16 @@ function watch({
   const setPack = (next: PackOpening) => view.setPacks({ pack: next, actions })
   return { ...view, actions, setPack, user: userEvent.setup() }
 }
+
+/** The stored sets, with a cardback for Kesqer. */
+const KESQER_WITH_BACK: TestSets = {
+  sets: ready(
+    TEST_SETS.map((set) =>
+      set.code === 'Kesqer' ? { ...set, cardback: 'sets/kesqer/0123456789.webp' } : set,
+    ),
+  ),
+}
+const KESQER_BACK = testPictureUrl('sets/kesqer/0123456789.webp')
 
 /** Ayla herself, signed in. */
 const asAyla = { ...ayla, id: testUser.uid }
@@ -114,7 +129,6 @@ describe('everyone watches the open pack', () => {
 describe('the backs of a pack', () => {
   const BACKS = testArt({
     cardbacks: {
-      Kesqer: '/art/backs/kesqer.0123456789.webp',
       blessed: '/art/backs/blessed.0123456789.webp',
       cursed: '/art/backs/cursed.0123456789.webp',
     },
@@ -125,9 +139,13 @@ describe('the backs of a pack', () => {
       .map((back) => back.querySelector('img')?.getAttribute('src'))
 
   it("shows a set pack's cards on the set's cardback", () => {
-    watch({ pack: testPack('ayla', { offered: CARDS.map((card) => card.id) }), art: BACKS })
+    watch({
+      pack: testPack('ayla', { offered: CARDS.map((card) => card.id) }),
+      art: BACKS,
+      sets: KESQER_WITH_BACK,
+    })
 
-    expect(backPictures()).toEqual(Array(5).fill('/art/backs/kesqer.0123456789.webp'))
+    expect(backPictures()).toEqual(Array(5).fill(KESQER_BACK))
   })
 
   it('shows every card of a Cursed Pack, the Cursed card included, on the Cursed cardback', () => {
@@ -427,14 +445,14 @@ describe('the opening animation', () => {
     stubMotion(false)
     watch({
       pack: testPack('ayla', { offered: CARDS.map((card) => card.id), packType: 'premium' }),
-      art: testArt({ cardbacks: { Kesqer: '/art/backs/kesqer.0123456789.webp' } }),
+      sets: KESQER_WITH_BACK,
     })
 
     const burst = screen.getByTestId('pack-burst')
     expect(burst).toHaveAttribute('aria-hidden', 'true')
     expect(burst).toHaveClass('fixed', 'inset-0', 'animate-burst-backdrop')
     const picture = burst.querySelector('img')
-    expect(picture).toHaveAttribute('src', '/art/backs/kesqer.0123456789.webp')
+    expect(picture).toHaveAttribute('src', KESQER_BACK)
     expect(picture).toHaveClass('animate-pack-burst')
 
     endAnimation(burst.querySelector('[data-burst-halo]') as Element)

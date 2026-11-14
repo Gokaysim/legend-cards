@@ -3,14 +3,21 @@
 // Without file options it imports both files in data/. A stored card is never changed: the DM edits cards in the
 // app. A row with an empty value its kind uses is added as a draft. Stored cards from before statuses get one.
 // Targets the local emulators unless --project names a real project (which must then be confirmed). Every file is
-// checked before anything is written.
+// checked before anything is written. Set codes that no stored set has as its code or alias are warned about, so run
+// `npm run import-sets` first.
 import { readFile } from 'node:fs/promises'
 import { relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 
-import { type Deck, parseCardFile, type ParsedCardFile } from './lib/cardRows.ts'
+import {
+  type Deck,
+  parseCardFile,
+  type ParsedCardFile,
+  unknownSetWarnings,
+} from './lib/cardRows.ts'
 import { type CardRow, runImport } from './lib/importCards.ts'
+import { readSetSpellings } from './lib/importSets.ts'
 import { messages } from './lib/messages.ts'
 import { connect, TARGET_OPTIONS } from './lib/target.ts'
 
@@ -94,7 +101,10 @@ async function main(): Promise<number> {
     const decks: Partial<Record<Deck, CardRow[]>> = {}
     for (const { deck, result } of parsed) decks[deck] = result.cards
 
-    // 3. Plan, write unless this is a dry run, and report.
+    // 3. The stored sets' spellings, for the set code warnings, also in a dry run.
+    const setSpellings = await readSetSpellings(admin.db)
+
+    // 4. Plan, write unless this is a dry run, and report.
     const { plan, written } = await runImport(admin.db, decks, { dryRun })
 
     if (dryRun) console.log(messages.dryRunHeader)
@@ -102,7 +112,9 @@ async function main(): Promise<number> {
       for (const line of messages.deckReport(deckPlan, dryRun)) console.log(line)
     }
     const warnings = parsed.flatMap(({ file, result }) =>
-      result.warnings.map((warning) => messages.cardFileWarning(file, warning)),
+      [...unknownSetWarnings(result.cards, setSpellings), ...result.warnings].map((warning) =>
+        messages.cardFileWarning(file, warning),
+      ),
     )
     if (warnings.length > 0) {
       console.log(dryRun ? messages.dryRunWarningsHeader : messages.warningsHeader)

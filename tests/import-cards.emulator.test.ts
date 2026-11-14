@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
-import { type Deck, parseCardFile } from '../scripts/lib/cardRows.ts'
+import { type Deck, parseCardFile, unknownSetWarnings } from '../scripts/lib/cardRows.ts'
 import {
   CARDS_COLLECTION,
   CHANGES_COLLECTION,
@@ -10,6 +10,15 @@ import {
   type ImportPlan,
   runImport,
 } from '../scripts/lib/importCards.ts'
+import {
+  readSetSpellings,
+  readStoredSets,
+  runSetImport,
+  SET_CHANGES_COLLECTION,
+  SETS_COLLECTION,
+} from '../scripts/lib/importSets.ts'
+import { parseSetFile } from '../scripts/lib/setRows.ts'
+import type { PictureFileStore } from '../scripts/lib/importPictures.ts'
 import {
   type AdminHandle,
   defaultBucket,
@@ -33,8 +42,14 @@ afterAll(async () => {
 })
 
 beforeEach(async () => {
-  await admin.db.recursiveDelete(admin.db.collection(CARDS_COLLECTION))
-  await admin.db.recursiveDelete(admin.db.collection(CHANGES_COLLECTION))
+  for (const name of [
+    CARDS_COLLECTION,
+    CHANGES_COLLECTION,
+    SETS_COLLECTION,
+    SET_CHANGES_COLLECTION,
+  ]) {
+    await admin.db.recursiveDelete(admin.db.collection(name))
+  }
 })
 
 /** The rows of a repository data file, parsed and checked as the command does. */
@@ -46,6 +61,17 @@ function repositoryDeck(deck: Deck): CardRow[] {
   )
   expect(result.errors).toEqual([])
   return result.cards
+}
+
+/** Stores the repository's sets, as `npm run import-sets` does without pictures. */
+async function importRepositorySets() {
+  const parsed = parseSetFile(readFileSync(new URL('../data/sets.csv', import.meta.url), 'utf8'))
+  expect(parsed.errors).toEqual([])
+  const noFiles: PictureFileStore = {
+    save: () => Promise.reject(new Error('No picture is stored without --source')),
+    remove: () => Promise.resolve(),
+  }
+  await runSetImport(admin.db, noFiles, parsed.sets, await readStoredSets(admin.db), null)
 }
 
 const importDecks = (decks: Partial<Record<Deck, CardRow[]>>, dryRun = false) =>
@@ -262,6 +288,29 @@ describe('card import against the emulators', () => {
 
     expect(plan.map((deck) => deck.deck)).toEqual(['cursed'])
     expect(await storedCount({ field: 'kind', value: 'normal' })).toBe(0)
+  })
+
+  it("warns about no set code of the repository's cards after the set import", async () => {
+    await importRepositorySets()
+    const spellings = await readSetSpellings(admin.db)
+
+    expect(unknownSetWarnings(repositoryDeck('legend'), spellings)).toEqual([])
+  })
+
+  it('warns about a set code no stored set has, and about every one before the set import', async () => {
+    const legend = repositoryDeck('legend')
+    expect(unknownSetWarnings(legend, await readSetSpellings(admin.db))).toHaveLength(12)
+
+    await importRepositorySets()
+    const [first] = legend
+    if (!first) throw new Error('The repository has Legend cards')
+    const withNewSet = [
+      ...legend,
+      { ...first, card: { ...first.card, name: 'New', nameKey: 'new', setCode: 'Zaddir' } },
+    ]
+    expect(unknownSetWarnings(withNewSet, await readSetSpellings(admin.db))).toEqual([
+      { kind: 'unknown-set', setCode: 'Zaddir', count: 1 },
+    ])
   })
 
   it('writes nothing on a dry run, but reports the same plan', async () => {

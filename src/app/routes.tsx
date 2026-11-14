@@ -10,6 +10,7 @@ import { HandsPage, PlayerHandPage } from '@/features/hands/HandsPage'
 import { LibraryPage } from '@/features/library/LibraryPage'
 import { PackShopPage } from '@/features/packs/PackShopPage'
 import { RulesPage } from '@/features/rules/RulesPage'
+import { SetsPage } from '@/features/sets/SetsPage'
 import { SettingsPage } from '@/features/settings/SettingsPage'
 import { ElixirShopPage } from '@/features/shops/ElixirShopPage'
 import { ShopsPage } from '@/features/shops/ShopsPage'
@@ -33,6 +34,7 @@ const pages: Record<ScreenId, ReactNode> = {
   'true-words': <TrueWordsPage />,
   'custom-draft': <CustomDraftPage />,
   library: <LibraryPage />,
+  sets: <SetsPage />,
   'cursed-deck': <CursedDeckPage />,
   'activity-log': <ActivityLogPage />,
   rules: <RulesPage />,

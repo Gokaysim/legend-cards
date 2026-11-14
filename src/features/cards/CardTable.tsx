@@ -1,8 +1,9 @@
 import { Button } from '@/components/ui/Button'
+import { useSetIndex } from '@/features/sets/setsContext'
 import { cn } from '@/lib/cn'
 
 import type { Deck } from './cardsContext'
-import { NO_VALUE, rarityLabel, setLabel } from './display'
+import { NO_VALUE, rarityLabel, type SetName, setLabel } from './display'
 import type { Card } from './schema'
 import { DM_ONLY_MARK } from './status'
 import type { CardSort, SortKey, StatusText } from './sort'
@@ -11,13 +12,17 @@ import { visibleText } from './text'
 type Column = {
   key: SortKey
   label: string
-  cell: (card: Card, statusText: StatusText) => string
+  cell: (card: Card, statusText: StatusText, setName: SetName) => string
   wide?: boolean
 }
 
 const COLUMNS: Record<SortKey, Column> = {
   name: { key: 'name', label: 'Kart', cell: (card) => card.name },
-  set: { key: 'set', label: 'Set', cell: (card) => setLabel(card) ?? NO_VALUE },
+  set: {
+    key: 'set',
+    label: 'Set',
+    cell: (card, _statusText, setName) => setLabel(card, setName) ?? NO_VALUE,
+  },
   cost: { key: 'cost', label: 'Cost', cell: (card) => card.cost ?? NO_VALUE },
   rarity: { key: 'rarity', label: 'Rarity', cell: (card) => rarityLabel(card) ?? NO_VALUE },
   mechanicPack: {
@@ -72,6 +77,7 @@ export function CardTable({
   marksDmOnly = false,
 }: CardTableProps) {
   const columns = DECK_COLUMNS[deck].map((key) => COLUMNS[key])
+  const { setName } = useSetIndex()
 
   return (
     <div className="overflow-x-auto rounded-xl border border-line bg-pane">
@@ -127,7 +133,7 @@ export function CardTable({
               {columns.map((column) =>
                 column.key === 'name' ? (
                   <th key={column.key} scope="row" className="px-3 py-2 font-semibold text-ink">
-                    {column.cell(card, statusText)}
+                    {column.cell(card, statusText, setName)}
                     {marksDmOnly && card.dmOnly ? (
                       <span className="ml-2 rounded-full border border-ink-muted px-1.5 py-0.5 text-xs font-normal whitespace-nowrap text-ink-muted">
                         {DM_ONLY_MARK}
@@ -142,7 +148,7 @@ export function CardTable({
                       column.wide ? 'min-w-64 whitespace-pre-line' : 'whitespace-nowrap',
                     )}
                   >
-                    {column.cell(card, statusText)}
+                    {column.cell(card, statusText, setName)}
                   </td>
                 ),
               )}

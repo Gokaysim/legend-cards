@@ -1,6 +1,6 @@
 import { formatAmount, formatDelta } from '@/features/balances/format'
 import type { DrawFilters } from '@/features/cards/pool'
-import { setDisplayName } from '@/features/cards/sets'
+import type { SetName } from '@/features/cards/display'
 import { DM_ONLY_LABEL } from '@/features/cards/status'
 import { visibleText } from '@/features/cards/text'
 import type {
@@ -12,6 +12,7 @@ import type {
 import type { CardDraw, PackOpening } from '@/features/draws/schema'
 import { packOpeningTitle } from '@/features/packs/catalog'
 import type { Holding } from '@/features/hands/schema'
+import type { SetChange, SetField } from '@/features/sets/schema'
 import { costLabel } from '@/features/true-words/display'
 import type { WordDraft } from '@/features/true-words/schema'
 import { ablative, dative, genitive } from '@/lib/turkish'
@@ -35,6 +36,9 @@ export type EventSentence = {
 
 /** The name of the user with this uid, as the log shows it. */
 export type NameOf = (uid: string) => string
+
+/** How the log names users and sets. */
+export type LogNames = { nameOf: NameOf; setName: SetName }
 
 /** The sentence as plain text. */
 export function sentenceText(sentence: EventSentence): string {
@@ -91,9 +95,9 @@ function packPayment(pack: PackOpening): string {
  * 2 LP iade edildi.". The hand comes first when the opener is not its owner ("Bora için …"), and "(seçimi DM
  * yaptı)" when the DM chose for someone else's pack.
  */
-function packSentence(pack: PackOpening, nameOf: NameOf): SentencePart[] {
+function packSentence(pack: PackOpening, { nameOf, setName }: LogNames): SentencePart[] {
   const into = pack.by === pack.uid ? '' : `${nameOf(pack.uid)} için `
-  const title = packOpeningTitle(pack)
+  const title = packOpeningTitle(pack, setName)
   const payment = packPayment(pack)
   if (pack.status === 'open') return [`${into}${title} açıyor (${payment}).`]
   if (pack.status === 'cancelled') {
@@ -166,9 +170,9 @@ const WORD_FIELDS = [
 ] as const satisfies readonly (readonly [keyof WordSnapshot, string])[]
 
 /** A field's value as the log shows it: the official set name, "Common", "Blessed", or "—" for none. */
-function shownValue(field: string, value: string | null | undefined): string {
+function shownValue(field: string, value: string | null | undefined, setName: SetName): string {
   if (value === null || value === undefined || value === '') return NONE
-  if (field === 'setCode') return setDisplayName(value)
+  if (field === 'setCode') return setName(value)
   if (field === 'rarity') return CARD_RARITY_LABELS[value as 'common' | 'rare']
   if (field === 'kind') return KIND_LABELS[value as keyof typeof KIND_LABELS]
   return value
@@ -200,7 +204,7 @@ function dmOnlyLine(change: DefinitionStepRecord): string | null {
  * visible part; when only the bracket text changed, the line says so and shows none of it ("Text changes in the log").
  * A change of the DM-only flag, then a picture change, come last.
  */
-function changedLines(change: DefinitionStepRecord): string[] {
+function changedLines(change: DefinitionStepRecord, setName: SetName): string[] {
   const { before, after } = change
   if (before === null || after === null) return []
   const fields = change.target === 'card' ? CARD_FIELDS : WORD_FIELDS
@@ -219,7 +223,7 @@ function changedLines(change: DefinitionStepRecord): string[] {
         ? [`${label}: metnin gizli kısmı değişti`]
         : [`${label}: “${shownOld || NONE}” → “${shownNext || NONE}”`]
     }
-    return [`${label}: ${shownValue(field, old)} → ${shownValue(field, next)}`]
+    return [`${label}: ${shownValue(field, old, setName)} → ${shownValue(field, next, setName)}`]
   })
   return [...lines, ...extra]
 }
@@ -228,13 +232,14 @@ function changedLines(change: DefinitionStepRecord): string[] {
  * A definition as a publish shows it: its set, rarity, mechanic pack and cost, then its visible text, and "Resimli"
  * when it has a picture.
  */
-function definitionLines(change: DefinitionStepRecord): string[] {
+function definitionLines(change: DefinitionStepRecord, setName: SetName): string[] {
   const { after } = change
   if (after === null) return []
-  return after.picture === null ? fieldLines(change) : [...fieldLines(change), 'Resimli']
+  const lines = fieldLines(change, setName)
+  return after.picture === null ? lines : [...lines, 'Resimli']
 }
 
-function fieldLines(change: DefinitionStepRecord): string[] {
+function fieldLines(change: DefinitionStepRecord, setName: SetName): string[] {
   const { after } = change
   if (after === null) return []
   const text = visibleText(after.text) || NONE
@@ -242,15 +247,21 @@ function fieldLines(change: DefinitionStepRecord): string[] {
   const cardAfter = after as CardSnapshot
   const where =
     cardAfter.kind === 'normal'
-      ? [shownValue('setCode', cardAfter.setCode), shownValue('rarity', cardAfter.rarity)]
+      ? [
+          shownValue('setCode', cardAfter.setCode, setName),
+          shownValue('rarity', cardAfter.rarity, setName),
+        ]
       : [KIND_LABELS[cardAfter.kind]]
   const pack =
-    cardAfter.kind === 'cursed' ? [] : [shownValue('mechanicPack', cardAfter.mechanicPack)]
-  return [[...where, ...pack, `Cost ${shownValue('cost', cardAfter.cost)}`].join(' · '), text]
+    cardAfter.kind === 'cursed' ? [] : [shownValue('mechanicPack', cardAfter.mechanicPack, setName)]
+  return [
+    [...where, ...pack, `Cost ${shownValue('cost', cardAfter.cost, setName)}`].join(' · '),
+    text,
+  ]
 }
 
 /** A DM step on a card or a True Word: "Aboleth's Eyes kartını düzenledi.", with the changed fields below. */
-function definitionSentence(change: DefinitionStepRecord): EventSentence {
+function definitionSentence(change: DefinitionStepRecord, setName: SetName): EventSentence {
   const isWord = change.target === 'word'
   const name = card(change.name)
   const its = isWord ? " True Word'ünü" : ' kartını'
@@ -262,12 +273,20 @@ function definitionSentence(change: DefinitionStepRecord): EventSentence {
         : {
             parts: [`${isWord ? 'True Word' : 'Kart'} ekledi ve yayınladı: `, name, '.'],
             reason: null,
-            lines: definitionLines(change),
+            lines: definitionLines(change, setName),
           }
     case 'edited':
-      return { parts: [name, `${its} düzenledi.`], reason: null, lines: changedLines(change) }
+      return {
+        parts: [name, `${its} düzenledi.`],
+        reason: null,
+        lines: changedLines(change, setName),
+      }
     case 'published':
-      return { parts: [name, `${its} yayınladı.`], reason: null, lines: definitionLines(change) }
+      return {
+        parts: [name, `${its} yayınladı.`],
+        reason: null,
+        lines: definitionLines(change, setName),
+      }
     case 'retired':
       return { parts: [name, `${its} kaldırdı.`], reason: null }
     case 'restored':
@@ -300,15 +319,65 @@ function importSentence(change: ImportRecord): EventSentence {
   }
 }
 
+/** The set fields as an edit's event names them (spec: activity-log, "Set changes are events"). */
+const SET_FIELD_LABELS: Readonly<Record<SetField, string>> = {
+  name: 'Ad',
+  aliases: "Alias'lar",
+  packLayout: 'Paketler',
+  cardback: 'Cardback',
+  mascot: 'Cardmaker',
+}
+
+/**
+ * A set change: "Ballad of Ulagal setini düzenledi.", with the changed fields' names below and never their values, or
+ * "… setini sırada yukarı taşıdı.". The set import: "12 set ekledi.", "12 sete resim ekledi." or both, with the names.
+ */
+function setSentence(change: SetChange): EventSentence {
+  const name = change.name ?? change.code ?? ''
+  switch (change.step) {
+    case 'added':
+      return { parts: [`${name} setini ekledi.`], reason: null }
+    case 'edited':
+      return {
+        parts: [`${name} setini düzenledi.`],
+        reason: null,
+        lines: [change.fields.map((field) => SET_FIELD_LABELS[field]).join(', ')],
+      }
+    case 'moved':
+      return {
+        parts: [
+          `${name} setini sırada ${change.direction === 'down' ? 'aşağı' : 'yukarı'} taşıdı.`,
+        ],
+        reason: null,
+      }
+    case 'deleted':
+      return { parts: [`${name} setini sildi.`], reason: null }
+    case 'imported': {
+      const sentences = [
+        change.added.length > 0 ? `${formatAmount(change.added.length)} set ekledi` : null,
+        change.pictured.length > 0
+          ? `${formatAmount(change.pictured.length)} sete resim ekledi`
+          : null,
+      ].filter((part) => part !== null)
+      return {
+        parts: [`${sentences.join('; ')}.`],
+        reason: null,
+        names: [...new Set([...change.added, ...change.pictured])],
+      }
+    }
+  }
+}
+
 /**
  * The Turkish sentence of an event. For a transfer with one side missing, `other` is that side once it is read;
  * until then the sentence leaves out the name it cannot know.
  */
 export function describeEvent(
   event: LogEvent,
-  nameOf: NameOf,
+  names: LogNames,
   other: Holding | null = null,
 ): EventSentence {
+  const { nameOf } = names
   switch (event.kind) {
     case 'given':
       return {
@@ -350,7 +419,7 @@ export function describeEvent(
     case 'drawn':
       return { parts: drawnSentence(event.draw, nameOf), reason: null }
     case 'pack':
-      return { parts: packSentence(event.pack, nameOf), reason: null }
+      return { parts: packSentence(event.pack, names), reason: null }
     case 'wordDraft':
       return { parts: draftSentence(event.draft, nameOf), reason: null }
     case 'wordTaught':
@@ -384,8 +453,10 @@ export function describeEvent(
       }
     }
     case 'definition':
-      return definitionSentence(event.change)
+      return definitionSentence(event.change, names.setName)
     case 'import':
       return importSentence(event.change)
+    case 'set':
+      return setSentence(event.change)
   }
 }

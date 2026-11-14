@@ -16,6 +16,7 @@ const EXPECTED_LABELS = [
   'True Words',
   'Custom Card Draft',
   'Kart kütüphanesi',
+  'Setler',
   'Cursed Deck',
   'İşlem Logu',
   'Kurallar',
@@ -55,6 +56,11 @@ const BUILT_SCREENS: Record<string, () => void> = {
     expect(screen.getByRole('article', { name: "Aboleth's Eyes" })).toBeInTheDocument()
     expect(screen.getByRole('article', { name: 'Dawn of Fortune' })).toBeInTheDocument()
     expect(screen.queryByRole('article', { name: 'Visions of Death' })).not.toBeInTheDocument()
+  },
+  // The sets, in the stored order.
+  '/sets': () => {
+    expect(screen.getByRole('rowheader', { name: /^The End is Nigh/ })).toBeInTheDocument()
+    expect(screen.getByRole('rowheader', { name: /^Pandemonium/ })).toBeInTheDocument()
   },
   '/cursed-deck': () => {
     expect(screen.getByRole('article', { name: 'Visions of Death' })).toBeInTheDocument()
@@ -208,6 +214,7 @@ describe("each screen's Cardmaker", () => {
       'true-words': 'cardmaker_true',
       'custom-draft': 'cardmaker_custom',
       library: 'cardmaker_lib',
+      sets: null,
       'cursed-deck': 'cardmaker_cursed',
       'activity-log': 'cardmaker_think',
       rules: 'cardmaker_wave',

@@ -1,6 +1,5 @@
 import { createContext, useContext } from 'react'
 
-import { officialSet } from '@/features/cards/sets'
 import { normalize } from '@/features/cards/text'
 
 import { type ArtManifest, EMPTY_ART } from './schema'
@@ -12,21 +11,37 @@ export type ArtLookup = {
    * for none (design D4 of upload-card-and-word-pictures).
    */
   pictureUrl: (path: string | null) => string | null
-  /** A cardback, by set code (any spelling the set is known by), `blessed` or `cursed`. */
+  /**
+   * A cardback: a stored set's own, by any spelling of its code (`SetArt` adds them, design D7 of add-set-management),
+   * or the built `blessed` and `cursed` ones.
+   */
   backUrl: (key: string) => string | null
   /** A pack's picture, by its `PackDef.key`. */
   packUrl: (key: string) => string | null
-  /** A Cardmaker picture, by its stem, for example `cardmaker_lib`. */
+  /** A Cardmaker picture, by its stem: a built one, for example `cardmaker_lib`, or a set's (`setMascotStem`). */
   mascotUrl: (stem: string) => string | null
+  /** A stored set's Cardmaker, by any spelling of its code, or `null` (`SetArt` adds them). */
+  setMascotUrl: (setCode: string) => string | null
 }
 
-/** A set as a key: the official code, normalized, so "The End Is Nigh" finds "The End is Nigh". */
-const setKey = (value: string) => normalize(officialSet(value)?.code ?? value)
+/**
+ * The Cardmaker stem of a stored set, for `mascotUrl`, `Mascot` and `CornerCardmaker`: the set's own picture, which
+ * `SetArt` resolves (design D7 of add-set-management).
+ */
+export function setMascotStem(setCode: string): string {
+  return `${SET_MASCOT_PREFIX}${setCode}`
+}
 
-/** A pack key with its set or mechanic pack normalized: `standard:The End Is Nigh` → `standard:theendisnigh`. */
+/** What starts a set's Cardmaker stem. No built picture's stem starts so. */
+export const SET_MASCOT_PREFIX = 'set:'
+
+/** A key compared as set names are, so "Blessed" finds `blessed`. */
+const keyOf = (value: string) => normalize(value)
+
+/** A pack key with its mechanic pack normalized: `mechanic:Blood & Battle` → `mechanic:bloodbattle`. */
 function packKey(key: string): string {
   const colon = key.indexOf(':')
-  return colon < 0 ? key : `${key.slice(0, colon)}:${setKey(key.slice(colon + 1))}`
+  return colon < 0 ? key : `${key.slice(0, colon)}:${keyOf(key.slice(colon + 1))}`
 }
 
 /** How a stored picture's path becomes its address: `storedPictureUrl` in the app, a fake in tests. */
@@ -51,9 +66,10 @@ export function artLookup(
   }
   return {
     pictureUrl: (path) => (path === null || storedUrl === null ? null : storedUrl(path)),
-    backUrl: table(manifest.cardbacks, setKey),
+    backUrl: table(manifest.cardbacks, keyOf),
     packUrl: table(manifest.packs, packKey),
     mascotUrl: table(manifest.mascots),
+    setMascotUrl: () => null,
   }
 }
 

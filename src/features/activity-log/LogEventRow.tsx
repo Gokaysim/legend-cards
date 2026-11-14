@@ -1,4 +1,5 @@
 import { useCardsById } from '@/features/cards/cardsContext'
+import { useSetIndex } from '@/features/sets/setsContext'
 import { useTrueWords } from '@/features/true-words/trueWordsContext'
 import { RoleTag } from '@/features/users/RoleTag'
 import type { UserProfile } from '@/features/users/schema'
@@ -33,7 +34,12 @@ export type LogEventRowProps = {
  */
 export function LogEventRow({ event, nameOf, actor }: LogEventRowProps) {
   const other = useHolding(event.kind === 'transferred' ? event.missingHoldingId : null)
-  const sentence = describeEvent(event, nameOf, other.status === 'ready' ? other.data : null)
+  const { setName } = useSetIndex()
+  const sentence = describeEvent(
+    event,
+    { nameOf, setName },
+    other.status === 'ready' ? other.data : null,
+  )
   const at = event.at?.toDate() ?? null
   const cardsById = useCardsById()
   const words = useTrueWords()

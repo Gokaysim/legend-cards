@@ -8,6 +8,8 @@ import {
   type CardFilterValue,
 } from '@/features/definitions/statusFilterOptions'
 import { STATUS_LABELS } from '@/features/definitions/status'
+import type { SetIndex } from '@/features/sets/index'
+import { useSetIndex } from '@/features/sets/setsContext'
 import type { SubscriptionError } from '@/lib/firestore/errors'
 import type { Subscription } from '@/lib/firestore/subscription'
 
@@ -17,7 +19,6 @@ import type { Deck } from './cardsContext'
 import { CardTable } from './CardTable'
 import { cardHaystack, cardMatchesQuery, NO_VALUE, setLabel } from './display'
 import type { Card } from './schema'
-import { setOrder } from './sets'
 import {
   type CardSort,
   compareLabels,
@@ -42,16 +43,16 @@ function errorMessage(error: SubscriptionError): string {
 }
 
 /**
- * The set filter's options: the sets that have cards, in shop order (unknown codes after the known ones,
+ * The set filter's options: the sets that have cards, in the stored order (codes that no stored set has after them,
  * alphabetically), followed by "Blessed" when Blessed cards exist. Values are the shown labels.
  */
-function setOptions(cards: readonly Card[]): string[] {
+function setOptions(cards: readonly Card[], index: SetIndex): string[] {
   const known = new Map<string, number>()
   let hasBlessed = false
   for (const card of cards) {
     if (card.kind === 'blessed') hasBlessed = true
     else if (card.setCode !== null)
-      known.set(setLabel(card) ?? card.setCode, setOrder(card.setCode))
+      known.set(setLabel(card, index.setName) ?? card.setCode, index.setRank(card.setCode))
   }
   const sets = [...known].sort(([a, orderA], [b, orderB]) => orderA - orderB || compareLabels(a, b))
   return [...sets.map(([label]) => label), ...(hasBlessed ? ['Blessed'] : [])]
@@ -135,11 +136,16 @@ function LoadedCardBrowser({
   const [sort, setSort] = useState<CardSort>(DEFAULT_SORT)
   const deferredQuery = useDeferredValue(query)
 
+  const setIndex = useSetIndex()
+  const { setName } = setIndex
   const haystacks = useMemo(
-    () => new Map(cards.map((card) => [card.id, cardHaystack(card)])),
-    [cards],
+    () => new Map(cards.map((card) => [card.id, cardHaystack(card, setName)])),
+    [cards, setName],
   )
-  const sets = useMemo(() => (deck === 'legend' ? setOptions(cards) : []), [cards, deck])
+  const sets = useMemo(
+    () => (deck === 'legend' ? setOptions(cards, setIndex) : []),
+    [cards, deck, setIndex],
+  )
   const mechanics = useMemo(() => (deck === 'legend' ? mechanicOptions(cards) : []), [cards, deck])
 
   // Outside "Yayında", the DM sees each card's definition status before where it is.
@@ -159,12 +165,12 @@ function LoadedCardBrowser({
   const shown = useMemo(() => {
     const matching = cards.filter(
       (card) =>
-        (setFilter === ALL || setLabel(card) === setFilter) &&
+        (setFilter === ALL || setLabel(card, setName) === setFilter) &&
         (mechanicFilter === ALL || card.mechanicPack === mechanicFilter) &&
         (!isPoolOnly || status === undefined || status.byCard.get(card.id)?.inPool === true) &&
         cardMatchesQuery(haystacks.get(card.id) ?? '', deferredQuery),
     )
-    return sortCards(matching, sort, statusText)
+    return sortCards(matching, sort, statusText, setName)
   }, [
     cards,
     haystacks,
@@ -175,6 +181,7 @@ function LoadedCardBrowser({
     deferredQuery,
     sort,
     statusText,
+    setName,
   ])
 
   const changeSort = (key: SortKey) => {

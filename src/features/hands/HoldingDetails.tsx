@@ -9,6 +9,7 @@ import { ToolSection } from '@/components/ui/ToolSection'
 import { useAuth } from '@/features/auth/authContext'
 import { CardFace } from '@/features/cards/CardFace'
 import { cardFrame, type FaceGlow, faceGlow, NO_VALUE } from '@/features/cards/display'
+import { useSetIndex } from '@/features/sets/setsContext'
 import { TABLE_BUSY_NOTE } from '@/features/table/errors'
 import { TableBusyNote } from '@/features/table/TableBusyNote'
 import { useIsTableBusy } from '@/features/table/tableContext'
@@ -73,6 +74,7 @@ export type HoldingDetailsProps = {
 export function HoldingDetails({ entry, holderName, onDone, layout }: HoldingDetailsProps) {
   const { holding, card, cost, isExtraCopy } = entry
   const ids = useId()
+  const { setName } = useSetIndex()
   const auth = useAuth()
   const uid = auth.status === 'signedIn' ? auth.user.uid : null
   const isDm = useIsDm()
@@ -274,7 +276,7 @@ export function HoldingDetails({ entry, holderName, onDone, layout }: HoldingDet
 
         <div className="flex min-w-0 flex-1 flex-col gap-4">
           <ul aria-label="Kart bilgileri" className="flex flex-wrap gap-1.5">
-            {holdingInfo(card, cost).map((info) => (
+            {holdingInfo(card, cost, setName).map((info) => (
               <li key={info.label} className="max-w-full">
                 <Pill tone={info.tone} isMuted={info.isMuted}>
                   {info.label}

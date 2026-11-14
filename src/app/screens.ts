@@ -27,6 +27,7 @@ export const SCREENS = [
     icon: '▤',
     mascot: 'cardmaker_lib',
   },
+  { id: 'sets', path: '/sets', label: 'Setler', icon: '◈', mascot: null },
   {
     id: 'cursed-deck',
     path: '/cursed-deck',

@@ -7,6 +7,7 @@ import { usePartyPurse } from '@/features/balances/balancesContext'
 import { formatAmount } from '@/features/balances/format'
 import type { Card } from '@/features/cards/schema'
 import { PACK_COST_MAX } from '@/features/draws/schema'
+import { useSetIndex } from '@/features/sets/setsContext'
 import { TABLE_BUSY_NOTE } from '@/features/table/errors'
 import { useIsTableBusy } from '@/features/table/tableContext'
 import type { UserProfile } from '@/features/users/schema'
@@ -56,6 +57,7 @@ export function PackConfirmDialog({
 }: PackConfirmDialogProps) {
   const ids = useId()
   const auth = useAuth()
+  const { setName } = useSetIndex()
   const uid = auth.status === 'signedIn' ? auth.user.uid : null
   const isDm = useIsDm()
   const purse = usePartyPurse()
@@ -126,7 +128,7 @@ export function PackConfirmDialog({
   }
 
   return (
-    <Dialog title={packTitle(def)} onClose={onClose}>
+    <Dialog title={packTitle(def, setName)} onClose={onClose}>
       {/* What the pack holds, before paying, on every device (spec: pack-shop, design D10). */}
       {description === null ? null : (
         <p data-pack-description className="text-sm text-ink">

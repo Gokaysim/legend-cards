@@ -5,7 +5,8 @@
 // WebP as the picture build does, and sets each picture on its definition. It only adds: a definition with a picture,
 // or whose picture the DM removed, is left alone, so running it again adds only what is new. Targets the local
 // emulators unless --project names a real project (which must then be confirmed). The cardbacks, packs and Cardmaker
-// are left to `npm run build-art` (design D9 of upload-card-and-word-pictures).
+// are left to `npm run build-art` (design D9 of upload-card-and-word-pictures), and the sets' cardbacks and
+// Cardmakers to `npm run import-sets` (design D10 of add-set-management).
 import { readFile } from 'node:fs/promises'
 import { relative } from 'node:path'
 import { fileURLToPath } from 'node:url'

@@ -11,6 +11,7 @@ import { useCardsById } from '@/features/cards/cardsContext'
 import type { Card } from '@/features/cards/schema'
 import { FaceDownCard } from '@/features/draws/FaceDownCard'
 import { isCursedPackType, type PackOpening } from '@/features/draws/schema'
+import { useSetIndex } from '@/features/sets/setsContext'
 import { DmOnly } from '@/features/users/DmOnly'
 import { profileName, useIsDm, useProfiles } from '@/features/users/usersContext'
 import { cn } from '@/lib/cn'
@@ -41,6 +42,7 @@ export function OpenPackView() {
   const pack = useOpenPack()
   const [view, setView] = useState<ViewState | null>(null)
   const profiles = useProfiles()
+  const { setName } = useSetIndex()
 
   if (pack !== null && pack.status === 'open' && view?.packId !== pack.id) {
     // A pack this device has not seen yet: show it. Adjusting state during render re-renders at once.
@@ -59,7 +61,7 @@ export function OpenPackView() {
   if (!view.isExpanded) {
     return pack.status === 'open' ? (
       <OpenPackBanner
-        text={`${nameOf(pack.uid)} bir Pack açıyor: ${packOpeningTitle(pack)}`}
+        text={`${nameOf(pack.uid)} bir Pack açıyor: ${packOpeningTitle(pack, setName)}`}
         onShow={() => setExpanded(true)}
       />
     ) : null
@@ -102,6 +104,7 @@ function PackDialog({
   const auth = useAuth()
   const uid = auth.status === 'signedIn' ? auth.user.uid : null
   const isDm = useIsDm()
+  const { setName } = useSetIndex()
   const cardsById = useCardsById()
   const actions = usePackActions()
   const isOnline = useOnlineStatus()
@@ -194,7 +197,7 @@ function PackDialog({
   }
 
   const opener = pack.by === pack.uid ? null : nameOf(pack.by)
-  const title = `${ownerName} · ${packOpeningTitle(pack)}`
+  const title = `${ownerName} · ${packOpeningTitle(pack, setName)}`
 
   return (
     <Dialog

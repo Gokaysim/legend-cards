@@ -4,7 +4,7 @@ import { Link, useSearchParams } from 'react-router'
 import { shopScreenById } from '@/app/screens'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Spinner } from '@/components/ui/Spinner'
-import { useArt } from '@/features/art/artContext'
+import { setMascotStem, useArt } from '@/features/art/artContext'
 import type { SpeechLine } from '@/features/art/cardmakerSpeech'
 import { CardmakerSpeechProvider } from '@/features/art/CardmakerSpeechProvider'
 import { CornerCardmaker } from '@/features/art/CornerCardmaker'
@@ -12,6 +12,7 @@ import { Mascot } from '@/features/art/Mascot'
 import { useAuth } from '@/features/auth/authContext'
 import { useCards } from '@/features/cards/cardsContext'
 import type { Card } from '@/features/cards/schema'
+import { useSetIndex } from '@/features/sets/setsContext'
 import { BackToShopsLink } from '@/features/shops/BackToShopsLink'
 import { useIsTableBusy } from '@/features/table/tableContext'
 import type { UserProfile } from '@/features/users/schema'
@@ -21,7 +22,6 @@ import { useWideHover } from '@/lib/useWideHover'
 import {
   GOLDEN_GROUP_MASCOT,
   groupArtUrl,
-  groupMascotStem,
   type PackDef,
   packCatalog,
   packStatus,
@@ -100,7 +100,8 @@ function PackShop({ cards }: { cards: readonly Card[] }) {
   const isTableBusy = useIsTableBusy()
   const [params, setParams] = useSearchParams()
   const [confirming, setConfirming] = useState<PackDef | null>(null)
-  const catalog = useMemo(() => packCatalog(cards), [cards])
+  const sets = useSetIndex()
+  const catalog = useMemo(() => packCatalog(cards, sets), [cards, sets])
   const art = useArt()
   const isCorner = useWideHover()
 
@@ -126,7 +127,7 @@ function PackShop({ cards }: { cards: readonly Card[] }) {
 
   const reasonFor = (def: PackDef): string | null => {
     if (busyNote !== null) return 'Bir Pack açık: seçim bekleniyor.'
-    const status = packStatus(def, cards)
+    const status = packStatus(def, cards, sets.setName)
     return status.canOpen ? null : status.reason
   }
 
@@ -153,7 +154,7 @@ function PackShop({ cards }: { cards: readonly Card[] }) {
     ? GOLDEN_GROUP_MASCOT
     : openGroup === null
       ? null
-      : groupMascotStem(openGroup.setCode)
+      : setMascotStem(openGroup.setCode)
   const groupMascot =
     groupStem !== null && art.mascotUrl(groupStem) !== null
       ? groupStem
@@ -169,7 +170,7 @@ function PackShop({ cards }: { cards: readonly Card[] }) {
         variant={variant}
         disabledReason={reasonFor(def)}
         onOpen={setConfirming}
-        speech={variant === 'shop' ? speechOf(packTitle(def), packLine(def)) : null}
+        speech={variant === 'shop' ? speechOf(packTitle(def, sets.setName), packLine(def)) : null}
       />
     ))
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
+import { testSetName } from '@/test/setFixtures'
 
 import { cardHaystack, cardMatchesQuery, kindLabel, rarityLabel, setLabel } from './display'
 import { normalize, searchTerms, visibleText } from './text'
@@ -45,10 +46,10 @@ describe('searchTerms', () => {
 
 describe('card labels', () => {
   it('shows the official set name, "Blessed", or nothing for a Cursed card', () => {
-    expect(setLabel(testCard('A', { setCode: 'Kesqer' }))).toBe('Kesqerian Nights')
-    expect(setLabel(testCard('A', { setCode: 'Kesqeria' }))).toBe('Kesqeria')
-    expect(setLabel(testBlessedCard('B'))).toBe('Blessed')
-    expect(setLabel(testCursedCard('C'))).toBeNull()
+    expect(setLabel(testCard('A', { setCode: 'Kesqer' }), testSetName)).toBe('Kesqerian Nights')
+    expect(setLabel(testCard('A', { setCode: 'Kesqeria' }), testSetName)).toBe('Kesqeria')
+    expect(setLabel(testBlessedCard('B'), testSetName)).toBe('Blessed')
+    expect(setLabel(testCursedCard('C'), testSetName)).toBeNull()
   })
 
   it('shows Common, Rare, or nothing', () => {
@@ -66,7 +67,7 @@ describe('card labels', () => {
 
 describe('cardMatchesQuery', () => {
   const matches = (card: Parameters<typeof cardHaystack>[0], query: string) =>
-    cardMatchesQuery(cardHaystack(card), query)
+    cardMatchesQuery(cardHaystack(card, testSetName), query)
 
   const discardDraw = testCard('Greedy Hands', { text: 'Discard a card, then draw two.' })
   const discardOnly = testCard('Let Go', { text: 'Discard your hand.' })

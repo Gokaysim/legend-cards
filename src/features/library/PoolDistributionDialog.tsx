@@ -4,6 +4,7 @@ import { Dialog } from '@/components/ui/Dialog'
 import { Spinner } from '@/components/ui/Spinner'
 import { useCards } from '@/features/cards/cardsContext'
 import { type PoolShare, poolDistribution } from '@/features/cards/pool'
+import { useSetIndex } from '@/features/sets/setsContext'
 import { cn } from '@/lib/cn'
 
 /** The dot before each rarity, in the card frame colors. */
@@ -37,9 +38,10 @@ function ShareLine({ entry, dot }: { entry: PoolShare; dot?: string }) {
 export function PoolDistributionDialog({ onClose }: { onClose: () => void }) {
   const ids = useId()
   const cards = useCards()
+  const { setName } = useSetIndex()
   const distribution = useMemo(
-    () => (cards.status === 'ready' ? poolDistribution(cards.data) : null),
-    [cards],
+    () => (cards.status === 'ready' ? poolDistribution(cards.data, setName) : null),
+    [cards, setName],
   )
 
   return (

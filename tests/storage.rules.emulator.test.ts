@@ -18,6 +18,7 @@ const PROJECT_ID = 'demo-legend-cards'
 const CARD_PICTURE = 'cards/legend-abolethseyes/93e6f39a91.webp'
 const CURSED_PICTURE = 'cards/cursed-hex/0123456789.webp'
 const WORD_PICTURE = 'words/tw-abyss/abcdef0123.webp'
+const SET_PICTURE = 'sets/kesqer/0a1b2c3d4e.webp'
 const WEBP = { contentType: 'image/webp' }
 
 let testEnv: RulesTestEnvironment
@@ -86,7 +87,7 @@ beforeEach(async () => {
 })
 
 describe('the DM stores pictures', () => {
-  it.each([CARD_PICTURE, CURSED_PICTURE, WORD_PICTURE])('creates %s', async (path) => {
+  it.each([CARD_PICTURE, CURSED_PICTURE, WORD_PICTURE, SET_PICTURE])('creates %s', async (path) => {
     await assertSucceeds(put(as('dana'), path))
   })
 
@@ -99,17 +100,20 @@ describe('the DM stores pictures', () => {
     await assertSucceeds(put(as('dana'), CARD_PICTURE, bytes(1024 * 1024)))
   })
 
-  it.each([CARD_PICTURE, WORD_PICTURE])('deletes %s', async (path) => {
+  it.each([CARD_PICTURE, WORD_PICTURE, SET_PICTURE])('deletes %s', async (path) => {
     await seedFile(path)
     await assertSucceeds(as('dana').ref(path).delete())
   })
 })
 
 describe('anyone may read a picture', () => {
-  it.each([CARD_PICTURE, WORD_PICTURE])('a signed-out request reads %s', async (path) => {
-    await seedFile(path)
-    await assertSucceeds(signedOut().ref(path).getMetadata())
-  })
+  it.each([CARD_PICTURE, WORD_PICTURE, SET_PICTURE])(
+    'a signed-out request reads %s',
+    async (path) => {
+      await seedFile(path)
+      await assertSucceeds(signedOut().ref(path).getMetadata())
+    },
+  )
 
   it('a player reads a picture', async () => {
     await seedFile(CARD_PICTURE)
@@ -118,7 +122,7 @@ describe('anyone may read a picture', () => {
 })
 
 describe('everyone else is denied', () => {
-  it.each([CARD_PICTURE, WORD_PICTURE])('a player cannot store %s', async (path) => {
+  it.each([CARD_PICTURE, WORD_PICTURE, SET_PICTURE])('a player cannot store %s', async (path) => {
     await assertFails(put(as('ayla'), path))
   })
 
@@ -130,7 +134,7 @@ describe('everyone else is denied', () => {
     await assertFails(put(as('stranger'), CARD_PICTURE))
   })
 
-  it.each([CARD_PICTURE, WORD_PICTURE])('a player cannot delete %s', async (path) => {
+  it.each([CARD_PICTURE, WORD_PICTURE, SET_PICTURE])('a player cannot delete %s', async (path) => {
     await seedFile(path)
     await assertFails(as('ayla').ref(path).delete())
   })
@@ -150,6 +154,11 @@ describe('only valid picture files are stored', () => {
     await assertFails(put(as('dana'), CARD_PICTURE, bytes(1024 * 1024 + 1)))
   })
 
+  it('refuses a set picture that is a PNG or over 1 MB', async () => {
+    await assertFails(put(as('dana'), SET_PICTURE, bytes(), { contentType: 'image/png' }))
+    await assertFails(put(as('dana'), SET_PICTURE, bytes(1024 * 1024 + 1)))
+  })
+
   it.each([
     'cards/legend-abolethseyes/picture.webp',
     'cards/legend-abolethseyes/93E6F39A91.webp',
@@ -163,6 +172,8 @@ describe('only valid picture files are stored', () => {
     'cards/tw-abyss/93e6f39a91.webp',
     'cards/abolethseyes/93e6f39a91.webp',
     'words/legend-abolethseyes/93e6f39a91.webp',
+    'sets/The End/93e6f39a91.webp',
+    'sets/Kesqer/93e6f39a91.webp',
   ])('refuses the ID of %s', async (path) => {
     await assertFails(put(as('dana'), path))
   })

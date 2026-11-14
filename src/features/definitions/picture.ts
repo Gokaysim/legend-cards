@@ -39,9 +39,27 @@ export type PictureCodec = {
   encode: (file: Blob, size: PictureSize, quality: number) => Promise<Blob>
 }
 
-/** The size that fits within 563 × 788 pixels with the proportions kept. A smaller picture is never enlarged. */
-export function fitWithin({ width, height }: PictureSize): PictureSize {
-  const scale = Math.min(1, PICTURE_WIDTH / width, PICTURE_HEIGHT / height)
+/** The box a prepared picture must fit in. */
+export type PictureBox = PictureSize
+
+/** A card's, True Word's or cardback's box: the card picture's size. */
+export const CARD_PICTURE_BOX: PictureBox = { width: PICTURE_WIDTH, height: PICTURE_HEIGHT }
+
+/**
+ * A Cardmaker's box: at most 480 pixels high, as the picture build shrinks her (spec: card-sets, "Preparing a set
+ * picture"). Her width only follows her height.
+ */
+export const CARDMAKER_PICTURE_BOX: PictureBox = { width: Number.POSITIVE_INFINITY, height: 480 }
+
+/**
+ * The size that fits within `box` (563 × 788 pixels by default) with the proportions kept. A smaller picture is never
+ * enlarged.
+ */
+export function fitWithin(
+  { width, height }: PictureSize,
+  box: PictureBox = CARD_PICTURE_BOX,
+): PictureSize {
+  const scale = Math.min(1, box.width / width, box.height / height)
   return {
     width: Math.max(1, Math.round(width * scale)),
     height: Math.max(1, Math.round(height * scale)),
@@ -95,6 +113,7 @@ function canPrepare(): boolean {
 export async function preparePicture(
   file: Blob,
   codec: PictureCodec = browserCodec,
+  box: PictureBox = CARD_PICTURE_BOX,
 ): Promise<PreparedPicture> {
   if (!(PICTURE_INPUT_TYPES as readonly string[]).includes(file.type)) throw new PictureTypeError()
   if (file.size > PICTURE_INPUT_MAX_BYTES) throw new PictureTooLargeError('file')
@@ -106,7 +125,7 @@ export async function preparePicture(
   } catch {
     throw new PictureUnreadableError()
   }
-  const size = fitWithin(natural)
+  const size = fitWithin(natural, box)
   const blob = await codec.encode(file, size, PICTURE_QUALITY)
   // A browser that cannot encode WebP answers with a PNG instead (Safari).
   if (blob.type !== 'image/webp') throw new PictureUnsupportedError()

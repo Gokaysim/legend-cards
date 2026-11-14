@@ -10,8 +10,9 @@ import {
   missingCardFields,
   type Rarity,
 } from '@/features/cards/schema'
-import { MECHANIC_PACKS, OFFICIAL_SETS } from '@/features/cards/sets'
+import { MECHANIC_PACKS } from '@/features/cards/mechanicPacks'
 import { normalize } from '@/features/cards/text'
+import { useSetIndex } from '@/features/sets/setsContext'
 import { useOnlineStatus } from '@/lib/useOnlineStatus'
 
 import { type CardFields, deckOfKind, isNameTaken } from './api'
@@ -116,6 +117,7 @@ export type CardFormDialogProps = {
 export function CardFormDialog({ deck, cardId, onClose }: CardFormDialogProps) {
   const ids = useId()
   const auth = useAuth()
+  const { sets } = useSetIndex()
   const uid = auth.status === 'signedIn' ? auth.user.uid : ''
   const actions = useDefinitionActions()
   const cardsById = useCardsById()
@@ -165,7 +167,7 @@ export function CardFormDialog({ deck, cardId, onClose }: CardFormDialogProps) {
   const missing = missingCardFields(fields).map((field) => MISSING_LABELS[field])
 
   const setOptions = withCurrent(
-    OFFICIAL_SETS.map((officialSet) => ({ value: officialSet.code, label: officialSet.name })),
+    sets.map((set) => ({ value: set.code, label: set.name })),
     values.setCode,
   )
   const packOptions = withCurrent(

@@ -1,13 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
 
-import {
-  isKnownMechanicPack,
-  isKnownSetCode,
-  MECHANIC_PACKS,
-  normalize,
-  OFFICIAL_SETS,
-} from './cardCatalog.ts'
+import { isKnownMechanicPack, MECHANIC_PACKS, normalize } from './cardCatalog.ts'
 
 describe('normalize', () => {
   it.each([
@@ -27,36 +21,6 @@ describe('normalize', () => {
 
   it('leaves nothing of a name without letters or digits', () => {
     expect(normalize('— ?!')).toBe('')
-  })
-})
-
-describe('official sets', () => {
-  it('lists twelve sets in shop order, with Pandemonium last', () => {
-    expect(OFFICIAL_SETS.map((set) => set.code)).toEqual([
-      'The End is Nigh',
-      'Pentagon',
-      'Rhodelen',
-      'Ashavir',
-      'Kesqer',
-      'Godtower',
-      'Davarron',
-      'Havenholm',
-      'Ulagal',
-      'Nordhallr',
-      'Gurgitea',
-      'Pandemonium',
-    ])
-  })
-
-  it.each(['The End Is Nigh', 'endisnigh', 'Ragnarök', 'ragnarok', 'KESQER', 'Pandemonium'])(
-    'knows %j',
-    (code) => {
-      expect(isKnownSetCode(code)).toBe(true)
-    },
-  )
-
-  it.each(['Kesqeria', 'Blessed', 'Cursed', ''])('does not know %j', (code) => {
-    expect(isKnownSetCode(code)).toBe(false)
   })
 })
 

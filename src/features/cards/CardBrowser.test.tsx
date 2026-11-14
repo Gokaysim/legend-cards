@@ -4,11 +4,15 @@ import { useState } from 'react'
 import { describe, expect, it } from 'vitest'
 
 import { type CardFilterValue, filterCards } from '@/features/definitions/statusFilterOptions'
+import type { CardSet } from '@/features/sets/schema'
 import type { Subscription } from '@/lib/firestore/subscription'
 import { testPicturePath, testPictureUrl } from '@/test/artFixtures'
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 import { ready } from '@/test/fixtures'
 import { TestArtProvider } from '@/test/TestArtProvider'
+import { renderWithSets } from '@/test/renderWithSets'
+import { TEST_SETS } from '@/test/setFixtures'
+import { TestSetsProvider } from '@/test/TestSetsProvider'
 
 import { CardBrowser } from './CardBrowser'
 import type { Card } from './schema'
@@ -62,12 +66,12 @@ const search = () => screen.getByRole('searchbox', { name: 'Kart ara' })
 
 describe('CardBrowser states', () => {
   it('shows a loading indicator while the cards load', () => {
-    render(<CardBrowser deck="legend" cards={{ status: 'loading' }} />)
+    renderWithSets(<CardBrowser deck="legend" cards={{ status: 'loading' }} />)
     expect(screen.getByRole('status')).toHaveTextContent('Kartlar yükleniyor…')
   })
 
   it('shows a Turkish error and no list when the cards cannot be read', () => {
-    render(
+    renderWithSets(
       <CardBrowser
         deck="cursed"
         cards={{
@@ -81,7 +85,7 @@ describe('CardBrowser states', () => {
   })
 
   it('points to the import when the stored data is invalid', () => {
-    render(
+    renderWithSets(
       <CardBrowser
         deck="legend"
         cards={{
@@ -94,7 +98,7 @@ describe('CardBrowser states', () => {
   })
 
   it('says so when there are no cards at all', () => {
-    render(<CardBrowser deck="cursed" cards={ready([])} />)
+    renderWithSets(<CardBrowser deck="cursed" cards={ready([])} />)
     expect(screen.getByText('Henüz kart yok.')).toBeInTheDocument()
     expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
   })
@@ -102,7 +106,7 @@ describe('CardBrowser states', () => {
 
 describe('CardBrowser for the Legend deck', () => {
   it('lists every card in name order and says how many it shows', () => {
-    render(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
+    renderWithSets(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
 
     expect(screen.getByText('8 kart')).toBeInTheDocument()
     expect(shownNames()).toEqual([
@@ -118,7 +122,7 @@ describe('CardBrowser for the Legend deck', () => {
   })
 
   it('lays the card view out as a deck of tilting faces, every few at a slight angle', () => {
-    render(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
+    renderWithSets(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
 
     const list = screen.getByRole('list', { name: 'Kartlar' })
     expect(list).toHaveAttribute('data-deck', 'library')
@@ -130,7 +134,7 @@ describe('CardBrowser for the Legend deck', () => {
 
   it('needs every comma-separated term to match, and counts the matches', async () => {
     const user = userEvent.setup()
-    render(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
+    renderWithSets(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
 
     await user.type(search(), 'discard, draw')
 
@@ -140,7 +144,7 @@ describe('CardBrowser for the Legend deck', () => {
 
   it('ignores accents and case', async () => {
     const user = userEvent.setup()
-    render(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
+    renderWithSets(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
 
     await user.type(search(), 'BRUNN')
 
@@ -149,7 +153,7 @@ describe('CardBrowser for the Legend deck', () => {
 
   it('finds cards by the official set name', async () => {
     const user = userEvent.setup()
-    render(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
+    renderWithSets(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
 
     await user.type(search(), 'Kesqerian')
 
@@ -158,7 +162,7 @@ describe('CardBrowser for the Legend deck', () => {
 
   it('hides bracket text but still finds it', async () => {
     const user = userEvent.setup()
-    render(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
+    renderWithSets(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
 
     expect(screen.getByRole('article', { name: "Hrolf's Hornswaggle" })).toHaveTextContent(
       'Add +10 a d20 roll. If this is your only card, add +20.',
@@ -171,7 +175,7 @@ describe('CardBrowser for the Legend deck', () => {
 
   it('says so when nothing matches', async () => {
     const user = userEvent.setup()
-    render(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
+    renderWithSets(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
 
     await user.type(search(), 'no such card anywhere')
 
@@ -181,7 +185,7 @@ describe('CardBrowser for the Legend deck', () => {
   })
 
   it('offers the sets in shop order with official names, Pandemonium last among sets, then Blessed', () => {
-    render(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
+    renderWithSets(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
     expect(options('Set')).toEqual([
       'Tüm setler',
       'The End is Nigh',
@@ -193,8 +197,33 @@ describe('CardBrowser for the Legend deck', () => {
     ])
   })
 
+  it('follows the stored order live, and shows a renamed set by its new name', () => {
+    const tree = (sets: readonly CardSet[]) => (
+      <TestSetsProvider sets={ready([...sets])}>
+        <CardBrowser deck="legend" cards={ready(LEGEND)} />
+      </TestSetsProvider>
+    )
+    const view = render(tree(TEST_SETS))
+    view.rerender(
+      tree(
+        TEST_SETS.map((set) =>
+          set.code === 'Ulagal' ? { ...set, position: 7, name: 'The Ballad of Ulagal' } : set,
+        ),
+      ),
+    )
+    expect(options('Set')).toEqual([
+      'Tüm setler',
+      'The End is Nigh',
+      'Kesqerian Nights',
+      'The Ballad of Ulagal',
+      'Throne of Havenholm',
+      'Pandemonium',
+      'Blessed',
+    ])
+  })
+
   it('puts a set code without an official name after the known sets, as written', () => {
-    render(
+    renderWithSets(
       <CardBrowser
         deck="legend"
         cards={ready([
@@ -207,7 +236,7 @@ describe('CardBrowser for the Legend deck', () => {
   })
 
   it('offers the mechanic packs in Turkish alphabetical order', () => {
-    render(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
+    renderWithSets(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
     expect(options('Mechanic Pack')).toEqual([
       'Tüm mechanicler',
       'Arcanus Divine',
@@ -221,7 +250,7 @@ describe('CardBrowser for the Legend deck', () => {
 
   it('filters by set, and shows only the Blessed cards for "Blessed"', async () => {
     const user = userEvent.setup()
-    render(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
+    renderWithSets(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
 
     await user.selectOptions(screen.getByRole('combobox', { name: 'Set' }), 'Throne of Havenholm')
     expect(shownNames()).toEqual(["Hrolf's Hornswaggle", 'Let Go'])
@@ -233,7 +262,7 @@ describe('CardBrowser for the Legend deck', () => {
 
   it('combines the set filter, the mechanic pack filter and the search', async () => {
     const user = userEvent.setup()
-    render(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
+    renderWithSets(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
 
     await user.selectOptions(
       screen.getByRole('combobox', { name: 'Mechanic Pack' }),
@@ -250,7 +279,7 @@ describe('CardBrowser for the Legend deck', () => {
 
   it('switches to the list view with the same search and filters, and back', async () => {
     const user = userEvent.setup()
-    render(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
+    renderWithSets(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
 
     await user.type(search(), 'discard')
     expect(screen.getByRole('button', { name: '▦ Kartlar' })).toHaveAttribute(
@@ -274,7 +303,7 @@ describe('CardBrowser for the Legend deck', () => {
 
   it('gives every card face a magnifier, and no row of the list view', async () => {
     const user = userEvent.setup()
-    render(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
+    renderWithSets(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
 
     expect(
       screen
@@ -288,7 +317,7 @@ describe('CardBrowser for the Legend deck', () => {
   })
 
   it('shows a card added while the screen is open', () => {
-    const { rerender } = render(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
+    const { rerender } = renderWithSets(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
 
     rerender(<CardBrowser deck="legend" cards={ready([...LEGEND, testCard('Fresh Import')])} />)
 
@@ -301,7 +330,7 @@ describe('CardBrowser for the Cursed deck', () => {
   const cursed: Subscription<Card[]> = ready(CURSED)
 
   it('lists the Cursed cards with their count, and offers no set or mechanic pack filter', () => {
-    render(<CardBrowser deck="cursed" cards={cursed} />)
+    renderWithSets(<CardBrowser deck="cursed" cards={cursed} />)
 
     expect(screen.getByText('2 kart')).toBeInTheDocument()
     expect(shownNames()).toEqual(['Heart Attack', 'Visions of Death'])
@@ -315,7 +344,7 @@ describe('CardBrowser for the Cursed deck', () => {
     const withPicture = CURSED.map((card) =>
       card.id === 'cursed-visionsofdeath' ? { ...card, picture } : card,
     )
-    render(
+    renderWithSets(
       <TestArtProvider>
         <CardBrowser deck="cursed" cards={ready(withPicture)} />
       </TestArtProvider>,
@@ -331,7 +360,7 @@ describe('CardBrowser for the Cursed deck', () => {
 
   it('searches and shows the Kart, Cost, Metin and Durum columns in the list view', async () => {
     const user = userEvent.setup()
-    render(<CardBrowser deck="cursed" cards={cursed} />)
+    renderWithSets(<CardBrowser deck="cursed" cards={cursed} />)
 
     await user.type(search(), 'hour')
     await user.click(screen.getByRole('button', { name: '☷ Liste' }))
@@ -381,7 +410,7 @@ describe('CardBrowser pool status', () => {
 
   it('shows a held card as "Elde" with its holder, and marks its face', async () => {
     const user = userEvent.setup()
-    render(
+    renderWithSets(
       <CardBrowser
         deck="legend"
         cards={ready(LEGEND)}
@@ -404,7 +433,7 @@ describe('CardBrowser pool status', () => {
   })
 
   it('shows a card back in the pool without a reload, with a higher pool count', () => {
-    const { rerender } = render(
+    const { rerender } = renderWithSets(
       <CardBrowser
         deck="legend"
         cards={ready(LEGEND)}
@@ -427,7 +456,7 @@ describe('CardBrowser pool status', () => {
 
   it('shows a Blessed card in a hand as "Havuzda · Elde", without marking its face', async () => {
     const user = userEvent.setup()
-    render(
+    renderWithSets(
       <CardBrowser
         deck="legend"
         cards={ready(LEGEND)}
@@ -442,7 +471,7 @@ describe('CardBrowser pool status', () => {
 
   it('lists only the pool with "Yalnızca havuzdakiler", combined with the search', async () => {
     const user = userEvent.setup()
-    render(
+    renderWithSets(
       <CardBrowser
         deck="legend"
         cards={ready(LEGEND)}
@@ -462,7 +491,7 @@ describe('CardBrowser pool status', () => {
   })
 
   it('offers the pool-only filter only once the status is known, and not on the Cursed Deck', () => {
-    const { rerender } = render(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
+    const { rerender } = renderWithSets(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
     expect(screen.getByRole('checkbox', { name: 'Yalnızca havuzdakiler' })).toBeDisabled()
     expect(screen.queryByLabelText('Havuz durumu')).not.toBeInTheDocument()
 
@@ -473,7 +502,7 @@ describe('CardBrowser pool status', () => {
 
   it('shows everyone who holds a Cursed card, on its face and in the Durum column', async () => {
     const user = userEvent.setup()
-    render(
+    renderWithSets(
       <CardBrowser
         deck="cursed"
         cards={ready(CURSED)}
@@ -519,7 +548,7 @@ describe('CardBrowser for the DM: the status filter and the edit control', () =>
 
   it('starts at "Yayında" with the active cards, and lists the drafts or the retired cards on demand', async () => {
     const user = userEvent.setup()
-    render(<DmBrowser />)
+    renderWithSets(<DmBrowser />)
 
     expect(options('Durum')).toEqual(['Yayında', 'Taslak', 'Kaldırıldı', "DM'e özel", 'Hepsi'])
     expect(screen.getByRole('combobox', { name: 'Durum' })).toHaveValue('active')
@@ -538,7 +567,7 @@ describe('CardBrowser for the DM: the status filter and the edit control', () =>
 
   it('lists the DM-only cards of every status under "DM\'e özel", each marked', async () => {
     const user = userEvent.setup()
-    render(<DmBrowser />)
+    renderWithSets(<DmBrowser />)
     // "Yayında" keeps the active DM-only card, marked.
     expect(shownNames()).toContain('The Last Wish')
     expect(screen.getByRole('article', { name: 'The Last Wish' })).toHaveTextContent('🔒 DM')
@@ -551,7 +580,7 @@ describe('CardBrowser for the DM: the status filter and the edit control', () =>
 
   it('combines the status filter with the search', async () => {
     const user = userEvent.setup()
-    render(<DmBrowser />)
+    renderWithSets(<DmBrowser />)
     await user.selectOptions(screen.getByRole('combobox', { name: 'Durum' }), 'all')
     await user.type(search(), 'aboleth')
     expect(shownNames()).toEqual(['Old Aboleth'])
@@ -559,7 +588,7 @@ describe('CardBrowser for the DM: the status filter and the edit control', () =>
 
   it('shows a retired card in a hand as "Kaldırıldı · Elde: Ayla"', async () => {
     const user = userEvent.setup()
-    render(<DmBrowser />)
+    renderWithSets(<DmBrowser />)
     await user.selectOptions(screen.getByRole('combobox', { name: 'Durum' }), 'retired')
     expect(screen.getByRole('article', { name: 'Old Aboleth' })).toHaveTextContent('Kaldırıldı')
 
@@ -580,7 +609,7 @@ describe('CardBrowser for the DM: the status filter and the edit control', () =>
         />
       )
     }
-    render(<Empty />)
+    renderWithSets(<Empty />)
     expect(screen.getByText('Kart bulunamadı.')).toBeInTheDocument()
     await user.selectOptions(screen.getByRole('combobox', { name: 'Durum' }), 'active')
     expect(shownNames()).toHaveLength(2)
@@ -589,7 +618,7 @@ describe('CardBrowser for the DM: the status filter and the edit control', () =>
   it('opens the edit form from a face and from a list row', async () => {
     const user = userEvent.setup()
     const edited: string[] = []
-    render(<DmBrowser onEdit={(card) => edited.push(card.name)} />)
+    renderWithSets(<DmBrowser onEdit={(card) => edited.push(card.name)} />)
 
     await user.click(screen.getByRole('button', { name: 'Let Go: düzenle' }))
     await user.click(screen.getByRole('button', { name: '☷ Liste' }))
@@ -598,7 +627,7 @@ describe('CardBrowser for the DM: the status filter and the edit control', () =>
   })
 
   it('shows a player no status filter and no edit control', () => {
-    render(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
+    renderWithSets(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
     expect(screen.queryByRole('combobox', { name: 'Durum' })).toBeNull()
     expect(screen.queryByRole('button', { name: /düzenle/ })).toBeNull()
   })

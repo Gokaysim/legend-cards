@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Card } from '@/features/cards/schema'
+import type { CardSet } from '@/features/sets/schema'
 import { testPicturePath, testPictureUrl } from '@/test/artFixtures'
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 import { ready, testUser } from '@/test/fixtures'
@@ -10,6 +11,8 @@ import { TestArtProvider } from '@/test/TestArtProvider'
 import { TestAuthProvider } from '@/test/TestAuthProvider'
 import { TestCardsProvider } from '@/test/TestCardsProvider'
 import { TestDefinitionsProvider } from '@/test/TestDefinitionsProvider'
+import { TEST_SETS, testSet } from '@/test/setFixtures'
+import { TestSetsProvider } from '@/test/TestSetsProvider'
 import { TestTableProvider } from '@/test/TestTableProvider'
 
 import type { CardFields } from './api'
@@ -20,7 +23,9 @@ import type * as PictureModule from './picture'
 import type { PreparedPicture } from './picture'
 
 // jsdom has no canvas: the form's picture preparation is a fake here, and object URLs are made up.
-const preparePicture = vi.hoisted(() => vi.fn<(file: Blob) => Promise<PreparedPicture>>())
+const preparePicture = vi.hoisted(() =>
+  vi.fn<(file: Blob, ...rest: unknown[]) => Promise<PreparedPicture>>(),
+)
 vi.mock('./picture', async (importOriginal) => ({
   ...(await importOriginal<typeof PictureModule>()),
   preparePicture,
@@ -62,12 +67,14 @@ function setup({
   cards = CARDS,
   openPackId = null,
   actions = {},
+  sets = TEST_SETS,
 }: {
   deck?: 'legend' | 'cursed'
   cardId?: string | null
   cards?: Card[]
   openPackId?: string | null
   actions?: Partial<DefinitionActions>
+  sets?: readonly CardSet[]
 } = {}) {
   const user = userEvent.setup()
   const fakes = {
@@ -81,13 +88,15 @@ function setup({
   const tree = (current: Card[]) => (
     <TestAuthProvider state={{ status: 'signedIn', user: testUser }}>
       <TestArtProvider>
-        <TestCardsProvider cards={ready(current)}>
-          <TestTableProvider openPackId={openPackId}>
-            <TestDefinitionsProvider actions={fakes}>
-              <CardFormDialog deck={deck} cardId={cardId} onClose={onClose} />
-            </TestDefinitionsProvider>
-          </TestTableProvider>
-        </TestCardsProvider>
+        <TestSetsProvider sets={ready([...sets])}>
+          <TestCardsProvider cards={ready(current)}>
+            <TestTableProvider openPackId={openPackId}>
+              <TestDefinitionsProvider actions={fakes}>
+                <CardFormDialog deck={deck} cardId={cardId} onClose={onClose} />
+              </TestDefinitionsProvider>
+            </TestTableProvider>
+          </TestCardsProvider>
+        </TestSetsProvider>
       </TestArtProvider>
     </TestAuthProvider>
   )
@@ -174,6 +183,22 @@ describe('CardFormDialog: adding', () => {
       'Rituals in Rhodelen',
     ])
     expect(sets.at(-1)).toBe('Pandemonium')
+  })
+
+  it('offers a set added on the Setler screen last, and stores its code', async () => {
+    const { user, fakes } = setup({
+      sets: [...TEST_SETS, testSet('Zaddir', 'Tower of Zaddir', 13)],
+    })
+    const options = within(field('Set'))
+      .getAllByRole('option')
+      .map((option) => option.textContent)
+    expect(options.at(-1)).toBe('Tower of Zaddir')
+    await user.type(field('Kart adı'), 'Spire Guard')
+    await user.selectOptions(field('Set'), 'Tower of Zaddir')
+    await user.click(button('Kaydet'))
+    expect(fakes.addCard).toHaveBeenCalledWith(
+      expect.objectContaining({ fields: fieldsWith({ setCode: 'Zaddir' }) }),
+    )
   })
 
   it('makes a Blessed card without a set or a rarity', async () => {
@@ -363,6 +388,8 @@ describe('CardFormDialog: the picture', () => {
 
     expect(preparePicture).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'bardsencore.png' }),
+      undefined,
+      { width: 563, height: 788 },
     )
     expect(preview("Bard's Song")).toHaveAttribute('src', 'blob:preview')
     expect(dialog().getByText('Kaydedince bu resim yüklenir.')).toBeVisible()

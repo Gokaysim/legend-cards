@@ -1,7 +1,8 @@
 // @vitest-environment node
 // Plans the file names of the owner's archives against the repository's data and alias table, so a change to
-// either shows here before a build or a picture import (design D3, the expected coverage). The build plans the assets;
-// the picture import plans the cards and words, here against the definitions the repository's files would store.
+// either shows here before a build or an import (design D3, the expected coverage). The build plans the assets; the set
+// import plans the sets' pictures, here against the sets `data/sets.csv` would store; the picture import plans the
+// cards and words, here against the definitions the repository's files would store.
 import { readFileSync } from 'node:fs'
 
 import { describe, expect, it } from 'vitest'
@@ -15,16 +16,26 @@ import {
 } from './artFiles.ts'
 import { ART_INVENTORY } from './artInventory.fixture.ts'
 import { parseCardFile } from './cardRows.ts'
+import { setIdOf } from './importSets.ts'
+import { parseSetFile } from './setRows.ts'
 import { parseTrueWordFile } from './trueWordRows.ts'
 
 const dataFile = (name: string) =>
   readFileSync(new URL(`../../data/${name}`, import.meta.url), 'utf8')
 
-const DATA: ArtData = definitionsOfRows(
-  parseCardFile(dataFile('legend-cards.csv'), 'legend').cards.map(({ card }) => card),
-  parseCardFile(dataFile('cursed-cards.csv'), 'cursed').cards.map(({ card }) => card),
-  parseTrueWordFile(dataFile('true-words.csv')).words.map(({ word }) => word),
-)
+const DATA: ArtData = {
+  ...definitionsOfRows(
+    parseCardFile(dataFile('legend-cards.csv'), 'legend').cards.map(({ card }) => card),
+    parseCardFile(dataFile('cursed-cards.csv'), 'cursed').cards.map(({ card }) => card),
+    parseTrueWordFile(dataFile('true-words.csv')).words.map(({ word }) => word),
+  ),
+  sets: parseSetFile(dataFile('sets.csv')).sets.map(({ code, name, aliases }) => ({
+    setId: setIdOf(code),
+    code,
+    name,
+    aliases,
+  })),
+}
 
 const FILES = Object.entries(ART_INVENTORY).flatMap(([archive, names]) =>
   names.map((name) => ({ name, archive })),
@@ -33,13 +44,17 @@ const FILES = Object.entries(ART_INVENTORY).flatMap(([archive, names]) =>
 describe('the inventory of the archives', () => {
   const ALIASES = dataFile('image-aliases.csv')
   const assetAliases = readAliases(ALIASES, NO_DEFINITIONS, 'assets')
+  const setAliases = readAliases(ALIASES, DATA, 'sets')
   const definitionAliases = readAliases(ALIASES, DATA, 'definitions')
   const assets = planArt(FILES, NO_DEFINITIONS, assetAliases.aliases, 'assets')
+  const sets = planArt(FILES, DATA, setAliases.aliases, 'sets')
   const plan = planArt(FILES, DATA, definitionAliases.aliases, 'definitions')
 
   it('has 866 files, and every alias row names something that exists', () => {
     expect(FILES).toHaveLength(866)
+    expect(DATA.sets).toHaveLength(12)
     expect(assetAliases.errors).toEqual([])
+    expect(setAliases.errors).toEqual([])
     expect(definitionAliases.errors).toEqual([])
     expect(definitionAliases.aliases).toHaveLength(17)
   })
@@ -54,24 +69,31 @@ describe('the inventory of the archives', () => {
     expect(word).toEqual({ expected: 53, found: 53, missing: [] })
   })
 
-  it('gives every cardback and pack a picture', () => {
-    expect(assets.coverage.back).toEqual({ expected: 14, found: 14, missing: [] })
+  it('gives the Blessed and Cursed cardbacks and every pack a picture', () => {
+    expect(assets.coverage.back).toEqual({ expected: 2, found: 2, missing: [] })
     expect(assets.coverage.pack).toEqual({ expected: 10, found: 10, missing: [] })
   })
 
-  it('splits the files between the two scripts', () => {
+  it('gives each of the 12 sets its cardback and its Cardmaker', () => {
+    expect(sets.coverage.setBack).toEqual({ expected: 12, found: 12, missing: [] })
+    expect(sets.coverage.setMascot).toEqual({ expected: 12, found: 12, missing: [] })
+    expect(sets.unknown).toEqual([])
+  })
+
+  it('splits the files between the three scripts', () => {
     expect(assets.assignments.length + assets.skipped.length).toBe(FILES.length)
-    expect(plan.skipped.length).toBe(assets.assignments.length + assets.duplicates.length)
+    expect(assets.leftTo.sets).toHaveLength(24)
+    expect(sets.assignments.length + sets.duplicates.length + sets.unknown.length).toBe(
+      assets.leftTo.sets.length,
+    )
+    expect(plan.leftTo.assets.length).toBe(assets.assignments.length + assets.duplicates.length)
+    expect(plan.leftTo.sets).toEqual(assets.leftTo.sets)
   })
 
-  it('has no set pack pictures, so set packs show their cardback', () => {
-    expect(assets.coverage.setPack).toEqual({ expected: 0, found: 0, missing: [] })
-  })
-
-  it('has 24 of the 27 Cardmakers', () => {
+  it("has 12 of the 15 screens' Cardmakers", () => {
     expect(assets.coverage.mascot).toEqual({
-      expected: 27,
-      found: 24,
+      expected: 15,
+      found: 12,
       missing: ['card_info', 'cardmaker_custom', 'cardmaker_keep'],
     })
   })
@@ -91,6 +113,7 @@ describe('the inventory of the archives', () => {
   it('has no duplicates: the misspelled copies without an alias are unknown', () => {
     expect(plan.duplicates).toEqual([])
     expect(assets.duplicates).toEqual([])
+    expect(sets.duplicates).toEqual([])
     expect(plan.unknown.map(({ name }) => name)).toEqual([
       '_cursed_endgame.png',
       'alazizsurpiseattack.png',
