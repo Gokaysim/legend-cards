@@ -19,6 +19,8 @@ export type CharacterFormDialogProps = {
   /** The character to edit, or `null` to add one. */
   character: Character | null
   onClose: () => void
+  /** Called for a new character when the form saves it, just before it closes. */
+  onSaved?: () => void
   /** Reports a failure that arrives after the form closed: a write without a new photo does not wait for the server. */
   onLateFailure: (failure: CharacterFailure) => void
 }
@@ -32,6 +34,7 @@ export function CharacterFormDialog({
   uid,
   character,
   onClose,
+  onSaved,
   onLateFailure,
 }: CharacterFormDialogProps) {
   const ids = useId()
@@ -58,6 +61,7 @@ export function CharacterFormDialog({
     }
     if (photo.kind !== 'new') {
       step().catch((error: unknown) => onLateFailure(toCharacterFailure(error)))
+      if (character === null) onSaved?.()
       onClose()
       return
     }
@@ -68,6 +72,7 @@ export function CharacterFormDialog({
     setIsWorking(true)
     try {
       await step()
+      if (character === null) onSaved?.()
       onClose()
     } catch (error) {
       setFailure(toCharacterFailure(error))

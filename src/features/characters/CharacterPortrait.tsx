@@ -8,14 +8,14 @@ import type { Character } from './schema'
 export type CharacterPortraitProps = {
   character: Pick<Character, 'name' | 'picture'>
   className?: string
-  /** The initial's size: large in a tile or the details, small in a list row. */
+  /** The initial's size: large in the selected character's view, small in a character tab or a list row. */
   size?: 'large' | 'small'
   /** `true` where the name stands right beside it, in the same control: the photo then has no alternative text. */
   isDecorative?: boolean
 }
 
 /**
- * A character's 3:4 frame (spec: characters, "Character tiles"): its photo, or the first letter of its name when it has
+ * A character's 3:4 frame (spec: characters, "Character tabs"): its photo, or the first letter of its name when it has
  * none or the photo cannot be loaded. The photo's alternative text is the name, or none where the name is part of the
  * same control. The letter is hidden from screen readers.
  */

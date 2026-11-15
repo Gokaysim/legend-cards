@@ -5,7 +5,7 @@ import { useAuth } from '@/features/auth/authContext'
 import type { UserProfile } from '@/features/users/schema'
 import { profileName, useIsDm, useProfiles } from '@/features/users/usersContext'
 
-import { CharacterDetails, CharacterDialog } from './CharacterDetails'
+import { CharacterDetails } from './CharacterDetails'
 import { CharacterEffectsList } from './CharacterEffectsList'
 import { CharacterFormDialog } from './CharacterFormDialog'
 import {
@@ -22,9 +22,6 @@ import type { CharacterEffect } from './effects'
 import type { HeldEffect } from './heldEffects'
 import type { Character } from './schema'
 
-/** A selected character, with the layout it was selected in, as the hand's card and word selections keep it. */
-type Selection = { id: string; isWide: boolean }
-
 /** The form that is open: a new character, the one being edited, or a new effect on a character. */
 type Form =
   | { kind: 'add' }
@@ -32,23 +29,20 @@ type Form =
   | { kind: 'effect'; character: Character }
 
 export type HandCharacters = {
-  /** The tab's content. */
+  /** The tab's content: the character tabs with the selected character's view under them. */
   content: ReactNode
-  /** The selected character's details, for the panel beside the tab on a wide window, or `null` for none. */
-  selected: { name: string; details: ReactNode } | null
-  /** The dialogs: the form, and on a narrow window the selected character's details. */
+  /** The dialogs: the character form and the effect form. */
   overlays: ReactNode
 }
 
 /**
- * The state of a hand's Karakterler tab (spec: characters, character-effects): its tiles with their effect counts, the
- * selected character with its active effects, the forms, and a failure that arrived after a form closed. `held` is
- * what the user's hand puts on every one of their characters (design D6 of add-character-effects). The hand screen
- * places the parts: the content in the tab, the details in its side panel on a wide window, and the dialogs.
+ * The state of a hand's Karakterler tab (spec: characters, character-effects): its character tabs with their effect
+ * counts, the selected character's view with its active effects, the forms, and a failure that arrived after a form
+ * closed. `held` is what the user's hand puts on every one of their characters (design D6 of add-character-effects).
+ * The view shows in the tab on every window width (design D3 of redesign-characters-tab).
  */
 export function useHandCharacters(
   profile: UserProfile,
-  isWide: boolean,
   held: readonly HeldEffect[] = [],
 ): HandCharacters {
   const auth = useAuth()
@@ -57,22 +51,29 @@ export function useHandCharacters(
   const allEffects = useCharacterEffects()
   const profiles = useProfiles()
   const actions = useCharacterActions()
-  const [selection, setSelection] = useState<Selection | null>(null)
+  const [selection, setSelection] = useState<string | null>(null)
+  /** The active characters when an add was saved: the first other one to show becomes the selection (design D4). */
+  const [pendingAdd, setPendingAdd] = useState<ReadonlySet<string> | null>(null)
   const [form, setForm] = useState<Form | null>(null)
   const [failure, setFailure] = useState<CharacterFailure | null>(null)
   /** A failed effect step, shown with the effects, which may be in a dialog. */
   const [effectFailure, setEffectFailure] = useState<CharacterFailure | null>(null)
-  // Crossing 1024 px clears a selection made in the other layout, so no dialog opens by itself.
-  if (selection !== null && selection.isWide !== isWide) setSelection(null)
-
   const ownerName = profileName(profile)
   const me = auth.status === 'signedIn' ? auth.user.uid : null
   const canEdit = isDm || me === profile.id
   const all = characters.status === 'ready' ? characters.data : []
   const active = charactersOf(all, profile.id)
   const archived = charactersOf(all, profile.id, { archived: true })
-  // A character archived, here or on another device, closes its details.
-  const selected = active.find((character) => character.id === selection?.id) ?? null
+  // A character just added becomes the selection once it shows, offline at once (design D4).
+  const added =
+    pendingAdd === null ? undefined : active.find((character) => !pendingAdd.has(character.id))
+  if (added !== undefined) {
+    setPendingAdd(null)
+    setSelection(added.id)
+  }
+  // Without a selection, or once the selected one is archived here or on another device, the first character shows.
+  const selected =
+    active.find((character) => character.id === (added?.id ?? selection)) ?? active[0] ?? null
 
   const effects = allEffects.status === 'ready' ? allEffects.data : []
   const effectCounts = new Map(
@@ -100,7 +101,6 @@ export function useHandCharacters(
   const report = (error: unknown) => setFailure(toCharacterFailure(error))
   const archive = (character: Character) => {
     setFailure(null)
-    setSelection(null)
     actions.setCharacterArchived(character.id, true).catch(report)
   }
   const restore = (character: Character) => {
@@ -160,13 +160,14 @@ export function useHandCharacters(
           effectCounts={effectCounts}
           archived={archived}
           canEdit={canEdit}
-          selectedId={isWide ? (selected?.id ?? null) : null}
-          onSelect={(id) => setSelection({ id, isWide })}
+          selectedId={selected?.id ?? null}
+          onSelect={setSelection}
           onAdd={() => {
             setFailure(null)
             setForm({ kind: 'add' })
           }}
           onRestore={restore}
+          view={selected === null ? null : <CharacterDetails {...details(selected)} />}
         />
       </div>
     )
@@ -196,24 +197,15 @@ export function useHandCharacters(
           uid={profile.id}
           character={editing}
           onClose={() => setForm(null)}
-          onLateFailure={setFailure}
+          onSaved={() => setPendingAdd(new Set(active.map((character) => character.id)))}
+          onLateFailure={(late) => {
+            setPendingAdd(null)
+            setFailure(late)
+          }}
         />
-      ) : null}
-      {!isWide && selected !== null && form === null ? (
-        <CharacterDialog {...details(selected)} onClose={() => setSelection(null)} />
       ) : null}
     </>
   )
 
-  return {
-    content,
-    selected:
-      selected === null
-        ? null
-        : {
-            name: selected.name,
-            details: <CharacterDetails {...details(selected)} layout="panel" />,
-          },
-    overlays,
-  }
+  return { content, overlays }
 }

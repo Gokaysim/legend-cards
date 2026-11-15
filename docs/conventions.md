@@ -80,7 +80,7 @@ src/
                         useCharacters, useCharacterEffects, useCharacterActions, the pure helpers charactersOf,
                         characterGroups and effectsOf, the use step's shared picker (useCharacterChoice,
                         CharacterPicker), and the hand's Karakterler tab (useHandCharacters, CharactersTab,
-                        CharacterTile, CharacterDetails, CharacterEffectsList, CharacterFormDialog, EffectFormDialog)
+                        CharacterTab, CharacterDetails, CharacterEffectsList, CharacterFormDialog, EffectFormDialog)
     player-notes/       the player note and the DM note: schema (hasNoteText), api (playerNoteRef, dmNoteRef,
                         savePlayerNote, saveDmNote), PlayerNotesProvider, usePlayerNote, useDmNote (only inside
                         <DmOnly>; dmNoteTarget), useNoteActions, and the hand's notes (HandNotes.tsx: PlayerNote,

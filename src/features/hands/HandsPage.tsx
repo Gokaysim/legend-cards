@@ -182,8 +182,9 @@ function tabOf(value: string | null, isDm: boolean): HandTab {
  * every tab. The DM note shows only on its tab and its label never changes, because the DM's screen may face the table
  * (spec: player-notes).
  *
- * On a wide window, the selected card's details show in a panel beside the hand; on a narrower one, in a dialog
- * (spec: card-holdings; design D2, D3).
+ * On a wide window, the selected card's or True Word's details show in a panel beside the hand; on a narrower one, in a
+ * dialog (spec: card-holdings; design D2, D3). The Karakterler tab has no panel: it takes the full width and shows the
+ * selected character in the tab itself, on every window (spec: characters, "The selected character's view").
  */
 function HandContent({ profile }: { profile: UserProfile }) {
   const ids = useId()
@@ -228,7 +229,7 @@ function HandContent({ profile }: { profile: UserProfile }) {
   // What the hand puts on every one of the player's characters: its active cards and True Words (design D6 of
   // add-character-effects).
   const held = useMemo(() => heldEffects(entries ?? [], wordEntries), [entries, wordEntries])
-  const handCharacters = useHandCharacters(profile, isWide, held)
+  const handCharacters = useHandCharacters(profile, held)
 
   if (holdings.status === 'error' || cardsById.status === 'error') {
     return (
@@ -247,7 +248,8 @@ function HandContent({ profile }: { profile: UserProfile }) {
   const selectedWordId = wordSelection?.isWide === isWide ? wordSelection.id : null
   const selectedWord = wordEntries.find((entry) => entry.record.id === selectedWordId)
   const selectWord = (id: string) => setWordSelection({ id, isWide })
-  const showsPanel = isWide && tab !== 'dm-note'
+  // The Karakterler tab shows its selected character in the tab itself (design D3 of redesign-characters-tab).
+  const showsPanel = isWide && (tab === 'cards' || tab === 'true-words')
   const tabs: { id: HandTab; label: string }[] = [
     { id: 'cards', label: '♠ Kartlar' },
     { id: 'true-words', label: '✦ True Words' },
@@ -344,18 +346,6 @@ function HandContent({ profile }: { profile: UserProfile }) {
                 layout="panel"
               />
             ) : null}
-          </HandDetailsPanel>
-        ) : null}
-        {showsPanel && tab === 'characters' ? (
-          <HandDetailsPanel
-            label="Seçili Karakter"
-            name={handCharacters.selected?.name ?? null}
-            empty={{
-              title: 'Bir karakter seç',
-              hint: 'Bir karaktere tıkla, ayrıntıları burada görünsün.',
-            }}
-          >
-            {handCharacters.selected?.details}
           </HandDetailsPanel>
         ) : null}
         {showsPanel && tab === 'cards' ? (

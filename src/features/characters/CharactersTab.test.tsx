@@ -40,10 +40,22 @@ const old = testCharacter('Old', ayla.id, { addedAtMillis: 500, archived: true }
 const elara = testCharacter('Elara', 'bora', { addedAtMillis: 1500 })
 
 const main = () => within(screen.getByRole('main'))
-const tiles = () =>
-  within(main().getByRole('list', { name: 'Karakterler' }))
-    .queryAllByRole('button')
-    .map((tile) => tile.lastElementChild?.textContent)
+/** The text of an element without what is hidden from screen readers, such as a thumbnail's initial. */
+function visibleText(element: HTMLElement): string {
+  const copy = element.cloneNode(true) as HTMLElement
+  copy.querySelectorAll('[aria-hidden="true"]').forEach((hidden) => hidden.remove())
+  return copy.textContent
+}
+/** The character tabs' names, in order. */
+const tabs = () =>
+  within(main().getByRole('tablist', { name: 'Karakterler' }))
+    .queryAllByRole('tab')
+    .map(visibleText)
+const tab = (name: string) => main().getByRole('tab', { name: new RegExp(`^${name}`) })
+const addButton = () => main().queryByRole('button', { name: 'Karakter ekle' })
+/** The selected character's view, labelled by its tab. */
+const view = (name: string) =>
+  within(main().getByRole('tabpanel', { name: new RegExp(`^${name}`) }))
 
 beforeEach(() => {
   preparePicture.mockResolvedValue(PREPARED)
@@ -108,52 +120,64 @@ describe('the Karakterler tab', () => {
     expect(router.state.location.search).toBe('?tab=characters')
   })
 
-  it("shows the hand's active characters in the order added, and Karakter ekle for their owner", () => {
+  it("shows the hand's active characters as tabs in the order added, and Karakter ekle for their owner", () => {
     setup()
 
-    expect(tiles()).toEqual(['Thorin', 'Kuzgun', 'Karakter ekle'])
+    expect(tabs()).toEqual(['Thorin', 'Kuzgun'])
+    expect(addButton()).toBeInTheDocument()
   })
 
   it("shows another player's characters without Karakter ekle", () => {
     setup({ hand: 'bora' })
 
     expect(main().getByRole('heading', { name: 'Bora — Karakterler' })).toBeInTheDocument()
-    expect(tiles()).toEqual(['Elara'])
+    expect(tabs()).toEqual(['Elara'])
+    expect(addButton()).not.toBeInTheDocument()
   })
 
   it("lets the DM add on a player's hand", () => {
     setup({ hand: 'bora', asDm: true })
 
-    expect(tiles()).toEqual(['Elara', 'Karakter ekle'])
+    expect(tabs()).toEqual(['Elara'])
+    expect(addButton()).toBeInTheDocument()
   })
 
-  it('says so when the hand has no characters', () => {
+  it('says so when the hand has no characters, with no view', () => {
     setup({ hand: 'bora', characters: [thorin] })
 
     expect(main().getByText('Henüz karakter yok.')).toBeInTheDocument()
+    expect(main().queryByRole('tablist', { name: 'Karakterler' })).not.toBeInTheDocument()
+    expect(main().queryByRole('tabpanel', { name: /^Thorin/ })).not.toBeInTheDocument()
   })
 
-  it('shows a character added on another device without a reload', () => {
+  it('offers Karakter ekle to the owner of a hand without characters', () => {
+    setup({ characters: [] })
+
+    expect(main().getByText('Henüz karakter yok.')).toBeInTheDocument()
+    expect(addButton()).toBeInTheDocument()
+  })
+
+  it('shows a character added on another device without a reload, keeping the selection', () => {
     const { setList } = setup({ hand: 'bora' })
 
     setList([elara, testCharacter('Lyra', 'bora', { addedAtMillis: 9000 })])
 
-    expect(tiles()).toEqual(['Elara', 'Lyra'])
+    expect(tabs()).toEqual(['Elara', 'Lyra'])
+    expect(tab('Elara')).toHaveAttribute('aria-selected', 'true')
   })
 
   it("shows the photo, or the name's first letter when the photo cannot be loaded", () => {
     setup()
-    const list = within(main().getByRole('list', { name: 'Karakterler' }))
 
-    const thorinTile = list.getByRole('button', { name: 'Thorin' })
-    const photo = thorinTile.querySelector('img')
+    const thorinTab = tab('Thorin')
+    const photo = thorinTab.querySelector('img')
     expect(photo).toHaveAttribute('src', `/stored/${thorin.picture}`)
-    expect(within(list.getByRole('button', { name: 'Kuzgun' })).getByText('K')).toBeInTheDocument()
+    expect(within(tab('Kuzgun')).getByText('K')).toBeInTheDocument()
 
     fireEvent.error(photo as HTMLImageElement)
 
-    expect(thorinTile.querySelector('img')).toBeNull()
-    expect(within(thorinTile).getByText('T')).toBeInTheDocument()
+    expect(thorinTab.querySelector('img')).toBeNull()
+    expect(within(thorinTab).getByText('T')).toBeInTheDocument()
   })
 
   it('lists the archived characters, collapsed, with Geri al for the owner', async () => {
@@ -180,59 +204,67 @@ describe('the Karakterler tab', () => {
   })
 })
 
-describe('the details of a character', () => {
-  it('show in the Seçili Karakter panel on a wide window, with the tile marked', async () => {
+describe("the selected character's view", () => {
+  it('shows the first character when the tab opens, with its tab marked', () => {
     stubWideWindow()
-    const user = userEvent.setup()
-    setup()
-    const panel = () => within(main().getByRole('region', { name: 'Seçili Karakter' }))
-
-    expect(panel().getByText('Bir karakter seç')).toBeInTheDocument()
-
-    await user.click(main().getByRole('button', { name: 'Thorin' }))
-
-    expect(main().getByRole('button', { name: 'Thorin' })).toHaveAttribute('aria-pressed', 'true')
-    expect(panel().getByText('Sahibi: Ayla')).toBeInTheDocument()
-    expect(panel().getByRole('button', { name: '✎ Düzenle' })).toBeInTheDocument()
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-  })
-
-  it('open in a dialog on a narrow window', async () => {
-    const user = userEvent.setup()
     setup()
 
-    await user.click(main().getByRole('button', { name: 'Kuzgun' }))
-
-    const dialog = within(screen.getByRole('dialog', { name: 'Kuzgun' }))
-    expect(dialog.getByText('Sahibi: Ayla')).toBeInTheDocument()
-    expect(main().queryByRole('region', { name: 'Seçili Karakter' })).not.toBeInTheDocument()
+    expect(tab('Thorin')).toHaveAttribute('aria-selected', 'true')
+    expect(tab('Kuzgun')).toHaveAttribute('aria-selected', 'false')
+    expect(view('Thorin').getByRole('heading', { name: 'Thorin' })).toBeInTheDocument()
+    expect(view('Thorin').getByRole('img', { name: 'Thorin' })).toBeInTheDocument()
+    expect(view('Thorin').getByText('Sahibi: Ayla')).toBeInTheDocument()
+    expect(view('Thorin').getByRole('button', { name: '✎ Düzenle' })).toBeInTheDocument()
   })
 
-  it('offer no editing controls to another player', async () => {
-    stubWideWindow()
-    const user = userEvent.setup()
+  it.each([
+    ['a wide window', true],
+    ['a narrow window', false],
+  ])(
+    'switches to the selected tab on %s, with no side panel and no dialog',
+    async (_case, isWide) => {
+      if (isWide) stubWideWindow()
+      const user = userEvent.setup()
+      setup()
+
+      await user.click(tab('Kuzgun'))
+
+      expect(tab('Kuzgun')).toHaveAttribute('aria-selected', 'true')
+      expect(tab('Thorin')).toHaveAttribute('aria-selected', 'false')
+      expect(view('Kuzgun').getByRole('heading', { name: 'Kuzgun' })).toBeInTheDocument()
+      expect(main().queryByRole('region', { name: 'Seçili Karakter' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    },
+  )
+
+  it('offers no editing controls to another player', () => {
     setup({ hand: 'bora' })
 
-    await user.click(main().getByRole('button', { name: 'Elara' }))
-
-    const panel = within(main().getByRole('region', { name: 'Seçili Karakter' }))
-    expect(panel.getByText('Sahibi: Bora')).toBeInTheDocument()
-    expect(panel.queryByRole('button', { name: '✎ Düzenle' })).not.toBeInTheDocument()
-    expect(panel.queryByRole('button', { name: 'Arşivle' })).not.toBeInTheDocument()
+    expect(view('Elara').getByText('Sahibi: Bora')).toBeInTheDocument()
+    expect(view('Elara').queryByRole('button', { name: '✎ Düzenle' })).not.toBeInTheDocument()
+    expect(view('Elara').queryByRole('button', { name: 'Arşivle' })).not.toBeInTheDocument()
   })
 
-  it('archive the character and close', async () => {
-    stubWideWindow()
+  it('archives the character', async () => {
     const user = userEvent.setup()
     const { fakes } = setup()
 
-    await user.click(main().getByRole('button', { name: 'Thorin' }))
-    await user.click(main().getByRole('button', { name: 'Arşivle' }))
+    await user.click(tab('Kuzgun'))
+    await user.click(view('Kuzgun').getByRole('button', { name: 'Arşivle' }))
 
-    expect(fakes.setCharacterArchived).toHaveBeenCalledWith(thorin.id, true)
-    expect(
-      within(main().getByRole('region', { name: 'Seçili Karakter' })).getByText('Bir karakter seç'),
-    ).toBeInTheDocument()
+    expect(fakes.setCharacterArchived).toHaveBeenCalledWith(kuzgun.id, true)
+  })
+
+  it('shows the first character once the selected one is archived on another device', async () => {
+    const user = userEvent.setup()
+    const { setList } = setup()
+
+    await user.click(tab('Kuzgun'))
+    setList([thorin, { ...kuzgun, archived: true }, old, elara])
+
+    expect(tabs()).toEqual(['Thorin'])
+    expect(tab('Thorin')).toHaveAttribute('aria-selected', 'true')
+    expect(view('Thorin').getByRole('heading', { name: 'Thorin' })).toBeInTheDocument()
   })
 })
 
@@ -277,12 +309,10 @@ describe('the character form', () => {
   })
 
   it('edits a character and removes its photo', async () => {
-    stubWideWindow()
     const user = userEvent.setup()
     const { fakes } = setup()
 
-    await user.click(main().getByRole('button', { name: 'Thorin' }))
-    await user.click(main().getByRole('button', { name: '✎ Düzenle' }))
+    await user.click(view('Thorin').getByRole('button', { name: '✎ Düzenle' }))
     await user.clear(dialog().getByLabelText('Ad'))
     await user.type(dialog().getByLabelText('Ad'), 'Thorin Oakenshield')
     await user.click(dialog().getByRole('button', { name: 'Resmi kaldır' }))
@@ -329,6 +359,37 @@ describe('the character form', () => {
     )
     expect(dialog().getByRole('img', { name: 'Lyra' })).toBeInTheDocument()
     expect(fakes.addCharacter).not.toHaveBeenCalled()
+  })
+
+  it('selects a character just added once it shows, offline at once', async () => {
+    const user = userEvent.setup()
+    const addCharacter = vi.fn(() => new Promise<string>(() => undefined))
+    const { setList } = setup({ actions: { addCharacter } })
+
+    await user.click(tab('Kuzgun'))
+    await user.click(main().getByRole('button', { name: 'Karakter ekle' }))
+    await user.type(dialog().getByLabelText('Ad'), 'Lyra')
+    await user.click(dialog().getByRole('button', { name: 'Kaydet' }))
+
+    expect(tab('Kuzgun')).toHaveAttribute('aria-selected', 'true')
+
+    // The queued write shows in the local cache.
+    setList([thorin, kuzgun, old, elara, testCharacter('Lyra', ayla.id, { addedAtMillis: 9000 })])
+
+    expect(tabs()).toEqual(['Thorin', 'Kuzgun', 'Lyra'])
+    expect(tab('Lyra')).toHaveAttribute('aria-selected', 'true')
+    expect(view('Lyra').getByRole('heading', { name: 'Lyra' })).toBeInTheDocument()
+  })
+
+  it('keeps the selection when the form is closed without saving', async () => {
+    const user = userEvent.setup()
+    const { setList } = setup()
+
+    await user.click(main().getByRole('button', { name: 'Karakter ekle' }))
+    await user.click(dialog().getByRole('button', { name: 'Vazgeç' }))
+    setList([thorin, kuzgun, old, elara, testCharacter('Lyra', ayla.id, { addedAtMillis: 9000 })])
+
+    expect(tab('Thorin')).toHaveAttribute('aria-selected', 'true')
   })
 
   it('saves a name offline at once, without waiting', async () => {

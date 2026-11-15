@@ -6,15 +6,14 @@ import { testCard, testCursedCard } from '@/test/cardFixtures'
 import { testCharacter, testEffect } from '@/test/characterFixtures'
 import { ready, testProfile, testUser } from '@/test/fixtures'
 import { testHolding } from '@/test/holdingFixtures'
-import { stubWideWindow } from '@/test/media'
 import { renderApp } from '@/test/renderApp'
 import { testLearnedWord, testTrueWord } from '@/test/trueWordFixtures'
 
 import type { CharacterActions } from './charactersContext'
 import type { CharacterEffect } from './effects'
 
-// The effects on the Karakterler tab (spec: character-effects): the tile counts, the "Aktif efektler" list in the
-// details, removing and adding.
+// The effects on the Karakterler tab (spec: character-effects): the counts on the character tabs, the "Aktif efektler"
+// list in the selected character's view, removing and adding.
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -40,7 +39,6 @@ function setup({
   heldActive?: boolean
   wordActive?: boolean
 } = {}) {
-  stubWideWindow()
   const ownerId = viewer === 'owner' ? testUser.uid : OWNER
   const me = testProfile({
     displayName: viewer === 'dm' ? 'Dana' : 'Gökay',
@@ -80,30 +78,31 @@ function setup({
 }
 
 const main = () => within(screen.getByRole('main'))
-const tile = (name: string) => main().getByRole('button', { name: new RegExp(`^${name}`) })
-const panel = () => within(main().getByRole('region', { name: 'Seçili Karakter' }))
+const tab = (name: string) => main().getByRole('tab', { name: new RegExp(`^${name}`) })
+/** The view of Thorin, the character every test looks at. */
+const panel = () => within(main().getByRole('tabpanel', { name: /^Thorin/ }))
 const effectsList = () => within(panel().getByRole('region', { name: 'Aktif efektler' }))
 
 async function select(user: ReturnType<typeof userEvent.setup>, name: string) {
-  await user.click(tile(name))
+  await user.click(tab(name))
 }
 
-describe('the effect count on a tile', () => {
+describe("the effect count on a character's tab", () => {
   it('counts stored effects and the held card, which shows on every character', () => {
     setup({
       heldActive: true,
       effects: (uid, thorinId) => [testEffect('Kutsal su', { id: thorinId, uid })],
     })
 
-    expect(tile('Thorin')).toHaveAccessibleName('Thorin, 2 aktif efekt')
-    expect(tile('Kuzgun')).toHaveAccessibleName('Kuzgun, 1 aktif efekt')
+    expect(tab('Thorin')).toHaveAccessibleName('Thorin, 2 aktif efekt')
+    expect(tab('Kuzgun')).toHaveAccessibleName('Kuzgun, 1 aktif efekt')
   })
 
   it('shows no count without effects', () => {
     setup()
 
-    expect(tile('Thorin')).toHaveAccessibleName('Thorin')
-    expect(tile('Thorin').querySelector('[data-effect-count]')).toBeNull()
+    expect(tab('Thorin')).toHaveAccessibleName('Thorin')
+    expect(tab('Thorin').querySelector('[data-effect-count]')).toBeNull()
   })
 
   it('changes without a reload', () => {
@@ -114,7 +113,7 @@ describe('the effect count on a tile', () => {
       effects: ready([testEffect('Kutsal su', view.thorin)]),
     })
 
-    expect(tile('Thorin')).toHaveAccessibleName('Thorin, 1 aktif efekt')
+    expect(tab('Thorin')).toHaveAccessibleName('Thorin, 1 aktif efekt')
   })
 })
 
