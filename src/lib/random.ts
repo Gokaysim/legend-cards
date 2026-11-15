@@ -54,3 +54,8 @@ export function sample<T>(
 export function shuffle<T>(items: readonly T[], random: RandomSource = cryptoRandom): T[] {
   return sample(items, items.length, random)
 }
+
+/** A number from 0 (included) to 1 (excluded), from one 32-bit draw: enough for a die's throw. */
+export function randomUnit(random: RandomSource = cryptoRandom): number {
+  return random() / RANGE
+}

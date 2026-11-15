@@ -74,6 +74,14 @@ service cloud.firestore {
       return /databases/$(database)/documents/setChanges/$(changeId);
     }
 
+    function diceRollPath(rollId) {
+      return /databases/$(database)/documents/diceRolls/$(rollId);
+    }
+
+    function dmRollPath(rollId) {
+      return /databases/$(database)/documents/dmRolls/$(rollId);
+    }
+
     // Definition statuses (spec: definition-editing). A player reads only active and retired definitions; a draft
     // reaches the DM only. Keep in step with src/features/definitions/status.ts.
     function playerVisible(status) {
@@ -288,7 +296,7 @@ service cloud.firestore {
     }
 
     // User profiles. Everyone signed in reads every profile. A user creates only their own, only as a player,
-    // and later changes only its name and picture. Roles are changed by the admin script (Admin SDK), never here.
+    // and later changes only its name, its picture and its dice style. Roles are changed by the admin script (Admin SDK), never here.
     // The other writes are a player's Legend Points, each together with the ledger entry that records it: the DM
     // changes them by hand, a player pays 1 LP for their own draw, a pack's or a True Word draft's payment or refund
     // moves them, and the player or the DM pays for using the player's card or True Word (a use that closes its
@@ -307,6 +315,11 @@ service cloud.firestore {
           && onlyChanges(['displayName', 'photoURL'])
           && validName(request.resource.data.displayName)
           && validPhoto(request.resource.data.photoURL)
+        )
+        || (
+          isSelf(uid)
+          && onlyChanges(['diceStyle'])
+          && request.resource.data.diceStyle in diceStyles()
         )
         || (lpSetByEntry('manual') && isDm())
         || (isSelf(uid) && lpSetByEntry('draw'))
@@ -2107,6 +2120,106 @@ service cloud.firestore {
       allow read: if isDm();
       allow create, update: if validNoteDoc(uid) && isDm();
       allow delete: if false;
+    }
+
+    // The dice styles (DICE_STYLES in src/features/dice/schema.ts).
+    function diceStyles() {
+      return ['galaxy', 'gemstone', 'glass', 'iron', 'nebula', 'sunrise', 'sunset', 'walnut'];
+    }
+
+    // The fields of a roll's content (design D4 of dice-channel), in a public roll and in a hidden roll's DM record.
+    function rollKeys() {
+      return ['by', 'at', 'hidden', 'style', 'mode', 'modifier', 'note', 'dice', 'motion', 'sim'];
+    }
+
+    // Each die type with the faces it can show, as `<type>:<face>` (DIE_MAX in src/features/dice/formula.ts): d4 to
+    // d20 from 1 to their size, and the d100 tens die from 0 to 90 in tens.
+    function dieFaces() {
+      return 'd4:[1-4]|d6:[1-6]|d8:[1-8]|d10:([1-9]|10)|d12:([1-9]|1[0-2])|d20:([1-9]|1[0-9]|20)|d100:([1-9]?0)';
+    }
+
+    // The die at index `i`, or true past the list's end. A die is `{t, v}` with a face its die can show, and a d100
+    // tens die is followed by its d10. Rules have no loops, so validRoll calls this per index. The check is one
+    // pattern per die: twelve dice must stay well inside the rules' 1000 expressions per request.
+    function dieAt(dice, i) {
+      return i >= dice.size() || validDie(dice, i, dice[i]);
+    }
+
+    function validDie(dice, i, die) {
+      return die.keys().hasOnly(['t', 'v'])
+        && die.v is int
+        && (die.t + ':' + string(die.v)).matches(dieFaces())
+        && (die.t != 'd100' || dice[i + 1].t == 'd10');
+    }
+
+    // A roll's content (spec: dice-rolls, "Roll records are checked"): 1 to 12 physical dice, each valid; advantage
+    // or disadvantage only with exactly two d20; a fixed number from -99 to 99; a note of at most 80 characters; one
+    // of the styles; and the motion as a bounded string, which the client decodes leniently (design D4).
+    function validRoll(data) {
+      return data.style in diceStyles()
+        && data.mode in ['normal', 'advantage', 'disadvantage']
+        && data.modifier is int
+        && data.modifier >= -99
+        && data.modifier <= 99
+        && data.note is string
+        && data.note.size() <= 80
+        && data.motion is string
+        && data.motion.size() <= 1400
+        && data.sim is int
+        && data.dice is list
+        && data.dice.size() >= 1
+        && data.dice.size() <= 12
+        && dieAt(data.dice, 0) && dieAt(data.dice, 1) && dieAt(data.dice, 2) && dieAt(data.dice, 3)
+        && dieAt(data.dice, 4) && dieAt(data.dice, 5) && dieAt(data.dice, 6) && dieAt(data.dice, 7)
+        && dieAt(data.dice, 8) && dieAt(data.dice, 9) && dieAt(data.dice, 10) && dieAt(data.dice, 11)
+        && (data.mode == 'normal'
+          || (data.dice.size() == 2 && data.dice[0].t == 'd20' && data.dice[1].t == 'd20'));
+    }
+
+    // Dice rolls (spec: dice-rolls, "Roll records"). Everyone signed in reads every roll. A user creates only their
+    // own, at the server time, and nobody changes or deletes one. A public roll holds its whole content. A hidden roll
+    // is the DM's only: its public record holds who and when, and its content goes to `dmRolls` in the same batch.
+    match /diceRolls/{rollId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.by == request.auth.uid
+        && request.resource.data.at == request.time
+        && (publicRoll() || hiddenRoll());
+      allow update, delete: if false;
+
+      function publicRoll() {
+        let data = request.resource.data;
+        return data.keys().hasOnly(rollKeys())
+          && data.keys().hasAll(rollKeys())
+          && data.hidden == false
+          && validRoll(data);
+      }
+
+      function hiddenRoll() {
+        let data = request.resource.data;
+        return data.keys().hasOnly(['by', 'at', 'hidden'])
+          && data.keys().hasAll(['by', 'at', 'hidden'])
+          && data.hidden == true
+          && isDm()
+          && createdNow(dmRollPath(rollId));
+      }
+    }
+
+    // A hidden roll's content: only the DM reads one, and only the DM creates one, together with its hidden public
+    // record under the same ID. Nobody changes or deletes one.
+    match /dmRolls/{rollId} {
+      allow read: if isDm();
+      allow create: if isSignedIn()
+        && request.resource.data.keys().hasOnly(rollKeys())
+        && request.resource.data.keys().hasAll(rollKeys())
+        && request.resource.data.by == request.auth.uid
+        && request.resource.data.at == request.time
+        && request.resource.data.hidden == true
+        && validRoll(request.resource.data)
+        && isDm()
+        && createdNow(diceRollPath(rollId))
+        && getAfter(diceRollPath(rollId)).data.hidden == true;
+      allow update, delete: if false;
     }
 
     // Closed catch-all: anything no rule grants is denied, for signed-in and signed-out users alike.

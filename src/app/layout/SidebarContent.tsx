@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router'
 
 import { PartyPurse } from '@/features/balances/PartyPurse'
+import { UnseenRollsBadge } from '@/features/dice/UnseenRollsBadge'
 import { PlayerList } from '@/features/users/PlayerList'
 import { useProfiles } from '@/features/users/usersContext'
 import { cn } from '@/lib/cn'
@@ -39,6 +40,7 @@ export function SidebarContent({ onNavigate }: SidebarContentProps) {
               {screen.icon}
             </span>
             {screen.label}
+            {screen.id === 'dice' ? <UnseenRollsBadge /> : null}
           </NavLink>
         ))}
       </nav>

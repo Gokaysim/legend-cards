@@ -249,9 +249,33 @@ describe('user profiles (users/{uid})', () => {
       await assertFails(updateDoc(doc(as('dana'), 'users/dana'), { role: 'player' }))
     })
 
+    it('lets a user choose their own dice style, and changes nothing else', async () => {
+      await assertSucceeds(updateDoc(doc(as('bob'), 'users/bob'), { diceStyle: 'walnut' }))
+      expect(await readAsAdmin('users/bob')).toEqual({
+        ...seededProfile('player', 'Bob'),
+        diceStyle: 'walnut',
+      })
+    })
+
+    it('denies an unknown dice style', async () => {
+      await assertFails(updateDoc(doc(as('bob'), 'users/bob'), { diceStyle: 'gold' }))
+      await assertFails(updateDoc(doc(as('bob'), 'users/bob'), { diceStyle: 7 }))
+    })
+
+    it("denies another user's dice style, even for the DM", async () => {
+      await assertFails(updateDoc(doc(as('alice'), 'users/bob'), { diceStyle: 'iron' }))
+      await assertFails(updateDoc(doc(as('dana'), 'users/bob'), { diceStyle: 'iron' }))
+    })
+
+    it('denies a dice style together with another field', async () => {
+      await assertFails(updateDoc(doc(as('bob'), 'users/bob'), { diceStyle: 'iron', lp: 5 }))
+      await assertFails(updateDoc(doc(as('bob'), 'users/bob'), { diceStyle: 'iron', role: 'dm' }))
+    })
+
     it('denies signed-out writes', async () => {
       const db = firestoreOf(testEnv.unauthenticatedContext())
       await assertFails(updateDoc(doc(db, 'users/bob'), { displayName: 'X' }))
+      await assertFails(updateDoc(doc(db, 'users/bob'), { diceStyle: 'iron' }))
       await assertFails(setDoc(doc(db, 'users/eve'), newProfile()))
     })
   })
@@ -6238,5 +6262,306 @@ describe('character effects by hand and deleting (characterEffects/{effectId})',
   it('denies any change to an effect', async () => {
     await assertFails(updateDoc(doc(asUser('dana'), 'characterEffects/fx-dm'), { text: 'x' }))
     await assertFails(updateDoc(doc(asUser('ayla'), 'characterEffects/fx-own'), { text: 'x' }))
+  })
+})
+
+describe('dice rolls (diceRolls/{rollId} and dmRolls/{rollId})', () => {
+  type Die = { t: string; v: number }
+
+  /** A public roll as the application writes it: the signed-in user, the server time, and a valid content. */
+  const roll = (by: string, overrides: Record<string, unknown> = {}) => ({
+    by,
+    at: serverTimestamp(),
+    hidden: false,
+    style: 'galaxy',
+    mode: 'normal',
+    modifier: 3,
+    note: 'Ateş topu',
+    dice: [
+      { t: 'd20', v: 17 },
+      { t: 'd6', v: 4 },
+      { t: 'd6', v: 2 },
+    ] as Die[],
+    motion: 'A'.repeat(320),
+    sim: 1,
+    ...overrides,
+  })
+
+  /** A hidden roll's public record: only who and when. */
+  const hiddenStub = (by: string) => ({ by, at: serverTimestamp(), hidden: true })
+
+  const STORED_ROLL = {
+    ...roll('ayla'),
+    at: Timestamp.fromMillis(1000),
+  }
+  const STORED_DM_ROLL = { ...roll('dana'), hidden: true, at: Timestamp.fromMillis(2000) }
+
+  beforeEach(async () => {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const db = firestoreOf(admin)
+      await setDoc(doc(db, 'users/ayla'), seededUser('player', 'Ayla'))
+      await setDoc(doc(db, 'users/bora'), seededUser('player', 'Bora'))
+      await setDoc(doc(db, 'users/dana'), seededUser('dm', 'Dana'))
+      await setDoc(doc(db, 'diceRolls/old'), STORED_ROLL)
+      await setDoc(doc(db, 'diceRolls/secret'), {
+        by: 'dana',
+        at: Timestamp.fromMillis(2000),
+        hidden: true,
+      })
+      await setDoc(doc(db, 'dmRolls/secret'), STORED_DM_ROLL)
+    })
+  })
+
+  const create = (by: string, id: string, data: Record<string, unknown>) =>
+    setDoc(doc(asUser(by), `diceRolls/${id}`), data)
+
+  /** The DM's hidden pair, written in one batch, as the application does. */
+  const hiddenPair = (by: string, id: string, content: Record<string, unknown> = roll(by)) => {
+    const db = asUser(by)
+    const batch = writeBatch(db)
+    batch.set(doc(db, `diceRolls/${id}`), hiddenStub(by))
+    batch.set(doc(db, `dmRolls/${id}`), { ...content, hidden: true })
+    return batch.commit()
+  }
+
+  describe('reading', () => {
+    it("lets every signed-in user read every roll, a hidden roll's public record included", async () => {
+      await assertSucceeds(getDocs(collection(asUser('bora'), 'diceRolls')))
+      await assertSucceeds(getDoc(doc(asUser('bora'), 'diceRolls/secret')))
+    })
+
+    it("lets only the DM read a hidden roll's content", async () => {
+      await assertSucceeds(getDoc(doc(asUser('dana'), 'dmRolls/secret')))
+      await assertSucceeds(getDocs(collection(asUser('dana'), 'dmRolls')))
+      await assertFails(getDoc(doc(asUser('ayla'), 'dmRolls/secret')))
+      await assertFails(getDocs(collection(asUser('ayla'), 'dmRolls')))
+    })
+
+    it('denies signed-out reads', async () => {
+      const db = firestoreOf(testEnv.unauthenticatedContext())
+      await assertFails(getDoc(doc(db, 'diceRolls/old')))
+      await assertFails(getDocs(collection(db, 'diceRolls')))
+      await assertFails(getDoc(doc(db, 'dmRolls/secret')))
+    })
+  })
+
+  describe('allowed', () => {
+    it('lets a user roll for themselves', async () => {
+      await assertSucceeds(create('ayla', 'r1', roll('ayla')))
+    })
+
+    it('lets the DM roll publicly', async () => {
+      await assertSucceeds(create('dana', 'r1', roll('dana')))
+    })
+
+    it('allows a roll of 12 dice with every type and a d100 pair, in every style', async () => {
+      const dice: Die[] = [
+        { t: 'd20', v: 20 },
+        { t: 'd12', v: 12 },
+        { t: 'd10', v: 10 },
+        { t: 'd8', v: 8 },
+        { t: 'd6', v: 6 },
+        { t: 'd4', v: 4 },
+        { t: 'd100', v: 90 },
+        { t: 'd10', v: 1 },
+        { t: 'd100', v: 0 },
+        { t: 'd10', v: 10 },
+        { t: 'd4', v: 1 },
+        { t: 'd6', v: 1 },
+      ]
+      const styles = [
+        'galaxy',
+        'gemstone',
+        'glass',
+        'iron',
+        'nebula',
+        'sunrise',
+        'sunset',
+        'walnut',
+      ]
+      for (const [index, style] of styles.entries()) {
+        await assertSucceeds(
+          create('ayla', `r${index}`, roll('ayla', { dice, style, motion: 'A'.repeat(1400) })),
+        )
+      }
+    })
+
+    it('allows advantage and disadvantage with two d20', async () => {
+      const dice = [
+        { t: 'd20', v: 20 },
+        { t: 'd20', v: 8 },
+      ]
+      await assertSucceeds(
+        create('bora', 'adv', roll('bora', { dice, mode: 'advantage', modifier: 5 })),
+      )
+      await assertSucceeds(create('bora', 'dis', roll('bora', { dice, mode: 'disadvantage' })))
+    })
+
+    it('allows an empty note, the fixed number at its limits, and a roll without motion', async () => {
+      await assertSucceeds(create('ayla', 'a', roll('ayla', { note: '', modifier: -99 })))
+      await assertSucceeds(
+        create('ayla', 'b', roll('ayla', { note: 'x'.repeat(80), modifier: 99 })),
+      )
+      await assertSucceeds(create('ayla', 'c', roll('ayla', { motion: '', sim: 0 })))
+    })
+
+    it("accepts the DM's hidden pair of 12 dice with a full motion, the heaviest request", async () => {
+      const dice = Array.from({ length: 6 }, () => [
+        { t: 'd100', v: 50 },
+        { t: 'd10', v: 5 },
+      ]).flat()
+      await assertSucceeds(
+        hiddenPair('dana', 'heavy', roll('dana', { dice, motion: 'A'.repeat(1400) })),
+      )
+    })
+
+    it("accepts the DM's hidden pair written in one batch", async () => {
+      await assertSucceeds(hiddenPair('dana', 'h1'))
+      expect(await readAsAdmin('diceRolls/h1')).toMatchObject({ by: 'dana', hidden: true })
+      expect(await readAsAdmin('dmRolls/h1')).toMatchObject({
+        by: 'dana',
+        hidden: true,
+        modifier: 3,
+      })
+    })
+  })
+
+  describe('denied', () => {
+    it('denies rolling for someone else', async () => {
+      await assertFails(create('bora', 'r1', roll('ayla')))
+    })
+
+    it('denies a time other than the server time', async () => {
+      await assertFails(create('ayla', 'r1', roll('ayla', { at: Timestamp.fromMillis(0) })))
+    })
+
+    it('denies an impossible result', async () => {
+      const bad = (dice: Die[]) => create('ayla', 'r1', roll('ayla', { dice }))
+      await assertFails(bad([{ t: 'd6', v: 7 }]))
+      await assertFails(bad([{ t: 'd6', v: 0 }]))
+      await assertFails(bad([{ t: 'd10', v: 0 }]))
+      await assertFails(bad([{ t: 'd20', v: 21 }]))
+      await assertFails(bad([{ t: 'd7', v: 1 }]))
+      await assertFails(
+        bad([
+          { t: 'd100', v: 35 },
+          { t: 'd10', v: 1 },
+        ]),
+      )
+      await assertFails(
+        bad([
+          { t: 'd100', v: 100 },
+          { t: 'd10', v: 1 },
+        ]),
+      )
+      await assertFails(bad([{ t: 'd20', v: 1.5 }]))
+      await assertFails(bad([{ t: 'd20', v: 3, extra: true } as Die]))
+    })
+
+    it('denies a d100 tens die without its d10 right after it', async () => {
+      const bad = (dice: Die[]) => create('ayla', 'r1', roll('ayla', { dice }))
+      await assertFails(bad([{ t: 'd100', v: 30 }]))
+      await assertFails(
+        bad([
+          { t: 'd100', v: 30 },
+          { t: 'd6', v: 3 },
+        ]),
+      )
+      await assertFails(
+        bad([
+          { t: 'd10', v: 3 },
+          { t: 'd100', v: 30 },
+        ]),
+      )
+    })
+
+    it('denies no dice and thirteen dice', async () => {
+      await assertFails(create('ayla', 'r1', roll('ayla', { dice: [] })))
+      const thirteen = Array.from({ length: 13 }, () => ({ t: 'd6', v: 3 }))
+      await assertFails(create('ayla', 'r2', roll('ayla', { dice: thirteen })))
+    })
+
+    it('denies advantage or disadvantage without exactly two d20', async () => {
+      const one = [{ t: 'd20', v: 12 }]
+      const mixed = [
+        { t: 'd20', v: 12 },
+        { t: 'd6', v: 3 },
+      ]
+      const three = [
+        { t: 'd20', v: 12 },
+        { t: 'd20', v: 2 },
+        { t: 'd20', v: 5 },
+      ]
+      await assertFails(create('ayla', 'a', roll('ayla', { dice: one, mode: 'advantage' })))
+      await assertFails(create('ayla', 'b', roll('ayla', { dice: mixed, mode: 'disadvantage' })))
+      await assertFails(create('ayla', 'c', roll('ayla', { dice: three, mode: 'advantage' })))
+      await assertFails(create('ayla', 'd', roll('ayla', { mode: 'lucky' })))
+    })
+
+    it('denies a fixed number, a note, a style or a motion out of bounds', async () => {
+      await assertFails(create('ayla', 'a', roll('ayla', { modifier: 100 })))
+      await assertFails(create('ayla', 'b', roll('ayla', { modifier: -100 })))
+      await assertFails(create('ayla', 'c', roll('ayla', { modifier: 1.5 })))
+      await assertFails(create('ayla', 'd', roll('ayla', { note: 'x'.repeat(81) })))
+      await assertFails(create('ayla', 'e', roll('ayla', { style: 'gold' })))
+      await assertFails(create('ayla', 'f', roll('ayla', { motion: 'A'.repeat(1401) })))
+      await assertFails(create('ayla', 'g', roll('ayla', { motion: 5 })))
+      await assertFails(create('ayla', 'h', roll('ayla', { sim: 'one' })))
+    })
+
+    it('denies missing and extra fields', async () => {
+      const { note: _note, ...withoutNote } = roll('ayla')
+      await assertFails(create('ayla', 'a', withoutNote))
+      await assertFails(create('ayla', 'b', roll('ayla', { total: 26 })))
+    })
+
+    it('denies changing or deleting a roll, even for its roller or the DM', async () => {
+      await assertFails(updateDoc(doc(asUser('ayla'), 'diceRolls/old'), { modifier: 10 }))
+      await assertFails(
+        updateDoc(doc(asUser('ayla'), 'diceRolls/old'), { dice: [{ t: 'd20', v: 20 }] }),
+      )
+      await assertFails(setDoc(doc(asUser('ayla'), 'diceRolls/old'), roll('ayla')))
+      await assertFails(deleteDoc(doc(asUser('ayla'), 'diceRolls/old')))
+      await assertFails(deleteDoc(doc(asUser('dana'), 'diceRolls/old')))
+      await assertFails(updateDoc(doc(asUser('dana'), 'dmRolls/secret'), { modifier: 10 }))
+      await assertFails(deleteDoc(doc(asUser('dana'), 'dmRolls/secret')))
+      await assertFails(deleteDoc(doc(asUser('dana'), 'diceRolls/secret')))
+      expect(await readAsAdmin('diceRolls/old')).toEqual(STORED_ROLL)
+    })
+
+    it("denies a player's hidden roll, alone or as a pair", async () => {
+      await assertFails(create('ayla', 'h1', hiddenStub('ayla')))
+      await assertFails(hiddenPair('ayla', 'h2'))
+    })
+
+    it('denies a hidden public record without its DM record', async () => {
+      await assertFails(create('dana', 'h1', hiddenStub('dana')))
+    })
+
+    it('denies a DM record without its hidden public record', async () => {
+      await assertFails(
+        setDoc(doc(asUser('dana'), 'dmRolls/h1'), { ...roll('dana'), hidden: true }),
+      )
+    })
+
+    it('denies a DM record beside a public roll', async () => {
+      const db = asUser('dana')
+      const batch = writeBatch(db)
+      batch.set(doc(db, 'diceRolls/h1'), roll('dana'))
+      batch.set(doc(db, 'dmRolls/h1'), { ...roll('dana'), hidden: true })
+      await assertFails(batch.commit())
+    })
+
+    it('denies a hidden public record with content, and a hidden pair with an invalid content', async () => {
+      await assertFails(create('dana', 'h1', { ...roll('dana'), hidden: true }))
+      await assertFails(hiddenPair('dana', 'h2', roll('dana', { dice: [{ t: 'd6', v: 7 }] })))
+      await assertFails(hiddenPair('dana', 'h3', roll('ayla')))
+    })
+
+    it('denies signed-out writes', async () => {
+      const db = firestoreOf(testEnv.unauthenticatedContext())
+      await assertFails(setDoc(doc(db, 'diceRolls/r1'), roll('ayla')))
+      await assertFails(setDoc(doc(db, 'dmRolls/r1'), { ...roll('dana'), hidden: true }))
+    })
   })
 })

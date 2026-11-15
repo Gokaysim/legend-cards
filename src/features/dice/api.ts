@@ -1,0 +1,197 @@
+import {
+  collection,
+  type CollectionReference,
+  doc,
+  type Firestore,
+  limit,
+  orderBy,
+  query,
+  type Query,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+  writeBatch,
+} from 'firebase/firestore'
+
+import { USERS_COLLECTION } from '@/features/users/api'
+import { randomIndex } from '@/lib/random'
+
+import {
+  type DiceCounts,
+  type DieType,
+  DIE_MAX,
+  MODIFIER_MAX,
+  MODIFIER_MIN,
+  NOTE_MAX,
+  type RollMode,
+  type RolledDie,
+  isSingleD20,
+  physicalDice,
+} from './formula'
+import {
+  type DiceRoll,
+  diceRollConverter,
+  type DiceStyle,
+  type DieMotion,
+  dmRollConverter,
+  encodeMotion,
+  SIM_NONE,
+  SIM_THROWS_AND_RESTS,
+} from './schema'
+
+/** Keep in step with `firestore.rules`. */
+export const DICE_ROLLS_COLLECTION = 'diceRolls'
+export const DM_ROLLS_COLLECTION = 'dmRolls'
+
+/** Every roll, validated, with the document ID as `id`. A hidden roll's record holds no content. */
+export function diceRollsRef(db: Firestore): CollectionReference<DiceRoll> {
+  return collection(db, DICE_ROLLS_COLLECTION).withConverter(diceRollConverter)
+}
+
+/** Every hidden roll's content. Only the DM may read it: never build this ref on a player's device. */
+export function dmRollsRef(db: Firestore): CollectionReference<DiceRoll> {
+  return collection(db, DM_ROLLS_COLLECTION).withConverter(dmRollConverter)
+}
+
+/** The `count` newest rolls, newest first (design D6). Ordered on one field, so no composite index is needed. */
+export function recentRollsQuery(db: Firestore, count: number): Query<DiceRoll> {
+  return query(diceRollsRef(db), orderBy('at', 'desc'), limit(count))
+}
+
+/** The `count` newest hidden rolls' content, newest first: the DM's device only. */
+export function recentDmRollsQuery(db: Firestore, count: number): Query<DiceRoll> {
+  return query(dmRollsRef(db), orderBy('at', 'desc'), limit(count))
+}
+
+/** What the roll form asks for. */
+export type RollInput = {
+  /** The signed-in user, who rolls. */
+  by: string
+  counts: DiceCounts
+  /** Advantage and disadvantage apply only to a single d20; any other formula rolls normally. */
+  mode: RollMode
+  modifier: number
+  note: string
+  /** The DM's hidden roll. The rules refuse it from a player. */
+  hidden: boolean
+  /** The roller's dice style now; the record keeps it. */
+  style: DiceStyle
+}
+
+/** The faces and motion of a throw. `motion` is `null` when the physics could not load. */
+export type ThrowResult = { values: number[]; motion: DieMotion[] | null }
+
+/** Throws the dice, keeping the simulation for `rollId`'s playback on this device. */
+export type Thrower = (
+  dice: readonly DieType[],
+  style: DiceStyle,
+  rollId: string,
+) => Promise<ThrowResult>
+
+/** A face of each die, without physics: the fallback when the 3D part cannot load (spec: "Dice without motion"). */
+export function flatThrow(dice: readonly DieType[]): ThrowResult {
+  return {
+    values: dice.map((type) =>
+      type === 'd100' ? randomIndex(10) * 10 : randomIndex(DIE_MAX[type]) + 1,
+    ),
+    motion: null,
+  }
+}
+
+/** Throws with the lazily loaded physics, or flat when it cannot load (for example offline before its first load). */
+export const throwWithPhysics: Thrower = async (dice, style, rollId) => {
+  try {
+    const { throwDice } = await import('./stage/throwDice')
+    return await throwDice(dice, style, rollId)
+  } catch (error) {
+    console.warn('Dice physics unavailable; rolling without motion', error)
+    return flatThrow(dice)
+  }
+}
+
+/** The note as stored: trimmed and cut to 80 UTF-16 units, without splitting a character in half. */
+export function rollNote(note: string): string {
+  let text = note.trim().slice(0, NOTE_MAX)
+  const last = text.charCodeAt(text.length - 1)
+  if (last >= 0xd800 && last <= 0xdbff) text = text.slice(0, -1)
+  return text
+}
+
+function clampModifier(modifier: number): number {
+  if (!Number.isInteger(modifier)) return 0
+  return Math.min(MODIFIER_MAX, Math.max(MODIFIER_MIN, modifier))
+}
+
+/** A roll just made: its record as this device shows it at once, and the write that sends it. */
+export type RollResult = {
+  roll: DiceRoll
+  /** Resolves when the server has the roll. Offline, it waits until the connection returns. */
+  written: Promise<void>
+}
+
+/**
+ * Rolls the dice (design D2, D4): throws them on this device, then writes the record, or for a hidden roll the
+ * public record and the DM's record in one batch. Returns at once with the roll for the local playback; the write
+ * is queued offline and sent when the connection returns.
+ */
+export async function rollDice(
+  db: Firestore,
+  input: RollInput,
+  thrower: Thrower = throwWithPhysics,
+): Promise<RollResult> {
+  const mode: RollMode = isSingleD20(input.counts) ? input.mode : 'normal'
+  const types = physicalDice(input.counts, mode)
+  if (types.length === 0) throw new Error('A roll needs at least one die')
+  const ref = doc(collection(db, DICE_ROLLS_COLLECTION))
+  const { values, motion } = await thrower(types, input.style, ref.id)
+  const dice: RolledDie[] = types.map((t, index) => ({ t, v: values[index] ?? 1 }))
+  const content = {
+    style: input.style,
+    mode,
+    modifier: clampModifier(input.modifier),
+    note: rollNote(input.note),
+    dice,
+    motion: motion ? encodeMotion(motion) : '',
+    sim: motion ? SIM_THROWS_AND_RESTS : SIM_NONE,
+  }
+
+  let written: Promise<void>
+  if (input.hidden) {
+    const batch = writeBatch(db)
+    batch.set(ref, { by: input.by, at: serverTimestamp(), hidden: true })
+    batch.set(doc(db, DM_ROLLS_COLLECTION, ref.id), {
+      by: input.by,
+      at: serverTimestamp(),
+      hidden: true,
+      ...content,
+    })
+    written = batch.commit()
+  } else {
+    written = setDoc(ref, { by: input.by, at: serverTimestamp(), hidden: false, ...content })
+  }
+  // The caller may never wait for it; a failure is reported by the subscription dropping the pending roll.
+  written.catch((error: unknown) => console.warn('Dice roll not written', error))
+
+  return {
+    roll: {
+      id: ref.id,
+      by: input.by,
+      at: null,
+      hidden: input.hidden,
+      content: {
+        style: content.style,
+        mode,
+        modifier: content.modifier,
+        note: content.note,
+        dice,
+        motion,
+      },
+    },
+    written,
+  }
+}
+
+/** Saves the user's own dice style (spec: user-profiles). Offline, the write is queued. */
+export function setDiceStyle(db: Firestore, uid: string, style: DiceStyle): Promise<void> {
+  return updateDoc(doc(db, USERS_COLLECTION, uid), { diceStyle: style })
+}

@@ -13,6 +13,7 @@ import { type TestBalances, TestBalancesProvider } from './TestBalancesProvider'
 import { type TestCards, TestCardsProvider } from './TestCardsProvider'
 import { type TestCharacters, TestCharactersProvider } from './TestCharactersProvider'
 import { type TestDefinitions, TestDefinitionsProvider } from './TestDefinitionsProvider'
+import { type TestDice, TestDiceProvider } from './TestDiceProvider'
 import { type TestDraws, TestDrawsProvider } from './TestDrawsProvider'
 import { type TestHoldings, TestHoldingsProvider } from './TestHoldingsProvider'
 import { type TestPacks, TestPacksProvider } from './TestPacksProvider'
@@ -55,6 +56,8 @@ export type RenderAppOptions = {
   notes?: TestNotes
   /** Fake definition steps. Defaults to steps that succeed. */
   definitions?: TestDefinitions
+  /** The dice channel, the roll to play and fake dice steps. Defaults to no rolls, and steps that succeed. */
+  dice?: TestDice
   /** The built pictures. Defaults to `EMPTY_ART`: every card, back, pack and word keeps its look without pictures. */
   art?: ArtManifest
 }
@@ -74,6 +77,7 @@ type Data = {
   trueWords: TestTrueWords
   notes: TestNotes
   definitions: TestDefinitions
+  dice: TestDice
   art: ArtManifest | undefined
 }
 
@@ -82,7 +86,7 @@ type Data = {
  * sets, cards, open holdings, party purse, table lock, open pack, True Words, notes, log and statistics records and
  * pictures, and fake draws, pack, set, character and True Word steps and note saves. `setUsers`, `setCharacters`,
  * `setSets`, `setCards`, `setHoldings`, `setBalances`, `setTable`, `setPacks`, `setTrueWords`, `setNotes`,
- * `setActivityLog`, `setStats` and `setDraws` re-render the same app with other data, as a real-time update would, without
+ * `setActivityLog`, `setStats`, `setDraws` and `setDice` re-render the same app with other data, as a real-time update would, without
  * remounting.
  */
 export function renderApp({
@@ -103,6 +107,7 @@ export function renderApp({
   trueWords = {},
   notes = {},
   definitions = {},
+  dice = {},
   art,
 }: RenderAppOptions = {}) {
   const router = createMemoryRouter(routes, { initialEntries: [path] })
@@ -121,6 +126,7 @@ export function renderApp({
     trueWords,
     notes,
     definitions,
+    dice,
     art,
   }
   const tree = (data: Data) => (
@@ -140,7 +146,9 @@ export function renderApp({
                               <TestTrueWordsProvider {...data.trueWords}>
                                 <TestPlayerNotesProvider {...data.notes}>
                                   <TestDefinitionsProvider {...data.definitions}>
-                                    <RouterProvider router={router} />
+                                    <TestDiceProvider {...data.dice}>
+                                      <RouterProvider router={router} />
+                                    </TestDiceProvider>
                                   </TestDefinitionsProvider>
                                 </TestPlayerNotesProvider>
                               </TestTrueWordsProvider>
@@ -179,5 +187,6 @@ export function renderApp({
     setTrueWords: (next: TestTrueWords) => update({ trueWords: next }),
     setNotes: (next: TestNotes) => update({ notes: next }),
     setDraws: (next: TestDraws) => update({ draws: next }),
+    setDice: (next: TestDice) => update({ dice: next }),
   }
 }

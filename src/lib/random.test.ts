@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { cryptoRandom, pickRandom, randomIndex, sample, shuffle } from './random'
+import { cryptoRandom, pickRandom, randomIndex, randomUnit, sample, shuffle } from './random'
 
 /** A fake source that returns `values` in turn. */
 const sequence = (...values: number[]) => {
@@ -77,5 +77,23 @@ describe('shuffle', () => {
     const shuffled = shuffle(items, sequence(5, 0, 3, 1, 1, 0))
     expect([...shuffled].sort()).toEqual(items)
     expect(shuffled).not.toEqual(items)
+  })
+})
+
+describe('randomUnit', () => {
+  it('maps the lowest and highest 32-bit values into 0 to below 1', () => {
+    expect(randomUnit(() => 0)).toBe(0)
+    expect(randomUnit(() => 2 ** 31)).toBe(0.5)
+    const top = randomUnit(() => 2 ** 32 - 1)
+    expect(top).toBeLessThan(1)
+    expect(top).toBeGreaterThan(0.999_999_99)
+  })
+
+  it('uses the cryptographic source by default', () => {
+    for (let index = 0; index < 100; index += 1) {
+      const value = randomUnit()
+      expect(value).toBeGreaterThanOrEqual(0)
+      expect(value).toBeLessThan(1)
+    }
   })
 })

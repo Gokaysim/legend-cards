@@ -203,3 +203,9 @@ Not needed for development. When the app is ready to go online:
 Deploy only from a machine that has built the pictures: `npm run build` copies `public/art/` into `dist/`, and a deploy without it publishes the app without its cardbacks, packs and Cardmaker. Anyone who knows a picture's address can open it without signing in, on Hosting and in Cloud Storage; the owner accepted this.
 
 **If "İndir" opens the picture instead of saving it**, the bucket does not send the `Content-Disposition` header the pictures are stored with. The fallback is to let the app fetch the file: allow the app's address in a CORS file (`[{"origin": ["https://<project-id>.web.app"], "method": ["GET"], "maxAgeSeconds": 3600}]`), apply it with `gcloud storage buckets update gs://<bucket> --cors-file=cors.json`, and change "İndir" to fetch the file and save it under the card's name (design D8 of `upload-card-and-word-pictures`).
+
+## License
+
+Legend Card Manager is free software, licensed under the [GNU General Public License version 3](LICENSE) only (`GPL-3.0-only`). You may share and change it under that license's terms.
+
+The 3D dice are adapted from [Owlbear Rodeo's dice roller](https://github.com/owlbear-rodeo/dice), which is licensed under GPL-3.0. Using it is why this project is GPL-3.0 too. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists the adapted files and where they come from. Every runtime dependency must have a license that GPL-3.0 allows, such as MIT or Apache-2.0.

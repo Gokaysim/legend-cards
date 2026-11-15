@@ -41,6 +41,15 @@ describe('userProfileSchema', () => {
     expect(result.lpEntryId).toBe('entry-1')
   })
 
+  it('reads a profile stored before dice styles with Galaxy', () => {
+    expect(userProfileSchema.parse(valid).diceStyle).toBe('galaxy')
+  })
+
+  it('keeps a stored dice style, and rejects an unknown one', () => {
+    expect(userProfileSchema.parse({ ...valid, diceStyle: 'walnut' }).diceStyle).toBe('walnut')
+    expect(userProfileSchema.safeParse({ ...valid, diceStyle: 'gold' }).success).toBe(false)
+  })
+
   it('rejects negative or fractional Legend Points', () => {
     expect(userProfileSchema.safeParse({ ...valid, lp: -1 }).success).toBe(false)
     expect(userProfileSchema.safeParse({ ...valid, lp: 1.5 }).success).toBe(false)

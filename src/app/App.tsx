@@ -7,6 +7,7 @@ import { BalancesProvider } from '@/features/balances/BalancesProvider'
 import { CardsProvider } from '@/features/cards/CardsProvider'
 import { CharactersProvider } from '@/features/characters/CharactersProvider'
 import { DefinitionsProvider } from '@/features/definitions/DefinitionsProvider'
+import { DiceProvider } from '@/features/dice/DiceProvider'
 import { DrawsProvider } from '@/features/draws/DrawsProvider'
 import { HoldingsProvider } from '@/features/hands/HoldingsProvider'
 import { PacksProvider } from '@/features/packs/PacksProvider'
@@ -24,8 +25,8 @@ const router = createBrowserRouter(routes)
 /**
  * Composition root: the built pictures, the auth session, then the user profiles, the characters, the party purse,
  * the sets (with their pictures), the cards, the open holdings, the table's lock, the open pack, the record sources of
- * the log and the statistics, the draws, the True Words, the notes' source and the DM's definition steps, then the
- * router.
+ * the log and the statistics, the draws, the True Words, the notes' source, the DM's definition steps and the dice channel, then
+ * the router.
  */
 export function App() {
   return (
@@ -45,7 +46,9 @@ export function App() {
                               <TrueWordsProvider>
                                 <PlayerNotesProvider>
                                   <DefinitionsProvider>
-                                    <RouterProvider router={router} />
+                                    <DiceProvider>
+                                      <RouterProvider router={router} />
+                                    </DiceProvider>
                                   </DefinitionsProvider>
                                 </PlayerNotesProvider>
                               </TrueWordsProvider>

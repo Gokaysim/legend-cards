@@ -1,6 +1,7 @@
 import { Timestamp } from 'firebase/firestore'
 import { z } from 'zod'
 
+import { DEFAULT_DICE_STYLE, DICE_STYLES } from '@/features/dice/schema'
 import { createConverter } from '@/lib/firestore/converter'
 
 /** The two roles. Every user starts as a player; only the admin script makes someone the DM. */
@@ -25,6 +26,8 @@ export const userProfileSchema = z.object({
   lp: z.number().int().min(0).default(0),
   /** The ledger entry that set the current `lp`. Missing: null, before the first change. */
   lpEntryId: z.string().min(1).nullable().default(null),
+  /** The user's dice style (spec: dice-rolls, "Dice styles"). Only the user changes it. Missing: Galaxy. */
+  diceStyle: z.enum(DICE_STYLES).default(DEFAULT_DICE_STYLE),
 })
 
 export const userProfileConverter = createConverter(userProfileSchema, { idField: 'id' })

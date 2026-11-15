@@ -22,6 +22,7 @@ export function testProfile(overrides: Partial<UserProfile> = {}): UserProfile {
     createdAt: Timestamp.fromMillis(0),
     lp: 0,
     lpEntryId: null,
+    diceStyle: 'galaxy',
     ...overrides,
   }
 }

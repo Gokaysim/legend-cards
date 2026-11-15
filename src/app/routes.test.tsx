@@ -16,6 +16,7 @@ const EXPECTED_LABELS = [
   'Custom Card Draft',
   'Kütüphane',
   'Setler',
+  'Zarlar',
   'İşlem Logu',
   'Kurallar',
   'Veri / Yedek',
@@ -61,6 +62,14 @@ const BUILT_SCREENS: Record<string, () => void> = {
     expect(screen.getByRole('rowheader', { name: /^The End is Nigh/ })).toBeInTheDocument()
     expect(screen.getByRole('rowheader', { name: /^Pandemonium/ })).toBeInTheDocument()
   },
+  // The Zarlar screen: the strip, the channel, the roll form and the side column.
+  '/dice': () => {
+    expect(screen.getByTestId('dice-strip')).toHaveTextContent('Henüz zar atılmadı.')
+    expect(screen.getByRole('list', { name: 'Atışlar' })).toBeInTheDocument()
+    expect(screen.getByRole('form', { name: 'Zar at' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 2, name: 'Zar stilin' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 2, name: 'Bu cihazda' })).toBeInTheDocument()
+  },
   // The log, before anything happened.
   '/log': () => {
     expect(screen.getByText('Henüz kayıtlı işlem yok.')).toBeInTheDocument()
@@ -79,6 +88,31 @@ describe('routes and navigation', () => {
       .getAllByRole('link')
       .map((link) => link.textContent?.trim())
     expect(labels).toEqual(EXPECTED_LABELS.map((label, i) => `${SCREENS[i]?.icon}${label}`))
+  })
+
+  it('puts Zarlar between Setler and İşlem Logu, under its own URL', async () => {
+    const user = userEvent.setup()
+    const { router } = renderApp({ path: '/hands' })
+    const labels = within(mainMenu())
+      .getAllByRole('link')
+      // The icon is the first character, hidden from the link's name.
+      .map((link) =>
+        Array.from(link.textContent ?? '')
+          .slice(1)
+          .join(''),
+      )
+    expect(labels.slice(labels.indexOf('Setler'), labels.indexOf('İşlem Logu') + 1)).toEqual([
+      'Setler',
+      'Zarlar',
+      'İşlem Logu',
+    ])
+
+    await user.click(within(mainMenu()).getByRole('link', { name: 'Zarlar' }))
+    expect(router.state.location.pathname).toBe('/dice')
+    expect(within(mainMenu()).getByRole('link', { name: 'Zarlar' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    )
   })
 
   it('opens the "Oyuncu elleri" screen on the own hand from the root URL', async () => {
@@ -285,6 +319,7 @@ describe("each screen's Cardmaker", () => {
       'custom-draft': 'cardmaker_custom',
       library: 'cardmaker_lib',
       sets: null,
+      dice: null,
       'activity-log': 'cardmaker_think',
       rules: 'cardmaker_wave',
       settings: 'cardmaker_peek',

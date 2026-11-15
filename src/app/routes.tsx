@@ -5,6 +5,7 @@ import { ActivityLogPage } from '@/features/activity-log/ActivityLogPage'
 import { RequireAuth, SIGN_IN_PATH } from '@/features/auth/RequireAuth'
 import { SignInPage } from '@/features/auth/SignInPage'
 import { CustomDraftPage } from '@/features/custom-draft/CustomDraftPage'
+import { DicePage } from '@/features/dice/DicePage'
 import { HandsPage, PlayerHandPage } from '@/features/hands/HandsPage'
 import { LibraryPage } from '@/features/library/LibraryPage'
 import { PackShopPage } from '@/features/packs/PackShopPage'
@@ -38,6 +39,7 @@ const pages: Record<ScreenId, ReactNode> = {
   'custom-draft': <CustomDraftPage />,
   library: <LibraryPage />,
   sets: <SetsPage />,
+  dice: <DicePage />,
   'activity-log': <ActivityLogPage />,
   rules: <RulesPage />,
   settings: <SettingsPage />,

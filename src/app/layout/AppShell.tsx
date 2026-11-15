@@ -1,5 +1,6 @@
 import { Outlet } from 'react-router'
 
+import { DiceNotice } from '@/features/dice/DiceNotice'
 import { LiveDrawView } from '@/features/draws/LiveDrawView'
 import { OpenPackView } from '@/features/packs/OpenPackView'
 
@@ -9,7 +10,7 @@ import { SidebarContent } from './SidebarContent'
 
 /**
  * The frame of every signed-in screen: a sidebar on wide screens, a menu on narrow ones. The open pack and other
- * users' draws show on every screen, above the page.
+ * users' draws show on every screen, above the page, and other users' dice rolls in a card over it.
  */
 export function AppShell() {
   return (
@@ -24,6 +25,7 @@ export function AppShell() {
         <OfflineBanner />
         <OpenPackView />
         <LiveDrawView />
+        <DiceNotice />
         <Outlet />
       </main>
     </div>

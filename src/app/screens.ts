@@ -19,6 +19,7 @@ export const SCREENS = [
   // The Kütüphane shows its open tab's Cardmaker (LIBRARY_TABS); this one is the default tab's.
   { id: 'library', path: '/library', label: 'Kütüphane', icon: '▤', mascot: 'cardmaker_lib' },
   { id: 'sets', path: '/sets', label: 'Setler', icon: '◈', mascot: null },
+  { id: 'dice', path: '/dice', label: 'Zarlar', icon: '⚄', mascot: null },
   { id: 'activity-log', path: '/log', label: 'İşlem Logu', icon: '☷', mascot: 'cardmaker_think' },
   { id: 'rules', path: '/rules', label: 'Kurallar', icon: '📖', mascot: 'cardmaker_wave' },
   { id: 'settings', path: '/settings', label: 'Veri / Yedek', icon: '⚙', mascot: 'cardmaker_peek' },
