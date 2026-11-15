@@ -7,7 +7,7 @@ Keeps the card definitions of the DM's side card system, the Legend cards (norma
 ## Requirements
 
 ### Requirement: Card definitions
-Every card SHALL be stored once, with a kind, a status (spec: definition-editing) and its definition: name, set code, cost, rarity, mechanic pack, and text. The kind SHALL be one of "normal", "blessed" or "cursed". A Blessed card SHALL have no set code and no rarity. A Cursed card SHALL have no set code, no rarity, and no mechanic pack. A cost MAY be absent. Each card keeps its cost as written, for example "X" or "d6". A draft MAY lack the other fields its kind requires.
+Every card SHALL be stored once, with a kind, a status (spec: definition-editing), its behavior flags (spec: definition-editing, "Behavior flags") and its definition: name, set code, cost, rarity, mechanic pack, and text. The kind SHALL be one of "normal", "blessed", "cursed" or "trueWord". A Blessed card SHALL have no set code and no rarity. A Cursed card and a True Word SHALL have no set code, no rarity, and no mechanic pack. A cost MAY be absent, except for a True Word that is not a draft. Each card keeps its cost as written, for example "X" or "d6". A draft MAY lack the other fields its kind requires.
 
 #### Scenario: A Blessed card
 - **WHEN** a user looks at a Blessed card
@@ -28,6 +28,10 @@ Every card SHALL be stored once, with a kind, a status (spec: definition-editing
 #### Scenario: A draft without a set
 - **WHEN** the DM looks at the normal draft "The Cartographer", which has no set, rarity or mechanic pack
 - **THEN** its set, rarity and mechanic pack show as empty, and it is marked "Taslak"
+
+#### Scenario: A True Word among the definitions
+- **WHEN** a user opens the Kart kütüphanesi or the Cursed Deck
+- **THEN** no True Word is listed there
 
 ### Requirement: Cards readable by every signed-in user
 Every signed-in user SHALL be able to read every active and every retired card, the DM and the players alike. Only the DM SHALL be able to read a draft. A player's device SHALL never receive a draft. Signed-out requests SHALL be denied.
@@ -60,7 +64,7 @@ A draft or a retired card SHALL NOT appear in a player's Kart kütüphanesi or C
 - **THEN** no player's Kart kütüphanesi lists it, and the players' card count does not change
 
 ### Requirement: Kart kütüphanesi lists the Legend cards live
-The Kart kütüphanesi screen SHALL list every active normal and Blessed card, and no Cursed card; a player's screen leaves out the DM-only cards. It SHALL show the number of cards it lists. A change to the cards SHALL appear on every open device without a page reload.
+The Kart kütüphanesi screen SHALL list every active normal and Blessed card, and no Cursed card or True Word; a player's screen leaves out the cards whose "Listede görünür" is off. It SHALL show the number of cards it lists. A change to the cards SHALL appear on every open device without a page reload.
 
 #### Scenario: Opening the library
 - **WHEN** a signed-in user opens the Kart kütüphanesi after the initial data was imported
@@ -75,11 +79,11 @@ The Kart kütüphanesi screen SHALL list every active normal and Blessed card, a
 - **THEN** the card appears on Ayla's screen without a reload
 
 #### Scenario: A card marked DM-only while the screen is open
-- **WHEN** the DM marks an active card DM-only while Ayla has the Kart kütüphanesi open
+- **WHEN** the DM turns off "Listede görünür" of an active card while Ayla has the Kart kütüphanesi open
 - **THEN** the card disappears from Ayla's screen without a reload
 
 ### Requirement: Pool status in the library
-The Kart kütüphanesi SHALL show each card's status, live. A normal card without a holder is "Havuzda". A held normal card is "Elde:" with the names of everyone holding a copy, and its card face is marked. A Blessed card is always "Havuzda", followed by the names of those holding it, if any. A DM-only card is never in the pool: it is "DM'e özel", followed by "Elde:" and the names of those holding it, if any. The screen SHALL show how many cards are in the pool and how many copies are in hands.
+The Kart kütüphanesi SHALL show each card's status, live. A card is in the pool when it is active, no one holds it as its one copy, and at least one of "Kart çekmede çıkar", "Set paketlerinde çıkar" and "Mechanic paketlerinde çıkar" is on. Such a card is "Havuzda". A held card with one copy is "Elde:" with the names of everyone holding a copy, and its card face is marked. A card with "Birden fazla elde olabilir" on is "Havuzda" followed by the names of those holding it, if any. A card with those three flags off is never in the pool: it is "DM'e özel", followed by "Elde:" and the names of those holding it, if any. The screen SHALL show how many cards are in the pool and how many copies are in hands.
 
 #### Scenario: A held card
 - **WHEN** Ayla holds "Aboleth's Eyes"
@@ -90,22 +94,26 @@ The Kart kütüphanesi SHALL show each card's status, live. A normal card withou
 - **THEN** the card shows as "Havuzda" there without a reload, and the pool count is one higher
 
 #### Scenario: A Blessed card in a hand
-- **WHEN** Ayla holds the Blessed card "Second Wind"
+- **WHEN** Ayla holds the Blessed card "Second Wind", whose "Birden fazla elde olabilir" is on
 - **THEN** the library shows it as "Havuzda · Elde: Ayla"
 
 #### Scenario: A DM-only card in a hand
-- **WHEN** Bora holds the DM-only card "The Last Wish", and the DM opens the library
+- **WHEN** Bora holds "The Last Wish", whose three channel flags are off, and the DM opens the library
 - **THEN** it shows as "DM'e özel · Elde: Bora", and the pool count leaves it out
 
+#### Scenario: A card only in packs
+- **WHEN** "Crown of Ash" has "Kart çekmede çıkar" off and "Set paketlerinde çıkar" on, and no one holds it
+- **THEN** it shows as "Havuzda", and the pool count includes it
+
 ### Requirement: Cursed Deck lists the Cursed cards live
-The Cursed Deck screen SHALL list every active Cursed card, and no other card; a player's screen leaves out the DM-only cards. It SHALL show the number of cards it lists. A change to the cards SHALL appear on every open device without a page reload.
+The Cursed Deck screen SHALL list every active Cursed card, and no other card; a player's screen leaves out the cards whose "Listede görünür" is off. It SHALL show the number of cards it lists. A change to the cards SHALL appear on every open device without a page reload.
 
 #### Scenario: Opening the Cursed Deck
 - **WHEN** a signed-in user opens the Cursed Deck after the initial data was imported
 - **THEN** the screen lists 154 cards, all of them Cursed
 
 #### Scenario: A DM-only Cursed card
-- **WHEN** "Visions of Death" is DM-only, and Ayla opens the Cursed Deck
+- **WHEN** "Visions of Death" has "Listede görünür" off, and Ayla opens the Cursed Deck
 - **THEN** it is not listed, and the DM's Cursed Deck lists it marked "🔒 DM"
 
 ### Requirement: Cursed card holders
@@ -191,11 +199,15 @@ The Kart kütüphanesi SHALL offer a set filter and a mechanic pack filter, whic
 - **THEN** the set filter lists "Ballad of Ulagal" before "Throne of Havenholm"
 
 ### Requirement: Pool-only filter
-The Kart kütüphanesi SHALL offer a "Yalnızca havuzdakiler" filter that, when on, lists only the cards in the pool: the normal cards without a holder and every Blessed card. It combines with the search and the other filters.
+The Kart kütüphanesi SHALL offer a "Yalnızca havuzdakiler" filter that, when on, lists only the cards in the pool (spec: "Pool status in the library"). It combines with the search and the other filters.
 
 #### Scenario: Hiding held cards
 - **WHEN** a user turns on "Yalnızca havuzdakiler" while Ayla holds "Aboleth's Eyes"
 - **THEN** "Aboleth's Eyes" is not listed, the Blessed cards still are, and the count says how many cards are shown
+
+#### Scenario: A card only the DM gives
+- **WHEN** the DM turns on "Yalnızca havuzdakiler" while no one holds "The Last Wish", whose three channel flags are off
+- **THEN** "The Last Wish" is not listed
 
 ### Requirement: Card view
 Both screens SHALL offer a card view that shows each listed card as a card face. The face SHALL show the cost, name, set, rarity, mechanic pack, and text. On a face with the card's picture, the set, rarity and mechanic pack SHALL show on hover or tap of the picture's set symbol. Its frame color, the printed one on a picture, SHALL show the card's kind: purple for Common, gold for Rare, white for Blessed, and red for Cursed. The Cursed Deck faces SHALL leave out set, rarity, and mechanic pack.
@@ -235,7 +247,7 @@ Selecting a column heading in the list view SHALL sort the list by that column, 
 - **THEN** the list is sorted by cost in descending order
 
 ### Requirement: Pool distribution
-The Kart kütüphanesi SHALL offer a "▥ Havuz Dağılımı" dialog, live, over the drawable cards: the active normal cards without a holder and every active Blessed card, none of them DM-only. It SHALL show how many cards that is, and each rarity's and each set's share as a percentage and a count. Blessed cards SHALL count as the rarity "Blessed" and the set "Blessed". Each rarity SHALL list its sets with their counts.
+The Kart kütüphanesi SHALL offer a "▥ Havuz Dağılımı" dialog, live, over the cards a random draw can give (spec: card-draws, "Equal chance from the pool"). It SHALL show how many cards that is, and each rarity's and each set's share as a percentage and a count. Blessed cards SHALL count as the rarity "Blessed" and the set "Blessed". Each rarity SHALL list its sets with their counts.
 
 #### Scenario: Reading the distribution
 - **WHEN** the drawable cards are 300 Common, 100 Rare, and 20 Blessed cards, and a user opens "▥ Havuz Dağılımı"
@@ -254,7 +266,7 @@ The Kart kütüphanesi SHALL offer a "▥ Havuz Dağılımı" dialog, live, over
 - **THEN** it says in Turkish that the pool has no cards to show
 
 #### Scenario: A DM-only card
-- **WHEN** the DM marks an active Rare card without a holder as DM-only while the dialog is open
+- **WHEN** the DM turns off "Kart çekmede çıkar" of an active Rare card without a holder while the dialog is open
 - **THEN** the total and the Rare count are one lower without a reload
 
 ### Requirement: Who writes card definitions
@@ -269,7 +281,7 @@ The application SHALL change a card's definition and status only through the DM'
 - **THEN** the server denies the write, and the card does not change
 
 ### Requirement: The DM's status filter
-For the DM, the Kart kütüphanesi and the Cursed Deck SHALL offer a status filter with "Yayında", "Taslak", "Kaldırıldı", "DM'e özel" and "Hepsi", starting at "Yayında". "DM'e özel" SHALL list the DM-only cards of every status. It SHALL combine with the search and the other filters, and the count SHALL follow it. With "Taslak", "Kaldırıldı" or "Hepsi" chosen, each card's face and list row SHALL show its status. Players SHALL NOT see the filter.
+For the DM, the Kart kütüphanesi and the Cursed Deck SHALL offer a status filter with "Yayında", "Taslak", "Kaldırıldı", "🔒 DM" and "Hepsi", starting at "Yayında". "🔒 DM" SHALL list the cards of every status whose "Listede görünür" is off. It SHALL combine with the search and the other filters, and the count SHALL follow it. With "Taslak", "Kaldırıldı" or "Hepsi" chosen, each card's face and list row SHALL show its status. Players SHALL NOT see the filter.
 
 #### Scenario: Finding the drafts
 - **WHEN** the DM chooses "Taslak" in the Kart kütüphanesi after the initial data was imported
@@ -284,23 +296,8 @@ For the DM, the Kart kütüphanesi and the Cursed Deck SHALL offer a status filt
 - **THEN** she sees no status filter, and only active cards are listed
 
 #### Scenario: Finding the DM-only cards
-- **WHEN** the DM chooses "DM'e özel" while "The Last Wish" is active and "Crown of Ash" is a draft, both DM-only
+- **WHEN** the DM chooses "🔒 DM" while "The Last Wish" is active and "Crown of Ash" is a draft, both with "Listede görünür" off
 - **THEN** only those two are listed, each marked "🔒 DM"
-
-### Requirement: DM-only cards are hidden from players
-A DM-only card SHALL NOT appear in a player's Kart kütüphanesi or Cursed Deck, or in their counts, also while someone holds it. The hiding is in the interface only: a player's device still reads the card, because the hands show it. The DM SHALL see DM-only cards in the lists, marked "🔒 DM" on their face and list row.
-
-#### Scenario: A player's library
-- **WHEN** "The Last Wish" is an active DM-only card, and Ayla opens the Kart kütüphanesi
-- **THEN** it is not listed, and the card count leaves it out
-
-#### Scenario: A held DM-only card
-- **WHEN** the DM gives "The Last Wish" to Bora, and Ayla opens the Kart kütüphanesi
-- **THEN** it is still not listed
-
-#### Scenario: The DM's library
-- **WHEN** the DM opens the Kart kütüphanesi
-- **THEN** "The Last Wish" is listed and marked "🔒 DM"
 
 ### Requirement: History control on library faces
 Each card face in the card views of the Kart kütüphanesi and the Cursed Deck SHALL have a "geçmiş" control with a clock icon in the face's top row, named "<card name>: geçmiş" for screen readers: left of the DM's edit control, or left of the magnifier where there is none. It SHALL show and hide as the magnifier does, and selecting it SHALL open the card's Kart geçmişi (spec: card-stats).
@@ -335,3 +332,22 @@ In the list views of the Kart kütüphanesi and the Cursed Deck, each card's nam
 #### Scenario: Following a name
 - **WHEN** a user selects "Aboleth's Eyes" in the Kart kütüphanesi's list view
 - **THEN** the Kart geçmişi of "Aboleth's Eyes" opens
+
+### Requirement: Cards not listed for players
+A card whose "Listede görünür" is off SHALL NOT appear in a player's Kart kütüphanesi or Cursed Deck, or in their counts, also while someone holds it. The hiding is in the interface only: a player's device still reads the card, because the hands show it. The DM SHALL see such cards in the lists, marked "🔒 DM" on their face and list row.
+
+#### Scenario: A player's library
+- **WHEN** "The Last Wish" is an active card with "Listede görünür" off, and Ayla opens the Kart kütüphanesi
+- **THEN** it is not listed, and the card count leaves it out
+
+#### Scenario: A held hidden card
+- **WHEN** the DM gives "The Last Wish" to Bora, and Ayla opens the Kart kütüphanesi
+- **THEN** it is still not listed
+
+#### Scenario: The DM's library
+- **WHEN** the DM opens the Kart kütüphanesi
+- **THEN** "The Last Wish" is listed and marked "🔒 DM"
+
+#### Scenario: A listed card that is never drawn
+- **WHEN** "Crown of Ash" has "Listede görünür" on and its three channel flags off, and Ayla opens the Kart kütüphanesi
+- **THEN** "Crown of Ash" is listed

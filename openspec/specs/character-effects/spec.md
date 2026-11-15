@@ -22,7 +22,7 @@ An effect SHALL belong to one character and SHALL have a source, a name and a te
 - **THEN** the server denies it
 
 ### Requirement: Effects of a use
-An effect from a used card or True Word SHALL be added in the same step as the use, on the character the use names, with the card's or word's name and visible text at that time. A later edit of the card or word SHALL NOT change it. The server SHALL deny an effect from a use that is not made in the same request, that names another character, or that was made by another user.
+An effect from a used card or True Word SHALL be added in the same step as the use, on the character the use names, with the card's or word's name and visible text at that time. A later edit of the card or word SHALL NOT change it. The server SHALL deny an effect from a use that is not made in the same request, that names another character, that was made by another user, or of a card or word whose "Kullanınca efekt bırakır" is off. The use is the closed holding of a card that leaves the hand, and the use record of a card or word that stays.
 
 #### Scenario: A later edit
 - **WHEN** the DM edits the text of "Lord Vulfric's Valour" after Ayla used it on "Thorin"
@@ -35,6 +35,14 @@ An effect from a used card or True Word SHALL be added in the same step as the u
 #### Scenario: Another character
 - **WHEN** Ayla uses a card on "Thorin" and stores its effect on "Kuzgun" in the same request
 - **THEN** the server denies it
+
+#### Scenario: A card that leaves no effect
+- **WHEN** Ayla uses "Aboleth's Eyes", whose "Kullanınca efekt bırakır" is off, on "Thorin" and stores its effect in the same request
+- **THEN** the server denies it
+
+#### Scenario: A kept card's effect
+- **WHEN** Ayla uses her kept card "Lucky Coin" on "Thorin" with "Aktif efekt olarak ekle" checked
+- **THEN** "Thorin" has its effect, marked "Kart", which names the use record, and "Lucky Coin" stays in her hand
 
 ### Requirement: Own effects and DM effects
 A player SHALL be able to add an effect to their own active characters, and the DM to any active character. Such an effect SHALL have a name of 1 to 60 characters and a text of 1 to 500 characters. A player's effect SHALL be marked "Özel" and the DM's "DM". The server SHALL deny a player's effect on another user's character, and an effect on an archived character.
@@ -75,7 +83,7 @@ Removing an effect SHALL delete it. A card or True Word effect SHALL be removabl
 - **THEN** the server denies it
 
 ### Requirement: Held effects on every character
-While a card in a player's hand is switched active, it SHALL show as an effect on every active character of that player, with its name and visible text, marked "Elden". An active True Word of that player SHALL show the same way, marked "True Word". They SHALL NOT be stored as effects and SHALL NOT be removable there. They SHALL end when the card leaves the hand or is switched inactive, or when the word is switched inactive or taken back.
+While a card in a player's hand is switched active and its "Elde etkili" is on, it SHALL show as an effect on every active character of that player, with its name and visible text, marked "Elden". An active True Word of that player whose "Elde etkili" is on SHALL show the same way, marked "True Word". They SHALL NOT be stored as effects and SHALL NOT be removable there. They SHALL end when the card leaves the hand or is switched inactive, when the word is switched inactive or taken back, or when the DM turns off "Elde etkili".
 
 #### Scenario: A held card on two characters
 - **WHEN** the DM switches "Devil's Pride" in Ayla's hand active, and Ayla has "Thorin" and "Kuzgun"
@@ -86,8 +94,12 @@ While a card in a player's hand is switched active, it SHALL show as an effect o
 - **THEN** it no longer shows on "Thorin" or "Kuzgun"
 
 #### Scenario: An active True Word
-- **WHEN** the DM switches Ayla's "Abyss" active
-- **THEN** "Thorin" and "Kuzgun" show "Abyss" marked "True Word"
+- **WHEN** the DM switches Ayla's "Justice" active
+- **THEN** "Thorin" and "Kuzgun" show "Justice" marked "True Word"
+
+#### Scenario: The flag is turned off
+- **WHEN** "Devil's Pride" is active in Ayla's hand, and the DM turns off its "Elde etkili"
+- **THEN** it no longer shows on "Thorin" or "Kuzgun"
 
 ### Requirement: Active effects in the details
 A character's details SHALL list its effects under "Aktif efektler": the held cards first, then the active True Words, then the stored effects, newest first. Each SHALL show its name, its text, and its mark: "Elden", "True Word", "Kart", "Özel" or "DM". A stored effect SHALL also show who added it and when. A Cursed card's effect SHALL be marked as Cursed. Without effects, the section SHALL say "Aktif efekt yok."

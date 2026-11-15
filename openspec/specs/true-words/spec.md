@@ -7,7 +7,7 @@ Lets players learn True Words through a paid draft of three random words, lets t
 ## Requirements
 
 ### Requirement: True Word definitions
-Each True Word SHALL have a name, a cost as written (for example "1", "0" or "X"), an effect text, and a status: draft, active or retired (spec: definition-editing). Every signed-in user SHALL be able to read the active and retired words. Only the DM SHALL be able to read a draft. Only the import script and the DM SHALL write words. A retired word SHALL stay with the players who know it, with its last stored definition. A word that is not active SHALL never be offered in a draft or taught.
+Each True Word SHALL have a name, a cost as written (for example "1", "0" or "X"), an effect text, a status: draft, active or retired (spec: definition-editing), and the behavior flags of a True Word (spec: definition-editing, "Behavior flags"). Every signed-in user SHALL be able to read the active and retired words. Only the DM SHALL be able to read a draft. Only the import script and the DM SHALL write words. A retired word SHALL stay with the players who know it, with its last stored definition. A word that is not active SHALL never be offered in a draft or taught. A word whose "Draft'ta çıkar" is off SHALL never be offered in a draft, and the DM SHALL still be able to teach it.
 
 #### Scenario: Reading the words
 - **WHEN** a signed-in user opens the True Words screen after the words were imported
@@ -29,8 +29,12 @@ Each True Word SHALL have a name, a cost as written (for example "1", "0" or "X"
 - **WHEN** "Echo" is a draft
 - **THEN** no draft offers it, the DM cannot teach it, and no player's True Words screen lists it
 
+#### Scenario: A word kept out of drafts
+- **WHEN** the active word "Justice" has "Draft'ta çıkar" off
+- **THEN** no draft offers it, and the DM can teach it
+
 ### Requirement: True Words screen
-The True Words screen SHALL list every active word, sorted by name, with its name, its cost shown as "<cost> LP", and its visible text. Text in square brackets SHALL be hidden, as in the card library. A player SHALL see the screen for themselves. The DM SHALL choose the player. The words the chosen player knows SHALL be marked "Biliyor". The DM SHALL also get "+ True Word ekle", "✎ Düzenle" on each word, and the status filter, starting at "Yayında".
+The True Words screen SHALL list every active word, sorted by name, with its name, its cost shown as "<cost> LP", and its visible text. Text in square brackets SHALL be hidden, as in the card library. A player's screen SHALL leave out the words whose "Listede görünür" is off, also while someone knows them; the DM's screen SHALL list them, marked "🔒 DM". A player SHALL see the screen for themselves. The DM SHALL choose the player. The words the chosen player knows SHALL be marked "Biliyor". The DM SHALL also get "+ True Word ekle", "✎ Düzenle" on each word, and the status filter with "Yayında", "Taslak", "Kaldırıldı", "🔒 DM" and "Hepsi", starting at "Yayında". "🔒 DM" SHALL list the words of every status whose "Listede görünür" is off.
 
 #### Scenario: A player's view
 - **WHEN** Ayla, who knows "Abyss", opens the True Words screen
@@ -52,8 +56,12 @@ The True Words screen SHALL list every active word, sorted by name, with its nam
 - **WHEN** Ayla opens the True Words screen
 - **THEN** she sees no status filter, no "+ True Word ekle" and no "✎ Düzenle"
 
+#### Scenario: A hidden word
+- **WHEN** the active word "Justice" has "Listede görünür" off, and Ayla opens the True Words screen
+- **THEN** "Justice" is not listed, and the DM's screen lists it marked "🔒 DM"
+
 ### Requirement: Starting a draft
-A player SHALL be able to start a True Word draft for themselves, and the DM for any player. A draft SHALL need at least 3 active words that the player does not know. It SHALL show 3 of them, each with the same chance, in random order. With fewer than 3, the start control SHALL be disabled with a Turkish note, and no draft SHALL start.
+A player SHALL be able to start a True Word draft for themselves, and the DM for any player. A draft SHALL need at least 3 active words that the player does not know and whose "Draft'ta çıkar" is on. It SHALL show 3 of them, each with the same chance, in random order. With fewer than 3, the start control SHALL be disabled with a Turkish note, and no draft SHALL start.
 
 #### Scenario: Starting a draft
 - **WHEN** Ayla starts a draft for herself
@@ -66,6 +74,10 @@ A player SHALL be able to start a True Word draft for themselves, and the DM for
 #### Scenario: A player starts a draft for another player
 - **WHEN** Ayla tries to start a draft for Bora
 - **THEN** the server denies it
+
+#### Scenario: Words kept out of drafts
+- **WHEN** 4 active words remain that Bora does not know, and 2 of them have "Draft'ta çıkar" off
+- **THEN** the start control is disabled with the same note
 
 ### Requirement: Draft price
 A draft SHALL cost 1 LP plus the number of True Words the player knows when it starts. A player SHALL pay exactly that from their own LP, in the same step that starts the draft. A player with less LP SHALL NOT start a draft. The control is then disabled with a Turkish note naming the price and their LP. The server SHALL deny any other amount from a player.
@@ -113,11 +125,15 @@ A player SHALL have at most one open draft. While it is open, no other draft SHA
 - **THEN** Bora's draft starts
 
 ### Requirement: Learning a word
-The draft's player and the DM SHALL be able to learn one of the 3 words it shows. The word SHALL join the player's True Words, inactive, and the draft SHALL end, in one step. A shown word that the player has come to know since the draft started SHALL be marked and SHALL NOT be learnable. Other players SHALL NOT act on the draft.
+The draft's player and the DM SHALL be able to learn one of the 3 words it shows. The word SHALL join the player's True Words, active when its "Elde etkili" is on and inactive otherwise, and the draft SHALL end, in one step. A shown word that the player has come to know since the draft started SHALL be marked and SHALL NOT be learnable. Other players SHALL NOT act on the draft.
 
 #### Scenario: Learning
-- **WHEN** Ayla learns "Abyss" from her draft
+- **WHEN** Ayla learns "Abyss", whose "Elde etkili" is off, from her draft
 - **THEN** "Abyss" is among her True Words, inactive, and the draft has ended
+
+#### Scenario: Learning a held word
+- **WHEN** Ayla learns "Justice", whose "Elde etkili" is on, from her draft
+- **THEN** "Justice" is among her True Words, active
 
 #### Scenario: The DM learns for the player
 - **WHEN** the DM learns "Aid" from Bora's open draft
@@ -183,11 +199,15 @@ A player SHALL never know the same word twice, however they learned it. The serv
 - **THEN** the teach dialog does not offer it, and the server denies such a write
 
 ### Requirement: The DM teaches a word
-The DM SHALL be able to teach any player any active word that player does not know, without a draft and without charging LP. It is done from a "+ True Word öğret" dialog on the player's True Words tab, which searches the words by name and text. The word SHALL join the player's True Words, inactive. Players SHALL NOT teach words.
+The DM SHALL be able to teach any player any active word that player does not know, whatever its flags, without a draft and without charging LP. It is done from a "+ True Word öğret" dialog on the player's True Words tab, which searches the words by name and text. The word SHALL join the player's True Words, active when its "Elde etkili" is on and inactive otherwise. Players SHALL NOT teach words.
 
 #### Scenario: Teaching a word
 - **WHEN** the DM teaches Bora "Aid"
 - **THEN** "Aid" is among Bora's True Words, and Bora's LP does not change
+
+#### Scenario: Teaching a hidden word
+- **WHEN** the DM teaches Bora "Justice", whose "Listede görünür" and "Draft'ta çıkar" are off
+- **THEN** "Justice" is among Bora's True Words
 
 #### Scenario: A player teaches a word
 - **WHEN** Ayla tries to add a word to her own True Words without a draft
@@ -209,18 +229,26 @@ The DM SHALL be able to take back a word that a player knows, after a confirmati
 - **THEN** "Abyss" is among her True Words again, with a new record
 
 ### Requirement: Active True Words
-The DM SHALL be able to switch any word a player knows active or inactive. Players SHALL NOT change whether a word is active. Active words SHALL be marked on the True Words tab. Switching a word active SHALL stay possible while a pack is open.
+The DM SHALL be able to switch a word a player knows active or inactive when the word's "Elde etkili" is on. A word without it SHALL have no switch, and SHALL NOT count or show as active. Players SHALL NOT change whether a word is active. Active words SHALL be marked on the True Words tab. Switching a word active SHALL stay possible while a pack is open.
 
 #### Scenario: Switching a word on
-- **WHEN** the DM makes Ayla's "Abyss" active
-- **THEN** "Abyss" is marked active on every device
+- **WHEN** the DM makes Ayla's "Justice", whose "Elde etkili" is on, active
+- **THEN** "Justice" is marked active on every device
+
+#### Scenario: A word without a held effect
+- **WHEN** the DM opens the details of Ayla's "Abyss", whose "Elde etkili" is off
+- **THEN** the details offer no "Aktif et", and the server denies switching it active
+
+#### Scenario: The flag is turned off
+- **WHEN** the DM turns off "Elde etkili" of "Justice" while it is active in Ayla's hand
+- **THEN** "Justice" no longer shows as active anywhere
 
 #### Scenario: A player switches a word
-- **WHEN** Ayla tries to make her own "Abyss" active
+- **WHEN** Ayla tries to make her own "Justice" active
 - **THEN** the server denies it
 
 ### Requirement: Learned word records
-Each word a player learns SHALL be recorded with the word, the player, when, by whom, how (from a draft, naming it, or taught by the DM), and whether it is active. Once taken back, the record SHALL hold when and by whom. A record SHALL never be deleted, and a closed record SHALL never change. Every signed-in user SHALL be able to read every record.
+Each word a player learns SHALL be recorded with the word, the player, when, by whom, how (from a draft, naming it, or taught by the DM), whether it is active, its note, and its cost in that hand. Once taken back, the record SHALL hold when and by whom. A record SHALL never be deleted, and a closed record SHALL never change. Every signed-in user SHALL be able to read every record.
 
 #### Scenario: Recording a learned word
 - **WHEN** Ayla learns "Abyss" from her draft
@@ -269,8 +297,9 @@ It SHALL deny a step that does not agree with the others.
 ### Requirement: True Words tab on the hand screen
 The hand screen SHALL have a "✦ True Words" tab after "♠ Kartlar". The True Words tab SHALL list the player's words in the order learned, live, each as its picture with its active state, or, without a picture, as its name and visible text. Selecting a word SHALL show its details, in the same frame as a card's details:
 - its picture large, glowing purple while active, with an "Aktif" badge at the top
-- its cost and how it was learned, as labels
+- its cost in this hand and how it was learned, as labels
 - who knows it, as "<name> biliyor"
+- its note on cream paper, editable by the player and the DM
 - without a picture, its name and visible text
 
 Under a picture, the word's name and text SHALL NOT be written again. Screen readers still hear them.
@@ -302,8 +331,16 @@ In a window at least 1024 CSS pixels wide, the details SHALL show in a panel lab
 - **THEN** the tab says "Henüz True Word öğrenilmedi."
 
 #### Scenario: The DM's details
-- **WHEN** the DM selects "Abyss" on Ayla's True Words tab
-- **THEN** the details offer, under "DM araçları", switching it active and taking it back
+- **WHEN** the DM selects "Justice", whose "Elde etkili" is on, on Ayla's True Words tab
+- **THEN** the details offer, under "DM araçları", the cost in this hand with "temel: <cost>", switching it active, and taking it back
+
+#### Scenario: A word without a held effect in the DM's details
+- **WHEN** the DM selects "Abyss", whose "Elde etkili" is off, on Ayla's True Words tab
+- **THEN** "DM araçları" offers the cost and taking it back, and no switch
+
+#### Scenario: A note
+- **WHEN** Ayla's "Abyss" has the note "Boss savaşında kullan", and a user selects it
+- **THEN** the details show the note on cream paper
 
 ### Requirement: Active True Words above the hand
 On the Kartlar tab, the pictures of the player's active words SHALL peek out above the top of the hand, overlapping a little, in the order learned, live. A word without a picture SHALL show ✦ and its name there. Selecting one SHALL show it large with its name, only on that device and without writing anything. With no active word, nothing SHALL show there. The page SHALL NOT scroll sideways because of them.
@@ -379,7 +416,7 @@ The player who knows a word, and the DM, SHALL be able to use it with "Kullan", 
 - **THEN** "Kullan" is disabled with the Turkish note that a pack is open
 
 ### Requirement: The use step of a word
-The use step of a word SHALL show its price and the player's LP before and after the use, as a card's use step does (spec: card-holdings, "The use step shows the payment"). It SHALL ask on which character the word was used, with the same list as a card's use step (spec: card-holdings, "Choosing the character of a use", "A typed character"), the player's group first, and SHALL offer "Aktif efekt olarak ekle" as a card's does. After the use, the details SHALL stay open and say in Turkish that the word was used, with the amount paid.
+The use step of a word SHALL show its price and the player's LP before and after the use, as a card's use step does (spec: card-holdings, "The use step shows the payment"). It SHALL ask on which character the word was used, with the same list as a card's use step (spec: card-holdings, "Choosing the character of a use", "A typed character"), the player's group first. When the word's "Kullanınca efekt bırakır" is on, it SHALL offer "Aktif efekt olarak ekle" as a card's does; otherwise it SHALL NOT. After the use, the details SHALL stay open and say in Turkish that the word was used, with the amount paid.
 
 #### Scenario: A fixed price
 - **WHEN** Ayla, who has 6 LP, opens the use step of "Abyss"
@@ -396,6 +433,10 @@ The use step of a word SHALL show its price and the player's LP before and after
 #### Scenario: No character
 - **WHEN** Ayla confirms the use of "Abyss" with "Karakter seçilmedi"
 - **THEN** the use names no character, and no effect is added
+
+#### Scenario: A word that leaves no effect
+- **WHEN** Ayla chooses "Thorin" in the use step of "Aid", whose "Kullanınca efekt bırakır" is off
+- **THEN** the step shows no "Aktif efekt olarak ekle", and the use adds no effect
 
 ### Requirement: Word use records
 Each use of a word SHALL be recorded with the word, its name at the time, the player, the player's record of the word, who used it, when, the LP paid, and the ledger entry of the payment when it is more than 0. A use on a character SHALL also record the character's name at the time, and the character when it was chosen from the list. A use record SHALL never be changed or deleted. Every signed-in user SHALL be able to read every use record. Signed-out requests SHALL be denied.
@@ -437,4 +478,19 @@ The server SHALL accept a word use only together with its payment and the player
 
 #### Scenario: A word the player does not know
 - **WHEN** Ayla records a use of "Aid", which she has not learned
+- **THEN** the server denies it
+
+### Requirement: Notes and costs on known words
+The player who knows a word and the DM SHALL be able to write a note on it, up to 1000 characters, as on a held card (spec: card-holdings, "Card notes"). The DM SHALL be able to set a cost for the word in that player's hand, up to 10 characters, as for a held card (spec: card-holdings, "Cost override"). That cost SHALL be the price of the word's uses in that hand. Other players SHALL NOT change either.
+
+#### Scenario: A player writes a note
+- **WHEN** Ayla writes "Boss savaşında kullan" on her "Abyss" and leaves the field
+- **THEN** the note is saved and shown in the details of "Abyss" on every device
+
+#### Scenario: A cheaper word
+- **WHEN** the DM sets the cost of Ayla's "Abyss", which costs 5, to "3", and Ayla uses it
+- **THEN** she pays 3 LP
+
+#### Scenario: Another player's note
+- **WHEN** Bora tries to change the note on Ayla's "Abyss"
 - **THEN** the server denies it
