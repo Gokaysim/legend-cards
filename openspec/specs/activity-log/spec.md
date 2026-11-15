@@ -7,7 +7,7 @@ Shows what happened in the game on the İşlem Logu screen: the card movements a
 ## Requirements
 
 ### Requirement: One list of what happened
-The İşlem Logu screen SHALL list, newest first and live, every card given, drawn, used, discarded, and transferred, every pack opened, every True Word draft, every word the DM teaches or takes back, every use of a card or True Word that stays in the hand, every LP and GP change, every definition change, and every set change. It SHALL be read from the holdings (the learned True Words among them), the draws, packs and True Word drafts, the use records, the ledger, the change records and the set change records, so it never disagrees with them. Switching a card or a word active, notes, and cost overrides SHALL NOT be listed.
+The İşlem Logu screen SHALL list, newest first and live, every card given, drawn, used, discarded, and transferred, every pack opened, every True Word draft, every word the DM teaches or takes back, every use of a card or True Word that stays in the hand, every LP and GP change, every definition change, every set change, and every change of the player draw mode. It SHALL be read from the holdings (the learned True Words among them), the draws, packs and True Word drafts, the use records, the ledger, the change records, the set change records and the table change records, so it never disagrees with them. Switching a card or a word active, notes, and cost overrides SHALL NOT be listed.
 
 #### Scenario: Events from both sources
 - **WHEN** the DM gives Ayla a card and then adds 2 LP to Bora
@@ -36,6 +36,10 @@ The İşlem Logu screen SHALL list, newest first and live, every card given, dra
 #### Scenario: A set change among the events
 - **WHEN** the DM adds 2 LP to Bora, and then renames the set "Ulagal"
 - **THEN** the log shows the set change first and the LP change below it
+
+#### Scenario: A mode change among the events
+- **WHEN** the DM adds 2 LP to Bora, and then sets the player draw mode to "Filtreli çekiş"
+- **THEN** the log shows the mode change first and the LP change below it
 
 #### Scenario: Live update
 - **WHEN** Ayla uses a card while Bora has the log open
@@ -116,7 +120,7 @@ The log SHALL first show the 50 most recent events. When there are older events,
 - **THEN** no "Daha fazla" control is shown
 
 ### Requirement: Player filter
-The log SHALL offer a filter for one user. With a user chosen, it SHALL list only the cards that user received, including the cards drawn into their hand and the packs opened for them, the cards that left their hand, their True Word drafts, the True Words the DM taught them or took back from them, the uses of their True Words, and the changes of their LP. Party purse changes and definition changes SHALL be listed only without a filter.
+The log SHALL offer a filter for one user. With a user chosen, it SHALL list only the cards that user received, including the cards drawn into their hand and the packs opened for them, the cards that left their hand, their True Word drafts, the True Words the DM taught them or took back from them, the uses of their True Words, and the changes of their LP. Party purse changes, definition changes and player draw mode changes SHALL be listed only without a filter.
 
 #### Scenario: Filtering by a player
 - **WHEN** a user chooses Ayla in the filter
@@ -146,6 +150,10 @@ The log SHALL offer a filter for one user. With a user chosen, it SHALL list onl
 - **WHEN** a user chooses Ayla in the filter after the DM changed the text of a card that Ayla holds
 - **THEN** the text change is not listed
 
+#### Scenario: Mode changes in the filter
+- **WHEN** a user chooses Ayla in the filter after the DM set the player draw mode to "Filtreli çekiş"
+- **THEN** the mode change is not listed
+
 ### Requirement: Log states
 While the log is loading, the screen SHALL show a loading indicator. If it cannot be loaded, it SHALL show a Turkish error message. When there are no events, it SHALL say so in Turkish.
 
@@ -158,7 +166,7 @@ While the log is loading, the screen SHALL show a loading indicator. If it canno
 - **THEN** the screen shows a Turkish error message
 
 ### Requirement: A draw is one event
-A draw SHALL appear as one event that names who drew, the player whose hand the card went to, the card, whether it was a Cursed draw, the payment of 1 LP if any, and the DM's filters if any. A set filter SHALL be named by the set's official name, or by its code when no stored set has it. The draw's holding and its ledger entry SHALL NOT appear as separate events.
+A draw SHALL appear as one event that names who drew, the player whose hand the card went to, the card, whether it was a Cursed draw, the payment of 1 LP if any, and its filters if any, the DM's or a player's. A set filter SHALL be named by the set's official name, or by its code when no stored set has it. The draw's holding and its ledger entry SHALL NOT appear as separate events.
 
 #### Scenario: A paid draw
 - **WHEN** Ayla draws "Aboleth's Eyes" for 1 LP
@@ -171,6 +179,10 @@ A draw SHALL appear as one event that names who drew, the player whose hand the 
 #### Scenario: The DM draws from one set
 - **WHEN** the DM draws a card into Bora's hand with the set filter Kesqer and the rarity filter "Rare"
 - **THEN** the event shows the filters "Kesqerian Nights" and "Rare"
+
+#### Scenario: A player's filtered draw
+- **WHEN** the mode is "Kart seçme", and Ayla draws "Aboleth's Eyes" for 1 LP with a keyword
+- **THEN** the event shows Ayla, "Aboleth's Eyes", −1 LP, and the keyword among the filters
 
 #### Scenario: A Cursed draw
 - **WHEN** Ayla draws the Cursed card "Visions of Death"
@@ -347,3 +359,14 @@ A use of a card that stays in the hand SHALL appear as one event, at the time it
 #### Scenario: Using a kept card twice
 - **WHEN** Ayla uses her kept 2-cost card "Lucky Coin" on "Thorin", and later again without a character
 - **THEN** the log shows "Lucky Coin kartını Thorin üzerinde kullandı (−2 LP)." and, above it, "Lucky Coin kartını kullandı (−2 LP)."
+
+### Requirement: Player draw mode changes are events
+Each change of the table's "Oyuncu kart çekişi" (spec: table-settings) SHALL appear as one event, visible to every signed-in user. It names the DM who changed it and the new mode, in Turkish, for example "oyuncu kart çekişini “Filtreli çekiş” yaptı." after the DM's name.
+
+#### Scenario: Turning a mode on
+- **WHEN** the DM sets "Filtreli çekiş", and Ayla opens the İşlem Logu
+- **THEN** she sees one event naming the DM and "Filtreli çekiş"
+
+#### Scenario: Closing it from the banner
+- **WHEN** the DM selects "Kapat" on the banner while the mode is "Kart seçme"
+- **THEN** the log shows one event naming the DM and "Kapalı"

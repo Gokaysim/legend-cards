@@ -7,7 +7,7 @@ Provides the frame that signed-in users work in: the navigation between the main
 ## Requirements
 
 ### Requirement: Main screen navigation
-The shell SHALL offer navigation to nine screens, with these labels in this order: "Oyuncu elleri", "Shops", "Custom Card Draft", "Kütüphane", "Setler", "Zarlar", "İşlem Logu", "Kurallar", "Veri / Yedek". Each screen SHALL have its own URL, so it can be bookmarked and reloaded. The navigation SHALL mark the current screen.
+The shell SHALL offer navigation to nine screens, with these labels in this order: "Oyuncu elleri", "Shops", "Custom Card Draft", "Kütüphane", "Setler", "Zarlar", "İşlem Logu", "Kurallar", "Ayarlar". Each screen SHALL have its own URL, so it can be bookmarked and reloaded. The navigation SHALL mark the current screen.
 
 #### Scenario: Navigating between screens
 - **WHEN** a signed-in user selects "Kurallar" in the navigation
@@ -33,6 +33,10 @@ The shell SHALL offer navigation to nine screens, with these labels in this orde
 - **WHEN** a signed-in user selects "Zarlar" in the navigation
 - **THEN** the Zarlar screen is shown under its own URL, and "Zarlar" is marked, between "Setler" and "İşlem Logu"
 
+#### Scenario: The Ayarlar screen
+- **WHEN** a signed-in user selects "Ayarlar" in the navigation
+- **THEN** the Ayarlar screen is shown under the address the Veri / Yedek screen had, "Ayarlar" is marked as the last entry, and there is no "Veri / Yedek" entry
+
 ### Requirement: Placeholder screens
 Until a screen's feature exists, that screen SHALL show its title row and, under it, a "Yakında" panel: a neutral card back that drifts slowly, "YAKINDA" in gold over an ornament line, and the note "Bu ekran henüz hazır değil." in smaller, muted text. With reduced motion, the card SHALL stay still. The screen SHALL NOT show data or controls that do nothing.
 
@@ -41,7 +45,7 @@ Until a screen's feature exists, that screen SHALL show its title row and, under
 - **THEN** the screen shows the title "Custom Card Draft", and under it a slowly drifting card back, "YAKINDA" and "Bu ekran henüz hazır değil."
 
 #### Scenario: Reduced motion
-- **WHEN** a user whose device asks for reduced motion opens Veri / Yedek
+- **WHEN** a user whose device asks for reduced motion opens Custom Card Draft
 - **THEN** the "Yakında" panel shows the card back standing still
 
 #### Scenario: The Elixir Shop
