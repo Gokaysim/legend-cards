@@ -424,3 +424,36 @@ describe('the definition changes query', () => {
     expect(await changeIds('dana', true, 'ayla')).toBeNull()
   })
 })
+
+describe('the table changes query', () => {
+  const change = (after: string, millis: number) => ({
+    by: 'dana',
+    at: at(millis),
+    setting: 'playerDraw',
+    before: 'off',
+    after,
+  })
+
+  beforeEach(async () => {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const db = firestoreOf(admin)
+      await setDoc(doc(db, 'tableChanges/tc-1'), change('filtered', 1000))
+      await setDoc(doc(db, 'tableChanges/tc-2'), change('pick', 2000))
+    })
+  })
+
+  const tableChangeIds = async (viewer: string, uid: string | null = null) => {
+    const queries = logQueries(firestoreOf(testEnv.authenticatedContext(viewer)), uid, 50, false)
+    return queries.tableChanges === null
+      ? null
+      : (await getDocs(queries.tableChanges)).docs.map((document) => document.id)
+  }
+
+  it('gives a player every change, newest first', async () => {
+    expect(await tableChangeIds('ayla')).toEqual(['tc-2', 'tc-1'])
+  })
+
+  it('leaves the changes out with a user filter', async () => {
+    expect(await tableChangeIds('ayla', 'ayla')).toBeNull()
+  })
+})

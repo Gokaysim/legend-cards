@@ -3,11 +3,19 @@ import {
   type RulesTestContext,
   type RulesTestEnvironment,
 } from '@firebase/rules-unit-testing'
-import { doc, type Firestore, setDoc, Timestamp } from 'firebase/firestore'
+import {
+  collection,
+  doc,
+  type Firestore,
+  getDoc,
+  getDocs,
+  setDoc,
+  Timestamp,
+} from 'firebase/firestore'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import firestoreRules from '../../../firestore.rules?raw'
-import { explainDenial, openPackIdOnServer } from './api'
+import { explainDenial, openPackIdOnServer, playerDrawModeOnServer, setPlayerDrawMode } from './api'
 import { TableBusyError } from './errors'
 
 let testEnv: RulesTestEnvironment
@@ -50,6 +58,11 @@ beforeEach(async () => {
       createdAt: Timestamp.fromMillis(0),
     }
     await setDoc(doc(firestoreOf(admin), 'users/ayla'), profile)
+    await setDoc(doc(firestoreOf(admin), 'users/dana'), {
+      ...profile,
+      displayName: 'Dana',
+      role: 'dm',
+    })
   })
 })
 
@@ -83,5 +96,71 @@ describe('the table under the real rules', () => {
   it('passes other errors through without reading the table', async () => {
     const other = new Error('boom')
     expect(await explainDenial(as('ayla'), other)).toBe(other)
+  })
+})
+
+async function stored(path: string): Promise<Record<string, unknown> | undefined> {
+  let data: Record<string, unknown> | undefined
+  await testEnv.withSecurityRulesDisabled(async (admin) => {
+    data = (await getDoc(doc(firestoreOf(admin), path))).data()
+  })
+  return data
+}
+
+async function changes(): Promise<Record<string, unknown>[]> {
+  let rows: Record<string, unknown>[] = []
+  await testEnv.withSecurityRulesDisabled(async (admin) => {
+    const snapshot = await getDocs(collection(firestoreOf(admin), 'tableChanges'))
+    rows = snapshot.docs.map((entry) => ({ id: entry.id, ...entry.data() }))
+  })
+  return rows
+}
+
+describe('the player draw mode under the real rules', () => {
+  it('reads a missing table as off', async () => {
+    expect(await playerDrawModeOnServer(as('ayla'))).toBe('off')
+  })
+
+  it("writes the DM's change and its record, creating the table", async () => {
+    await setPlayerDrawMode(as('dana'), { mode: 'filtered', by: 'dana' })
+
+    const [change] = await changes()
+    expect(change).toMatchObject({
+      by: 'dana',
+      setting: 'playerDraw',
+      before: 'off',
+      after: 'filtered',
+    })
+    expect(await stored('table/main')).toEqual({
+      openPackId: null,
+      playerDraw: 'filtered',
+      playerDrawChangeId: change?.id,
+    })
+    expect(await playerDrawModeOnServer(as('ayla'))).toBe('filtered')
+  })
+
+  it('records the stored mode as before, and keeps an open pack', async () => {
+    await openTable('pack-1')
+    await setPlayerDrawMode(as('dana'), { mode: 'pick', by: 'dana' })
+    await setPlayerDrawMode(as('dana'), { mode: 'off', by: 'dana' })
+
+    const steps = (await changes()).map(({ before, after }) => `${String(before)}>${String(after)}`)
+    expect(steps.sort()).toEqual(['off>pick', 'pick>off'])
+    expect(await stored('table/main')).toMatchObject({ openPackId: 'pack-1', playerDraw: 'off' })
+  })
+
+  it('writes nothing when the mode is already set', async () => {
+    await setPlayerDrawMode(as('dana'), { mode: 'off', by: 'dana' })
+    expect(await changes()).toEqual([])
+    expect(await stored('table/main')).toBeUndefined()
+  })
+
+  it("denies a player's change", async () => {
+    await expect(setPlayerDrawMode(as('ayla'), { mode: 'pick', by: 'ayla' })).rejects.toMatchObject(
+      {
+        code: 'permission-denied',
+      },
+    )
+    expect(await changes()).toEqual([])
   })
 })

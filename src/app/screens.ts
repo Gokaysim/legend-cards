@@ -22,7 +22,7 @@ export const SCREENS = [
   { id: 'dice', path: '/dice', label: 'Zarlar', icon: '⚄', mascot: null },
   { id: 'activity-log', path: '/log', label: 'İşlem Logu', icon: '☷', mascot: 'cardmaker_think' },
   { id: 'rules', path: '/rules', label: 'Kurallar', icon: '📖', mascot: 'cardmaker_wave' },
-  { id: 'settings', path: '/settings', label: 'Veri / Yedek', icon: '⚙', mascot: 'cardmaker_peek' },
+  { id: 'settings', path: '/settings', label: 'Ayarlar', icon: '⚙', mascot: 'cardmaker_peek' },
 ] as const
 
 export type Screen = (typeof SCREENS)[number]

@@ -21,7 +21,8 @@ import { type DrawFilters, inCursedDeck, inRandomDraw } from '@/features/cards/p
 import { type Card, type Definition, isCard } from '@/features/cards/schema'
 import { HOLDINGS_COLLECTION, openHolding } from '@/features/hands/api'
 import { profileRef, USERS_COLLECTION } from '@/features/users/api'
-import { explainDenial } from '@/features/table/api'
+import { explainDenial, playerDrawModeOnServer } from '@/features/table/api'
+import { playerFiltersAllowed } from '@/features/table/playerDraw'
 import { firebaseCode } from '@/lib/firestore/errors'
 
 import { DrawError } from './errors'
@@ -59,7 +60,10 @@ export type DrawCardInput = {
   by: string
   /** A player's own random draw costs 1 LP. The DM's draws and Cursed draws are free. */
   paid: boolean
-  /** The DM's filters, recorded with the draw; `null` without filters. */
+  /**
+   * The filters of a random draw, recorded with it; `null` without filters. The DM's, or a player's under the table's
+   * player draw mode (spec: card-draws).
+   */
   filters: DrawFilters | null
   /** The cards to pick from, from the live cards: the drawable cards that pass the filters, or the Cursed Deck. */
   candidates: readonly Card[]
@@ -147,8 +151,9 @@ class TakenError extends Error {
  * The same transaction creates the draw's session with this draw, or adds the draw to it (design D2 of live-draws).
  *
  * Throws `DrawError`: `nothing-to-draw` when no candidate is left, `insufficient` when a paid draw finds less
- * than 1 LP, `session-ended` when the session has ended, and `retries-exhausted` after five tries. Throws `TableBusyError` when the rules denied the draw
- * because a pack is open.
+ * than 1 LP, `mode-changed` when the rules denied a player's filters because the DM changed the player draw mode,
+ * `session-ended` when the session has ended, and `retries-exhausted` after five tries. Throws `TableBusyError` when
+ * the rules denied the draw because a pack is open.
  */
 export async function drawCard(db: Firestore, input: DrawCardInput): Promise<DrawResult> {
   const tried = new Set<string>()
@@ -171,6 +176,7 @@ export async function drawCard(db: Firestore, input: DrawCardInput): Promise<Dra
       if (firebaseCode(error) !== 'permission-denied') throw error
       const explained = await explainDenial(db, error)
       if (explained !== error) throw explained
+      if (await isModeChangedOnServer(db, input)) throw new DrawError('mode-changed')
       if (await isEndedOnServer(db, input.sessionId)) throw new DrawError('session-ended')
       if (await isTakenOnServer(db, card.id, input.kind)) {
         tried.add(card.id)
@@ -194,6 +200,15 @@ function isTaken(definition: Definition | undefined, kind: DrawKind): definition
 
 async function isTakenOnServer(db: Firestore, cardId: string, kind: DrawKind): Promise<boolean> {
   return isTaken((await getDocFromServer(cardRef(db, cardId))).data(), kind)
+}
+
+/**
+ * True when a player's draw carried filters that the table's player draw mode no longer allows: the DM changed the
+ * mode while the dialog still showed the old one (design D5 of player-draw-modes).
+ */
+async function isModeChangedOnServer(db: Firestore, input: DrawCardInput): Promise<boolean> {
+  if (!input.paid || input.filters === null) return false
+  return !playerFiltersAllowed(await playerDrawModeOnServer(db), input.filters)
 }
 
 async function isEndedOnServer(db: Firestore, sessionId: string): Promise<boolean> {

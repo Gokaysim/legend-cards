@@ -6,6 +6,7 @@ import { OpenPackView } from '@/features/packs/OpenPackView'
 
 import { MobileNav } from './MobileNav'
 import { OfflineBanner } from './OfflineBanner'
+import { PlayerDrawBanner } from './PlayerDrawBanner'
 import { SidebarContent } from './SidebarContent'
 
 /**
@@ -23,6 +24,7 @@ export function AppShell() {
       <MobileNav />
       <main className="flex min-w-0 flex-1 flex-col gap-4 p-4 lg:p-8">
         <OfflineBanner />
+        <PlayerDrawBanner />
         <OpenPackView />
         <LiveDrawView />
         <DiceNotice />

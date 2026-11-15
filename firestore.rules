@@ -50,6 +50,10 @@ service cloud.firestore {
       return /databases/$(database)/documents/table/main;
     }
 
+    function tableChangePath(changeId) {
+      return /databases/$(database)/documents/tableChanges/$(changeId);
+    }
+
     function playerWordsPath(uid) {
       return /databases/$(database)/documents/playerWords/$(uid);
     }
@@ -1186,18 +1190,31 @@ service cloud.firestore {
         return data.paidWith == 'none' && data.cost == 0 && data.entryId == null;
       }
 
-      // A player's random draw into their own hand, without filters, paid with 1 LP through a ledger entry that
-      // this same request creates and that names this draw. The ledger rules check the amount and the balance.
+      // A player's random draw into their own hand, with the filters the table's player draw mode allows, paid
+      // with 1 LP through a ledger entry that this same request creates and that names this draw. The ledger rules
+      // check the amount and the balance.
       function paidByPlayer() {
         let data = request.resource.data;
         return data.kind == 'random'
           && data.uid == request.auth.uid
-          && data.filters == null
+          && playerFiltersAllowed(data.filters)
           && data.paidWith == 'lp'
           && data.cost == 1
           && data.entryId is string
           && createdNow(ledgerPath(data.entryId))
           && getAfter(ledgerPath(data.entryId)).data.drawId == drawId;
+      }
+
+      // The filters a player's draw may record under the table's player draw mode (spec: card-draws, "The server
+      // checks a player's filters against the mode"): none under 'off', the set, cost, mechanic pack and rarity under
+      // 'filtered', and the keyword too under 'pick'. A missing table, or one from before the setting, is 'off'. The
+      // table is read once per request: tableFree() reads it too. Keep in step with playerFiltersAllowed in
+      // src/features/table/playerDraw.ts.
+      function playerFiltersAllowed(filters) {
+        let mode = exists(tablePath()) ? get(tablePath()).data.get('playerDraw', 'off') : 'off';
+        return filters == null
+          || mode == 'pick'
+          || (mode == 'filtered' && filters.keyword == null);
       }
 
       // A free Cursed draw into the drawer's own hand.
@@ -1588,23 +1605,41 @@ service cloud.firestore {
       }
     }
 
-    // The table: which pack is open, at `table/main`. Everyone signed in reads it. It changes only together with a
-    // pack: taken by the opening that this same request creates, and freed by the choice or cancel that ends the
-    // pack in this same request. The pack's rules decide who may do either. A missing table holds no pack.
+    // The table, at `table/main`: which pack is open, and the player draw mode (spec: table-settings). Everyone signed
+    // in reads it. A missing table holds no pack, and its mode is off; so is the mode of a table written before the
+    // setting existed.
+    // - The pack fields change only together with a pack: taken by the opening that this same request creates, and
+    //   freed by the choice or cancel that ends the pack in this same request. The pack's rules decide who may do
+    //   either. A pack step changes nothing else (design D1 of player-draw-modes).
+    // - Only the DM changes the mode, to one of the three, together with the `tableChanges` record that this same
+    //   request creates for it, and nothing else. A mode change does not wait for an open pack: it moves no card and
+    //   no balance. Before the first pack, the DM's change creates the table, with no pack open.
     match /table/main {
       allow read: if isSignedIn();
       allow create: if isSignedIn()
-        && request.resource.data.keys().hasOnly(['openPackId'])
-        && request.resource.data.keys().hasAll(['openPackId'])
-        && takenBy(request.resource.data.openPackId);
-      allow update: if isSignedIn()
-        && request.resource.data.keys().hasOnly(['openPackId'])
-        && request.resource.data.keys().hasAll(['openPackId'])
-        && ((resource.data.openPackId == null && takenBy(request.resource.data.openPackId))
-          || (resource.data.openPackId is string
+        && ((request.resource.data.keys().hasOnly(['openPackId'])
+            && request.resource.data.keys().hasAll(['openPackId'])
+            && takenBy(request.resource.data.openPackId))
+          || (request.resource.data.keys().hasOnly(tableKeys())
+            && request.resource.data.keys().hasAll(tableKeys())
             && request.resource.data.openPackId == null
-            && freedBy(resource.data.openPackId)));
+            && setsPlayerDraw('off')));
+      allow update: if isSignedIn()
+        && request.resource.data.keys().hasAll(['openPackId'])
+        && ((onlyChanges(['openPackId'])
+            && ((resource.data.openPackId == null && takenBy(request.resource.data.openPackId))
+              || (resource.data.openPackId is string
+                && request.resource.data.openPackId == null
+                && freedBy(resource.data.openPackId))))
+          || (request.resource.data.keys().hasOnly(tableKeys())
+            && request.resource.data.keys().hasAll(tableKeys())
+            && onlyChanges(['playerDraw', 'playerDrawChangeId'])
+            && setsPlayerDraw(resource.data.get('playerDraw', 'off'))));
       allow delete: if false;
+
+      function tableKeys() {
+        return ['openPackId', 'playerDraw', 'playerDrawChangeId'];
+      }
 
       // A pack that this same request creates, open.
       function takenBy(packId) {
@@ -1618,6 +1653,48 @@ service cloud.firestore {
       function freedBy(packId) {
         return get(drawPath(packId)).data.status == 'open'
           && getAfter(drawPath(packId)).data.status in ['chosen', 'cancelled'];
+      }
+
+      // The DM sets a mode from `before`, and the record this same request creates names that step.
+      function setsPlayerDraw(before) {
+        let data = request.resource.data;
+        let changeId = data.playerDrawChangeId;
+        return data.playerDraw in ['off', 'filtered', 'pick']
+          && changeId is string
+          && createdNow(tableChangePath(changeId))
+          && getAfter(tableChangePath(changeId)).data.setting == 'playerDraw'
+          && getAfter(tableChangePath(changeId)).data.before == before
+          && getAfter(tableChangePath(changeId)).data.after == data.playerDraw
+          && isDm();
+      }
+    }
+
+    // Table change records: one per change of a table setting by the DM (design D2 of player-draw-modes), so far only
+    // the player draw mode. Everyone signed in reads them. Only the DM creates one, together with the table change it
+    // records: the table now points at it, with its mode after, and its mode before is the table's before. A record
+    // never changes and is never deleted.
+    match /tableChanges/{changeId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && validTableChange() && isDm();
+      allow update, delete: if false;
+
+      function validTableChange() {
+        let data = request.resource.data;
+        let fields = ['by', 'at', 'setting', 'before', 'after'];
+        let modes = ['off', 'filtered', 'pick'];
+        let before = exists(tablePath()) ? get(tablePath()).data.get('playerDraw', 'off') : 'off';
+        return data.keys().hasOnly(fields)
+          && data.keys().hasAll(fields)
+          && data.by == request.auth.uid
+          && data.at == request.time
+          && data.setting == 'playerDraw'
+          && data.before in modes
+          && data.after in modes
+          && data.before != data.after
+          && data.before == before
+          && existsAfter(tablePath())
+          && getAfter(tablePath()).data.get('playerDrawChangeId', null) == changeId
+          && getAfter(tablePath()).data.get('playerDraw', 'off') == data.after;
       }
     }
 

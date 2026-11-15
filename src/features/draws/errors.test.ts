@@ -14,6 +14,7 @@ describe('toDrawFailure', () => {
       kind: 'retries-exhausted',
     })
     expect(toDrawFailure(new DrawError('session-ended'))).toEqual({ kind: 'session-ended' })
+    expect(toDrawFailure(new DrawError('mode-changed'))).toEqual({ kind: 'mode-changed' })
   })
 
   it('maps a denial while a pack is open', () => {
@@ -39,6 +40,7 @@ describe('drawFailureMessage', () => {
       'Kart çekilemedi: kartlar o sırada başka ellere geçti. Tekrar dene.',
     ],
     [{ kind: 'session-ended' }, 'Bu çekiş bitirildi. Tekrar çekersen yeni bir çekiş başlar.'],
+    [{ kind: 'mode-changed' }, 'DM oyuncu kart çekişini değiştirdi; filtreler kaldırıldı.'],
     [
       { kind: 'table-busy' },
       'Şu anda açık bir Pack var: seçim yapılana kadar kart ve bakiye işlemleri bekler.',

@@ -8,6 +8,7 @@ import { testHolding } from '@/test/holdingFixtures'
 import { testGpEntry, testLedgerEntry } from '@/test/ledgerFixtures'
 import { testPack } from '@/test/packFixtures'
 import { testSetChange } from '@/test/setFixtures'
+import { testTableChange } from '@/test/tableFixtures'
 import { testTrueWord, testWordDraft, testWordHolding, testWordUse } from '@/test/trueWordFixtures'
 
 import { deriveEvents, EMPTY_LOG_RECORDS, type LogRecords, newestEvents } from './events'
@@ -58,6 +59,21 @@ describe('deriveEvents', () => {
   it('counts the set changes for "Daha fazla"', () => {
     const changes = [testSetChange(1), testSetChange(2)]
     expect(newestEvents(records({ setChanges: changes }), 2).mayHaveMore).toBe(true)
+  })
+
+  it('turns a table change record into one table setting event, by the DM', () => {
+    const change = testTableChange(5000)
+    expect(deriveEvents(records({ tableChanges: [change] }))).toEqual([
+      { kind: 'tableSetting', key: `tableSetting:${change.id}`, at: change.at, by: 'dana', change },
+    ])
+  })
+
+  it('orders a mode change among the other events, and counts it for "Daha fazla"', () => {
+    const change = testTableChange(6000)
+    const { events } = newestEvents(records({ given: [given], tableChanges: [change] }), 50)
+    expect(events.map((event) => event.kind)).toEqual(['tableSetting', 'given'])
+    const changes = [testTableChange(1), testTableChange(2)]
+    expect(newestEvents(records({ tableChanges: changes }), 2).mayHaveMore).toBe(true)
   })
 
   it('turns a holding given by the DM into a given event', () => {

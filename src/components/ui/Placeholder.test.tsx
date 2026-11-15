@@ -22,7 +22,7 @@ describe('Placeholder', () => {
   })
 
   it('moves the card only where motion is welcome', () => {
-    render(<Placeholder title="Veri / Yedek" />)
+    render(<Placeholder title="Custom Card Draft" />)
 
     const card = document.querySelector('[data-coming-soon-card]')
     const drifting = card?.querySelector('.motion-safe\\:animate-card-drift')

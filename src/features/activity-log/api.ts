@@ -19,13 +19,15 @@ import { holdingRef, holdingsRef, usesRef } from '@/features/hands/api'
 import type { GivenVia, Holding, KeptUse } from '@/features/hands/schema'
 import { setChangesRef } from '@/features/sets/api'
 import type { SetChange } from '@/features/sets/schema'
+import { tableChangesRef } from '@/features/table/api'
+import type { TableChange } from '@/features/table/schema'
 
 /**
- * The seven queries of the İşlem Logu's sources (holdings, draws, the ledger, kept uses, the definition changes and the
- * set changes), each newest first and limited to `n` (design D10 of unify-cards-and-true-words). With a user, each keeps
+ * The eight queries of the İşlem Logu's sources (holdings, draws, the ledger, kept uses, the definition changes, the
+ * set changes and the table setting changes), each newest first and limited to `n` (design D10 of unify-cards-and-true-words). With a user, each keeps
  * only that user's records: their holdings (the words taught to them or taken back from them among them), the draws,
  * packs and drafts into their hand, their LP entries, and the uses of their cards and words. Party entries never match
- * a user, and definition and set changes are left out (`null`). A player's device asks only for the public changes,
+ * a user, and definition, set and table setting changes are left out (`null`). A player's device asks only for the public changes,
  * which the rules let it read; the DM's for all of them.
  *
  * The holdings a draw, a pack or a draft opened, and the entries that paid for or refunded them, are part of their
@@ -46,6 +48,8 @@ export type LogQueries = {
   changes: Query<DefinitionChange> | null
   /** Every set change; left out with a user, as the definition changes are. */
   setChanges: Query<SetChange> | null
+  /** Every table setting change; left out with a user, as the set changes are. */
+  tableChanges: Query<TableChange> | null
 }
 
 /**
@@ -95,6 +99,7 @@ export function logQueries(
             limit(n),
           ),
     setChanges: uid !== null ? null : query(setChangesRef(db), orderBy('at', 'desc'), limit(n)),
+    tableChanges: uid !== null ? null : query(tableChangesRef(db), orderBy('at', 'desc'), limit(n)),
   }
 }
 

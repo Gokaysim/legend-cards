@@ -467,6 +467,56 @@ describe('choosing under the real rules', () => {
   })
 })
 
+describe('packs keep the player draw mode', () => {
+  async function setMode(playerDraw: string, openPackId: string | null) {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(firestoreOf(admin), 'table/main'), {
+        openPackId,
+        playerDraw,
+        playerDrawChangeId: 'c-old',
+      })
+    })
+  }
+
+  it('opens and chooses a pack while the mode is Filtreli çekiş, and the mode stays', async () => {
+    await setMode('filtered', null)
+
+    const id = await aylaOpens()
+    expect(await stored('table/main')).toEqual({
+      openPackId: id,
+      playerDraw: 'filtered',
+      playerDrawChangeId: 'c-old',
+    })
+
+    const offered = (await stored(`draws/${id}`))?.offered as string[]
+    // Every card is turned before the choice.
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await updateDoc(doc(firestoreOf(admin), `draws/${id}`), {
+        revealed: offered.map((_, i) => i),
+      })
+    })
+    await choosePackCard(as('ayla'), { drawId: id, cardId: offered[0] ?? '', by: 'ayla' })
+    expect(await stored('table/main')).toEqual({
+      openPackId: null,
+      playerDraw: 'filtered',
+      playerDrawChangeId: 'c-old',
+    })
+  })
+
+  it('cancels a pack while the mode is Kart seçme, and the mode stays', async () => {
+    await seedOpenPack()
+    await setMode('pick', 'p1')
+
+    await cancelPack(as('dana'), { drawId: 'p1', by: 'dana' })
+
+    expect(await stored('table/main')).toEqual({
+      openPackId: null,
+      playerDraw: 'pick',
+      playerDrawChangeId: 'c-old',
+    })
+  })
+})
+
 describe('cancelling under the real rules', () => {
   it('refunds LP to the player: the record and the refund name each other', async () => {
     await seedOpenPack()

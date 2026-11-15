@@ -225,7 +225,8 @@ function openOnce(
       refundEntryId: null,
     }
     transaction.set(packDoc, pack)
-    transaction.set(tableRef(db), { openPackId: packDoc.id })
+    // Merged, so the table's other fields (the player draw mode) stay: the rules let a pack step change only this one.
+    transaction.set(tableRef(db), { openPackId: packDoc.id }, { merge: true })
     if (account !== null && balanceAfter !== null) {
       transaction.set(
         entryDoc,
@@ -371,7 +372,7 @@ function chooseOnce(db: Firestore, { drawId, cardId, by }: ChoosePackCardInput):
       cursed:
         curse === null ? null : { cardId: curse.id, cardName: curse.name, holdingId: cursedDoc.id },
     })
-    transaction.set(tableRef(db), { openPackId: null })
+    transaction.set(tableRef(db), { openPackId: null }, { merge: true })
     return chosenDoc.id
   })
 }
@@ -425,6 +426,6 @@ function cancelOnce(db: Firestore, { drawId, by }: CancelPackInput): Promise<voi
       )
       setBalance(transaction, db, account, after, refundDoc.id)
     }
-    transaction.set(tableRef(db), { openPackId: null })
+    transaction.set(tableRef(db), { openPackId: null }, { merge: true })
   })
 }

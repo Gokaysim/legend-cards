@@ -19,7 +19,7 @@ const EXPECTED_LABELS = [
   'Zarlar',
   'İşlem Logu',
   'Kurallar',
-  'Veri / Yedek',
+  'Ayarlar',
 ]
 
 const mainMenu = () => screen.getByRole('navigation', { name: 'Ana menü' })
@@ -77,6 +77,12 @@ const BUILT_SCREENS: Record<string, () => void> = {
   // The rules, starting with the Legend Point section.
   '/rules': () => {
     expect(screen.getByRole('region', { name: 'Legend Point Kart Sistemi' })).toBeInTheDocument()
+  },
+  // The Ayarlar screen: the table settings, and the data section still to come.
+  '/settings': () => {
+    expect(screen.getByRole('heading', { level: 1, name: 'Ayarlar' })).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'Oyuncu kart çekişi' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 2, name: 'Veri / Yedek' })).toBeInTheDocument()
   },
 }
 

@@ -52,6 +52,7 @@ describe('drawSchema', () => {
     ["a player's paid draw of a Blessed card", { ...paid, cardKind: 'blessed' }],
     ["the DM's free draw", free],
     ["the DM's free draw with filters", { ...free, filters }],
+    ["a player's paid draw with filters, under the table's player draw mode", { ...paid, filters }],
     [
       "the DM's free draw with some filters",
       { ...free, filters: { ...noFilters, rarity: 'blessed' } },
@@ -78,7 +79,6 @@ describe('drawSchema', () => {
     ['a cost of 2', { ...paid, cost: 2 }],
     ['a paid Cursed draw', { ...cursed, paidWith: 'lp', cost: 1, entryId: 'e1' }],
     ['a Cursed draw with filters', { ...cursed, filters }],
-    ['a paid draw with filters', { ...paid, filters }],
     ['an unknown rarity filter', { ...free, filters: { ...filters, rarity: 'legendary' } }],
     ['an empty filter', { ...free, filters: { ...filters, keyword: '' } }],
     [

@@ -445,3 +445,61 @@ describe('drawing while a pack is open', () => {
     expect((await stored(`cards/${EYES.id}`))?.holder).toBeUndefined()
   })
 })
+
+describe("a player's filtered draw under the real rules", () => {
+  const SET_FILTERS = {
+    setCode: 'Kesqer',
+    cost: null,
+    mechanicPack: null,
+    rarity: null,
+    keyword: null,
+  }
+
+  async function setMode(playerDraw: string) {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(firestoreOf(admin), 'table/main'), {
+        openPackId: null,
+        playerDraw,
+        playerDrawChangeId: 'c-old',
+      })
+    })
+  }
+
+  it('records the filters, pays 1 LP and shows the set back under Filtreli çekiş', async () => {
+    await setMode('filtered')
+
+    const result = await aylaDraws([EYES], { filters: SET_FILTERS, sessionId: 's-set' })
+
+    expect(await stored(`draws/${result.drawId}`)).toMatchObject({
+      by: 'ayla',
+      filters: SET_FILTERS,
+      paidWith: 'lp',
+      cost: 1,
+    })
+    expect(await stored('users/ayla')).toMatchObject({ lp: 2 })
+    expect(await stored('drawSessions/s-set')).toMatchObject({
+      draws: [{ drawId: result.drawId, backSet: 'Kesqer' }],
+    })
+  })
+
+  it('fails with "mode-changed" after the DM closed the mode, and charges nothing', async () => {
+    await setMode('off')
+
+    const failure = await failureOf(aylaDraws([EYES], { filters: SET_FILTERS }))
+
+    expect(failure).toBeInstanceOf(DrawError)
+    expect(toDrawFailure(failure)).toEqual({ kind: 'mode-changed' })
+    expect(await all('draws')).toEqual([])
+    expect(await stored('users/ayla')).toMatchObject({ lp: 3, lpEntryId: 'seed' })
+  })
+
+  it('fails with "mode-changed" for a keyword under Filtreli çekiş', async () => {
+    await setMode('filtered')
+
+    const failure = await failureOf(
+      aylaDraws([EYES], { filters: { ...SET_FILTERS, keyword: 'eyes' } }),
+    )
+
+    expect(toDrawFailure(failure)).toEqual({ kind: 'mode-changed' })
+  })
+})

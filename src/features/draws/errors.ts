@@ -5,7 +5,7 @@ import { genitive } from '@/lib/turkish'
 
 /** A draw that the current data does not allow, found before anything is written. */
 export type DrawErrorKind =
-  'nothing-to-draw' | 'insufficient' | 'retries-exhausted' | 'session-ended'
+  'nothing-to-draw' | 'insufficient' | 'retries-exhausted' | 'session-ended' | 'mode-changed'
 
 export class DrawError extends Error {
   override readonly name = 'DrawError'
@@ -30,12 +30,17 @@ export type DrawFailure =
   | { kind: 'retries-exhausted' }
   /** The draw's session was ended meanwhile, by the DM or by another tab: the next draw starts a new one. */
   | { kind: 'session-ended' }
+  /** The DM changed the table's player draw mode, and it no longer allows the filters of a player's draw. */
+  | { kind: 'mode-changed' }
   /** A pack is open: the table waits for it, and nobody draws until it ends. */
   | { kind: 'table-busy' }
   /** No connection: a draw is a transaction, and transactions need the server. */
   | { kind: 'offline' }
   | { kind: 'permission-denied' }
   | { kind: 'unknown' }
+
+/** The message of a player's draw that the DM's change of the player draw mode refused. */
+export const MODE_CHANGED_MESSAGE = 'DM oyuncu kart çekişini değiştirdi; filtreler kaldırıldı.'
 
 /** Maps anything a draw can throw to a failure the interface explains. */
 export function toDrawFailure(error: unknown): DrawFailure {
@@ -66,6 +71,8 @@ export function drawFailureMessage(failure: DrawFailure, name: string): string {
       return 'Kart çekilemedi: kartlar o sırada başka ellere geçti. Tekrar dene.'
     case 'session-ended':
       return 'Bu çekiş bitirildi. Tekrar çekersen yeni bir çekiş başlar.'
+    case 'mode-changed':
+      return MODE_CHANGED_MESSAGE
     case 'table-busy':
       return TABLE_BUSY_MESSAGE
     case 'offline':

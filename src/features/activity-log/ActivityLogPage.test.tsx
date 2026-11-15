@@ -16,6 +16,7 @@ import { testTrueWord, testWordDraft, testWordHolding, testWordUse } from '@/tes
 import { renderApp } from '@/test/renderApp'
 import type { TestActivityLog } from '@/test/TestActivityLogProvider'
 import { testSetChange } from '@/test/setFixtures'
+import { testTableChange } from '@/test/tableFixtures'
 
 import { EMPTY_LOG_RECORDS, type LogRecords } from './events'
 
@@ -99,6 +100,16 @@ describe('ActivityLogPage', () => {
     const [first, second] = rows()
     expect(first).toHaveTextContent('Ballad of Ulagal setini düzenledi.')
     expect(first).toHaveTextContent('Ad')
+    expect(first).not.toHaveTextContent('Yalnızca DM')
+    expect(second).toHaveTextContent('Ayla: +2 LP (5 → 7)')
+  })
+
+  it('lists a player draw mode change among the other events, newest first, for every user', () => {
+    const change = testTableChange(on(8, 50).toMillis())
+    renderLog({ records: ready(records({ entries: [lpForAyla], tableChanges: [change] })) })
+
+    const [first, second] = rows()
+    expect(first).toHaveTextContent('oyuncu kart çekişini “Filtreli çekiş” yaptı.')
     expect(first).not.toHaveTextContent('Yalnızca DM')
     expect(second).toHaveTextContent('Ayla: +2 LP (5 → 7)')
   })

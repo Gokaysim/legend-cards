@@ -29,6 +29,13 @@ import {
 } from '@/features/cards/pool'
 import { compareLabels } from '@/features/cards/sort'
 import { useSetIndex } from '@/features/sets/setsContext'
+import {
+  filtersUnderMode,
+  PLAYER_DRAW_LABELS,
+  type PlayerDrawTools,
+  playerDrawTools,
+} from '@/features/table/playerDraw'
+import { usePlayerDrawMode } from '@/features/table/tableContext'
 import type { UserProfile } from '@/features/users/schema'
 import { profileName, useIsDm } from '@/features/users/usersContext'
 import { genitive } from '@/lib/turkish'
@@ -80,9 +87,11 @@ export type DrawDialogProps = {
  * of cards a draw picks from, the draw control under it, and the drawn cards beside it in a fan, face down, in the
  * order drawn. Each draw is complete (the card in the hand, the LP paid) before its card shows here. Closing never
  * undoes a draw.
- * - A player's random draw costs 1 LP and has no filters.
- * - The DM's random draw is free, can be narrowed with the filter pills, and can look into the deck.
- * - A Cursed draw is free for both.
+ * - A player's random draw costs 1 LP. It has the tools the table's player draw mode gives (spec: card-draws, "A
+ *   player's draw tools follow the mode"): none, the filter pills, or also the keyword and "Destede ne var?". When
+ *   the DM changes the mode, the dialog drops what the new mode no longer allows at once.
+ * - The DM's random draw is free, can be narrowed with the filter pills and the keyword, and can look into the deck.
+ * - A Cursed draw is free for both, and has no tools.
  *
  * Every other device watches the draws (spec: live-draws): the first draw starts the dialog's session, each card is
  * turned for everyone through it, and closing the dialog ends it once any draw still running has settled. A session
@@ -100,8 +109,15 @@ export function DrawDialog({ mode, owner, onClose }: DrawDialogProps) {
   const ownerName = profileName(owner)
   const { shock, overlay } = useBlessedShock()
 
+  const playerMode = usePlayerDrawMode()
+  const tools: PlayerDrawTools =
+    mode !== 'random'
+      ? { filters: false, keyword: false, peek: false }
+      : isDm
+        ? { filters: true, keyword: true, peek: true }
+        : playerDrawTools(playerMode)
   const paid = mode === 'random' && !isDm
-  const hasFilters = mode === 'random' && isDm
+  const hasFilters = tools.filters
 
   const [filters, setFilters] = useState<DrawFilters>(NO_FILTERS)
   const [drawn, setDrawn] = useState<Drawn[]>([])
@@ -109,6 +125,15 @@ export function DrawDialog({ mode, owner, onClose }: DrawDialogProps) {
   const [failure, setFailure] = useState<DrawFailure | null>(null)
   const [peekCount, setPeekCount] = useState(0)
   const [turnedHere, setTurnedHere] = useState<ReadonlySet<string>>(new Set())
+  // A change of the player draw mode drops what the new mode no longer allows, during the render that sees it.
+  const [seenMode, setSeenMode] = useState(playerMode)
+  if (seenMode !== playerMode) {
+    setSeenMode(playerMode)
+    if (!isDm) {
+      setFilters((current) => filtersUnderMode(playerMode, current))
+      if (!playerDrawTools(playerMode).peek) setPeekCount(0)
+    }
+  }
   const sessions = useDrawSessions()
   const now = useNow(SESSION_TICK_MS)
   const ownSession = useRef<OwnSession | null>(null)
@@ -195,7 +220,13 @@ export function DrawDialog({ mode, owner, onClose }: DrawDialogProps) {
       session.count += 1
       setDrawn((current) => [...current, { result, back, sessionId: session.id, index }])
     } catch (error) {
-      setFailure(toDrawFailure(error))
+      const failure = toDrawFailure(error)
+      if (failure.kind === 'mode-changed') {
+        // The server's mode no longer allows these filters, even if this device has not heard of the change yet.
+        setFilters(NO_FILTERS)
+        setPeekCount(0)
+      }
+      setFailure(failure)
     }
   }
 
@@ -279,6 +310,9 @@ export function DrawDialog({ mode, owner, onClose }: DrawDialogProps) {
           {mode === 'cursed' ? '☠ Cursed' : '🎲 Rastgele'}
         </TableChip>
         <TableChip>{`${genitive(ownerName)} eline`}</TableChip>
+        {paid && playerMode !== 'off' ? (
+          <TableChip variant="mode">{`✦ ${PLAYER_DRAW_LABELS[playerMode]}`}</TableChip>
+        ) : null}
         {paid ? (
           <>
             <TableChip variant="gold">
@@ -295,12 +329,16 @@ export function DrawDialog({ mode, owner, onClose }: DrawDialogProps) {
       {hasFilters && pool !== null ? (
         <FilterBar
           pills={pills}
-          keyword={{
-            value: filters.keyword ?? '',
-            onChange: (keyword) =>
-              setFilters((current) => ({ ...current, keyword: keyword || null })),
-            maxLength: DRAW_LIMITS.keyword,
-          }}
+          keyword={
+            tools.keyword
+              ? {
+                  value: filters.keyword ?? '',
+                  onChange: (keyword) =>
+                    setFilters((current) => ({ ...current, keyword: keyword || null })),
+                  maxLength: DRAW_LIMITS.keyword,
+                }
+              : undefined
+          }
           isActive={activeFilters(filters) !== null}
           onClear={() => setFilters(NO_FILTERS)}
         />
@@ -344,7 +382,7 @@ export function DrawDialog({ mode, owner, onClose }: DrawDialogProps) {
             >
               {isBusy ? 'Çekiliyor…' : control}
             </Button>
-            {hasFilters ? (
+            {tools.peek ? (
               <Button
                 variant="ghost"
                 aria-expanded={peekCount > 0}
@@ -395,7 +433,7 @@ export function DrawDialog({ mode, owner, onClose }: DrawDialogProps) {
         Herkes bu çekişi canlı görür; çevirdiğin kartlar onlarda da döner.
       </p>
 
-      {hasFilters && peekCount > 0 ? (
+      {tools.peek && peekCount > 0 ? (
         <section
           id={`${ids}-peek`}
           aria-labelledby={`${ids}-peek-title`}

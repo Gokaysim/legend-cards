@@ -6,6 +6,7 @@ import type { ArtManifest } from '@/features/art/schema'
 import type { Card } from '@/features/cards/schema'
 import type { UserProfile } from '@/features/users/schema'
 import type { CardSet } from '@/features/sets/schema'
+import type { PlayerDrawMode } from '@/features/table/playerDraw'
 import { testArt, testPicturePath, testPictureUrl } from '@/test/artFixtures'
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 import { testSession } from '@/test/drawFixtures'
@@ -16,6 +17,7 @@ import { TestAuthProvider } from '@/test/TestAuthProvider'
 import { TestCardsProvider } from '@/test/TestCardsProvider'
 import { TestDrawsProvider } from '@/test/TestDrawsProvider'
 import { TestSetsProvider } from '@/test/TestSetsProvider'
+import { TestTableProvider } from '@/test/TestTableProvider'
 import { TestUsersProvider } from '@/test/TestUsersProvider'
 
 import type { DrawCardInput, DrawResult } from './api'
@@ -59,6 +61,8 @@ type Setup = {
   /** More fake draw steps. */
   actions?: Partial<DrawActions>
   sessions?: readonly DrawSession[]
+  /** The table's player draw mode. Default: off. */
+  playerDraw?: PlayerDrawMode
 }
 
 function setup({
@@ -71,6 +75,7 @@ function setup({
   sets = TEST_SETS,
   actions = {},
   sessions = [],
+  playerDraw = 'off',
 }: Setup = {}) {
   const user = userEvent.setup()
   const draw = vi.fn<DrawActions['drawCard']>(drawCard ?? drawsInTurn())
@@ -83,20 +88,23 @@ function setup({
   const fakes = { drawCard: draw, endDrawSession, turnDrawCard, newSessionId, ...actions }
   let currentSessions = sessions
   let currentOwner = owner
+  let currentMode = playerDraw
   const tree = (current: UserProfile) => (
-    <TestArtProvider manifest={art}>
-      <TestAuthProvider state={{ status: 'signedIn', user: testUser }}>
-        <TestUsersProvider currentProfile={ready(asDm ? dm : me)}>
-          <TestSetsProvider sets={setsReady}>
-            <TestCardsProvider cards={ready(cards)}>
-              <TestDrawsProvider actions={fakes} sessions={currentSessions}>
-                <DrawDialog mode={mode} owner={current} onClose={onClose} />
-              </TestDrawsProvider>
-            </TestCardsProvider>
-          </TestSetsProvider>
-        </TestUsersProvider>
-      </TestAuthProvider>
-    </TestArtProvider>
+    <TestTableProvider playerDraw={currentMode}>
+      <TestArtProvider manifest={art}>
+        <TestAuthProvider state={{ status: 'signedIn', user: testUser }}>
+          <TestUsersProvider currentProfile={ready(asDm ? dm : me)}>
+            <TestSetsProvider sets={setsReady}>
+              <TestCardsProvider cards={ready(cards)}>
+                <TestDrawsProvider actions={fakes} sessions={currentSessions}>
+                  <DrawDialog mode={mode} owner={current} onClose={onClose} />
+                </TestDrawsProvider>
+              </TestCardsProvider>
+            </TestSetsProvider>
+          </TestUsersProvider>
+        </TestAuthProvider>
+      </TestArtProvider>
+    </TestTableProvider>
   )
   const view = render(tree(owner))
   return {
@@ -113,6 +121,11 @@ function setup({
     },
     setSessions: (next: readonly DrawSession[]) => {
       currentSessions = next
+      view.rerender(tree(currentOwner))
+    },
+    /** The DM changes the table's player draw mode while the dialog is open. */
+    setPlayerDraw: (next: PlayerDrawMode) => {
+      currentMode = next
       view.rerender(tree(currentOwner))
     },
   }
@@ -200,6 +213,154 @@ describe("a player's draw", () => {
 
     expect(screen.queryByRole('group', { name: 'Filtreler' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Destede ne var?' })).not.toBeInTheDocument()
+  })
+})
+
+describe("a player's draw tools follow the table's player draw mode", () => {
+  const MARKET = testCard('Market Day', { setCode: 'Kesqer', rarity: 'common', cost: '1' })
+  const OATH = testCard('Sand Oath', { setCode: 'Kesqer', rarity: 'rare', cost: '5' })
+  const HARBOR = testCard('Harbor Light', { setCode: 'Havenholm', rarity: 'rare', cost: '2' })
+  const MODE_CARDS = [MARKET, OATH, HARBOR, WIND, VISIONS]
+
+  const choose = async (
+    user: ReturnType<typeof userEvent.setup>,
+    pillName: RegExp,
+    itemName: string,
+  ) => {
+    await user.click(pill(pillName))
+    await user.click(item(itemName))
+  }
+  const keywordBox = () => screen.queryByRole('searchbox', { name: 'Kelime' })
+  const peekControl = () => screen.queryByRole('button', { name: 'Destede ne var?' })
+
+  it('offers nothing under Kapalı, and shows no mode chip', () => {
+    setup({ playerDraw: 'off' })
+
+    expect(screen.queryByRole('group', { name: 'Filtreler' })).not.toBeInTheDocument()
+    expect(peekControl()).not.toBeInTheDocument()
+    expect(chips()).toEqual(['🎲 Rastgele', "Ayla'nın eline", 'Bakiye: 3 LP', 'Her kart 1 LP'])
+  })
+
+  it('offers the four filters without a keyword or a look under Filtreli çekiş, with its chip', () => {
+    setup({ playerDraw: 'filtered', cards: MODE_CARDS })
+
+    expect(pill(/^Set/)).toBeInTheDocument()
+    expect(pill(/^Cost/)).toBeInTheDocument()
+    expect(pill(/^Mechanic Pack/)).toBeInTheDocument()
+    expect(pill(/^Rarity/)).toBeInTheDocument()
+    expect(keywordBox()).not.toBeInTheDocument()
+    expect(peekControl()).not.toBeInTheDocument()
+    expect(chips()).toEqual([
+      '🎲 Rastgele',
+      "Ayla'nın eline",
+      '✦ Filtreli çekiş',
+      'Bakiye: 3 LP',
+      'Her kart 1 LP',
+    ])
+  })
+
+  it('draws from one set for 1 LP, recording the set', async () => {
+    const { user, draw } = setup({ playerDraw: 'filtered', cards: MODE_CARDS })
+
+    await choose(user, /^Set/, 'Kesqerian Nights, 2 kart')
+    expect(deckCount()).toHaveTextContent('2 uygun kart')
+    await user.click(control('🎲 Çek · 1 LP'))
+
+    expect(draw).toHaveBeenCalledExactlyOnceWith({
+      kind: 'random',
+      uid: me.id,
+      by: testUser.uid,
+      paid: true,
+      filters: { setCode: 'Kesqer', cost: null, mechanicPack: null, rarity: null, keyword: null },
+      candidates: [MARKET, OATH],
+      sessionId: expect.any(String) as string,
+    })
+  })
+
+  it('offers the keyword and the look into the deck under Kart seçme', async () => {
+    const { user, draw } = setup({ playerDraw: 'pick', cards: MODE_CARDS })
+
+    expect(chips()).toContain('✦ Kart seçme')
+    await user.type(keywordBox() as HTMLElement, 'sand oath')
+    expect(deckCount()).toHaveTextContent('1 uygun kart')
+    await user.click(control('Destede ne var?'))
+    const peek = screen.getByRole('list', { name: 'Destedeki kartlar' })
+    expect(
+      within(peek)
+        .getAllByRole('article')
+        .map((face) => face.getAttribute('aria-label')),
+    ).toEqual(['Sand Oath'])
+
+    await user.click(control('🎲 Çek · 1 LP'))
+    expect(draw.mock.calls[0]?.[0]).toMatchObject({
+      paid: true,
+      filters: { keyword: 'sand oath' },
+      candidates: [OATH],
+    })
+  })
+
+  it('offers no tools in a Cursed draw, whatever the mode', () => {
+    setup({ mode: 'cursed', playerDraw: 'pick' })
+
+    expect(screen.queryByRole('group', { name: 'Filtreler' })).not.toBeInTheDocument()
+    expect(peekControl()).not.toBeInTheDocument()
+    expect(chips()).not.toContain('✦ Kart seçme')
+  })
+
+  it("leaves the DM's dialog as it was under Kapalı", () => {
+    setup({ asDm: true, playerDraw: 'off' })
+
+    expect(pill(/^Set/)).toBeInTheDocument()
+    expect(keywordBox()).toBeInTheDocument()
+    expect(peekControl()).toBeInTheDocument()
+    expect(chips()).toEqual(['🎲 Rastgele', "Ayla'nın eline", 'Ücretsiz'])
+  })
+
+  it('drops every filter when the DM closes the mode, and draws from the whole pool', async () => {
+    const { user, draw, setPlayerDraw } = setup({ playerDraw: 'filtered', cards: MODE_CARDS })
+    await choose(user, /^Set/, 'Kesqerian Nights, 2 kart')
+
+    setPlayerDraw('off')
+
+    expect(screen.queryByRole('group', { name: 'Filtreler' })).not.toBeInTheDocument()
+    expect(deckCount()).toHaveTextContent('4 uygun kart')
+    await user.click(control('🎲 Çek · 1 LP'))
+    expect(draw.mock.calls[0]?.[0]).toMatchObject({
+      filters: null,
+      candidates: [MARKET, OATH, HARBOR, WIND],
+    })
+  })
+
+  it('drops the keyword and closes the look from Kart seçme to Filtreli çekiş, and keeps the rarity', async () => {
+    const { user, setPlayerDraw } = setup({ playerDraw: 'pick', cards: MODE_CARDS })
+    await choose(user, /^Rarity/, 'Rare, 2 kart')
+    await user.type(keywordBox() as HTMLElement, 'sand')
+    await user.click(control('Destede ne var?'))
+    expect(deckCount()).toHaveTextContent('1 uygun kart')
+
+    setPlayerDraw('filtered')
+
+    expect(keywordBox()).not.toBeInTheDocument()
+    expect(screen.queryByRole('list', { name: 'Destedeki kartlar' })).not.toBeInTheDocument()
+    // The rarity stays: the two Rare cards match.
+    expect(deckCount()).toHaveTextContent('2 uygun kart')
+  })
+
+  it('says so and drops the filters when the server refused them because the mode changed', async () => {
+    const { user } = setup({
+      playerDraw: 'filtered',
+      cards: MODE_CARDS,
+      drawCard: () => Promise.reject(new DrawError('mode-changed')),
+    })
+    await choose(user, /^Set/, 'Kesqerian Nights, 2 kart')
+
+    await user.click(control('🎲 Çek · 1 LP'))
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'DM oyuncu kart çekişini değiştirdi; filtreler kaldırıldı.',
+    )
+    expect(deckCount()).toHaveTextContent('4 uygun kart')
+    expect(backs()).toHaveLength(0)
   })
 })
 

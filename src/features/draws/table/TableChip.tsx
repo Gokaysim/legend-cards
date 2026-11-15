@@ -11,8 +11,9 @@ import { LiveMark } from './LiveMark'
  * - `live`: "Canlı", with the live mark
  * - `waiting`: "Masa bekliyor" while a pack is open
  * - `cursed`: a Cursed draw
+ * - `mode`: the table's player draw mode in a player's draw (spec: card-draws, "The mode in a player's dialog")
  */
-export type TableChipVariant = 'plain' | 'gold' | 'live' | 'waiting' | 'cursed'
+export type TableChipVariant = 'plain' | 'gold' | 'live' | 'waiting' | 'cursed' | 'mode'
 
 const VARIANTS: Record<TableChipVariant, string> = {
   plain: 'border-line text-ink-muted',
@@ -20,6 +21,7 @@ const VARIANTS: Record<TableChipVariant, string> = {
   live: 'border-green/40 font-semibold text-green',
   waiting: 'border-primary-line text-gold',
   cursed: 'border-stat-cursed-line text-cursed-soft',
+  mode: 'border-primary-line font-semibold text-gold',
 }
 
 /** One chip above the draw table: the kind of draw or the pack, the hand, the payment, live or waiting. */

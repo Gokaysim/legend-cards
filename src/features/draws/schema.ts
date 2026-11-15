@@ -79,7 +79,10 @@ const id = z.string().min(1)
 const serverTime = z.instanceof(Timestamp).nullable()
 const filterText = (max: number) => z.string().min(1).max(max).nullable()
 
-/** The DM's filters on a draw. A record from before the set filter has no `setCode`: it reads as no set. */
+/**
+ * The filters of a random draw: the DM's, or a player's under the table's player draw mode (spec: card-draws). A record
+ * from before the set filter has no `setCode`: it reads as no set.
+ */
 export const drawFiltersSchema: z.ZodType<DrawFilters> = z.object({
   setCode: filterText(DRAW_LIMITS.setCode).default(null),
   cost: filterText(DRAW_LIMITS.cost),
@@ -107,7 +110,7 @@ export const cardDrawSchema = z
     cardKind: z.enum(CARD_KINDS),
     /** The holding the draw opened. */
     holdingId: id,
-    /** The DM's filters for a random draw; `null` without filters. */
+    /** The filters of a random draw, the DM's or a player's; `null` without filters. */
     filters: drawFiltersSchema.nullable(),
     paidWith: z.enum(DRAW_PAYMENTS),
     /** The LP paid: 1 with `lp`, 0 with `none`. */
@@ -133,9 +136,6 @@ export const cardDrawSchema = z
     }
     if (draw.kind === 'cursed' && (paid || draw.filters !== null)) {
       issue('kind', 'a Cursed draw is free and has no filters')
-    }
-    if (paid && draw.filters !== null) {
-      issue('filters', "only the DM's free draws have filters")
     }
   })
 

@@ -13,6 +13,7 @@ import type { CardDraw, PackOpening } from '@/features/draws/schema'
 import { packOpeningTitle } from '@/features/packs/catalog'
 import type { Holding } from '@/features/hands/schema'
 import type { SetChange, SetField } from '@/features/sets/schema'
+import { PLAYER_DRAW_LABELS } from '@/features/table/playerDraw'
 import { costLabel } from '@/features/true-words/display'
 import type { WordDraft } from '@/features/true-words/schema'
 import { ablative, dative, genitive } from '@/lib/turkish'
@@ -60,7 +61,7 @@ function usedSentence(event: LogEvent & { holding: Holding }, nameOf: NameOf): S
 const RARITY_LABELS = { common: 'Common', rare: 'Rare', blessed: 'Blessed' } as const
 
 /**
- * The DM's filters as the log shows them ("filtre: Kesqerian Nights · Rare · Blood & Battle"), or `null` without
+ * A draw's filters, the DM's or a player's, as the log shows them ("filtre: Kesqerian Nights · Rare · Blood & Battle"), or `null` without
  * filters. A set shows by its official name, or by its code when no stored set has it.
  */
 function filtersText(filters: DrawFilters | null, setName: SetName): string | null {
@@ -489,5 +490,12 @@ export function describeEvent(
       return importSentence(event.change)
     case 'set':
       return setSentence(event.change)
+    case 'tableSetting':
+      // The only table setting so far is the player draw mode (spec: activity-log, "Player draw mode changes are
+      // events").
+      return {
+        parts: [`oyuncu kart çekişini “${PLAYER_DRAW_LABELS[event.change.after]}” yaptı.`],
+        reason: null,
+      }
   }
 }

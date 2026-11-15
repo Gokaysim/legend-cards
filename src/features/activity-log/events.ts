@@ -3,6 +3,7 @@ import type { DefinitionStepRecord, ImportRecord } from '@/features/definitions/
 import type { CardDraw, Draw, PackOpening } from '@/features/draws/schema'
 import type { Holding, KeptUse } from '@/features/hands/schema'
 import type { SetChange } from '@/features/sets/schema'
+import type { TableChange } from '@/features/table/schema'
 import { type LearnedWord, learnedWordOf, type WordDraft } from '@/features/true-words/schema'
 
 /** A server time, or `null` while it is pending in the local snapshot. */
@@ -13,7 +14,7 @@ export type EventTime = Holding['givenAt']
  * unify-cards-and-true-words): the holdings the DM gave or transferred, the words the DM taught among them, by the time
  * they were given; closed holdings, the words the DM took back among them, by the time they were closed; draws, pack
  * openings and True Word drafts; the ledger's changes by hand; the uses of cards and words kept on use; the definition
- * changes this device may read; and the set changes. The holdings and entries of draws, packs and drafts, the entries of
+ * changes this device may read; the set changes; and the table setting changes. The holdings and entries of draws, packs and drafts, the entries of
  * uses, and the words learned from drafts, are not among them.
  */
 export type LogRecords = {
@@ -25,6 +26,8 @@ export type LogRecords = {
   changes: readonly (DefinitionStepRecord | ImportRecord)[]
   /** Every user reads every set change (spec: activity-log, "Set changes are events"). */
   setChanges: readonly SetChange[]
+  /** Every user reads every table setting change (spec: activity-log, "Player draw mode changes are events"). */
+  tableChanges: readonly TableChange[]
 }
 
 /** No records at all. */
@@ -36,6 +39,7 @@ export const EMPTY_LOG_RECORDS: LogRecords = {
   uses: [],
   changes: [],
   setChanges: [],
+  tableChanges: [],
 }
 
 type EventBase = {
@@ -54,7 +58,7 @@ type EventBase = {
  * the time it was opened; it changes as the pack goes on. A True Word draft is likewise one event for the draft, its
  * learned word, its payment and its refund. A word the DM teaches, and a word the DM takes back, are events too, and
  * so is each use of a word or a card kept on use, with its payment. So is each definition change record: a DM step on a
- * card or a word, or an import's additions.
+ * card or a word, or an import's additions. And so is each change of a table setting by the DM.
  */
 export type LogEvent =
   | (EventBase & { kind: 'given' | 'used' | 'discarded'; holding: Holding })
@@ -76,6 +80,7 @@ export type LogEvent =
   | (EventBase & { kind: 'definition'; change: DefinitionStepRecord })
   | (EventBase & { kind: 'import'; change: ImportRecord })
   | (EventBase & { kind: 'set'; change: SetChange })
+  | (EventBase & { kind: 'tableSetting'; change: TableChange })
 
 type TransferEvent = Extract<LogEvent, { kind: 'transferred' }>
 
@@ -184,6 +189,10 @@ export function deriveEvents(records: LogRecords): LogEvent[] {
     const key = `set:${change.id}`
     events.set(key, { kind: 'set', key, at: change.at, by: change.by, change })
   }
+  for (const change of records.tableChanges) {
+    const key = `tableSetting:${change.id}`
+    events.set(key, { kind: 'tableSetting', key, at: change.at, by: change.by, change })
+  }
   return [...events.values()]
 }
 
@@ -238,6 +247,7 @@ export function newestEvents(
     records.entries.length >= limit ||
     records.uses.length >= limit ||
     records.changes.length >= limit ||
-    records.setChanges.length >= limit
+    records.setChanges.length >= limit ||
+    records.tableChanges.length >= limit
   return { events: events.slice(0, limit), mayHaveMore }
 }

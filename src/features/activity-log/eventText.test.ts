@@ -14,6 +14,7 @@ import { testHolding } from '@/test/holdingFixtures'
 import { testGpEntry, testLedgerEntry } from '@/test/ledgerFixtures'
 import { testTrueWord, testWordDraft, testWordHolding, testWordUse } from '@/test/trueWordFixtures'
 import { testSetChange, testSetName } from '@/test/setFixtures'
+import { testTableChange } from '@/test/tableFixtures'
 import type { WordDraft } from '@/features/true-words/schema'
 
 import { deriveEvents, EMPTY_LOG_RECORDS, type LogEvent, type LogRecords } from './events'
@@ -192,6 +193,19 @@ describe('describing draws', () => {
         }),
       ),
     ).toBe("Bora'ya Aboleth's Eyes kartını çekti (filtre: Rare).")
+  })
+
+  it("describes a player's filtered paid draw with its payment and its filters", () => {
+    const filters = {
+      setCode: 'Kesqer',
+      cost: null,
+      mechanicPack: null,
+      rarity: null,
+      keyword: 'eyes',
+    }
+    expect(text(only({ draws: [testDraw(eyes, 'ayla', 1000, { filters })] }))).toBe(
+      "Aboleth's Eyes kartını çekti (−1 LP; filtre: Kesqerian Nights · kelime “eyes”).",
+    )
   })
 
   it("names a draw's set filter by the set's official name, or by its code without a stored set", () => {
@@ -551,6 +565,17 @@ describe('describing definition changes', () => {
       expect(sentenceText(sentence)).toBe('1 gizli karta resim ekledi.')
       expect(sentence.names).toEqual(['The Last Wish'])
     })
+  })
+})
+
+describe('describing player draw mode changes', () => {
+  it.each([
+    ['off', 'filtered', 'oyuncu kart çekişini “Filtreli çekiş” yaptı.'],
+    ['filtered', 'pick', 'oyuncu kart çekişini “Kart seçme” yaptı.'],
+    ['pick', 'off', 'oyuncu kart çekişini “Kapalı” yaptı.'],
+  ] as const)('describes %s → %s', (before, after, text) => {
+    const change = testTableChange(1000, { before, after })
+    expect(sentenceText(describeEvent(only({ tableChanges: [change] }), NAMES_OF))).toBe(text)
   })
 })
 

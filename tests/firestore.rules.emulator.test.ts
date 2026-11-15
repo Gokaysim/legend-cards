@@ -2777,6 +2777,13 @@ describe('draws (draws/{drawId} with its holding, card, ledger entry and LP)', (
     rarity: 'common',
     keyword: 'eyes',
   }
+  const NO_DRAW_FILTERS = {
+    setCode: null,
+    cost: null,
+    mechanicPack: null,
+    rarity: null,
+    keyword: null,
+  }
 
   beforeEach(async () => {
     await seedHoldings()
@@ -3010,6 +3017,73 @@ describe('draws (draws/{drawId} with its holding, card, ledger entry and LP)', (
       await assertSucceeds(getDocs(collection(asUser('bora'), 'draws')))
       await assertSucceeds(
         getDocs(query(collection(asUser('bora'), 'draws'), where('uid', '==', 'ayla'))),
+      )
+    })
+  })
+
+  describe("a player's filters follow the table's player draw mode", () => {
+    const FACETS = { ...FILTERS, keyword: null }
+
+    async function setMode(playerDraw: string | null) {
+      await testEnv.withSecurityRulesDisabled(async (admin) => {
+        const table =
+          playerDraw === null
+            ? { openPackId: null }
+            : { openPackId: null, playerDraw, playerDrawChangeId: 'c-old' }
+        await setDoc(doc(firestoreOf(admin), 'table/main'), table)
+      })
+    }
+
+    // As heavy as a player's plain paid draw: the mode comes from the table that tableFree() already reads.
+    it("allows a player's paid draw with the set and rarity under Filtreli çekiş: five documents", async () => {
+      await setMode('filtered')
+      await assertSucceeds(draw('ayla', { draw: { filters: FACETS } }))
+      expect(await readAsAdmin('draws/d-new')).toMatchObject({
+        by: 'ayla',
+        filters: FACETS,
+        paidWith: 'lp',
+      })
+      expect(await readAsAdmin('drawSessions/s-new')).toMatchObject({
+        draws: [{ drawId: 'd-new', backSet: 'Kesqer' }],
+      })
+      expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 2 })
+    })
+
+    it("allows a player's paid draw with a keyword under Kart seçme", async () => {
+      await setMode('pick')
+      await assertSucceeds(draw('ayla', { draw: { filters: FILTERS } }))
+      expect(await readAsAdmin('draws/d-new')).toMatchObject({ filters: FILTERS })
+    })
+
+    it('denies filters under Kapalı, on a table from before the setting, and with no table', async () => {
+      await setMode('off')
+      await assertFails(draw('ayla', { draw: { filters: FACETS } }))
+      await setMode(null)
+      await assertFails(draw('ayla', { draw: { filters: FACETS } }))
+      await deleteAsAdmin('table/main')
+      await assertFails(draw('ayla', { draw: { filters: FACETS } }))
+    })
+
+    it('denies a keyword under Filtreli çekiş', async () => {
+      await setMode('filtered')
+      await assertFails(draw('ayla', { draw: { filters: FILTERS } }))
+      await assertFails(
+        draw('ayla', { draw: { filters: { ...NO_DRAW_FILTERS, keyword: 'eyes' } } }),
+      )
+    })
+
+    it("denies filters on a player's free draw, a Cursed draw, or a draw into another hand", async () => {
+      await setMode('pick')
+      await setLp('bora', 3)
+      await assertFails(draw('ayla', { paid: false, draw: { filters: FILTERS } }))
+      await assertFails(draw('ayla', { card: CURSED_CARD, draw: { filters: FILTERS } }))
+      await assertFails(draw('ayla', { uid: 'bora', draw: { filters: FILTERS } }))
+    })
+
+    it('denies a set filter whose back the session does not show', async () => {
+      await setMode('filtered')
+      await assertFails(
+        draw('ayla', { draw: { filters: FACETS }, sessionEntry: { backSet: null } }),
       )
     })
   })
@@ -4087,6 +4161,54 @@ describe('packs (draws/{drawId} with kind pack, table/main, and their holdings a
       await assertSucceeds(
         updateDoc(doc(asUser('dana'), 'userCards/h-bora'), { costOverride: 'd6' }),
       )
+    })
+  })
+
+  describe('the player draw mode survives the pack steps', () => {
+    const MODE = { playerDraw: 'pick', playerDrawChangeId: 'c-old' }
+
+    async function seedMode(openPackId: string | null) {
+      await testEnv.withSecurityRulesDisabled(async (admin) => {
+        await setDoc(doc(firestoreOf(admin), 'table/main'), { openPackId, ...MODE })
+      })
+    }
+
+    /** The application's merged table write, in place of the default overwrite. */
+    const merged = (openPackId: string | null) => ({ openPackId, ...MODE })
+
+    it('allows an opening, a choice and a cancel that keep the mode', async () => {
+      await seedMode(null)
+      await assertSucceeds(open('ayla', { table: merged('p-new') }))
+      expect(await readAsAdmin('table/main')).toEqual(merged('p-new'))
+
+      await seedOpenPack()
+      await seedMode('p-open')
+      await assertSucceeds(choose('ayla', { table: merged(null) }))
+      expect(await readAsAdmin('table/main')).toEqual(merged(null))
+
+      await deleteAsAdmin('userCards/h-chosen')
+      await updateDocAsAdmin(`cards/${POOL}`, { holder: null })
+      await seedOpenPack()
+      await seedMode('p-open')
+      await assertSucceeds(cancel('dana', { table: merged(null) }))
+      expect(await readAsAdmin('table/main')).toEqual(merged(null))
+    })
+
+    it('denies a pack step that drops the mode', async () => {
+      await seedMode(null)
+      await assertFails(open('ayla'))
+      await seedOpenPack()
+      await seedMode('p-open')
+      await assertFails(choose('ayla'))
+      await assertFails(cancel('dana'))
+    })
+
+    it('denies a pack step that changes the mode', async () => {
+      await seedMode(null)
+      await assertFails(open('ayla', { table: { ...merged('p-new'), playerDraw: 'off' } }))
+      await seedOpenPack()
+      await seedMode('p-open')
+      await assertFails(choose('dana', { table: { ...merged(null), playerDraw: 'filtered' } }))
     })
   })
 
@@ -6562,6 +6684,182 @@ describe('dice rolls (diceRolls/{rollId} and dmRolls/{rollId})', () => {
       const db = firestoreOf(testEnv.unauthenticatedContext())
       await assertFails(setDoc(doc(db, 'diceRolls/r1'), roll('ayla')))
       await assertFails(setDoc(doc(db, 'dmRolls/r1'), { ...roll('dana'), hidden: true }))
+    })
+  })
+})
+
+describe('table settings (table/main.playerDraw, tableChanges/{changeId})', () => {
+  beforeEach(async () => {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const db = firestoreOf(admin)
+      await setDoc(doc(db, 'users/ayla'), seededUser('player', 'Ayla'))
+      await setDoc(doc(db, 'users/dana'), seededUser('dm', 'Dana'))
+    })
+  })
+
+  async function seedTable(fields: Record<string, unknown>) {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(firestoreOf(admin), 'table/main'), fields)
+    })
+  }
+
+  type ModeSpec = {
+    /** The record's overrides, or `null` to write none. */
+    change?: Record<string, unknown> | null
+    /** The table's extra fields, or `null` to leave it alone. */
+    table?: Record<string, unknown> | null
+    /** Whether the table is written with `set` and merge (the default) or overwritten. */
+    overwrite?: boolean
+  }
+
+  /**
+   * One mode change as the application writes it, in one batch: the record `c-new` from `before` to `after`, and
+   * the table merged with the new mode and the record's ID.
+   */
+  function setMode(writer: string, before: string, after: string, spec: ModeSpec = {}) {
+    const db = asUser(writer)
+    const batch = writeBatch(db)
+    if (spec.change !== null) {
+      batch.set(doc(db, 'tableChanges/c-new'), {
+        by: writer,
+        at: serverTimestamp(),
+        setting: 'playerDraw',
+        before,
+        after,
+        ...spec.change,
+      })
+    }
+    if (spec.table !== null) {
+      const fields = { playerDraw: after, playerDrawChangeId: 'c-new', ...spec.table }
+      if (spec.overwrite) batch.set(doc(db, 'table/main'), { openPackId: null, ...fields })
+      else batch.set(doc(db, 'table/main'), fields, { merge: true })
+    }
+    return batch.commit()
+  }
+
+  describe('allowed', () => {
+    it.each(['filtered', 'pick'])(
+      'lets the DM set %s before the table exists, which creates it',
+      async (mode) => {
+        await assertSucceeds(setMode('dana', 'off', mode, { overwrite: true }))
+        expect(await readAsAdmin('table/main')).toEqual({
+          openPackId: null,
+          playerDraw: mode,
+          playerDrawChangeId: 'c-new',
+        })
+        expect(await readAsAdmin('tableChanges/c-new')).toMatchObject({
+          by: 'dana',
+          setting: 'playerDraw',
+          before: 'off',
+          after: mode,
+        })
+      },
+    )
+
+    it('lets the DM set a mode on a table from before the setting', async () => {
+      await seedTable({ openPackId: null })
+      await assertSucceeds(setMode('dana', 'off', 'filtered'))
+      expect(await readAsAdmin('table/main')).toMatchObject({ playerDraw: 'filtered' })
+    })
+
+    it('lets the DM change and close a mode', async () => {
+      await seedTable({ openPackId: null, playerDraw: 'pick', playerDrawChangeId: 'c-old' })
+      await assertSucceeds(setMode('dana', 'pick', 'off'))
+      expect(await readAsAdmin('table/main')).toEqual({
+        openPackId: null,
+        playerDraw: 'off',
+        playerDrawChangeId: 'c-new',
+      })
+    })
+
+    it('lets the DM change the mode while a pack is open', async () => {
+      await seedTable({ openPackId: 'p-open', playerDraw: 'filtered', playerDrawChangeId: 'c-old' })
+      await assertSucceeds(setMode('dana', 'filtered', 'off'))
+      expect(await readAsAdmin('table/main')).toMatchObject({
+        openPackId: 'p-open',
+        playerDraw: 'off',
+      })
+    })
+
+    it.each(['ayla', 'dana'])('lets %s read the table and the records', async (uid) => {
+      await seedTable({ openPackId: null, playerDraw: 'pick', playerDrawChangeId: 'c-old' })
+      await testEnv.withSecurityRulesDisabled(async (admin) => {
+        await setDoc(doc(firestoreOf(admin), 'tableChanges/c-old'), {
+          by: 'dana',
+          at: Timestamp.fromMillis(0),
+          setting: 'playerDraw',
+          before: 'off',
+          after: 'pick',
+        })
+      })
+      await assertSucceeds(getDoc(doc(asUser(uid), 'table/main')))
+      await assertSucceeds(getDoc(doc(asUser(uid), 'tableChanges/c-old')))
+      await assertSucceeds(getDocs(collection(asUser(uid), 'tableChanges')))
+    })
+  })
+
+  describe('denied', () => {
+    beforeEach(async () => {
+      await seedTable({ openPackId: null, playerDraw: 'off', playerDrawChangeId: 'c-old' })
+    })
+
+    it("denies a player's change, also of their own record", async () => {
+      await assertFails(setMode('ayla', 'off', 'pick'))
+      await assertFails(setMode('ayla', 'off', 'pick', { change: { by: 'ayla' } }))
+    })
+
+    it('denies an unknown mode', async () => {
+      await assertFails(setMode('dana', 'off', 'all'))
+    })
+
+    it('denies the mode without its record, and the record without the mode', async () => {
+      await assertFails(setMode('dana', 'off', 'pick', { change: null }))
+      await assertFails(setMode('dana', 'off', 'pick', { table: null }))
+    })
+
+    it('denies a record whose before or after disagrees', async () => {
+      await assertFails(setMode('dana', 'off', 'pick', { change: { before: 'filtered' } }))
+      await assertFails(setMode('dana', 'off', 'pick', { change: { after: 'filtered' } }))
+      await assertFails(
+        setMode('dana', 'off', 'pick', { table: { playerDrawChangeId: 'c-other' } }),
+      )
+    })
+
+    it('denies a record that changes nothing', async () => {
+      await assertFails(setMode('dana', 'off', 'off'))
+    })
+
+    it('denies a record by someone else, at another time, or with other fields', async () => {
+      await assertFails(setMode('dana', 'off', 'pick', { change: { by: 'ayla' } }))
+      await assertFails(setMode('dana', 'off', 'pick', { change: { at: Timestamp.fromMillis(0) } }))
+      await assertFails(setMode('dana', 'off', 'pick', { change: { setting: 'lp' } }))
+      await assertFails(setMode('dana', 'off', 'pick', { change: { note: 'boss' } }))
+    })
+
+    it('denies a mode change that also takes the table or adds a field', async () => {
+      await assertFails(setMode('dana', 'off', 'pick', { table: { openPackId: 'p-new' } }))
+      await assertFails(setMode('dana', 'off', 'pick', { table: { note: 'boss' } }))
+    })
+
+    it('denies a change of a record and its deletion', async () => {
+      await testEnv.withSecurityRulesDisabled(async (admin) => {
+        await setDoc(doc(firestoreOf(admin), 'tableChanges/c-old'), {
+          by: 'dana',
+          at: Timestamp.fromMillis(0),
+          setting: 'playerDraw',
+          before: 'pick',
+          after: 'off',
+        })
+      })
+      await assertFails(updateDoc(doc(asUser('dana'), 'tableChanges/c-old'), { after: 'pick' }))
+      await assertFails(deleteDoc(doc(asUser('dana'), 'tableChanges/c-old')))
+      await assertFails(deleteDoc(doc(asUser('dana'), 'table/main')))
+    })
+
+    it('denies signed-out reads of the table and the records', async () => {
+      const db = firestoreOf(testEnv.unauthenticatedContext())
+      await assertFails(getDoc(doc(db, 'table/main')))
+      await assertFails(getDocs(collection(db, 'tableChanges')))
     })
   })
 })
