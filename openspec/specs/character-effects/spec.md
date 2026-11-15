@@ -115,16 +115,16 @@ The details SHALL offer "+ Efekt ekle" to the character's owner and the DM. It S
 - **WHEN** Bora selects Ayla's "Thorin"
 - **THEN** he sees its effects, and no "+ Efekt ekle"
 
-### Requirement: The effect count on a tile
-A character's tile SHALL show how many effects are on it, held ones and active True Words included, as "✦ <count>". A tile without effects SHALL show no count. The count SHALL change on every device without a reload.
+### Requirement: The effect count on a character's tab
+A character's tab SHALL show how many effects are on it, held ones and active True Words included, as "✦ <count>". A tab without effects SHALL show no count. The count SHALL change on every device without a reload.
 
 #### Scenario: A count
 - **WHEN** "Thorin" has one card effect, and Ayla holds one active card
-- **THEN** the tile of "Thorin" shows "✦ 2", and the tile of "Kuzgun" shows "✦ 1"
+- **THEN** the tab of "Thorin" shows "✦ 2", and the tab of "Kuzgun" shows "✦ 1"
 
 #### Scenario: No effects
 - **WHEN** a character has no effects, and its player holds no active card or word
-- **THEN** its tile shows no count
+- **THEN** its tab shows no count
 
 ### Requirement: Effects readable by every signed-in user
 Every signed-in user SHALL be able to read every effect. Signed-out requests SHALL be denied.
