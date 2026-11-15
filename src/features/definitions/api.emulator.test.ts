@@ -411,7 +411,10 @@ describe('behavior flags under the real rules', () => {
     await save(await cardNow(id), {}, true)
 
     expect(await cardNow(id)).toMatchObject({ status: 'active', ...ONLY_FROM_DM, holder: null })
-    const steps = (await records()).map(({ step, public: isPublic }) => ({ step, isPublic }))
+    // The records come in document ID order, which is random: sort them by step, as the other tests do.
+    const steps = (await records())
+      .map(({ step, public: isPublic }) => ({ step: String(step), isPublic }))
+      .sort((a, b) => a.step.localeCompare(b.step))
     expect(steps).toEqual([
       { step: 'added', isPublic: false },
       { step: 'published', isPublic: false },
