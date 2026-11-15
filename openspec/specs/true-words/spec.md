@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Lets players learn True Words through a paid draft of three random words, lets the DM teach a word directly or take one back, and shows each player's learned words and which of them are active.
+Lets players learn True Words through a paid draft of three random words on the Kütüphane's True Words tab, lets the DM teach a word directly or take one back, and shows each player's learned words and which of them are active.
 
 ## Requirements
 
@@ -10,7 +10,7 @@ Lets players learn True Words through a paid draft of three random words, lets t
 Each True Word SHALL have a name, a cost as written (for example "1", "0" or "X"), an effect text, a status: draft, active or retired (spec: definition-editing), and the behavior flags of a True Word (spec: definition-editing, "Behavior flags"). Every signed-in user SHALL be able to read the active and retired words. Only the DM SHALL be able to read a draft. Only the import script and the DM SHALL write words. A retired word SHALL stay with the players who know it, with its last stored definition. A word that is not active SHALL never be offered in a draft or taught. A word whose "Draft'ta çıkar" is off SHALL never be offered in a draft, and the DM SHALL still be able to teach it.
 
 #### Scenario: Reading the words
-- **WHEN** a signed-in user opens the True Words screen after the words were imported
+- **WHEN** a signed-in user opens the Kütüphane's True Words tab after the words were imported
 - **THEN** they see every active word with its name, cost and text
 
 #### Scenario: Writing a word from the application
@@ -27,38 +27,46 @@ Each True Word SHALL have a name, a cost as written (for example "1", "0" or "X"
 
 #### Scenario: A draft word
 - **WHEN** "Echo" is a draft
-- **THEN** no draft offers it, the DM cannot teach it, and no player's True Words screen lists it
+- **THEN** no draft offers it, the DM cannot teach it, and no player's True Words tab lists it
 
 #### Scenario: A word kept out of drafts
 - **WHEN** the active word "Justice" has "Draft'ta çıkar" off
 - **THEN** no draft offers it, and the DM can teach it
 
-### Requirement: True Words screen
-The True Words screen SHALL list every active word, sorted by name, with its name, its cost shown as "<cost> LP", and its visible text. Text in square brackets SHALL be hidden, as in the card library. A player's screen SHALL leave out the words whose "Listede görünür" is off, also while someone knows them; the DM's screen SHALL list them, marked "🔒 DM". A player SHALL see the screen for themselves. The DM SHALL choose the player. The words the chosen player knows SHALL be marked "Biliyor". The DM SHALL also get "+ True Word ekle", "✎ Düzenle" on each word, and the status filter with "Yayında", "Taslak", "Kaldırıldı", "🔒 DM" and "Hepsi", starting at "Yayında". "🔒 DM" SHALL list the words of every status whose "Listede görünür" is off.
+### Requirement: The Kütüphane's True Words tab
+The Kütüphane's True Words tab SHALL list every active word, sorted by name, as every tab lists its definitions (spec: card-library). A player SHALL see the tab for themselves. The DM SHALL choose the player in "Kimin için", kept in the URL. The words the chosen player knows SHALL be marked "Biliyor" on their face and list row. The draft section above the list SHALL say how many words that player knows; the list's count line SHALL NOT repeat it. The chosen player's draft controls and open draft SHALL show above the list. A player's tab SHALL leave out the words whose "Listede görünür" is off (spec: card-library, "Cards not listed for players"). The DM SHALL also get "+ True Word ekle", "✎ Düzenle" on each word, and the status filter (spec: card-library, "The DM's status filter").
 
 #### Scenario: A player's view
-- **WHEN** Ayla, who knows "Abyss", opens the True Words screen
-- **THEN** every active word is listed, and "Abyss" is marked "Biliyor"
+- **WHEN** Ayla, who knows "Abyss", opens the True Words tab
+- **THEN** every active word is listed, "Abyss" is marked "Biliyor", and the draft section says "Ayla · 1 True Word biliyor"
 
 #### Scenario: The DM chooses a player
-- **WHEN** the DM chooses Bora on the True Words screen
-- **THEN** the words Bora knows are marked, and the draft controls act for Bora
+- **WHEN** the DM chooses Bora in "Kimin için"
+- **THEN** the words Bora knows are marked, the draft controls act for Bora, and the address names Bora
 
 #### Scenario: An X cost
-- **WHEN** the list shows "Dragon", whose cost is "X"
-- **THEN** its cost reads "X LP"
+- **WHEN** the tab shows "Dragon", whose cost is "X"
+- **THEN** its face and its list row show the cost "X"
 
 #### Scenario: The DM's drafts
-- **WHEN** the DM chooses "Taslak" in the status filter
+- **WHEN** the DM chooses "Taslak" in the status filter of the True Words tab
 - **THEN** only the draft words are listed, each marked "Taslak", with its "✎ Düzenle" control
 
 #### Scenario: A player's controls
-- **WHEN** Ayla opens the True Words screen
-- **THEN** she sees no status filter, no "+ True Word ekle" and no "✎ Düzenle"
+- **WHEN** Ayla opens the True Words tab
+- **THEN** she sees no "Kimin için", no status filter, no "+ True Word ekle" and no "✎ Düzenle"
 
 #### Scenario: A hidden word
-- **WHEN** the active word "Justice" has "Listede görünür" off, and Ayla opens the True Words screen
-- **THEN** "Justice" is not listed, and the DM's screen lists it marked "🔒 DM"
+- **WHEN** the active word "Justice" has "Listede görünür" off, and Ayla opens the True Words tab
+- **THEN** "Justice" is not listed, and the DM's True Words tab lists it marked "🔒 DM"
+
+#### Scenario: The DM edits a word
+- **WHEN** the DM selects "✎ Düzenle" on the face of "Abyss"
+- **THEN** the True Word form opens for "Abyss"
+
+#### Scenario: An open draft on the tab
+- **WHEN** Ayla has an open draft and opens the True Words tab
+- **THEN** her open draft shows above the list with its 3 words
 
 ### Requirement: Starting a draft
 A player SHALL be able to start a True Word draft for themselves, and the DM for any player. A draft SHALL need at least 3 active words that the player does not know and whose "Draft'ta çıkar" is on. It SHALL show 3 of them, each with the same chance, in random order. With fewer than 3, the start control SHALL be disabled with a Turkish note, and no draft SHALL start.
@@ -170,7 +178,7 @@ Only the DM SHALL be able to cancel an open draft, after a confirmation. The dra
 - **THEN** the server denies it
 
 ### Requirement: An open draft survives
-Closing the draft view, reloading, or losing the connection SHALL NOT end a draft. While a draft is open, the player's True Words tab and the True Words screen SHALL show it, with its 3 words, live, to every signed-in user. The player and the DM SHALL be able to return to it and act.
+Closing the draft view, reloading, or losing the connection SHALL NOT end a draft. While a draft is open, the player's True Words tab on the hand screen and the Kütüphane's True Words tab, with that player chosen, SHALL show it, with its 3 words, live, to every signed-in user. The player and the DM SHALL be able to return to it and act.
 
 #### Scenario: Reloading during a draft
 - **WHEN** Ayla reloads the application while her draft is open
@@ -179,6 +187,10 @@ Closing the draft view, reloading, or losing the connection SHALL NOT end a draf
 #### Scenario: Watching a draft
 - **WHEN** Bora has Ayla's True Words tab open while she learns "Abyss"
 - **THEN** Bora sees the draft end and "Abyss" appear among her words without a reload
+
+#### Scenario: The DM in the Kütüphane
+- **WHEN** Ayla has an open draft, and the DM chooses Ayla in the Kütüphane's True Words tab
+- **THEN** the tab shows her open draft, and the DM can act on it
 
 ### Requirement: Drafts do not hold the table
 Two players SHALL be able to know the same word. A draft SHALL NOT keep its words from other players' drafts. An open draft SHALL NOT stop anyone from drawing, opening a pack, moving a card or changing a balance.
@@ -304,7 +316,7 @@ The hand screen SHALL have a "✦ True Words" tab after "♠ Kartlar". The True 
 
 Under a picture, the word's name and text SHALL NOT be written again. Screen readers still hear them.
 
-In a window at least 1024 CSS pixels wide, the details SHALL show in a panel labelled "Seçili True Word" at the right of the tab. Without a selection, that panel SHALL show an empty slot with "Bir True Word seç" and "Bir True Word'e tıkla, ayrıntıları burada görünsün." In a narrower window, the details SHALL open in a dialog. The tab SHALL link to the True Words screen for that player. With no word learned, it SHALL say "Henüz True Word öğrenilmedi."
+In a window at least 1024 CSS pixels wide, the details SHALL show in a panel labelled "Seçili True Word" at the right of the tab. Without a selection, that panel SHALL show an empty slot with "Bir True Word seç" and "Bir True Word'e tıkla, ayrıntıları burada görünsün." In a narrower window, the details SHALL open in a dialog. The tab's "✦ True Word Draft" link SHALL open the Kütüphane's True Words tab for that player. With no word learned, it SHALL say "Henüz True Word öğrenilmedi."
 
 #### Scenario: Opening the tab
 - **WHEN** a user opens the True Words tab of Ayla's hand, and Ayla learned "Aid" and then "Abyss", which both have pictures
@@ -341,6 +353,14 @@ In a window at least 1024 CSS pixels wide, the details SHALL show in a panel lab
 #### Scenario: A note
 - **WHEN** Ayla's "Abyss" has the note "Boss savaşında kullan", and a user selects it
 - **THEN** the details show the note on cream paper
+
+#### Scenario: The DM follows the draft link
+- **WHEN** the DM selects "✦ True Word Draft" on the True Words tab of Bora's hand
+- **THEN** the Kütüphane opens on its True Words tab with Bora chosen
+
+#### Scenario: A player follows the draft link
+- **WHEN** Ayla selects "✦ True Word Draft" on her own True Words tab
+- **THEN** the Kütüphane opens on its True Words tab for Ayla
 
 ### Requirement: Active True Words above the hand
 On the Kartlar tab, the pictures of the player's active words SHALL peek out above the top of the hand, overlapping a little, in the order learned, live. A word without a picture SHALL show ✦ and its name there. Selecting one SHALL show it large with its name, only on that device and without writing anything. With no active word, nothing SHALL show there. The page SHALL NOT scroll sideways because of them.

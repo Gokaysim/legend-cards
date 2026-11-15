@@ -642,7 +642,7 @@ The card details of a hand SHALL show the link "Kart geçmişi →" under the ca
 
 #### Scenario: A Cursed card in a hand
 - **WHEN** Ayla follows "Kart geçmişi →" in the details of her Cursed card "Abandon All Hope"
-- **THEN** its Kart geçmişi opens under the Cursed Deck's address
+- **THEN** its Kart geçmişi opens under the Kütüphane's address
 
 #### Scenario: A held DM-only card
 - **WHEN** Ayla follows "Kart geçmişi →" in the details of the DM-only card "The Last Wish" in Bora's hand
