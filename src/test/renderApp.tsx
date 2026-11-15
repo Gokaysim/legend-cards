@@ -17,6 +17,7 @@ import { type TestDraws, TestDrawsProvider } from './TestDrawsProvider'
 import { type TestHoldings, TestHoldingsProvider } from './TestHoldingsProvider'
 import { type TestPacks, TestPacksProvider } from './TestPacksProvider'
 import { type TestSets, TestSetsProvider } from './TestSetsProvider'
+import { type TestStats, TestStatsProvider } from './TestStatsProvider'
 import { type TestNotes, TestPlayerNotesProvider } from './TestPlayerNotesProvider'
 import { type TestTable, TestTableProvider } from './TestTableProvider'
 import { type TestTrueWords, TestTrueWordsProvider } from './TestTrueWordsProvider'
@@ -40,6 +41,8 @@ export type RenderAppOptions = {
   balances?: TestBalances
   /** The İşlem Logu's records. Defaults to none. */
   activityLog?: TestActivityLog
+  /** The records of the Kart geçmişi and Set istatistikleri pages. Defaults to none. */
+  stats?: TestStats
   /** Fake draws. Defaults to draws that give the first candidate. */
   draws?: TestDraws
   /** The table's lock. Defaults to a free table. */
@@ -64,6 +67,7 @@ type Data = {
   holdings: TestHoldings
   balances: TestBalances
   activityLog: TestActivityLog
+  stats: TestStats
   draws: TestDraws
   table: TestTable
   packs: TestPacks
@@ -75,10 +79,11 @@ type Data = {
 
 /**
  * Renders the real route table at `path`, with a fixed auth state (signed in by default), fixed profiles, characters,
- * sets, cards, open holdings, party purse, table lock, open pack, True Words, notes, log records and pictures, and fake
- * draws, pack, set, character and True Word steps and note saves. `setUsers`, `setCharacters`, `setSets`, `setCards`,
- * `setHoldings`, `setBalances`, `setTable`, `setPacks`, `setTrueWords`, `setNotes` and `setActivityLog` re-render the
- * same app with other data, as a real-time update would, without remounting.
+ * sets, cards, open holdings, party purse, table lock, open pack, True Words, notes, log and statistics records and
+ * pictures, and fake draws, pack, set, character and True Word steps and note saves. `setUsers`, `setCharacters`,
+ * `setSets`, `setCards`, `setHoldings`, `setBalances`, `setTable`, `setPacks`, `setTrueWords`, `setNotes`,
+ * `setActivityLog` and `setStats` re-render the same app with other data, as a real-time update would, without
+ * remounting.
  */
 export function renderApp({
   path = '/',
@@ -91,6 +96,7 @@ export function renderApp({
   holdings = {},
   balances = {},
   activityLog = {},
+  stats = {},
   draws = {},
   table = {},
   packs = {},
@@ -108,6 +114,7 @@ export function renderApp({
     holdings,
     balances,
     activityLog,
+    stats,
     draws,
     table,
     packs,
@@ -128,15 +135,17 @@ export function renderApp({
                     <TestTableProvider {...data.table}>
                       <TestPacksProvider {...data.packs}>
                         <TestActivityLogProvider {...data.activityLog}>
-                          <TestDrawsProvider {...data.draws}>
-                            <TestTrueWordsProvider {...data.trueWords}>
-                              <TestPlayerNotesProvider {...data.notes}>
-                                <TestDefinitionsProvider {...data.definitions}>
-                                  <RouterProvider router={router} />
-                                </TestDefinitionsProvider>
-                              </TestPlayerNotesProvider>
-                            </TestTrueWordsProvider>
-                          </TestDrawsProvider>
+                          <TestStatsProvider {...data.stats}>
+                            <TestDrawsProvider {...data.draws}>
+                              <TestTrueWordsProvider {...data.trueWords}>
+                                <TestPlayerNotesProvider {...data.notes}>
+                                  <TestDefinitionsProvider {...data.definitions}>
+                                    <RouterProvider router={router} />
+                                  </TestDefinitionsProvider>
+                                </TestPlayerNotesProvider>
+                              </TestTrueWordsProvider>
+                            </TestDrawsProvider>
+                          </TestStatsProvider>
                         </TestActivityLogProvider>
                       </TestPacksProvider>
                     </TestTableProvider>
@@ -164,6 +173,7 @@ export function renderApp({
     setHoldings: (next: TestHoldings) => update({ holdings: next }),
     setBalances: (next: TestBalances) => update({ balances: next }),
     setActivityLog: (next: TestActivityLog) => update({ activityLog: next }),
+    setStats: (next: TestStats) => update({ stats: next }),
     setTable: (next: TestTable) => update({ table: next }),
     setPacks: (next: TestPacks) => update({ packs: next }),
     setTrueWords: (next: TestTrueWords) => update({ trueWords: next }),

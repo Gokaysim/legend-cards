@@ -151,6 +151,50 @@ describe('routes and navigation', () => {
     },
   )
 
+  it.each([
+    [
+      "a Legend card's history",
+      '/library/legend-abolethseyes',
+      "Aboleth's Eyes",
+      'Kart kütüphanesi',
+    ],
+    [
+      "a Blessed card's history",
+      '/library/legend-dawnoffortune',
+      'Dawn of Fortune',
+      'Kart kütüphanesi',
+    ],
+    [
+      "a Cursed card's history",
+      '/cursed-deck/cursed-visionsofdeath',
+      'Visions of Death',
+      'Cursed Deck',
+    ],
+    ["a set's statistics", '/sets/kesqer', 'Kesqerian Nights', 'Setler'],
+  ])(
+    'shows %s from its URL, as after a reload, keeping its menu entry marked',
+    (_, path, heading, menu) => {
+      const { router } = renderApp({ path, cards: { cards: CARDS } })
+
+      expect(router.state.location.pathname).toBe(path)
+      expect(screen.getByRole('heading', { level: 1, name: heading })).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: `← ${menu}` })).toBeInTheDocument()
+      const marked = within(mainMenu())
+        .getAllByRole('link')
+        .filter((link) => link.getAttribute('aria-current') === 'page')
+      expect(marked.map((link) => link.textContent)).toEqual([expect.stringContaining(menu)])
+    },
+  )
+
+  it('leads back from a detail page to its menu screen', async () => {
+    const user = userEvent.setup()
+    const { router } = renderApp({ path: '/sets/kesqer', cards: { cards: CARDS } })
+
+    await user.click(screen.getByRole('link', { name: '← Setler' }))
+
+    expect(router.state.location.pathname).toBe('/sets')
+  })
+
   it('shows each screen directly from its URL, as after a reload', () => {
     renderApp({ path: '/true-words' })
 

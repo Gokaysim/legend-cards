@@ -1,3 +1,6 @@
+import type { Card } from '@/features/cards/schema'
+import type { CardSet } from '@/features/sets/schema'
+
 /**
  * The main screens, in navigation order: the single list that both the router and the sidebar read.
  * Labels, icons and each screen's Cardmaker (`mascot`, a picture stem, or `null` for none) come from the legacy
@@ -61,6 +64,29 @@ export const HAND_ROUTE = `${screenById('hands').path}/:uid`
 /** The URL of one player's hand. */
 export function handPath(uid: string): string {
   return `${screenById('hands').path}/${encodeURIComponent(uid)}`
+}
+
+/**
+ * A card's Kart geçmişi (spec: card-stats): below the Kart kütüphanesi's path for a Legend or Blessed card, and below
+ * the Cursed Deck's for a Cursed card. Each sits below its menu entry's path, so the menu keeps that screen marked.
+ */
+export const CARD_HISTORY_ROUTES = {
+  legend: `${screenById('library').path}/:cardId`,
+  cursed: `${screenById('cursed-deck').path}/:cardId`,
+} as const
+
+/** The URL of a card's Kart geçmişi, below the screen of its deck. */
+export function cardHistoryPath(card: Pick<Card, 'id' | 'kind'>): string {
+  const deck = screenById(card.kind === 'cursed' ? 'cursed-deck' : 'library')
+  return `${deck.path}/${encodeURIComponent(card.id)}`
+}
+
+/** A set's Set istatistikleri (spec: card-stats), below the Setler screen's path, which the menu keeps marked. */
+export const SET_STATS_ROUTE = `${screenById('sets').path}/:setId`
+
+/** The URL of a set's Set istatistikleri, by the set's document ID. */
+export function setStatsPath(set: Pick<CardSet, 'id'>): string {
+  return `${screenById('sets').path}/${encodeURIComponent(set.id)}`
 }
 
 /**

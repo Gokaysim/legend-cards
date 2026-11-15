@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
+import { Link } from 'react-router'
 
-import { screenById } from '@/app/screens'
+import { screenById, setStatsPath } from '@/app/screens'
 import { Button } from '@/components/ui/Button'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Spinner } from '@/components/ui/Spinner'
@@ -84,6 +85,18 @@ function RowControls({ set, isFirst, isLast, isMoving, onMove, onEdit }: RowCont
         ✎ Düzenle
       </Button>
     </div>
+  )
+}
+
+/** A set's name, leading to its Set istatistikleri (spec: card-sets, "Set names lead to their statistics"). */
+function SetNameLink({ set, className }: { set: CardSet; className?: string }) {
+  return (
+    <Link
+      to={setStatsPath(set)}
+      className={cn('font-semibold text-ink hover:text-gold hover:underline', className)}
+    >
+      {set.name}
+    </Link>
   )
 }
 
@@ -209,7 +222,7 @@ export function SetsPage() {
                 <span className="w-5 text-right text-sm text-ink-muted tabular-nums">{number}</span>
                 <SetBack set={set} />
                 <div className="flex min-w-0 grow flex-col gap-0.5">
-                  <span className="font-semibold break-words text-ink">{set.name}</span>
+                  <SetNameLink set={set} className="break-words" />
                   <span className="text-xs break-words text-ink-muted">{codeLine(set)}</span>
                   <span className="text-xs text-ink-muted">
                     {PACK_LAYOUT_LABELS[set.packLayout]}
@@ -222,7 +235,9 @@ export function SetsPage() {
           ))}
         </ol>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-line bg-pane">
+        // Relative, so the screen readers' "İşlemler" of the last column stays inside the scrolling area and never
+        // widens the page while the table scrolls, between the phone width and a window wide enough for it.
+        <div className="relative overflow-x-auto rounded-xl border border-line bg-pane">
           <table className="w-full min-w-3xl border-collapse text-left text-sm">
             <thead className="bg-pane-raised text-xs text-ink-muted uppercase">
               <tr>
@@ -256,7 +271,7 @@ export function SetsPage() {
                     <SetBack set={set} />
                   </td>
                   <th scope="row" className="px-2 py-2 font-normal">
-                    <span className="block font-semibold text-ink">{set.name}</span>
+                    <SetNameLink set={set} className="block" />
                     <span className="block text-xs text-ink-muted">{codeLine(set)}</span>
                   </th>
                   <td className="px-2 py-2 text-ink-muted">{PACK_LAYOUT_LABELS[set.packLayout]}</td>

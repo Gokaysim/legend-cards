@@ -154,6 +154,19 @@ describe('the "Seçili Kart" panel on a wide window', () => {
     expect(within(panel()).getByText('Bir kart seç')).toBeVisible()
   })
 
+  it('gives no face in the hand or in the details the clock control, and the details the history link', async () => {
+    stubWindow(true)
+    renderHand()
+
+    await userEvent.setup().click(face('Night Owl'))
+
+    expect(screen.queryByRole('link', { name: /: geçmiş$/ })).not.toBeInTheDocument()
+    expect(within(panel()).getByRole('link', { name: 'Kart geçmişi →' })).toHaveAttribute(
+      'href',
+      '/library/legend-nightowl',
+    )
+  })
+
   it('is not shown on the DM notu tab', () => {
     stubWindow(true)
     renderHand({ path: '/hands/ayla?tab=dm-note', viewer: dm })

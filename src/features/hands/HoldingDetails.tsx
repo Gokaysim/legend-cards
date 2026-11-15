@@ -1,4 +1,7 @@
 import { useId, useState } from 'react'
+import { Link } from 'react-router'
+
+import { cardHistoryPath } from '@/app/screens'
 
 import { DetailsBadges } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
@@ -71,6 +74,7 @@ export type HoldingDetailsProps = {
  * design (spec: card-holdings; design D3 of `redesign-selected-card-panel`):
  * - the face, large, glowing as a revealed card of its kind or with its active glow, over a soft light of that color
  * - labels for its set, rarity, cost and mechanic pack; its name and text are on the face, not written again
+ * - the "Kart geçmişi →" link to the card's history (spec: card-holdings, "History link in the card details")
  * - who holds it, then its note on cream paper
  * - "Kullan" across the details, then the DM's tools under "DM araçları": the cost in this hand, and the active
  *   switch, giving away and discarding as three equal buttons
@@ -308,15 +312,23 @@ export function HoldingDetails({ entry, holderName, onDone, layout }: HoldingDet
         </div>
 
         <div className="flex min-w-0 flex-1 flex-col gap-4">
-          <ul aria-label="Kart bilgileri" className="flex flex-wrap gap-1.5">
-            {holdingInfo(card, cost, setName).map((info) => (
-              <li key={info.label} className="max-w-full">
-                <Pill tone={info.tone} isMuted={info.isMuted}>
-                  {info.label}
-                </Pill>
-              </li>
-            ))}
-          </ul>
+          <div className="flex flex-col items-start gap-2">
+            <ul aria-label="Kart bilgileri" className="flex flex-wrap gap-1.5">
+              {holdingInfo(card, cost, setName).map((info) => (
+                <li key={info.label} className="max-w-full">
+                  <Pill tone={info.tone} isMuted={info.isMuted}>
+                    {info.label}
+                  </Pill>
+                </li>
+              ))}
+            </ul>
+            <Link
+              to={cardHistoryPath(card)}
+              className="text-[13px] font-medium text-gold hover:underline"
+            >
+              Kart geçmişi →
+            </Link>
+          </div>
 
           <p className="flex items-center gap-2 text-[13px] text-ink-muted">
             <PersonIcon />

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { ready } from '@/test/fixtures'
 
-import { combineSubscriptions } from './activityLogContext'
+import { combineSubscriptions } from './subscription'
 
 const failed = {
   status: 'error' as const,

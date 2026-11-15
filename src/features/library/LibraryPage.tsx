@@ -30,7 +30,13 @@ export function LibraryPage() {
           </>
         }
       />
-      <CardBrowser deck="legend" cards={editing.cards} status={status} {...editing.browserProps} />
+      <CardBrowser
+        deck="legend"
+        cards={editing.cards}
+        status={status}
+        {...editing.browserProps}
+        linksHistory
+      />
       {isDistributionOpen ? (
         <PoolDistributionDialog onClose={() => setIsDistributionOpen(false)} />
       ) : null}

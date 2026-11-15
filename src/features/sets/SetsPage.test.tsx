@@ -131,6 +131,15 @@ describe('the Setler screen', () => {
     expect(main().getByRole('alert')).toHaveTextContent(/internet bağlantısı gerekiyor/)
   })
 
+  it("keeps the DM's hidden İşlemler heading inside the table's scrolling area, so the page never scrolls sideways", () => {
+    renderSets()
+
+    expect(main().getByRole('columnheader', { name: 'İşlemler' }).firstElementChild).toHaveClass(
+      'sr-only',
+    )
+    expect(main().getByRole('table').parentElement).toHaveClass('relative', 'overflow-x-auto')
+  })
+
   it('shows each set as a card at phone width, with its controls under it', () => {
     stubPhoneWidth()
     renderSets()
@@ -143,5 +152,30 @@ describe('the Setler screen', () => {
     expect(
       within(cards[4] as HTMLElement).getByRole('button', { name: /düzenle/ }),
     ).toBeInTheDocument()
+  })
+})
+
+describe("the set names' links", () => {
+  it("opens a set's statistics from its name", async () => {
+    const { router } = renderSets({ viewer: player })
+
+    await userEvent
+      .setup()
+      .click(rowOf('Kesqerian Nights').getByRole('link', { name: 'Kesqerian Nights' }))
+
+    expect(router.state.location.pathname).toBe('/sets/kesqer')
+    expect(screen.getByRole('heading', { level: 1, name: 'Kesqerian Nights' })).toBeInTheDocument()
+  })
+
+  it("opens a set's statistics from its name at phone width", async () => {
+    stubPhoneWidth()
+    const { router } = renderSets()
+
+    const cards = within(main().getByRole('list', { name: 'Setler' })).getAllByRole('listitem')
+    await userEvent
+      .setup()
+      .click(within(cards[4] as HTMLElement).getByRole('link', { name: 'Kesqerian Nights' }))
+
+    expect(router.state.location.pathname).toBe('/sets/kesqer')
   })
 })

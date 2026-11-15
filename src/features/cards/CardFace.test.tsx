@@ -1,6 +1,7 @@
 import { act, fireEvent, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
+import { MemoryRouter, Route, Routes } from 'react-router'
 import { describe, expect, it, vi } from 'vitest'
 
 import { testPicturePath, testPictureUrl } from '@/test/artFixtures'
@@ -689,5 +690,103 @@ describe('CardFace double click', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     await user.click(magnifier('Night Owl'))
     expect(screen.getByRole('dialog', { name: 'Night Owl' })).toBeInTheDocument()
+  })
+})
+
+describe('CardFace history control', () => {
+  /** The face at `/library`, with a route for the history page, so a test can follow the control. */
+  function renderInLibrary(ui: ReactNode) {
+    return renderWithSets(
+      <MemoryRouter initialEntries={['/library']}>
+        <Routes>
+          <Route path="/library" element={ui} />
+          <Route path="/library/:cardId" element={<p>Geçmiş sayfası</p>} />
+        </Routes>
+      </MemoryRouter>,
+    )
+  }
+  const history = (name: string) =>
+    within(face(name)).getByRole('link', { name: `${name}: geçmiş` })
+
+  it("sits left of the magnifier on a player's face", () => {
+    renderInLibrary(
+      <CardFace card={testCard('Night Owl')} historyPath="/library/legend-nightowl" />,
+    )
+
+    expect(history('Night Owl')).toHaveClass('absolute', 'top-2', 'right-11')
+    expect(history('Night Owl')).toHaveAttribute('data-face-control')
+    expect(within(face('Night Owl')).getByRole('button', { name: 'Night Owl: büyüt' })).toHaveClass(
+      'right-2',
+    )
+  })
+
+  it("sits left of the edit control on the DM's face", () => {
+    renderInLibrary(
+      <CardFace
+        card={testCard('Night Owl')}
+        onEdit={() => {}}
+        historyPath="/library/legend-nightowl"
+      />,
+    )
+
+    expect(history('Night Owl')).toHaveClass('right-20')
+    expect(
+      within(face('Night Owl')).getByRole('button', { name: 'Night Owl: düzenle' }),
+    ).toHaveClass('right-11')
+  })
+
+  it("sits in the picture's corner row on a picture face", () => {
+    renderInLibrary(
+      <TestArtProvider>
+        <CardFace
+          card={testCard("Aboleth's Eyes", { picture: testPicturePath('card', 'legend-eyes') })}
+          onEdit={() => {}}
+          historyPath="/library/legend-abolethseyes"
+        />
+      </TestArtProvider>,
+    )
+
+    expect(history("Aboleth's Eyes")).toHaveClass('top-[2%]', 'right-[calc(3%+4.5rem)]')
+  })
+
+  it('shows on hover or keyboard focus, as the magnifier does, and at all times without hover', () => {
+    renderInLibrary(
+      <CardFace card={testCard('Night Owl')} historyPath="/library/legend-nightowl" />,
+    )
+
+    expect(history('Night Owl')).toHaveClass(
+      'opacity-0',
+      'group-hover:opacity-100',
+      'group-has-[:focus-visible]:opacity-100',
+      'no-hover:opacity-100',
+    )
+  })
+
+  it("opens the card's history", async () => {
+    renderInLibrary(
+      <CardFace card={testCard('Night Owl')} historyPath="/library/legend-nightowl" />,
+    )
+
+    await userEvent.setup().click(history('Night Owl'))
+
+    expect(screen.getByText('Geçmiş sayfası')).toBeInTheDocument()
+  })
+
+  it('still zooms on a double click outside it', async () => {
+    const user = userEvent.setup()
+    renderInLibrary(
+      <CardFace card={testCard('Night Owl')} historyPath="/library/legend-nightowl" />,
+    )
+
+    await user.dblClick(within(face('Night Owl')).getByRole('heading', { name: 'Night Owl' }))
+
+    expect(screen.getByRole('dialog', { name: 'Night Owl' })).toBeInTheDocument()
+    expect(screen.queryByText('Geçmiş sayfası')).not.toBeInTheDocument()
+  })
+
+  it('has no history control without a history address', () => {
+    renderInLibrary(<CardFace card={testCard('Night Owl')} />)
+
+    expect(within(face('Night Owl')).queryByRole('link')).not.toBeInTheDocument()
   })
 })

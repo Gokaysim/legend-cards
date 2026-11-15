@@ -22,7 +22,7 @@ src/
     App.tsx             ArtProvider + AuthProvider + UsersProvider + CharactersProvider + BalancesProvider
                         + SetsProvider + CardsProvider
                         + HoldingsProvider + TableProvider + PacksProvider + ActivityLogProvider
-                        + DrawsProvider + TrueWordsProvider + PlayerNotesProvider + router
+                        + StatsProvider + DrawsProvider + TrueWordsProvider + PlayerNotesProvider + router
     screens.ts          the single lists of screens (main menu and Shops sub-screens)
     routes.tsx          route table: sign-in, RequireAuth, AppShell, one route per screen, not-found
     layout/             AppShell, SidebarContent, MobileNav, UserBadge, OfflineBanner
@@ -90,6 +90,10 @@ src/
     activity-log/       the İşlem Logu: the log queries (api), ActivityLogProvider (useLogRecords, useHolding),
                         events derived from holdings, draws and packs, and the ledger (events, eventText),
                         ActivityLogPage
+    stats/              the Kart geçmişi and Set istatistikleri pages (spec: card-stats): the queries (api),
+                        StatsProvider (useCardRecords, useAllRecords), the counting (cardHistory: cardStats,
+                        historyRows; setStats: setCards, setCardRows, setTiles), the history's Turkish
+                        (historyText), the pages (CardHistoryPage, SetStatsPage) and the set's table (SetCardTable)
     rules/              the Kurallar screen: RulesPage around RulesContent, the static rules text as JSX
     shops/              the Shops hub (ShopsPage), and the Elixir Shop placeholder
     custom-draft/ settings/
@@ -102,7 +106,8 @@ src/
                         lines, as "DM araçları"), EmptyCardSlot (the dashed card place of an empty details panel)
   lib/
     firebase/           settings check (config.ts) and the Firebase app, Auth and Firestore instances
-    firestore/          real-time subscription hooks, converters, errors (including firebaseCode)
+    firestore/          real-time subscription hooks (with combineSubscriptions, which joins several into one),
+                        converters, errors (including firebaseCode)
     cn.ts               class-name merge helper
     useOnlineStatus.ts  browser network status
     useReducedMotion.ts whether the device asks for reduced motion, live
@@ -116,13 +121,17 @@ src/
     useSavedField.ts    a text field saved on blur that keeps the user's draft while live changes arrive
                         (the card note, the cost override and the player notes)
     turkish.ts          Turkish grammar helpers, such as the genitive of a name ("Ayla'nın")
+    days.ts             dates in lists of events: groupByDay ("14 Kasım 2026", pending times on the newest
+                        day), formatTime ("19:42") and formatShortDate ("14 Kas 2026"), shared by the İşlem Logu
+                        and the Kart geçmişi
     random.ts           cryptographic random picks: randomIndex, pickRandom, sample, shuffle
     text.ts             cleanText: trims typed text and cuts it to a limit
   styles/
     index.css           Tailwind entry and base styles
     theme.css           design tokens
   test/                 test setup and shared test helpers (test providers for profiles, balances, cards,
-                        holdings, the table, packs, the log's records and draws, the notes, fixtures)
+                        holdings, the table, packs, the log's and the statistics' records and draws, the notes,
+                        fixtures)
 public/art/             the pictures that `npm run build-art` builds, with their manifest; not committed
 scripts/                admin scripts on Node with the Admin SDK, and the picture build (see Scripts)
 data/                   the owner's CSV data that the scripts import (see data/README.md)
@@ -213,7 +222,7 @@ Styling uses Tailwind CSS utility classes, written directly in JSX.
   - `useIsDm()`, which is `true` only for a loaded DM profile; loading or missing profiles count as a player
 - **DM-only controls go inside `<DmOnly>`.** Hiding is only a convenience. `firestore.rules` is the real check, so every DM-only write needs its own rule and rules test.
 - **Roles change only through the admin script** (`npm run set-role`, see [Scripts](#scripts)). Never add a client write that touches `role`.
-- **Tests** render components inside `TestAuthProvider` and `TestUsersProvider` (`src/test/`) with fixed states, instead of talking to Firebase. `renderApp` takes `users`, `characters`, `sets`, `balances`, `cards`, `holdings`, `table`, `packs`, `trueWords`, `notes`, `activityLog`, `draws` and `art` options, and returns `setUsers`, `setCharacters`, `setSets`, `setBalances`, `setCards`, `setHoldings`, `setTable`, `setPacks`, `setTrueWords`, `setNotes` and `setActivityLog` to simulate a real-time change. The `characters` option takes the `characters` and the `effects` (subscriptions) and fake character steps, which succeed by default; `testCharacter(name, uid)` and `testEffect(name, character)` in `src/test/characterFixtures.ts` build them. The `sets` option takes the stored `sets` and fake set steps; by default the 12 sets of `data/sets.csv` without pictures (`src/test/setFixtures.ts`), and steps that succeed. A component that names sets without the rest of the app renders with `renderWithSets`. The `draws` option takes fake draws; by default a draw gives its first candidate. The `table` option takes an `openPackId`; by default no pack is open. The `packs` option takes the open `pack` and fake pack steps, which succeed by default. The `trueWords` option takes the `words`, the `knownWords` records, the `openDrafts` and fake True Word steps, which succeed by default (fixtures in `src/test/trueWordFixtures.ts`). The `notes` option takes the `playerNotes` and `dmNotes` by uid (each a subscription, for example `ready(note)`), fake saves, which succeed by default, and `onUseDmNote`, which is called with every uid whose DM note a component reads, so a test can show that a player's screen never asks for one. The `art` option takes a picture manifest; by default it is `EMPTY_ART`, so every test sees the CSS look unless it gives pictures.
+- **Tests** render components inside `TestAuthProvider` and `TestUsersProvider` (`src/test/`) with fixed states, instead of talking to Firebase. `renderApp` takes `users`, `characters`, `sets`, `balances`, `cards`, `holdings`, `table`, `packs`, `trueWords`, `notes`, `activityLog`, `stats`, `draws` and `art` options, and returns `setUsers`, `setCharacters`, `setSets`, `setBalances`, `setCards`, `setHoldings`, `setTable`, `setPacks`, `setTrueWords`, `setNotes`, `setActivityLog` and `setStats` to simulate a real-time change. The `stats` option takes the `records` of the statistics pages (holdings, card draws and pack openings, as one subscription); a card's page gets the records of its card. `src/test/statsFixtures.ts` holds the history of "Aboleth's Eyes" from the card-stats spec. The `characters` option takes the `characters` and the `effects` (subscriptions) and fake character steps, which succeed by default; `testCharacter(name, uid)` and `testEffect(name, character)` in `src/test/characterFixtures.ts` build them. The `sets` option takes the stored `sets` and fake set steps; by default the 12 sets of `data/sets.csv` without pictures (`src/test/setFixtures.ts`), and steps that succeed. A component that names sets without the rest of the app renders with `renderWithSets`. The `draws` option takes fake draws; by default a draw gives its first candidate. The `table` option takes an `openPackId`; by default no pack is open. The `packs` option takes the open `pack` and fake pack steps, which succeed by default. The `trueWords` option takes the `words`, the `knownWords` records, the `openDrafts` and fake True Word steps, which succeed by default (fixtures in `src/test/trueWordFixtures.ts`). The `notes` option takes the `playerNotes` and `dmNotes` by uid (each a subscription, for example `ready(note)`), fake saves, which succeed by default, and `onUseDmNote`, which is called with every uid whose DM note a component reads, so a test can show that a player's screen never asks for one. The `art` option takes a picture manifest; by default it is `EMPTY_ART`, so every test sees the CSS look unless it gives pictures.
 
 ## Data access
 
@@ -241,6 +250,7 @@ All stored data lives in Firestore and is read in real time.
   - Holdings: `useOpenHoldings()` for every card in every hand (`HoldingsProvider`). Derive views with the pure helpers next to it: `holdingsOf(holdings, uid)` for one hand in the order the cards were received, and `holdersOf(holdings, cardId)` for who holds a copy of a card.
   - The pool: derive it from the cards with the pure helpers in `cards/pool.ts`. A normal card's `holder` is the source of truth for whether it is in the pool, so `isDrawable`, `drawablePool`, `cursedPool`, `activeFilters` and `poolDistribution` need only `useCards()`. The filters of the draw dialog and "+ Kart ver" are facets in `cards/filters.ts` (`drawFacets`, `giveFacets`, `applyFacets`, `facetChoices`, `matchesFilters`), with the sets ordered by `setChoices` in `cards/setChoices.ts`, which the library's set filter uses too. The library's Durum also names who holds each card, so it comes from the holdings instead (`useDeckStatus` in `hands/cardStatus.ts`).
 - **Data for one screen.** A screen that alone needs some data subscribes while it is shown, through hooks that a provider injects, so its test provider can answer instead of Firebase. The İşlem Logu reads `useLogRecords(uid, n)` and `useHolding(id)` from `ActivityLogProvider`. Its events are derived from its sources, the holdings, the draws (with the pack openings), the ledger, the True Word drafts, the learned True Words and the definition change records (`events.ts`), never written separately, through eight queries (`logQueries`): given holdings, closed holdings, draws, changes by hand, drafts, words taught, words taken back, and definition changes (all of them on the DM's device, the public ones on a player's, none with a player filter). A draw is one event, and so is a pack opening, at the time it was opened, and a True Word draft, at the time it started. Their holdings, learned words, payments and refunds make no events of their own: the log queries leave them out (`givenVia` `dm` or `transfer`, `source` `manual`, and `learnedVia` `dm`), so every record a query returns is exactly one event and paging stays exact. A word taught and later taken back is one event in each of its two queries.
+- **The statistics pages read the same way.** The Kart geçmişi and Set istatistikleri pages read `useCardRecords(cardId)` and `useAllRecords()` from `StatsProvider`, and count from the records on the device each time a snapshot arrives; nothing is stored (design D1 of `add-card-and-set-stats`). A card's page asks for its card's holdings (`cardId ==`), its card draws (`cardId ==` on `draws`, which no pack opening matches) and the packs that showed it (`offered array-contains`). Holdings do not record a set, so a set's page reads every holding and every pack opening (`kind == 'pack'`) and keeps those of its cards. None of these queries orders or adds a second filter, so they need no composite index. Each hook joins its subscriptions with `combineSubscriptions`, as the log does.
   - The hand screen reads the notes the same way: `usePlayerNote(uid)`, `useDmNote(uid)` and `useNoteActions()` from `PlayerNotesProvider` (`src/features/player-notes/`). `PlayerNote` subscribes to the player note while a hand is shown, under every tab. Only `DmNote`, inside `<DmOnly>` and mounted only while the DM notu tab is open, calls `useDmNote`. The real hook also asks for nothing unless `useIsDm()` is true (`dmNoteTarget`). So a player's device never requests `dmNotes`, which the rules deny it anyway.
 - **Composite indexes.** A query that filters on one field and orders by another needs a composite index in `firestore.indexes.json`, such as the log's filtered queries. The emulator does not check indexes, so a missing one only fails on a real project: add the index in the same change as the query, and deploy it with the rules.
 - **Staleness hints.** When `ready`, `fromCache: true` means the data has not been confirmed by the server (for example while offline), and `hasPendingWrites: true` means local changes are still waiting to sync. Show a subtle hint where it matters, for example next to an LP balance.
@@ -295,7 +305,13 @@ The main screens were added this way. A new one follows the same steps:
 5. **Style.** Style with Tailwind semantic tokens (see [Styling](#styling)) and start the page with `PageHeader`.
 6. **Tests.** Extend `src/app/routes.test.tsx`: the expected label list and the navigation tests cover every screen in `SCREENS`.
 
-A screen that is not part of the main menu (for example a detail page) gets a route in `routes.tsx` under the `AppShell` children, but no `SCREENS` entry.
+A screen that is not part of the main menu (for example a detail page) gets a route in `routes.tsx` under the `AppShell` children, but no `SCREENS` entry. Its path sits below its menu screen's path, so the menu's `NavLink` keeps that screen marked, and `screens.ts` exports the route pattern and a builder for its URL:
+
+- one player's hand: `HAND_ROUTE` (`/hands/:uid`) and `handPath(uid)`
+- a card's Kart geçmişi: `CARD_HISTORY_ROUTES` (`/library/:cardId` for a Legend or Blessed card, `/cursed-deck/:cardId` for a Cursed card) and `cardHistoryPath(card)`, which picks the screen from the card's kind
+- a set's Set istatistikleri: `SET_STATS_ROUTE` (`/sets/:setId`) and `setStatsPath(set)`
+
+A detail page shows a link back to its menu screen ("← Kart kütüphanesi"), and its own message for an address that names nothing ("Böyle bir oyuncu yok.", "Kart bulunamadı.", "Böyle bir set yok.").
 
 **Sub-screens of a menu screen** follow the Shops screen:
 

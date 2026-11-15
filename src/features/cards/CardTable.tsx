@@ -1,3 +1,6 @@
+import { Link } from 'react-router'
+
+import { cardHistoryPath } from '@/app/screens'
 import { Button } from '@/components/ui/Button'
 import { useSetIndex } from '@/features/sets/setsContext'
 import { cn } from '@/lib/cn'
@@ -64,6 +67,8 @@ export type CardTableProps = {
   onEdit?: (card: Card) => void
   /** For the DM: marks a DM-only card's row "🔒 DM" beside its name. */
   marksDmOnly?: boolean
+  /** In the Kart kütüphanesi and the Cursed Deck: each name links to the card's Kart geçmişi. */
+  linksHistory?: boolean
 }
 
 /** The list view: one row per card. Only the table scrolls sideways at narrow widths, never the page. */
@@ -75,12 +80,15 @@ export function CardTable({
   statusText = () => null,
   onEdit,
   marksDmOnly = false,
+  linksHistory = false,
 }: CardTableProps) {
   const columns = DECK_COLUMNS[deck].map((key) => COLUMNS[key])
   const { setName } = useSetIndex()
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-line bg-pane">
+    // Relative, so the screen readers' "(artan)" of a sorted column far right stays inside the scrolling area and
+    // never widens the page.
+    <div className="relative overflow-x-auto rounded-xl border border-line bg-pane">
       <table
         className={cn(
           'w-full border-collapse text-left text-sm',
@@ -133,7 +141,13 @@ export function CardTable({
               {columns.map((column) =>
                 column.key === 'name' ? (
                   <th key={column.key} scope="row" className="px-3 py-2 font-semibold text-ink">
-                    {column.cell(card, statusText, setName)}
+                    {linksHistory ? (
+                      <Link to={cardHistoryPath(card)} className="hover:text-gold hover:underline">
+                        {column.cell(card, statusText, setName)}
+                      </Link>
+                    ) : (
+                      column.cell(card, statusText, setName)
+                    )}
                     {marksDmOnly && card.dmOnly ? (
                       <span className="ml-2 rounded-full border border-ink-muted px-1.5 py-0.5 text-xs font-normal whitespace-nowrap text-ink-muted">
                         {DM_ONLY_MARK}

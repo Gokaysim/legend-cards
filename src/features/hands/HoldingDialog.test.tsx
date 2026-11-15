@@ -292,6 +292,41 @@ describe.each(HOSTS)('the card details in $name', (current) => {
     })
   })
 
+  describe('the history link', () => {
+    it("opens a Legend card's Kart geçmişi from under its labels", async () => {
+      const { user, router } = await openDetails()
+
+      const link = details().getByRole('link', { name: 'Kart geçmişi →' })
+      expect(link).toHaveAttribute('href', '/library/legend-nightowl')
+      expect(details().queryByRole('link', { name: /: geçmiş$/ })).not.toBeInTheDocument()
+      await user.click(link)
+
+      expect(router.state.location.pathname).toBe('/library/legend-nightowl')
+      expect(screen.getByRole('heading', { level: 1, name: 'Night Owl' })).toBeInTheDocument()
+    })
+
+    it("opens a Cursed card's Kart geçmişi under the Cursed Deck's address", async () => {
+      await openDetails({ card: testCursedCard('Night Owl', { cost: '1' }) })
+
+      expect(details().getByRole('link', { name: 'Kart geçmişi →' })).toHaveAttribute(
+        'href',
+        '/cursed-deck/cursed-nightowl',
+      )
+    })
+
+    it("opens a held DM-only card's Kart geçmişi for another player", async () => {
+      const { user } = await openDetails({
+        handOf: bora,
+        card: testCard('Night Owl', { cost: '3', dmOnly: true }),
+      })
+
+      await user.click(details().getByRole('link', { name: 'Kart geçmişi →' }))
+
+      expect(screen.getByRole('heading', { level: 1, name: 'Night Owl' })).toBeInTheDocument()
+      expect(screen.queryByText('Kart bulunamadı.')).not.toBeInTheDocument()
+    })
+  })
+
   describe('HoldingDialog while a pack is open', () => {
     it('disables using, giving away and discarding, and says why', async () => {
       await openDetails({ viewer: dm, handOf: ayla, openPackId: 'pack-1' })

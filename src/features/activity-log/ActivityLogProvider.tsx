@@ -2,14 +2,11 @@ import { type ReactNode, useMemo } from 'react'
 
 import { useIsDm } from '@/features/users/usersContext'
 import { db } from '@/lib/firebase/firestore'
+import { combineSubscriptions } from '@/lib/firestore/subscription'
 import { useCollection } from '@/lib/firestore/useCollection'
 import { useDocument } from '@/lib/firestore/useDocument'
 
-import {
-  ActivityLogContext,
-  type ActivityLogSource,
-  combineSubscriptions,
-} from './activityLogContext'
+import { ActivityLogContext, type ActivityLogSource } from './activityLogContext'
 import { logHoldingRef, logQueries } from './api'
 
 function useFirestoreLogRecords(uid: string | null, n: number) {

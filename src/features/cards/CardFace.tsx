@@ -7,7 +7,9 @@ import {
   useRef,
   useState,
 } from 'react'
+import { Link } from 'react-router'
 
+import { ClockIcon } from '@/components/ui/icons'
 import { useArt } from '@/features/art/artContext'
 import { CardPicture } from '@/features/art/CardPicture'
 import { usePicture } from '@/features/art/usePicture'
@@ -70,6 +72,11 @@ const MAGNIFIER_POSITION = { picture: 'top-[2%] right-[3%]', css: 'top-2 right-2
 const EDIT_POSITION = {
   picture: 'top-[2%] right-[calc(3%+2.25rem)]',
   css: 'top-2 right-11',
+} as const
+/** The history control: left of the DM's edit control, or left of the magnifier where there is none. */
+const HISTORY_POSITION = {
+  withEdit: { picture: 'top-[2%] right-[calc(3%+4.5rem)]', css: 'top-2 right-20' },
+  withoutEdit: EDIT_POSITION,
 } as const
 const NOTE_POSITION = { picture: 'bottom-[2%] left-[3%]', css: 'bottom-2 left-2' } as const
 
@@ -142,6 +149,11 @@ export type CardFaceProps = {
   /** In the DM's library: opens the card's edit form from a "✎" control beside the magnifier. */
   onEdit?: () => void
   /**
+   * In the Kart kütüphanesi and the Cursed Deck: the address of the card's Kart geçmişi, opened from a clock control
+   * left of the edit control or the magnifier (spec: card-library, "History control on library faces").
+   */
+  historyPath?: string
+  /**
    * Called when the face is selected anywhere outside its magnifier and set symbol, for example to open a hand
    * card's details. Without it, the face itself does nothing.
    */
@@ -163,6 +175,8 @@ export type CardFaceProps = {
  * The face glows (design D4): an active card in a hand, the selected card of a hand, a revealed card in a draw or a
  * pack, and a held card in the library, each in its own color.
  *
+ * In the library, a clock control left of the edit control or the magnifier opens the card's Kart geçmişi.
+ *
  * The magnifier in the top-right corner opens the card's zoom view (spec: card-zoom), and so does a double click with a
  * mouse on the face outside its controls, when both presses landed on this face. The magnifier and the note icon show
  * on hover or keyboard focus, and at all times on a device without hover.
@@ -183,6 +197,7 @@ export function CardFace({
   statusMark,
   isDmOnlyMarked = false,
   onEdit,
+  historyPath,
   onOpen,
   openLabel,
 }: CardFaceProps) {
@@ -339,6 +354,21 @@ export function CardFace({
       <span aria-hidden="true">✎</span>
     </button>
   ) : null
+  const historyLink =
+    historyPath !== undefined ? (
+      <Link
+        to={historyPath}
+        aria-label={`${card.name}: geçmiş`}
+        data-face-control=""
+        className={cn(
+          CORNER_ICON_CLASSES,
+          'pointer-events-auto',
+          HISTORY_POSITION[onEdit ? 'withEdit' : 'withoutEdit'][look],
+        )}
+      >
+        <ClockIcon className="size-3.5" />
+      </Link>
+    ) : null
   // The icon only shows; a click on it reaches the face below. Screen readers read "Not var" at all times.
   const note = hasNote ? (
     <>
@@ -411,6 +441,7 @@ export function CardFace({
             ) : null}
             {magnifier}
             {editButton}
+            {historyLink}
             {note}
           </div>
         </div>
@@ -452,6 +483,7 @@ export function CardFace({
         {details}
         {magnifier}
         {editButton}
+        {historyLink}
         {note}
         {zoom}
       </article>

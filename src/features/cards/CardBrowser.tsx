@@ -1,5 +1,6 @@
 import { useCallback, useDeferredValue, useId, useMemo, useState } from 'react'
 
+import { cardHistoryPath } from '@/app/screens'
 import { Button } from '@/components/ui/Button'
 import { Spinner } from '@/components/ui/Spinner'
 import { StatusFilter } from '@/features/definitions/StatusFilter'
@@ -64,6 +65,11 @@ export type CardBrowserProps = {
   statusFilter?: { value: CardFilterValue; onChange: (value: CardFilterValue) => void }
   /** For the DM: each card's "✎ Düzenle" control. */
   onEdit?: (card: Card) => void
+  /**
+   * In the Kart kütüphanesi and the Cursed Deck: each face gets the clock control and each list row's name a link to
+   * the card's Kart geçmişi (spec: card-library, "History control on library faces").
+   */
+  linksHistory?: boolean
 }
 
 /**
@@ -71,7 +77,14 @@ export type CardBrowserProps = {
  * sortable list view with each card's status, the pool counts (Legend deck only), and the loading, error and
  * empty states. Shared by the Kart kütüphanesi and the Cursed Deck.
  */
-export function CardBrowser({ deck, cards, status, statusFilter, onEdit }: CardBrowserProps) {
+export function CardBrowser({
+  deck,
+  cards,
+  status,
+  statusFilter,
+  onEdit,
+  linksHistory = false,
+}: CardBrowserProps) {
   if (cards.status === 'loading') {
     return <Spinner label="Kartlar yükleniyor…" className="py-12" />
   }
@@ -94,6 +107,7 @@ export function CardBrowser({ deck, cards, status, statusFilter, onEdit }: CardB
       status={status}
       statusFilter={statusFilter}
       onEdit={onEdit}
+      linksHistory={linksHistory}
     />
   )
 }
@@ -104,12 +118,14 @@ function LoadedCardBrowser({
   status,
   statusFilter,
   onEdit,
+  linksHistory,
 }: {
   deck: Deck
   cards: Card[]
   status: DeckStatus | undefined
   statusFilter: CardBrowserProps['statusFilter']
   onEdit: CardBrowserProps['onEdit']
+  linksHistory: boolean
 }) {
   const ids = useId()
   const [query, setQuery] = useState('')
@@ -298,6 +314,7 @@ function LoadedCardBrowser({
                 statusMark={showsStatus ? STATUS_LABELS[card.status] : undefined}
                 isDmOnlyMarked={statusFilter !== undefined && card.dmOnly}
                 onEdit={onEdit ? () => onEdit(card) : undefined}
+                historyPath={linksHistory ? cardHistoryPath(card) : undefined}
               />
             )
           }}
@@ -311,6 +328,7 @@ function LoadedCardBrowser({
           statusText={statusText}
           onEdit={onEdit}
           marksDmOnly={statusFilter !== undefined}
+          linksHistory={linksHistory}
         />
       )}
     </div>

@@ -19,7 +19,13 @@ export function CursedDeckPage() {
         mascotPlacement="corner"
         actions={editing.addButton}
       />
-      <CardBrowser deck="cursed" cards={editing.cards} status={status} {...editing.browserProps} />
+      <CardBrowser
+        deck="cursed"
+        cards={editing.cards}
+        status={status}
+        {...editing.browserProps}
+        linksHistory
+      />
       {editing.dialog}
     </section>
   )

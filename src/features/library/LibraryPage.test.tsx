@@ -110,3 +110,41 @@ describe('a player on the deck screens', () => {
     },
   )
 })
+
+describe('the history links of the Kart kütüphanesi', () => {
+  it("gives a player's face the clock control left of the magnifier", () => {
+    renderDeck('/library', player)
+
+    const face = screen.getByRole('article', { name: "Aboleth's Eyes" })
+    const clock = within(face).getByRole('link', { name: "Aboleth's Eyes: geçmiş" })
+    expect(clock).toHaveAttribute('href', `/library/${eyes.id}`)
+    expect(clock).toHaveClass('right-11')
+    expect(within(face).queryByRole('button', { name: /düzenle/ })).not.toBeInTheDocument()
+  })
+
+  it("puts the DM's clock control left of the edit control, which is left of the magnifier", () => {
+    renderDeck('/library')
+
+    const face = screen.getByRole('article', { name: "Aboleth's Eyes" })
+    expect(within(face).getByRole('link', { name: "Aboleth's Eyes: geçmiş" })).toHaveClass(
+      'right-20',
+    )
+    expect(within(face).getByRole('button', { name: "Aboleth's Eyes: düzenle" })).toHaveClass(
+      'right-11',
+    )
+    expect(within(face).getByRole('button', { name: "Aboleth's Eyes: büyüt" })).toHaveClass(
+      'right-2',
+    )
+  })
+
+  it("opens a card's history from its name in the list view", async () => {
+    const user = userEvent.setup()
+    const { router } = renderDeck('/library', player)
+
+    await user.click(screen.getByRole('button', { name: '☷ Liste' }))
+    await user.click(screen.getByRole('link', { name: "Aboleth's Eyes" }))
+
+    expect(router.state.location.pathname).toBe(`/library/${eyes.id}`)
+    expect(screen.getByRole('heading', { level: 1, name: "Aboleth's Eyes" })).toBeInTheDocument()
+  })
+})

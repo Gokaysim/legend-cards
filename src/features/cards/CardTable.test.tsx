@@ -1,6 +1,7 @@
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
+import { MemoryRouter } from 'react-router'
 import { describe, expect, it } from 'vitest'
 
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
@@ -154,5 +155,53 @@ describe('CardTable', () => {
       'aria-sort',
       'ascending',
     )
+  })
+
+  it("keeps a sorted column's hidden direction inside the scrolling area, so the page never scrolls sideways", async () => {
+    const user = userEvent.setup()
+    renderWithSets(<SortableTable deck="legend" cards={[testCard('Zor'), testCard('Ağır')]} />)
+
+    await user.click(screen.getByRole('button', { name: /^Durum/ }))
+
+    const direction = within(screen.getByRole('columnheader', { name: /Durum/ })).getByText(
+      '(artan)',
+    )
+    expect(direction).toHaveClass('sr-only')
+    expect(screen.getByRole('table').parentElement).toHaveClass('relative', 'overflow-x-auto')
+  })
+})
+
+describe('CardTable history links', () => {
+  const renderTable = (linksHistory: boolean) =>
+    renderWithSets(
+      <MemoryRouter>
+        <CardTable
+          deck="legend"
+          cards={[testCard("Aboleth's Eyes"), testCursedCard('Hex')]}
+          sort={DEFAULT_SORT}
+          onSort={() => {}}
+          linksHistory={linksHistory}
+        />
+      </MemoryRouter>,
+    )
+
+  it("links each name to the card's history, under its deck's screen", () => {
+    renderTable(true)
+
+    expect(screen.getByRole('link', { name: "Aboleth's Eyes" })).toHaveAttribute(
+      'href',
+      '/library/legend-abolethseyes',
+    )
+    expect(screen.getByRole('link', { name: 'Hex' })).toHaveAttribute(
+      'href',
+      '/cursed-deck/cursed-hex',
+    )
+  })
+
+  it('leaves the names as text without it', () => {
+    renderTable(false)
+
+    expect(screen.queryByRole('link')).not.toBeInTheDocument()
+    expect(screen.getByRole('rowheader', { name: "Aboleth's Eyes" })).toBeInTheDocument()
   })
 })

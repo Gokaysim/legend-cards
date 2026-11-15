@@ -4,48 +4,15 @@ import { screenById } from '@/app/screens'
 import { Button } from '@/components/ui/Button'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Spinner } from '@/components/ui/Spinner'
+import { groupByDay } from '@/lib/days'
 import { profileName, useProfiles } from '@/features/users/usersContext'
 
 import { useLogRecords } from './activityLogContext'
-import { type LogEvent, type LogRecords, newestEvents } from './events'
+import { type LogRecords, newestEvents } from './events'
 import { LogEventRow } from './LogEventRow'
 
 /** How many events the log shows at first, and how many more "Daha fazla" adds. */
 export const LOG_PAGE_SIZE = 50
-
-const dayFormat = new Intl.DateTimeFormat('tr-TR', {
-  day: 'numeric',
-  month: 'long',
-  year: 'numeric',
-})
-
-type DayGroup = { key: string; label: string; events: LogEvent[] }
-
-/**
- * Groups events, newest first, under the day they happened on, in the device's time zone. Events whose server
- * time is still pending join the newest day, or "Bugün" when there is none yet.
- */
-function groupByDay(events: readonly LogEvent[]): DayGroup[] {
-  const groups: DayGroup[] = []
-  const pending: LogEvent[] = []
-  for (const event of events) {
-    if (event.at === null) {
-      pending.push(event)
-      continue
-    }
-    const date = event.at.toDate()
-    const key = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`
-    const last = groups.at(-1)
-    if (last?.key === key) last.events.push(event)
-    else groups.push({ key, label: dayFormat.format(date), events: [event] })
-  }
-  if (pending.length > 0) {
-    const first = groups[0]
-    if (first) first.events.unshift(...pending)
-    else groups.push({ key: 'pending', label: 'Bugün', events: pending })
-  }
-  return groups
-}
 
 /** The records shown, kept while a larger page loads, so the list stays in place. */
 type Shown = { uid: string | null; limit: number; records: LogRecords }
@@ -145,7 +112,7 @@ export function ActivityLogPage() {
                 {group.label}
               </h2>
               <ol className="flex flex-col divide-y divide-line">
-                {group.events.map((event) => (
+                {group.items.map((event) => (
                   <LogEventRow
                     key={event.key}
                     event={event}

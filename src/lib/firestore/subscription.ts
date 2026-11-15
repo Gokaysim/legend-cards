@@ -86,3 +86,22 @@ export function subscribeOrEmpty<Target, Data>(
     return subscribe(target, emit)
   }
 }
+
+/**
+ * Combines subscriptions into one: an error if any failed, loading while any is loading, otherwise ready with
+ * every result, from the cache or with pending writes if any of them is.
+ */
+export function combineSubscriptions<T extends Record<string, unknown>>(parts: {
+  [K in keyof T]: Subscription<T[K]>
+}): Subscription<T> {
+  const entries = Object.entries(parts) as [keyof T, Subscription<T[keyof T]>][]
+  for (const [, part] of entries) if (part.status === 'error') return part
+  if (entries.some(([, part]) => part.status === 'loading')) return { status: 'loading' }
+  const ready = entries.flatMap(([key, part]) => (part.status === 'ready' ? [{ key, part }] : []))
+  return {
+    status: 'ready',
+    data: Object.fromEntries(ready.map(({ key, part }) => [key, part.data])) as T,
+    fromCache: ready.some(({ part }) => part.fromCache),
+    hasPendingWrites: ready.some(({ part }) => part.hasPendingWrites),
+  }
+}

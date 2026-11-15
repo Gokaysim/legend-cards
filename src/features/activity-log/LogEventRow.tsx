@@ -3,17 +3,11 @@ import { useSetIndex } from '@/features/sets/setsContext'
 import { useTrueWords } from '@/features/true-words/trueWordsContext'
 import { RoleTag } from '@/features/users/RoleTag'
 import type { UserProfile } from '@/features/users/schema'
+import { formatTime } from '@/lib/days'
 
 import { useHolding } from './activityLogContext'
 import type { LogEvent } from './events'
 import { describeEvent, type NameOf } from './eventText'
-
-const timeFormat = new Intl.DateTimeFormat('tr-TR', { hour: '2-digit', minute: '2-digit' })
-
-/** "19:42" in the device's time zone. */
-function formatEventTime(at: Date): string {
-  return timeFormat.format(at)
-}
 
 /** The name an import shows in the log, in place of a user's. */
 export const IMPORT_ACTOR = 'Import'
@@ -59,7 +53,7 @@ export function LogEventRow({ event, nameOf, actor }: LogEventRowProps) {
         <span className="w-12 shrink-0 text-ink-muted">şimdi</span>
       ) : (
         <time dateTime={at.toISOString()} className="w-12 shrink-0 text-ink-muted tabular-nums">
-          {formatEventTime(at)}
+          {formatTime(at)}
         </time>
       )}
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">

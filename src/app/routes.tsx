@@ -12,6 +12,8 @@ import { PackShopPage } from '@/features/packs/PackShopPage'
 import { RulesPage } from '@/features/rules/RulesPage'
 import { SetsPage } from '@/features/sets/SetsPage'
 import { SettingsPage } from '@/features/settings/SettingsPage'
+import { CardHistoryPage } from '@/features/stats/CardHistoryPage'
+import { SetStatsPage } from '@/features/stats/SetStatsPage'
 import { ElixirShopPage } from '@/features/shops/ElixirShopPage'
 import { ShopsPage } from '@/features/shops/ShopsPage'
 import { TrueWordsPage } from '@/features/true-words/TrueWordsPage'
@@ -19,9 +21,11 @@ import { TrueWordsPage } from '@/features/true-words/TrueWordsPage'
 import { AppShell } from './layout/AppShell'
 import { NotFoundPage } from './NotFoundPage'
 import {
+  CARD_HISTORY_ROUTES,
   DEFAULT_SCREEN_PATH,
   HAND_ROUTE,
   SCREENS,
+  SET_STATS_ROUTE,
   SHOP_SCREENS,
   type ScreenId,
   type ShopScreenId,
@@ -61,6 +65,10 @@ export const routes: RouteObject[] = [
           ...SHOP_SCREENS.map((screen) => ({ path: screen.path, element: shopPages[screen.id] })),
           // One player's hand: a detail route under "Oyuncu elleri", without a menu entry of its own.
           { path: HAND_ROUTE, element: <PlayerHandPage /> },
+          // A card's history and a set's statistics: detail routes under their menu entries.
+          { path: CARD_HISTORY_ROUTES.legend, element: <CardHistoryPage deck="legend" /> },
+          { path: CARD_HISTORY_ROUTES.cursed, element: <CardHistoryPage deck="cursed" /> },
+          { path: SET_STATS_ROUTE, element: <SetStatsPage /> },
           { path: '*', element: <NotFoundPage /> },
         ],
       },
