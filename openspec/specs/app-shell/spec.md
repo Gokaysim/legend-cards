@@ -7,7 +7,7 @@ Provides the frame that signed-in users work in: the navigation between the main
 ## Requirements
 
 ### Requirement: Main screen navigation
-The shell SHALL offer navigation to eight screens, with these labels in this order: "Oyuncu elleri", "Shops", "Custom Card Draft", "Kütüphane", "Setler", "İşlem Logu", "Kurallar", "Veri / Yedek". Each screen SHALL have its own URL, so it can be bookmarked and reloaded. The navigation SHALL mark the current screen.
+The shell SHALL offer navigation to nine screens, with these labels in this order: "Oyuncu elleri", "Shops", "Custom Card Draft", "Kütüphane", "Setler", "Zarlar", "İşlem Logu", "Kurallar", "Veri / Yedek". Each screen SHALL have its own URL, so it can be bookmarked and reloaded. The navigation SHALL mark the current screen.
 
 #### Scenario: Navigating between screens
 - **WHEN** a signed-in user selects "Kurallar" in the navigation
@@ -23,11 +23,15 @@ The shell SHALL offer navigation to eight screens, with these labels in this ord
 
 #### Scenario: The Setler screen
 - **WHEN** a signed-in user selects "Setler" in the navigation
-- **THEN** the Setler screen is shown under its own URL, and "Setler" is marked, between "Kütüphane" and "İşlem Logu"
+- **THEN** the Setler screen is shown under its own URL, and "Setler" is marked, between "Kütüphane" and "Zarlar"
 
 #### Scenario: One entry for the Kütüphane
 - **WHEN** a signed-in user looks at the navigation
 - **THEN** it has "Kütüphane" between "Custom Card Draft" and "Setler", and no "Kart kütüphanesi", "Cursed Deck" or "True Words" entry
+
+#### Scenario: The Zarlar screen
+- **WHEN** a signed-in user selects "Zarlar" in the navigation
+- **THEN** the Zarlar screen is shown under its own URL, and "Zarlar" is marked, between "Setler" and "İşlem Logu"
 
 ### Requirement: Placeholder screens
 Until a screen's feature exists, that screen SHALL show its title row and, under it, a "Yakında" panel: a neutral card back that drifts slowly, "YAKINDA" in gold over an ornament line, and the note "Bu ekran henüz hazır değil." in smaller, muted text. With reduced motion, the card SHALL stay still. The screen SHALL NOT show data or controls that do nothing.

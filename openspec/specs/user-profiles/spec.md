@@ -36,7 +36,7 @@ Every signed-in user SHALL be able to read every profile, including the roles. S
 - **THEN** the server denies it
 
 ### Requirement: Users change only their own name and picture
-The server SHALL let a signed-in user create only their own profile, only as a player and with the server time as creation time, and update only its name and picture. It SHALL deny every other profile write from the application, including all deletes, any role change, and any write to another user's profile, even by the DM. The exceptions are a player's LP: the DM changes it under the balances rules, and a player pays 1 LP for their own draw under the card-draws rules.
+The server SHALL let a signed-in user create only their own profile, only as a player and with the server time as creation time, and update only its name, its picture and its dice style, which SHALL be one of the 8 dice styles (spec: dice-rolls, "Dice styles"). It SHALL deny every other profile write from the application, including all deletes, any role change, and any write to another user's profile, even by the DM. The exceptions are a player's LP: the DM changes it under the balances rules, and a player pays 1 LP for their own draw under the card-draws rules.
 
 #### Scenario: Claiming the DM role at creation
 - **WHEN** a signed-in user tries to create their own profile with the role "dm"
@@ -51,7 +51,19 @@ The server SHALL let a signed-in user create only their own profile, only as a p
 - **THEN** the server denies the write
 
 #### Scenario: Extra fields
-- **WHEN** a user tries to add a field other than the name and picture to their own profile
+- **WHEN** a user tries to add a field other than the name, the picture and the dice style to their own profile
+- **THEN** the server denies the write
+
+#### Scenario: Choosing a dice style
+- **WHEN** Bora sets his own dice style to Walnut
+- **THEN** the server accepts the write, and no other field of his profile changes
+
+#### Scenario: An unknown dice style
+- **WHEN** Bora sets his own dice style to "Gold"
+- **THEN** the server denies the write
+
+#### Scenario: Another user's dice style
+- **WHEN** Ayla, or the DM, sets Bora's dice style
 - **THEN** the server denies the write
 
 #### Scenario: The DM changes a player's LP
