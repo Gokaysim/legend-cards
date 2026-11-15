@@ -17,10 +17,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { cardRef } from '@/features/cards/api'
 import type { Card } from '@/features/cards/schema'
+import { BEHAVIOR_FLAGS, type BehaviorFlags, startingFlags } from '@/features/definitions/flags'
 import { TableBusyError } from '@/features/table/errors'
-import { trueWordRef } from '@/features/true-words/api'
 import type { TrueWord } from '@/features/true-words/schema'
-import { testCard, testCursedCard } from '@/test/cardFixtures'
+import { ONLY_FROM_DM, testCard, testCursedCard } from '@/test/cardFixtures'
 import { testTrueWord } from '@/test/trueWordFixtures'
 
 import firestoreRules from '../../../firestore.rules?raw'
@@ -73,6 +73,10 @@ function stored<T extends { id: string }>({ id: _id, ...definition }: T) {
   return definition
 }
 
+/** A definition's eight behavior flags. */
+const flagsOf = (definition: BehaviorFlags): BehaviorFlags =>
+  Object.fromEntries(BEHAVIOR_FLAGS.map((flag) => [flag, definition[flag]])) as BehaviorFlags
+
 const fieldsOf = (card: Card): CardFields => ({
   kind: card.kind,
   name: card.name,
@@ -81,7 +85,15 @@ const fieldsOf = (card: Card): CardFields => ({
   rarity: card.rarity,
   mechanicPack: card.mechanicPack,
   text: card.text,
-  dmOnly: card.dmOnly,
+  ...flagsOf(card),
+})
+
+/** A new True Word's fields, with the starting flags. */
+const wordFields = (name: string, cost: string | null, text: string) => ({
+  name,
+  cost,
+  text,
+  ...startingFlags('trueWord', text),
 })
 
 async function readAsAdmin(path: string): Promise<Record<string, unknown> | undefined> {
@@ -104,7 +116,7 @@ async function records(): Promise<Record<string, unknown>[]> {
 
 /** The card or word as the DM's device reads it now. */
 const cardNow = async (id: string) => (await getDoc(cardRef(as('dana'), id))).data() as Card
-const wordNow = async (id: string) => (await getDoc(trueWordRef(as('dana'), id))).data() as TrueWord
+const wordNow = async (id: string) => (await getDoc(cardRef(as('dana'), id))).data() as TrueWord
 
 async function failureOf(promise: Promise<unknown>): Promise<unknown> {
   try {
@@ -147,7 +159,7 @@ beforeEach(async () => {
     await setDoc(doc(db, 'users/ayla'), profile('player'))
     await setDoc(doc(db, 'users/dana'), profile('dm'))
     for (const card of CARDS) await setDoc(doc(db, `cards/${card.id}`), stored(card))
-    for (const word of WORDS) await setDoc(doc(db, `trueWords/${word.id}`), stored(word))
+    for (const word of WORDS) await setDoc(doc(db, `cards/${word.id}`), stored(word))
   })
 })
 
@@ -160,7 +172,7 @@ describe('card steps under the real rules', () => {
     rarity: 'common',
     mechanicPack: 'Arcanus Divine',
     text: 'Play a song.',
-    dmOnly: false,
+    ...startingFlags('normal', 'Play a song.'),
   }
 
   it('adds an unfinished card as a draft, with a DM-only record', async () => {
@@ -346,7 +358,7 @@ describe('card steps under the real rules', () => {
   })
 })
 
-describe('DM-only cards under the real rules', () => {
+describe('behavior flags under the real rules', () => {
   const save = (card: Card, changes: Partial<CardFields>, publish = false) =>
     saveCard(as('dana'), {
       card,
@@ -356,80 +368,88 @@ describe('DM-only cards under the real rules', () => {
       existing: CARDS,
     })
 
-  it('marks an active card DM-only and back, each in a public record', async () => {
-    await save(EYES, { dmOnly: true })
-    const marked = await cardNow(EYES.id)
-    expect(marked).toMatchObject({ dmOnly: true, status: 'active' })
-    await save(marked, { dmOnly: false })
-
+  /** The flag before and after in each card record a player can read. */
+  async function publicFlag(flag: keyof BehaviorFlags) {
     const visible = await getDocs(publicChangesQuery(as('ayla')))
-    expect(
-      visible.docs.map((entry) => {
-        const record = entry.data()
-        return record.step === 'imported' || record.target !== 'card'
-          ? null
-          : [record.before?.dmOnly, record.after?.dmOnly]
-      }),
-    ).toEqual(
-      expect.arrayContaining([
-        [false, true],
-        [true, false],
-      ]),
-    )
+    return visible.docs.flatMap((entry) => {
+      const record = entry.data()
+      return record.step === 'imported' ? [] : [[record.before?.[flag], record.after?.[flag]]]
+    })
+  }
+
+  it('turns a draw flag of an active card off as an edit, in a public record', async () => {
+    await save(EYES, { isInDraws: false })
+    expect(await cardNow(EYES.id)).toMatchObject({ isInDraws: false, status: 'active' })
+    expect(await publicFlag('isInDraws')).toEqual([[true, false]])
   })
 
-  it('keeps the edits of a DM-only card from players, and adds and publishes a DM-only draft privately', async () => {
-    await save(EYES, { dmOnly: true })
+  it('hides a card and lists it again, each in a public record, keeping the edits between them private', async () => {
+    await save(EYES, { isInLibrary: false })
     await save(await cardNow(EYES.id), { cost: '3' })
+    await save(await cardNow(EYES.id), { isInLibrary: true })
+
+    expect(await publicFlag('isInLibrary')).toEqual(
+      expect.arrayContaining([
+        [true, false],
+        [false, true],
+      ]),
+    )
+    const steps = (await records()).map(({ public: isPublic, after }) => ({
+      isPublic,
+      cost: (after as Card | null)?.cost,
+    }))
+    expect(steps).toEqual(expect.arrayContaining([{ isPublic: false, cost: '3' }]))
+  })
+
+  it('adds and publishes a draft only the DM gives, privately', async () => {
     const id = await addCard(as('dana'), {
-      fields: { ...fieldsOf(ENCORE), name: 'The Last Wish', dmOnly: true },
+      fields: { ...fieldsOf(ENCORE), name: 'The Last Wish', ...ONLY_FROM_DM },
       publish: false,
       by: 'dana',
       existing: CARDS,
     })
     await save(await cardNow(id), {}, true)
 
-    expect(await cardNow(id)).toMatchObject({ status: 'active', dmOnly: true })
-    const steps = (await records()).map(({ step, public: isPublic, name }) => ({
-      step,
-      isPublic,
-      name,
-    }))
-    expect(steps).toEqual(
-      expect.arrayContaining([
-        { step: 'edited', isPublic: true, name: "Aboleth's Eyes" },
-        { step: 'edited', isPublic: false, name: "Aboleth's Eyes" },
-        { step: 'added', isPublic: false, name: 'The Last Wish' },
-        { step: 'published', isPublic: false, name: 'The Last Wish' },
-      ]),
-    )
+    expect(await cardNow(id)).toMatchObject({ status: 'active', ...ONLY_FROM_DM, holder: null })
+    const steps = (await records()).map(({ step, public: isPublic }) => ({ step, isPublic }))
+    expect(steps).toEqual([
+      { step: 'added', isPublic: false },
+      { step: 'published', isPublic: false },
+    ])
   })
 
-  it('retires and brings back a card stored without the flag, leaving the field absent', async () => {
-    await testEnv.withSecurityRulesDisabled(async (admin) => {
-      const { dmOnly: _none, ...legacy } = stored(EYES)
-      await setDoc(doc(firestoreOf(admin), `cards/${EYES.id}`), legacy)
-    })
-    await setCardStatus(as('dana'), { card: EYES, status: 'retired', by: 'dana' })
-    await setCardStatus(as('dana'), {
-      card: await cardNow(EYES.id),
-      status: 'active',
-      by: 'dana',
-    })
-    expect(await readAsAdmin(`cards/${EYES.id}`)).not.toHaveProperty('dmOnly')
-  })
-
-  it('refuses turning the flag on while a pack is open', async () => {
+  it('refuses a pool flag while a pack is open, and still hides a card', async () => {
     await openPack()
-    expect(await failureOf(save(EYES, { dmOnly: true }))).toBeInstanceOf(TableBusyError)
-    expect(await cardNow(EYES.id)).toMatchObject({ dmOnly: false })
+    expect(await failureOf(save(EYES, { isInDraws: false }))).toBeInstanceOf(TableBusyError)
+    expect(await failureOf(save(EYES, { ...ONLY_FROM_DM }))).toBeInstanceOf(TableBusyError)
+    expect(await failureOf(save(EYES, { isRepeatable: true }))).toBeInstanceOf(TableBusyError)
+    expect(await cardNow(EYES.id)).toMatchObject({ isInDraws: true, isInLibrary: true })
+
+    await save(EYES, { isInLibrary: false, hasHeldEffect: true })
+    expect(await cardNow(EYES.id)).toMatchObject({ isInLibrary: false, hasHeldEffect: true })
+  })
+
+  it('refuses "Birden fazla elde olabilir" on while someone holds the one copy', async () => {
+    const held = { ...EYES, holder: { uid: 'ayla', userCardId: 'h-ayla' } }
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(firestoreOf(admin), `cards/${EYES.id}`), stored(held))
+    })
+    expect(await failureOf(save(held, { isRepeatable: true }))).toBeDefined()
+    expect(await cardNow(EYES.id)).toMatchObject({ isRepeatable: false, holder: held.holder })
+  })
+
+  it('turns "Birden fazla elde olabilir" on for a card in the pool, and off for a Cursed card', async () => {
+    await save(EYES, { isRepeatable: true })
+    expect(await cardNow(EYES.id)).toMatchObject({ isRepeatable: true, holder: null })
+    await save(HEX, { isRepeatable: false })
+    expect(await cardNow(HEX.id)).toMatchObject({ isRepeatable: false, holder: null })
   })
 })
 
 describe('True Word steps under the real rules', () => {
   it('adds a word as a draft, completes and publishes it, retires and brings it back', async () => {
     const id = await addWord(as('dana'), {
-      fields: { name: 'Lull', cost: null, text: '' },
+      fields: wordFields('Lull', null, ''),
       publish: false,
       by: 'dana',
       existing: WORDS,
@@ -438,7 +458,7 @@ describe('True Word steps under the real rules', () => {
 
     await saveWord(as('dana'), {
       word: await wordNow(id),
-      fields: { name: 'Lull', cost: '2', text: 'Quiet.' },
+      fields: wordFields('Lull', '2', 'Quiet.'),
       publish: true,
       by: 'dana',
       existing: WORDS,
@@ -455,12 +475,48 @@ describe('True Word steps under the real rules', () => {
     ])
   })
 
+  it('stores a word in cards with its kind and flags, its record targeting the word', async () => {
+    const id = await addWord(as('dana'), {
+      fields: wordFields('Lull', '2', 'Held: rest.'),
+      publish: true,
+      by: 'dana',
+      existing: WORDS,
+    })
+    expect(await readAsAdmin(`cards/${id}`)).toMatchObject({
+      kind: 'trueWord',
+      status: 'active',
+      hasHeldEffect: true,
+      isRepeatable: true,
+      isKeptOnUse: true,
+      isInSetPacks: false,
+      isInMechanicPacks: false,
+    })
+    expect((await records()).map((record) => [record.step, record.target])).toEqual([
+      ['added', 'word'],
+    ])
+  })
+
+  it("refuses a word's draft flag while a pack is open, and still hides it from the list", async () => {
+    await openPack()
+    const save = (changes: Partial<BehaviorFlags>) =>
+      saveWord(as('dana'), {
+        word: ABYSS,
+        fields: { ...wordFields('Abyss', ABYSS.cost, ABYSS.text), ...changes },
+        publish: false,
+        by: 'dana',
+        existing: WORDS,
+      })
+    expect(await failureOf(save({ isInDraws: false }))).toBeInstanceOf(TableBusyError)
+    await save({ isInLibrary: false })
+    expect(await wordNow(ABYSS.id)).toMatchObject({ isInDraws: true, isInLibrary: false })
+  })
+
   it('refuses publishing a word without a cost, and a name another word has', async () => {
     expect(
       await failureOf(
         saveWord(as('dana'), {
           word: ECHO,
-          fields: { name: 'Echo', cost: null, text: 'Text.' },
+          fields: wordFields('Echo', null, 'Text.'),
           publish: true,
           by: 'dana',
           existing: WORDS,
@@ -470,7 +526,7 @@ describe('True Word steps under the real rules', () => {
     expect(
       await failureOf(
         addWord(as('dana'), {
-          fields: { name: 'ABYSS', cost: '1', text: 'Again.' },
+          fields: wordFields('ABYSS', '1', 'Again.'),
           publish: false,
           by: 'dana',
           existing: WORDS,
@@ -481,7 +537,7 @@ describe('True Word steps under the real rules', () => {
 
   it('deletes a draft word', async () => {
     await deleteWord(as('dana'), { word: ECHO, by: 'dana' })
-    expect(await readAsAdmin(`trueWords/${ECHO.id}`)).toBeUndefined()
+    expect(await readAsAdmin(`cards/${ECHO.id}`)).toBeUndefined()
   })
 })
 
@@ -728,7 +784,7 @@ describe('pictures under the real rules', () => {
     const id = await addWord(
       as('dana'),
       {
-        fields: { name: 'Lull', cost: '2', text: 'Rest.' },
+        fields: wordFields('Lull', '2', 'Rest.'),
         publish: true,
         by: 'dana',
         existing: WORDS,
@@ -745,7 +801,7 @@ describe('pictures under the real rules', () => {
       as('dana'),
       {
         word,
-        fields: { name: 'Lull', cost: '2', text: 'Rest.' },
+        fields: wordFields('Lull', '2', 'Rest.'),
         publish: false,
         by: 'dana',
         existing: [...WORDS, word],

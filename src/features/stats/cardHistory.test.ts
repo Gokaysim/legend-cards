@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 import { testHolding } from '@/test/holdingFixtures'
+import type { KeptUse } from '@/features/hands/schema'
 import { testPack } from '@/test/packFixtures'
 import { ABOLETH, abolethHistory, in2026, packShowing, STATS_NOW } from '@/test/statsFixtures'
 
@@ -24,7 +25,7 @@ const richHistory = abolethHistory
 const packWith = (position: number, overrides: Parameters<typeof testPack>[1] = {}) =>
   packShowing(card, position, overrides)
 
-const noRecords: CardRecords = { holdings: [], draws: [], packs: [] }
+const noRecords: CardRecords = { uses: [], holdings: [], draws: [], packs: [] }
 
 describe('cardStats: how a card reached a hand', () => {
   it('counts a transfer apart, not as another "Ele geçti"', () => {
@@ -38,7 +39,11 @@ describe('cardStats: how a card reached a hand', () => {
     const blessed = testBlessedCard('Second Wind')
     const copy = (uid: string) =>
       testHolding(blessed, uid, at(11, 1), { givenVia: 'draw', drawId: `draw-${uid}` })
-    const stats = cardStats(blessed.id, { holdings: [copy('ayla'), copy('bora')], packs: [] }, NOW)
+    const stats = cardStats(
+      blessed.id,
+      { uses: [], holdings: [copy('ayla'), copy('bora')], packs: [] },
+      NOW,
+    )
     expect(stats.reached).toEqual({ dm: 0, draw: 2, pack: 0, total: 2 })
     expect(stats.holders).toEqual(['ayla', 'bora'])
   })
@@ -46,7 +51,7 @@ describe('cardStats: how a card reached a hand', () => {
   it('leaves out the holdings of other cards', () => {
     const stats = cardStats(
       card.id,
-      { holdings: [testHolding(other, 'ayla', at(11, 1))], packs: [] },
+      { uses: [], holdings: [testHolding(other, 'ayla', at(11, 1))], packs: [] },
       NOW,
     )
     expect(stats.reached.total).toBe(0)
@@ -69,9 +74,33 @@ describe('cardStats: how a card left a hand', () => {
       returnedBy: 'ayla',
       returnReason: 'used',
     })
-    const stats = cardStats(card.id, { holdings: [used], packs: [] }, NOW)
+    const stats = cardStats(card.id, { uses: [], holdings: [used], packs: [] }, NOW)
     expect(stats.used).toBe(1)
     expect(stats.lpPaid).toBe(0)
+  })
+
+  it('counts each use of a card kept on use from its record, while the holding stays open', () => {
+    const coin = testCard('Lucky Coin', { isKeptOnUse: true })
+    const holding = testHolding(coin, 'ayla', at(11, 1), { id: 'h-coin' })
+    const use = (id: string, day: number): KeptUse => ({
+      id,
+      uid: 'ayla',
+      cardId: coin.id,
+      cardName: coin.name,
+      cardKind: 'normal',
+      holdingId: 'h-coin',
+      by: 'ayla',
+      at: ts(at(11, day)),
+      cost: 2,
+      entryId: `e-${id}`,
+      usedOn: null,
+      usedOnCharacterId: null,
+    })
+    const uses = [use('u1', 2), use('u2', 3), use('u3', 4)]
+    const stats = cardStats(coin.id, { uses, holdings: [holding], packs: [] }, NOW)
+    expect(stats).toMatchObject({ used: 3, lpPaid: 6, lastUsedAt: at(11, 4) })
+    const rows = historyRows(coin.id, { uses, holdings: [holding], draws: [], packs: [] })
+    expect(rows.map((row) => row.kind)).toEqual(['keptUsed', 'keptUsed', 'keptUsed', 'given'])
   })
 
   it('counts a discard', () => {
@@ -89,7 +118,7 @@ describe('cardStats: cards shown in packs', () => {
       closedBy: 'bora',
       chosen: { cardId: 'legend-a', cardName: 'A', cardKind: 'normal', holdingId: 'h' },
     })
-    const stats = cardStats(card.id, { holdings: [], packs: [pack] }, NOW)
+    const stats = cardStats(card.id, { uses: [], holdings: [], packs: [pack] }, NOW)
     expect(stats.shown).toBe(1)
     expect(stats.taken).toBe(0)
   })
@@ -102,7 +131,7 @@ describe('cardStats: cards shown in packs', () => {
       closedBy: 'dm-1',
       refundEntryId: 'refund-1',
     })
-    expect(cardStats(card.id, { holdings: [], packs: [pack] }, NOW).shown).toBe(0)
+    expect(cardStats(card.id, { uses: [], holdings: [], packs: [pack] }, NOW).shown).toBe(0)
   })
 
   it('counts a turned card of an open pack and of a cancelled pack', () => {
@@ -115,7 +144,7 @@ describe('cardStats: cards shown in packs', () => {
       closedBy: 'dm-1',
       refundEntryId: 'refund-1',
     })
-    const stats = cardStats(card.id, { holdings: [], packs: [open, cancelled] }, NOW)
+    const stats = cardStats(card.id, { uses: [], holdings: [], packs: [open, cancelled] }, NOW)
     expect(stats.shown).toBe(2)
     expect(stats.taken).toBe(0)
   })
@@ -138,7 +167,7 @@ describe('cardStats: cards shown in packs', () => {
       givenVia: 'pack',
       drawId: pack.id,
     })
-    const stats = cardStats(curse.id, { holdings: [holding], packs: [pack] }, NOW)
+    const stats = cardStats(curse.id, { uses: [], holdings: [holding], packs: [pack] }, NOW)
     expect(stats.reached).toEqual({ dm: 0, draw: 0, pack: 1, total: 1 })
     expect(stats.shown).toBe(1)
     expect(stats.taken).toBe(1)
@@ -158,19 +187,19 @@ describe('cardStats: time in hands', () => {
       start += (days + 1) * DAY_MS
       return holding
     })
-    const stats = cardStats(card.id, { holdings, packs: [] }, NOW)
+    const stats = cardStats(card.id, { uses: [], holdings, packs: [] }, NOW)
     expect(heldDays(stats)).toBe(14)
     expect(averageHeldDays(stats)).toBe(3.5)
   })
 
   it('counts an open holding up to now', () => {
     const holding = testHolding(card, 'ayla', NOW - 3 * DAY_MS - 60_000)
-    expect(heldDays(cardStats(card.id, { holdings: [holding], packs: [] }, NOW))).toBe(3)
+    expect(heldDays(cardStats(card.id, { uses: [], holdings: [holding], packs: [] }, NOW))).toBe(3)
   })
 
   it('counts a holding whose give is still pending as given now', () => {
     const holding = testHolding(card, 'ayla', 0, { givenAt: null })
-    const stats = cardStats(card.id, { holdings: [holding], packs: [] }, NOW)
+    const stats = cardStats(card.id, { uses: [], holdings: [holding], packs: [] }, NOW)
     expect(stats.heldMs).toBe(0)
     expect(stats.firstHeldAt).toBe(NOW)
   })
@@ -187,7 +216,10 @@ describe('historyRows', () => {
   it('lists what happened, newest first', () => {
     const rows = historyRows(card.id, richHistory())
     expect(
-      rows.map((row) => `${row.kind}:${'holding' in row ? row.holding.id : row.pack.id}`),
+      rows.map(
+        (row) =>
+          `${row.kind}:${'holding' in row ? row.holding.id : 'pack' in row ? row.pack.id : row.use.id}`,
+      ),
     ).toEqual([
       'used:h-pack',
       'fromPack:h-pack',

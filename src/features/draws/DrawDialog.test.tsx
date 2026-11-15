@@ -352,6 +352,41 @@ describe('the Cursed draw', () => {
   })
 })
 
+describe('the behavior flags in draws', () => {
+  it('draws only the cards with "Kart çekmede çıkar" on, and repeatable ones while held', async () => {
+    const shared = testCard('Shared Luck', {
+      isRepeatable: true,
+      holder: null,
+    })
+    const unlisted = testCard('Quiet Card', { isInDraws: false })
+    const { user, draw } = setup({ cards: [unlisted, shared, HELD, VISIONS] })
+
+    await user.click(control('🎲 Çek · 1 LP'))
+
+    expect(draw.mock.calls[0]?.[0].candidates).toEqual([shared])
+  })
+
+  it('draws only the Cursed cards with "Cursed Deck\'te çıkar" on, and not a held one with one copy', async () => {
+    const hidden = testCursedCard('Hex', { isInDraws: false })
+    const held = testCursedCard('Crown of Ash', {
+      isRepeatable: false,
+      holder: { uid: 'bora', userCardId: 'h-crown' },
+    })
+    const { user, draw } = setup({ mode: 'cursed', cards: [hidden, held, VISIONS] })
+
+    await user.click(control('☠ Cursed Kart Çek'))
+
+    expect(draw.mock.calls[0]?.[0].candidates).toEqual([VISIONS])
+  })
+
+  it('disables the Cursed draw when no Cursed card is in the deck by its flags', () => {
+    setup({ mode: 'cursed', cards: [testCursedCard('Hex', { isInDraws: false }), EYES] })
+
+    expect(screen.getByText('Çekilebilecek kart yok.')).toBeInTheDocument()
+    expect(control('☠ Cursed Kart Çek')).toBeDisabled()
+  })
+})
+
 describe('double-clicking a drawn card', () => {
   it('turns a face-down card over without zooming it', async () => {
     const { user } = setup()

@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import { DRAW_RARITIES, type DrawFilters } from '@/features/cards/pool'
 import { CARD_KINDS, CARD_LIMITS } from '@/features/cards/schema'
+import { type WordDraft, wordDraftSchema } from '@/features/true-words/schema'
 import { createConverter } from '@/lib/firestore/converter'
 
 /** A random draw from the pool, or a draw from the Cursed Deck. Keep in step with `firestore.rules`. */
@@ -235,8 +236,15 @@ export const packOpeningSchema = z
     }
   })
 
-/** Every record at `draws/{drawId}`: a card draw or a pack opening. */
-export const drawSchema = z.discriminatedUnion('kind', [cardDrawSchema, packOpeningSchema])
+/**
+ * Every record at `draws/{drawId}`: a card draw, a pack opening, or a True Word draft (design D5 of
+ * unify-cards-and-true-words).
+ */
+export const drawSchema = z.discriminatedUnion('kind', [
+  cardDrawSchema,
+  packOpeningSchema,
+  wordDraftSchema,
+])
 
 export type StoredCardDraw = z.infer<typeof cardDrawSchema>
 export type StoredPackOpening = z.infer<typeof packOpeningSchema>
@@ -249,14 +257,18 @@ export type CardDraw = StoredCardDraw & { id: string }
 export type PackOpening = StoredPackOpening & { id: string }
 
 /** Any record of the draws collection, with its document ID as `id`. */
-export type Draw = CardDraw | PackOpening
+export type Draw = CardDraw | PackOpening | WordDraft
 
 export function isPackOpening(draw: Draw): draw is PackOpening {
   return draw.kind === 'pack'
 }
 
 export function isCardDraw(draw: Draw): draw is CardDraw {
-  return draw.kind !== 'pack'
+  return draw.kind === 'random' || draw.kind === 'cursed'
+}
+
+export function isWordDraft(draw: Draw): draw is WordDraft {
+  return draw.kind === 'wordDraft'
 }
 
 export const drawConverter = createConverter(drawSchema, { idField: 'id' })

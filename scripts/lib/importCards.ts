@@ -1,5 +1,6 @@
 import { FieldValue, type Firestore, type WriteBatch } from 'firebase-admin/firestore'
 
+import { startingFlags } from './cardCatalog.ts'
 import type { CardColumn, CardDefinition, Deck, ParsedCard } from './cardRows.ts'
 
 /** The card collection. Keep in step with `src/features/cards/api.ts` and `firestore.rules`. */
@@ -169,7 +170,8 @@ export async function writeImport(
       batch.set(ref, {
         target,
         step: 'imported',
-        items: items.map(({ id, name }) => ({ id, name, status })),
+        // An import adds every definition listed for players ("Listede görünür" on).
+        items: items.map(({ id, name }) => ({ id, name, status, isInLibrary: true })),
         public: status === 'active',
         by: null,
         at: FieldValue.serverTimestamp(),
@@ -184,7 +186,7 @@ export async function writeImport(
   return upgrades.length + additions.length
 }
 
-/** Writes the plan. Returns the number of cards written. */
+/** Writes the plan, each added card with its kind's starting flags. Returns the number of cards written. */
 export async function applyPlan(db: Firestore, plan: ImportPlan): Promise<number> {
   const additions = plan.flatMap((deck) =>
     deck.cards.flatMap(({ id, name, outcome, definition }): Addition[] =>
@@ -195,7 +197,7 @@ export async function applyPlan(db: Firestore, plan: ImportPlan): Promise<number
               id,
               name,
               status: outcome === 'added-active' ? 'active' : 'draft',
-              fields: { ...definition },
+              fields: { ...definition, ...startingFlags(definition.kind, definition.text) },
             },
           ],
     ),

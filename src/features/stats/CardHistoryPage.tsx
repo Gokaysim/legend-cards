@@ -221,13 +221,13 @@ function CardHistory({ card, records, now }: CardHistoryProps) {
 
 /**
  * Whether the viewer may open the card's page (spec: card-stats, "Who opens a card's page"): the DM every card, a
- * player an active card that is not DM-only, and a DM-only or retired card while someone holds it. This is about what
+ * player an active card whose "Listede görünür" is on, and a hidden or retired card while someone holds it. This is about what
  * the interface shows: the rules let every signed-in user read these records (design D8).
  */
 function isOpenTo(card: Card, isDm: boolean, isHeld: boolean): boolean {
   if (isDm) return true
   if (card.status === 'draft') return false
-  return (card.status === 'active' && !card.dmOnly) || isHeld
+  return (card.status === 'active' && card.isInLibrary) || isHeld
 }
 
 /**

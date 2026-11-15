@@ -1,10 +1,11 @@
 import { numericCost, rarityLabel, type SetName, setLabel } from './display'
-import type { Card } from './schema'
+import type { Card, Definition, TrueWord } from './schema'
 import { compareLabels } from './sort'
 
-// The pool as draws see it, computed from the cards alone: a normal card's `holder` is the source of truth for
-// whether it is in the pool. The library's Durum (`hands/cardStatus.ts`) also names holders, so it reads the
-// holdings instead.
+// The pool as draws, packs and drafts see it, computed from the definitions alone (design D3 of
+// unify-cards-and-true-words): the behavior flags say which channels a definition is in, and the `holder` of a card
+// with one copy says whether it is out of the pool. Every consumer goes through these helpers, so no screen re-derives
+// a rule. The library's Durum (`hands/cardStatus.ts`) also names holders, so it reads the holdings for those.
 
 /** The rarities a draw can be narrowed to. `blessed` means the Blessed kind, which has no rarity of its own. */
 export const DRAW_RARITIES = ['common', 'rare', 'blessed'] as const
@@ -32,25 +33,72 @@ export const NO_FILTERS: DrawFilters = {
 }
 
 /**
- * True for a card a random draw can give: an active normal card without a holder, or an active Blessed card, never a
- * DM-only one (spec: card-draws, "Equal chance from the pool").
+ * True when the definition is in play and not out of the pool: active, and either repeatable or without a holder of
+ * its one copy (spec: card-holdings, "Cards with one copy leave the pool while held").
  */
-export function isDrawable(card: Card): boolean {
-  if (card.status !== 'active' || card.dmOnly) return false
-  return card.kind === 'blessed' || (card.kind === 'normal' && card.holder === null)
+export function isAvailable(
+  definition: Pick<Definition, 'status' | 'isRepeatable' | 'holder'>,
+): boolean {
+  return definition.status === 'active' && (definition.isRepeatable || definition.holder === null)
 }
 
 /**
- * The cards a random draw picks from. Held normal cards, Cursed cards, drafts, retired cards and DM-only cards are
- * never in it.
+ * True for a card a random draw can give: an available normal or Blessed card whose "Kart çekmede çıkar" is on (spec:
+ * card-draws, "Equal chance from the pool").
  */
-export function drawablePool(cards: readonly Card[]): Card[] {
-  return cards.filter(isDrawable)
+export function inRandomDraw(card: Card): boolean {
+  return (card.kind === 'normal' || card.kind === 'blessed') && card.isInDraws && isAvailable(card)
 }
 
-/** The cards a Cursed draw and a pack's Cursed card pick from: the active Cursed cards that are not DM-only. */
+/**
+ * True for a card of the Cursed Deck: an available Cursed card whose "Cursed Deck'te çıkar" is on (spec: card-draws,
+ * "Cursed draw"). A Cursed draw and a Cursed pack's mandatory card come from it.
+ */
+export function inCursedDeck(card: Card): boolean {
+  return card.kind === 'cursed' && card.isInDraws && isAvailable(card)
+}
+
+/** True for an available card whose "Set paketlerinde çıkar" is on (spec: pack-shop, "Packs follow the pack flags"). */
+export function inSetPacks(card: Card): boolean {
+  return card.isInSetPacks && isAvailable(card)
+}
+
+/** True for an available card whose "Mechanic paketlerinde çıkar" is on. The Golden Packs use it too. */
+export function inMechanicPacks(card: Card): boolean {
+  return card.isInMechanicPacks && isAvailable(card)
+}
+
+/** True when a draw or a pack can give the card: at least one channel flag is on. Off everywhere is "DM'e özel". */
+export function hasChannel(
+  card: Pick<Card, 'isInDraws' | 'isInSetPacks' | 'isInMechanicPacks'>,
+): boolean {
+  return card.isInDraws || card.isInSetPacks || card.isInMechanicPacks
+}
+
+/**
+ * True for a card in the pool, as the library's Durum, its pool count and "Yalnızca havuzdakiler" see it (spec:
+ * card-library, "Pool status in the library"): available, and with a channel.
+ */
+export function isInPool(card: Card): boolean {
+  return isAvailable(card) && hasChannel(card)
+}
+
+/**
+ * True for a word a draft for a player who knows `known` can show: active, with "Draft'ta çıkar" on, and not known
+ * (spec: true-words, "Starting a draft").
+ */
+export function inWordDraft(word: TrueWord, known: ReadonlySet<string>): boolean {
+  return word.status === 'active' && word.isInDraws && !known.has(word.id)
+}
+
+/** The cards a random draw picks from. */
+export function drawablePool(cards: readonly Card[]): Card[] {
+  return cards.filter(inRandomDraw)
+}
+
+/** The Cursed Deck: the cards a Cursed draw and a pack's Cursed card pick from. */
 export function cursedPool(cards: readonly Card[]): Card[] {
-  return cards.filter((card) => card.kind === 'cursed' && card.status === 'active' && !card.dmOnly)
+  return cards.filter(inCursedDeck)
 }
 
 /** A card's rarity for the draw filter: its rarity, `blessed` for a Blessed card, and none for a Cursed card. */

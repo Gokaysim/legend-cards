@@ -9,16 +9,35 @@ import {
   type TrueWord,
 } from '@/features/true-words/schema'
 import { useTrueWords } from '@/features/true-words/trueWordsContext'
+import { useIsTableBusy } from '@/features/table/tableContext'
 import { useOnlineStatus } from '@/lib/useOnlineStatus'
 
 import { isNameTaken, type WordFields } from './api'
+import { BehaviorSection } from './BehaviorSection'
 import { useDefinitionActions } from './definitionsContext'
 import { DefinitionForm, FormField } from './DefinitionForm'
 import { FIELD_CLASSES } from './fieldClasses'
 import { PictureField } from './PictureField'
+import {
+  BEHAVIOR_FLAGS,
+  type BehaviorFlags,
+  isHeldText,
+  POOL_FLAGS,
+  startingFlags,
+  WHERE_FLAGS,
+  withFixedFlags,
+} from './flags'
 import { choiceOf, KEEP_DRAFT, type PictureDraft } from './pictureDraft'
 
-type FormValues = { name: string; cost: string; text: string }
+type FormValues = {
+  name: string
+  cost: string
+  text: string
+  /** The behavior flags of the "Davranış" section. */
+  flags: BehaviorFlags
+  /** The DM changed "Elde etkili": it no longer follows the text. */
+  heldTouched: boolean
+}
 
 const MISSING_LABELS: Readonly<Record<MissingWordField, string>> = { cost: 'Cost', text: 'Metin' }
 
@@ -29,11 +48,26 @@ const valuesOf = (word: TrueWord): FormValues => ({
   name: word.name,
   cost: word.cost ?? '',
   text: word.text,
+  flags: Object.fromEntries(BEHAVIOR_FLAGS.map((flag) => [flag, word[flag]])) as BehaviorFlags,
+  heldTouched: true,
 })
+
+const EMPTY_VALUES: FormValues = {
+  name: '',
+  cost: '',
+  text: '',
+  flags: startingFlags('trueWord', ''),
+  heldTouched: false,
+}
 
 function fieldsOf(values: FormValues): WordFields {
   const cost = values.cost.trim()
-  return { name: values.name.trim(), cost: isBlank(cost) ? null : cost, text: values.text.trim() }
+  return {
+    name: values.name.trim(),
+    cost: isBlank(cost) ? null : cost,
+    text: values.text.trim(),
+    ...withFixedFlags('trueWord', values.flags),
+  }
 }
 
 export type WordFormDialogProps = {
@@ -44,8 +78,8 @@ export type WordFormDialogProps = {
 
 /**
  * The DM's True Word form (spec: definition-editing, "Adding a True Word", "Editing a definition"): the name, the cost
- * as written (the LP paid at the table each time the word is used) and the text. A word needs a cost and a text to be
- * published, and a name no other word has.
+ * as written (the LP paid at the table each time the word is used), the text, and the "Davranış" section with the four
+ * flags a True Word does not fix. A word needs a cost and a text to be published, and a name no other word has.
  */
 export function WordFormDialog({ wordId, onClose }: WordFormDialogProps) {
   const ids = useId()
@@ -58,12 +92,22 @@ export function WordFormDialog({ wordId, onClose }: WordFormDialogProps) {
   // The word as the form loaded it: a save from it is refused when the word changed since (design D9).
   const [base, setBase] = useState<TrueWord | null>(live)
   const [values, setValues] = useState<FormValues>(() =>
-    base === null ? { name: '', cost: '', text: '' } : valuesOf(base),
+    base === null ? EMPTY_VALUES : valuesOf(base),
   )
-  const set = (key: keyof FormValues, value: string) =>
+  const set = (key: 'name' | 'cost', value: string) =>
     setValues((current) => ({ ...current, [key]: value }))
+  // A new word's "Elde etkili" follows a text that starts with "Held:" until the DM touches the box.
+  const setText = (text: string) =>
+    setValues((current) => ({
+      ...current,
+      text,
+      flags: current.heldTouched
+        ? current.flags
+        : { ...current.flags, hasHeldEffect: isHeldText(text) },
+    }))
   const [picture, setPicture] = useState<PictureDraft>(KEEP_DRAFT)
   const isOnline = useOnlineStatus()
+  const isTableBusy = useIsTableBusy()
 
   const fields = fieldsOf(values)
   const nameKey = normalize(fields.name)
@@ -96,6 +140,7 @@ export function WordFormDialog({ wordId, onClose }: WordFormDialogProps) {
       missing={missing}
       problems={problems}
       isGone={wordId !== null && words.status === 'ready' && live === null}
+      saveWaitsForPack={base !== null && POOL_FLAGS.some((flag) => base[flag] !== fields[flag])}
       onSave={(publish) =>
         base === null
           ? actions.addWord({ fields, publish, by: uid, existing, picture: choiceOf(picture) })
@@ -150,10 +195,34 @@ export function WordFormDialog({ wordId, onClose }: WordFormDialogProps) {
               lang="en"
               rows={5}
               value={values.text}
-              onChange={(event) => set('text', event.target.value)}
+              onChange={(event) => setText(event.target.value)}
               className={FIELD_CLASSES}
             />
           </FormField>
+        </div>
+        <div className="sm:col-span-2">
+          <BehaviorSection
+            kind="trueWord"
+            flags={fields}
+            stored={base}
+            isTableBusy={isTableBusy}
+            onChange={(flag, value) =>
+              setValues((current) => ({
+                ...current,
+                flags: { ...current.flags, [flag]: value },
+                heldTouched: current.heldTouched || flag === 'hasHeldEffect',
+              }))
+            }
+            onOnlyFromDm={() =>
+              setValues((current) => ({
+                ...current,
+                flags: {
+                  ...current.flags,
+                  ...Object.fromEntries(WHERE_FLAGS.map((flag) => [flag, false])),
+                },
+              }))
+            }
+          />
         </div>
         <div className="sm:col-span-2">
           <PictureField

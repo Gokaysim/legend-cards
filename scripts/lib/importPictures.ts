@@ -12,7 +12,6 @@ import {
 import { contentHash, convertPicture, type SourceFile } from './artWrite.ts'
 import { CARDS_COLLECTION, CHANGES_COLLECTION, type DefinitionStatus } from './importCards.ts'
 import type { CardKind } from './cardRows.ts'
-import { TRUE_WORDS_COLLECTION } from './importTrueWords.ts'
 
 // The picture import (design D9 of upload-card-and-word-pictures): the owner's card and True Word pictures, matched
 // against the stored definitions, converted as the build converts them, stored in Cloud Storage, and set on the
@@ -32,8 +31,8 @@ export type PictureDefinition = {
   name: string
   nameKey: string
   status: DefinitionStatus
-  /** A DM-only card (spec: definition-editing, "DM-only cards"); always `false` for a word. */
-  dmOnly: boolean
+  /** "Listede görünür" (spec: definition-editing, "Behavior flags"): off hides the definition from players. */
+  isInLibrary: boolean
   picture: PictureState
 }
 
@@ -74,28 +73,26 @@ function statusOf(data: Record<string, unknown>): DefinitionStatus {
   return data.retired === true ? 'retired' : 'active'
 }
 
-/** Every stored card and True Word, whatever its status. */
+/**
+ * Every stored card and True Word, whatever its status. Both are in the cards collection (design D1 of
+ * unify-cards-and-true-words): a definition of the kind `trueWord` is a word.
+ */
 export async function readPictureDefinitions(db: Firestore): Promise<PictureDefinition[]> {
-  const [cards, words] = await Promise.all([
-    db.collection(CARDS_COLLECTION).get(),
-    db.collection(TRUE_WORDS_COLLECTION).get(),
-  ])
-  const definition =
-    (target: 'card' | 'word') =>
-    (snapshot: QueryDocumentSnapshot): PictureDefinition => {
-      const data = snapshot.data()
-      return {
-        target,
-        id: snapshot.id,
-        kind: target === 'card' ? (data.kind as CardKind) : null,
-        name: String(data.name),
-        nameKey: String(data.nameKey),
-        status: statusOf(data),
-        dmOnly: data.dmOnly === true,
-        picture: pictureStateOf(data),
-      }
+  const snapshot = await db.collection(CARDS_COLLECTION).get()
+  return snapshot.docs.map((document: QueryDocumentSnapshot): PictureDefinition => {
+    const data = document.data()
+    const isWord = data.kind === 'trueWord'
+    return {
+      target: isWord ? 'word' : 'card',
+      id: document.id,
+      kind: isWord ? null : (data.kind as CardKind),
+      name: String(data.name),
+      nameKey: String(data.nameKey),
+      status: statusOf(data),
+      isInLibrary: data.isInLibrary !== false,
+      picture: pictureStateOf(data),
     }
-  return [...cards.docs.map(definition('card')), ...words.docs.map(definition('word'))]
+  })
 }
 
 /** The definitions as the picture matching takes them. */
@@ -212,8 +209,7 @@ export async function writePictures<F extends SourceFile>(
     const bytes = await convert(file.path)
     const path = `${FOLDERS[definition.target]}/${definition.id}/${contentHash(bytes)}.webp`
     await store.save(path, bytes, `${definition.id}.webp`)
-    const collection = definition.target === 'card' ? CARDS_COLLECTION : TRUE_WORDS_COLLECTION
-    const ref = db.collection(collection).doc(definition.id)
+    const ref = db.collection(CARDS_COLLECTION).doc(definition.id)
     const isSet = await db.runTransaction(async (transaction) => {
       const snapshot = await transaction.get(ref)
       const data = snapshot.data()
@@ -242,12 +238,15 @@ export async function writePictures<F extends SourceFile>(
   return result
 }
 
-/** Which record of a picture import names a definition: the public one, the drafts', or the DM-only cards'. */
-type PictureRecordGroup = 'public' | 'drafts' | 'dmOnly'
+/**
+ * Which record of a picture import names a definition: the public one, the drafts', or the hidden definitions' (those
+ * whose "Listede görünür" is off).
+ */
+type PictureRecordGroup = 'public' | 'drafts' | 'hidden'
 
 function recordGroupOf(definition: PictureDefinition): PictureRecordGroup {
   if (definition.status === 'draft') return 'drafts'
-  return definition.dmOnly ? 'dmOnly' : 'public'
+  return definition.isInLibrary ? 'public' : 'hidden'
 }
 
 /** One record a picture import writes: its target, whether players read it, and the definitions it names. */
@@ -258,14 +257,14 @@ export type PictureRecord = {
 }
 
 /**
- * Up to five records of a picture import: for cards and for words, one public of the active and retired definitions
- * that got a picture, one DM-only of the drafts, and for cards one DM-only of the DM-only cards that are not drafts
- * (design D7 of add-dm-only-cards). None when nothing was added.
+ * Up to six records of a picture import: for cards and for words, one public of the active and retired definitions
+ * listed for players that got a picture, one DM-only of the drafts, and one DM-only of the hidden definitions that are
+ * not drafts (design D7 of unify-cards-and-true-words). None when nothing was added.
  */
 export function pictureRecords(added: readonly PictureDefinition[]): PictureRecord[] {
   return (['card', 'word'] as const)
     .flatMap((target) =>
-      (['public', 'drafts', 'dmOnly'] as const).map((group) => ({
+      (['public', 'drafts', 'hidden'] as const).map((group) => ({
         target,
         isPublic: group === 'public',
         items: added.filter(
@@ -289,7 +288,7 @@ export async function writePictureRecords(
       target,
       step: 'imported',
       what: 'pictures',
-      items: items.map(({ id, name, status, dmOnly }) => ({ id, name, status, dmOnly })),
+      items: items.map(({ id, name, status, isInLibrary }) => ({ id, name, status, isInLibrary })),
       public: isPublic,
       by: null,
       at: FieldValue.serverTimestamp(),

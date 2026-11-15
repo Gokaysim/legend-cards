@@ -312,7 +312,7 @@ function LoadedCardBrowser({
                   cardStatus && isMarkedHeld(card, cardStatus) ? cardStatus.holderNames : undefined
                 }
                 statusMark={showsStatus ? STATUS_LABELS[card.status] : undefined}
-                isDmOnlyMarked={statusFilter !== undefined && card.dmOnly}
+                isHiddenMarked={statusFilter !== undefined && !card.isInLibrary}
                 onEdit={onEdit ? () => onEdit(card) : undefined}
                 historyPath={linksHistory ? cardHistoryPath(card) : undefined}
               />
@@ -327,7 +327,7 @@ function LoadedCardBrowser({
           onSort={changeSort}
           statusText={statusText}
           onEdit={onEdit}
-          marksDmOnly={statusFilter !== undefined}
+          marksHidden={statusFilter !== undefined}
           linksHistory={linksHistory}
         />
       )}

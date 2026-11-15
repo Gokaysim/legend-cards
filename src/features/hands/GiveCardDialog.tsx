@@ -18,6 +18,7 @@ import {
 } from '@/features/cards/filters'
 import type { Card } from '@/features/cards/schema'
 import { compareLabels } from '@/features/cards/sort'
+import { hasChannel } from '@/features/cards/pool'
 import { type CardStatus, DM_ONLY_LABEL } from '@/features/cards/status'
 import { searchTerms } from '@/features/cards/text'
 import { useSetIndex } from '@/features/sets/setsContext'
@@ -48,7 +49,7 @@ const BADGE_TONES: Record<Badge['tone'], string> = {
 
 /** The badge on a face: "DM'e özel", the holders' names, "Havuzda", or "Cursed" for a Cursed card no one holds. */
 function badgeOf(card: Card, status: CardStatus | undefined): Badge | null {
-  if (card.dmOnly) return { text: DM_ONLY_LABEL, tone: 'dmOnly' }
+  if (!hasChannel(card)) return { text: DM_ONLY_LABEL, tone: 'dmOnly' }
   const names = status?.holderNames ?? []
   if (card.kind === 'cursed') {
     return { text: names.length > 0 ? names.join(', ') : 'Cursed', tone: 'cursed' }

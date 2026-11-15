@@ -26,9 +26,14 @@ export type CharacterChoice = {
   groups: CharacterGroup[]
   /** Whether a character from the list is chosen: only then may the use add an effect. */
   isCharacterChosen: boolean
+  /**
+   * Whether the definition leaves an effect when used ("Kullanınca efekt bırakır"; design D6 of
+   * unify-cards-and-true-words): only then does the step offer "Aktif efekt olarak ekle".
+   */
+  offersEffect: boolean
   /** What the use names: a blank typed name names none. */
   target: UseTarget
-  /** Whether the use adds the effect: only for a chosen character with the box checked. */
+  /** Whether the use adds the effect: only for a chosen character, a definition that leaves one, and the box checked. */
   addEffect: boolean
 }
 
@@ -38,7 +43,11 @@ export type CharacterChoice = {
  * character archived meanwhile, here or on another device, is dropped at once and reported through `onLost`, which
  * runs while the calling component renders, so it may only set that component's own state.
  */
-export function useCharacterChoice(holderUid: string, onLost: () => void): CharacterChoice {
+export function useCharacterChoice(
+  holderUid: string,
+  onLost: () => void,
+  offersEffect = true,
+): CharacterChoice {
   const characters = useCharacters()
   const profiles = useProfiles()
   const [state, setState] = useState<CharacterChoiceState>(EMPTY_CHOICE)
@@ -68,7 +77,8 @@ export function useCharacterChoice(holderUid: string, onLost: () => void): Chara
     change: (next) => setState((current) => ({ ...current, ...next })),
     groups,
     isCharacterChosen,
+    offersEffect,
     target,
-    addEffect: isCharacterChosen && state.addEffect,
+    addEffect: isCharacterChosen && offersEffect && state.addEffect,
   }
 }

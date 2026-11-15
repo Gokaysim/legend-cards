@@ -380,6 +380,57 @@ describe('choosing under the real rules', () => {
     })
   })
 
+  it("gives a Cursed type's Cursed card with one copy its holder, beside the chosen card's", async () => {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await updateDoc(doc(firestoreOf(admin), `cards/${VISIONS.id}`), { isRepeatable: false })
+    })
+    const offered = [COMMONS[0], VISIONS, ...COMMONS.slice(1, 5)].map((card) => card?.id)
+    await seedOpenPack({ packType: 'cursed', offered, revealed: [0, 1, 2, 3, 4, 5], cost: 1 })
+
+    const holdingId = await choosePackCard(as('ayla'), {
+      drawId: 'p1',
+      cardId: COMMONS[0]?.id ?? '',
+      by: 'ayla',
+    })
+
+    const pack = await stored('draws/p1')
+    const cursedHolding = (pack?.cursed as { holdingId: string }).holdingId
+    expect(await stored(`cards/${VISIONS.id}`)).toMatchObject({
+      holder: { uid: 'ayla', userCardId: cursedHolding },
+    })
+    expect(await stored(`cards/${COMMONS[0]?.id}`)).toMatchObject({
+      holder: { uid: 'ayla', userCardId: holdingId },
+    })
+  })
+
+  it('gives the chosen card and the Cursed card active when they act while held', async () => {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const db = firestoreOf(admin)
+      await updateDoc(doc(db, `cards/${VISIONS.id}`), { hasHeldEffect: true })
+      await updateDoc(doc(db, `cards/${COMMONS[0]?.id}`), { hasHeldEffect: true })
+    })
+    const offered = [COMMONS[0], VISIONS, ...COMMONS.slice(1, 5)].map((card) => card?.id)
+    await seedOpenPack({ packType: 'cursed', offered, revealed: [0, 1, 2, 3, 4, 5], cost: 1 })
+
+    await choosePackCard(as('ayla'), { drawId: 'p1', cardId: COMMONS[0]?.id ?? '', by: 'ayla' })
+
+    expect((await all('userCards')).map((holding) => holding.active)).toEqual([true, true])
+  })
+
+  it('refuses a chosen card whose set pack flag went off meanwhile', async () => {
+    await seedOpenPack()
+    const chosen = COMMONS[0]?.id ?? ''
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await updateDoc(doc(firestoreOf(admin), `cards/${chosen}`), { isInSetPacks: false })
+    })
+
+    const failure = await failureOf(
+      choosePackCard(as('ayla'), { drawId: 'p1', cardId: chosen, by: 'ayla' }),
+    )
+    expect(failure).toBeDefined()
+    expect(await all('userCards')).toEqual([])
+  })
+
   it('fails as not-all-turned, invalid-choice and closed, writing nothing', async () => {
     const offered = [COMMONS[0], VISIONS, ...COMMONS.slice(1, 5)].map((card) => card?.id ?? '')
     await seedOpenPack({ packType: 'cursed', offered, revealed: [0, 1], cost: 1 })

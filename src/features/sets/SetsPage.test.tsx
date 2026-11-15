@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { testPictureUrl } from '@/test/artFixtures'
-import { testCard } from '@/test/cardFixtures'
+import { ONLY_FROM_DM, testCard } from '@/test/cardFixtures'
 import { ready, testProfile } from '@/test/fixtures'
 import { stubPhoneWidth } from '@/test/media'
 import { renderApp } from '@/test/renderApp'
@@ -19,7 +19,7 @@ const CARDS = [
   testCard('K One', { setCode: 'Kesqer' }),
   testCard('K Two', { setCode: 'Kesqer' }),
   testCard('K Draft', { setCode: 'Kesqer', status: 'draft' }),
-  testCard('K Secret', { setCode: 'Kesqer', dmOnly: true }),
+  testCard('K Secret', { setCode: 'Kesqer', ...ONLY_FROM_DM }),
   testCard('Nigh', { setCode: 'The End Is Nigh' }),
 ]
 

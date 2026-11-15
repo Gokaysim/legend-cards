@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
 import type { Card } from '@/features/cards/schema'
-import { testCard, testCursedCard } from '@/test/cardFixtures'
+import { ONLY_FROM_DM, testCard, testCursedCard } from '@/test/cardFixtures'
 import { ready, testProfile } from '@/test/fixtures'
 import { renderApp } from '@/test/renderApp'
 
@@ -65,10 +65,10 @@ describe('the DM on the Cursed Deck', () => {
 
 describe('DM-only cards on the deck screens', () => {
   const wish = testCard('The Last Wish', {
-    dmOnly: true,
+    ...ONLY_FROM_DM,
     holder: { uid: 'bora', userCardId: 'h-wish' },
   })
-  const crown = testCursedCard('Crown of Ash', { dmOnly: true })
+  const crown = testCursedCard('Crown of Ash', { ...ONLY_FROM_DM })
 
   function renderWith(path: string, profile: typeof dm) {
     return renderApp({

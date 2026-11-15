@@ -2,6 +2,7 @@ import { act, fireEvent, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import type { Card } from '@/features/cards/schema'
 import type { CardSet } from '@/features/sets/schema'
 import { testArt, testPictureUrl } from '@/test/artFixtures'
 import { testCursedCard } from '@/test/cardFixtures'
@@ -354,6 +355,38 @@ describe('pack frames', () => {
     expect(standard).toHaveClass('disabled:grayscale-45', 'disabled:opacity-60')
     expect(standard).toHaveClass('motion-safe:enabled:hover:-translate-y-0.75')
     expect(standard).toHaveAccessibleDescription(/Havuzda yeterli kart yok/)
+  })
+})
+
+describe('packs by the behavior flags', () => {
+  /** The shop's cards, with `flags` on the ones that match. */
+  const withFlags = (match: (card: Card) => boolean, flags: Partial<Card>) =>
+    SHOP_CARDS.map((card) => (match(card) ? ({ ...card, ...flags } as Card) : card))
+
+  it("greys out a set's packs when its cards leave the set packs", () => {
+    renderShop({
+      path: '/shops/packs?group=Kesqer',
+      cards: withFlags((card) => card.setCode === 'Kesqer', { isInSetPacks: false }),
+    })
+    expect(packButton('Kesqerian Nights Standard Pack')).toBeDisabled()
+  })
+
+  it('greys out a Mechanic Pack when its cards leave the Mechanic packs', () => {
+    renderShop({
+      cards: withFlags((card) => card.mechanicPack === 'Blood & Battle', {
+        isInMechanicPacks: false,
+      }),
+    })
+    expect(packButton('Blood & Battle Mechanic Pack')).toBeDisabled()
+  })
+
+  it('greys out a Cursed Pack when no Cursed card is in the Cursed Deck, and keeps the others', () => {
+    renderShop({
+      path: '/shops/packs?group=Kesqer',
+      cards: withFlags((card) => card.kind === 'cursed', { isInDraws: false }),
+    })
+    expect(packButton('Kesqerian Nights Cursed Pack')).toBeDisabled()
+    expect(packButton('Kesqerian Nights Standard Pack')).toBeEnabled()
   })
 })
 

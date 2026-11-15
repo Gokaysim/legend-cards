@@ -1,9 +1,8 @@
-import { NO_VALUE } from '@/features/cards/display'
 import type { Card } from '@/features/cards/schema'
-import { type CardStatus, DM_ONLY_LABEL, statusLabel } from '@/features/cards/status'
+import { type CardStatus, DM_ONLY_MARK, statusLabel } from '@/features/cards/status'
 import { STATUS_LABELS } from '@/features/definitions/status'
 import { type PackOpening, PACK_TYPES, type PackType } from '@/features/draws/schema'
-import type { Holding } from '@/features/hands/schema'
+import type { Holding, KeptUse } from '@/features/hands/schema'
 import type { SetIndex } from '@/features/sets/index'
 import type { CardSet, PackLayout } from '@/features/sets/schema'
 
@@ -32,7 +31,7 @@ export function setCards(
 export type SetCardRow = {
   card: Card
   stats: CardStats
-  /** On the DM's page: "Taslak", "DM'e özel" and "Kaldırıldı", for a draft, a DM-only and a retired card. */
+  /** On the DM's page: "Taslak", "🔒 DM" and "Kaldırıldı", for a draft, a hidden and a retired card. */
   marks: string[]
   /** The Durum text: where the card is now. */
   status: string
@@ -44,36 +43,36 @@ export type SetCardRow = {
 function marksOf(card: Card): string[] {
   const marks: string[] = []
   if (card.status !== 'active') marks.push(STATUS_LABELS[card.status])
-  if (card.dmOnly) marks.push(DM_ONLY_LABEL)
+  if (!card.isInLibrary) marks.push(DM_ONLY_MARK)
   return marks
 }
 
-/**
- * The Durum text of a row: the library's, except that a draft reads "Taslak", and a DM-only card only names its
- * holders, because its mark already says it is DM-only.
- */
+/** The Durum text of a row: the library's, except that a draft reads "Taslak". */
 function statusText(card: Card, status: CardStatus): string {
   if (card.status === 'draft') return STATUS_LABELS.draft
-  if (card.dmOnly) {
-    return status.holderNames.length > 0 ? `Elde: ${status.holderNames.join(', ')}` : NO_VALUE
-  }
   return statusLabel(card, status)
 }
 
 const NO_STATUS: CardStatus = { inPool: false, holderNames: [] }
 
 /**
- * One row per counted card, from every holding and pack opening, in one pass over each: the records of other cards
- * are skipped. `statuses` gives where each card is now (`useCardStatuses`).
+ * One row per counted card, from every holding, kept use and pack opening, in one pass over each: the records of other
+ * cards are skipped. `statuses` gives where each card is now (`useCardStatuses`).
  */
 export function setCardRows(
   cards: readonly Card[],
-  records: { holdings: readonly Holding[]; packs: readonly PackOpening[] },
+  records: {
+    holdings: readonly Holding[]
+    uses: readonly KeptUse[]
+    packs: readonly PackOpening[]
+  },
   statuses: ReadonlyMap<string, CardStatus>,
   now: number,
 ): SetCardRow[] {
   const holdingsByCard = new Map<string, Holding[]>(cards.map((card) => [card.id, []]))
   for (const holding of records.holdings) holdingsByCard.get(holding.cardId)?.push(holding)
+  const usesByCard = new Map<string, KeptUse[]>(cards.map((card) => [card.id, []]))
+  for (const use of records.uses) usesByCard.get(use.cardId)?.push(use)
   const packsByCard = new Map<string, PackOpening[]>(cards.map((card) => [card.id, []]))
   for (const pack of records.packs) {
     for (const cardId of pack.offered) packsByCard.get(cardId)?.push(pack)
@@ -84,7 +83,11 @@ export function setCardRows(
       card,
       stats: cardStats(
         card.id,
-        { holdings: holdingsByCard.get(card.id) ?? [], packs: packsByCard.get(card.id) ?? [] },
+        {
+          holdings: holdingsByCard.get(card.id) ?? [],
+          uses: usesByCard.get(card.id) ?? [],
+          packs: packsByCard.get(card.id) ?? [],
+        },
         now,
       ),
       marks: marksOf(card),
@@ -114,7 +117,7 @@ const PACK_PART_NAMES: Partial<Record<PackType, string>> = {
 export type SetTiles = {
   cards: number
   /** How many of the counted cards are drafts, DM-only and retired: only the DM's page counts any. */
-  marked: { draft: number; dmOnly: number; retired: number }
+  marked: { draft: number; hidden: number; retired: number }
   inPool: number
   held: number
   reached: CardStats['reached']
@@ -139,7 +142,7 @@ export function setTiles(
 ): SetTiles {
   const tiles: SetTiles = {
     cards: rows.length,
-    marked: { draft: 0, dmOnly: 0, retired: 0 },
+    marked: { draft: 0, hidden: 0, retired: 0 },
     inPool: 0,
     held: 0,
     reached: { dm: 0, draw: 0, pack: 0, total: 0 },
@@ -153,7 +156,7 @@ export function setTiles(
   for (const { card, stats, inPool, isHeld } of rows) {
     if (card.status === 'draft') tiles.marked.draft += 1
     if (card.status === 'retired') tiles.marked.retired += 1
-    if (card.dmOnly) tiles.marked.dmOnly += 1
+    if (!card.isInLibrary) tiles.marked.hidden += 1
     if (inPool) tiles.inPool += 1
     if (isHeld) tiles.held += 1
     tiles.reached.dm += stats.reached.dm

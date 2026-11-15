@@ -23,7 +23,8 @@ import {
 import { BalanceError } from '@/features/balances/errors'
 import { PARTY_ACCOUNT } from '@/features/balances/schema'
 import { cardRef } from '@/features/cards/api'
-import type { Card } from '@/features/cards/schema'
+import { isAvailable } from '@/features/cards/pool'
+import { type Card, type Definition, isCard } from '@/features/cards/schema'
 import { DRAWS_COLLECTION } from '@/features/draws/api'
 import {
   isCursedPackType,
@@ -85,9 +86,12 @@ class TakenError extends Error {
   }
 }
 
-/** True for a card a pack cannot show now: missing, not active, or a normal card with a holder. */
-function isTaken(card: Card | undefined): boolean {
-  return !card || card.status !== 'active' || (card.kind === 'normal' && card.holder !== null)
+/**
+ * True for a definition a pack cannot show now: missing, a True Word, not active, or the one copy of a card that someone
+ * holds. The pack flags were checked when the pack was built, and they cannot change while it is open.
+ */
+function isTaken(definition: Definition | undefined): boolean {
+  return !definition || !isCard(definition) || !isAvailable(definition)
 }
 
 const accountOf = (currency: PackCurrency, uid: string): BalanceAccount =>
@@ -303,14 +307,17 @@ function chooseOnce(db: Firestore, { drawId, cardId, by }: ChoosePackCardInput):
     if (new Set(pack.revealed).size < pack.offered.length) throw new PackError('not-all-turned')
     if (!pack.offered.includes(cardId)) throw new PackError('invalid-choice')
     const shown = new Map<string, Card | undefined>()
-    for (const id of pack.offered) shown.set(id, (await transaction.get(cardRef(db, id))).data())
+    for (const id of pack.offered) {
+      const definition = (await transaction.get(cardRef(db, id))).data()
+      shown.set(id, definition && isCard(definition) ? definition : undefined)
+    }
     const card = shown.get(cardId)
     if (card?.kind === 'cursed') throw new PackError('invalid-choice')
     if (card === undefined || isTaken(card)) throw new PackError('unavailable')
     let curse: Card | null = null
     if (isCursedPackType(pack.packType)) {
       curse = [...shown.values()].find((shownCard) => shownCard?.kind === 'cursed') ?? null
-      if (curse === null || curse.status !== 'active') throw new PackError('unavailable')
+      if (curse === null || !isAvailable(curse)) throw new PackError('unavailable')
     }
 
     transaction.set(
@@ -323,6 +330,7 @@ function chooseOnce(db: Firestore, { drawId, cardId, by }: ChoosePackCardInput):
         givenBy: by,
         givenVia: 'pack',
         drawId,
+        active: card.hasHeldEffect,
       }),
     )
     if (curse !== null) {
@@ -336,10 +344,16 @@ function chooseOnce(db: Firestore, { drawId, cardId, by }: ChoosePackCardInput):
           givenBy: by,
           givenVia: 'pack',
           drawId,
+          active: curse.hasHeldEffect,
         }),
       )
+      if (!curse.isRepeatable) {
+        transaction.update(cardRef(db, curse.id), {
+          holder: { uid: pack.uid, userCardId: cursedDoc.id },
+        })
+      }
     }
-    if (card.kind === 'normal') {
+    if (!card.isRepeatable) {
       transaction.update(cardRef(db, card.id), {
         holder: { uid: pack.uid, userCardId: chosenDoc.id },
       })

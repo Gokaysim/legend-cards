@@ -1,3 +1,4 @@
+import { DM_ONLY_MARK } from '@/features/cards/status'
 import { useId, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router'
 
@@ -9,9 +10,9 @@ import { useAuth } from '@/features/auth/authContext'
 import { compareLabels } from '@/features/cards/sort'
 import { StatusFilter } from '@/features/definitions/StatusFilter'
 import {
+  CARD_FILTER_OPTIONS,
+  type CardFilterValue,
   DEFAULT_STATUS_FILTER,
-  STATUS_FILTER_OPTIONS,
-  type StatusFilterValue,
 } from '@/features/definitions/statusFilterOptions'
 import { STATUS_LABELS } from '@/features/definitions/status'
 import { WordFormDialog } from '@/features/definitions/WordFormDialog'
@@ -101,13 +102,17 @@ function TrueWordsScreen({
     [knownWords],
   )
   const wordsById = useMemo(() => new Map(words.map((word) => [word.id, word])), [words])
-  const [filter, setFilter] = useState<StatusFilterValue>(DEFAULT_STATUS_FILTER)
+  const [filter, setFilter] = useState<CardFilterValue>(DEFAULT_STATUS_FILTER)
+  // A player's list leaves out the hidden words; the DM's keeps them, marked "🔒 DM", and "🔒 DM" lists only them
+  // (spec: true-words, "True Words screen").
   const listed = useMemo(
     () =>
       !isDm
-        ? activeWordsSorted(words)
+        ? activeWordsSorted(words.filter((word) => word.isInLibrary))
         : words
-            .filter((word) => filter === 'all' || word.status === filter)
+            .filter((word) =>
+              filter === 'hidden' ? !word.isInLibrary : filter === 'all' || word.status === filter,
+            )
             .sort((a, b) => compareLabels(a.name, b.name)),
     [isDm, words, filter],
   )
@@ -161,7 +166,7 @@ function TrueWordsScreen({
             <StatusFilter
               value={filter}
               onChange={setFilter}
-              options={STATUS_FILTER_OPTIONS}
+              options={CARD_FILTER_OPTIONS}
               className="w-auto"
             />
           ) : null}
@@ -177,13 +182,18 @@ function TrueWordsScreen({
                 <TrueWordTile word={word} isKnown={known.has(word.id)}>
                   {showsStatus || onEdit ? (
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      {showsStatus ? (
-                        <span className="rounded-full border border-ink-muted px-2 py-0.5 text-xs text-ink">
-                          {STATUS_LABELS[word.status]}
-                        </span>
-                      ) : (
-                        <span />
-                      )}
+                      <span className="flex flex-wrap gap-1">
+                        {showsStatus ? (
+                          <span className="rounded-full border border-ink-muted px-2 py-0.5 text-xs text-ink">
+                            {STATUS_LABELS[word.status]}
+                          </span>
+                        ) : null}
+                        {isDm && !word.isInLibrary ? (
+                          <span className="rounded-full border border-ink-muted px-2 py-0.5 text-xs text-ink">
+                            {DM_ONLY_MARK}
+                          </span>
+                        ) : null}
+                      </span>
                       {onEdit ? (
                         <Button aria-label={`${word.name}: düzenle`} onClick={() => onEdit(word)}>
                           ✎ Düzenle

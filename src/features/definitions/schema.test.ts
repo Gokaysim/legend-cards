@@ -1,6 +1,7 @@
 import { Timestamp } from 'firebase/firestore'
 import { describe, expect, it } from 'vitest'
 
+import { startingFlags } from './flags'
 import { definitionChangeSchema, isPublicStep, stepFor } from './schema'
 import type { DefinitionStatus } from './status'
 
@@ -20,48 +21,43 @@ describe('stepFor and isPublicStep', () => {
     ['draft', null, 'deleted', false],
   ])('%s → %s is %s', (before, after, step, isPublic) => {
     expect(stepFor(before, after)).toBe(step)
-    const snapshot = (status: DefinitionStatus | null) => (status === null ? null : { status })
+    const snapshot = (status: DefinitionStatus | null) =>
+      status === null ? null : { status, isInLibrary: true }
     expect(isPublicStep(snapshot(before), snapshot(after))).toBe(isPublic)
   })
 
   // Spec: definition-editing, "Who reads the change records".
-  it.each<
+  type Shown = { status: DefinitionStatus; isInLibrary: boolean }
+  it.each<[string, Shown | null, Shown | null, boolean]>([
     [
-      string,
-      { status: DefinitionStatus; dmOnly: boolean } | null,
-      { status: DefinitionStatus; dmOnly: boolean } | null,
-      boolean,
-    ]
-  >([
-    [
-      'an edit of a DM-only card',
-      { status: 'active', dmOnly: true },
-      { status: 'active', dmOnly: true },
+      'an edit of a hidden card',
+      { status: 'active', isInLibrary: false },
+      { status: 'active', isInLibrary: false },
       false,
     ],
     [
-      'turning the flag on',
-      { status: 'active', dmOnly: false },
-      { status: 'active', dmOnly: true },
+      'turning "Listede görünür" off',
+      { status: 'active', isInLibrary: true },
+      { status: 'active', isInLibrary: false },
       true,
     ],
     [
-      'turning the flag off',
-      { status: 'active', dmOnly: true },
-      { status: 'active', dmOnly: false },
+      'turning "Listede görünür" on',
+      { status: 'active', isInLibrary: false },
+      { status: 'active', isInLibrary: true },
       true,
     ],
-    ['adding a DM-only draft', null, { status: 'draft', dmOnly: true }, false],
+    ['adding a hidden draft', null, { status: 'draft', isInLibrary: false }, false],
     [
-      'publishing a DM-only draft',
-      { status: 'draft', dmOnly: true },
-      { status: 'active', dmOnly: true },
+      'publishing a hidden draft',
+      { status: 'draft', isInLibrary: false },
+      { status: 'active', isInLibrary: false },
       false,
     ],
     [
-      'retiring a DM-only card',
-      { status: 'active', dmOnly: true },
-      { status: 'retired', dmOnly: true },
+      'retiring a hidden card',
+      { status: 'active', isInLibrary: false },
+      { status: 'retired', isInLibrary: false },
       false,
     ],
   ])('%s is public: %s', (_name, before, after, isPublic) => {
@@ -82,15 +78,8 @@ describe('stepFor and isPublicStep', () => {
 })
 
 describe('definitionChangeSchema', () => {
-  it('reads a card snapshot from before DM-only cards as not DM-only', () => {
-    const parsed = definitionChangeSchema.parse(edit)
-    expect(parsed.step !== 'imported' && parsed.target === 'card' && parsed.after?.dmOnly).toBe(
-      false,
-    )
-  })
-
-  it('refuses a public record of an edit of a DM-only card', () => {
-    const before = { ...card, dmOnly: true }
+  it('refuses a public record of an edit of a hidden card', () => {
+    const before = { ...card, isInLibrary: false }
     const result = definitionChangeSchema.safeParse({
       ...edit,
       before,
@@ -109,6 +98,8 @@ describe('definitionChangeSchema', () => {
     mechanicPack: 'Arcanus Divine',
     text: 'Text.',
     status: 'active',
+    picture: null,
+    ...startingFlags('normal', ''),
   }
   const edit = {
     target: 'card',
@@ -121,7 +112,19 @@ describe('definitionChangeSchema', () => {
     by: 'dana',
     at,
   }
-  const word = { name: 'Echo', nameKey: 'echo', cost: null, text: '', status: 'draft' }
+  const word = {
+    kind: 'trueWord',
+    name: 'Echo',
+    nameKey: 'echo',
+    setCode: null,
+    cost: null,
+    rarity: null,
+    mechanicPack: null,
+    text: '',
+    status: 'draft',
+    picture: null,
+    ...startingFlags('trueWord', ''),
+  }
   const wordAdded = {
     target: 'word',
     targetId: 'tw-echo',
@@ -136,7 +139,9 @@ describe('definitionChangeSchema', () => {
   const imported = {
     target: 'card',
     step: 'imported',
-    items: [{ id: 'legend-abolethseyes', name: "Aboleth's Eyes", status: 'active' }],
+    items: [
+      { id: 'legend-abolethseyes', name: "Aboleth's Eyes", status: 'active', isInLibrary: true },
+    ],
     public: true,
     by: null,
     at,
@@ -153,7 +158,11 @@ describe('definitionChangeSchema', () => {
     ['an import of active cards', imported],
     [
       'an import of drafts',
-      { ...imported, public: false, items: [{ id: 'tw-echo', name: 'Echo', status: 'draft' }] },
+      {
+        ...imported,
+        public: false,
+        items: [{ id: 'tw-echo', name: 'Echo', status: 'draft', isInLibrary: true }],
+      },
     ],
     ['a step whose server time is pending', { ...edit, at: null }],
     [
@@ -169,7 +178,10 @@ describe('definitionChangeSchema', () => {
       {
         ...imported,
         what: 'pictures',
-        items: [...imported.items, { id: 'legend-hex', name: 'Hex', status: 'retired' }],
+        items: [
+          ...imported.items,
+          { id: 'legend-hex', name: 'Hex', status: 'retired', isInLibrary: true },
+        ],
       },
     ],
     [
@@ -178,7 +190,16 @@ describe('definitionChangeSchema', () => {
         ...imported,
         what: 'pictures',
         public: false,
-        items: [{ id: 'tw-echo', name: 'Echo', status: 'draft' }],
+        items: [{ id: 'tw-echo', name: 'Echo', status: 'draft', isInLibrary: true }],
+      },
+    ],
+    [
+      'a picture import of a hidden active card',
+      {
+        ...imported,
+        what: 'pictures',
+        public: false,
+        items: [{ id: 'legend-wish', name: 'The Last Wish', status: 'active', isInLibrary: false }],
       },
     ],
   ])('accepts %s', (_case, record) => {
@@ -193,6 +214,16 @@ describe('definitionChangeSchema', () => {
     ['a name that is not the definition’s', { ...edit, name: 'Other' }],
     ['a deleted active card', { ...edit, step: 'deleted', after: null }],
     ['a word snapshot on a card record', { ...edit, before: word, after: word }],
+    ['a card snapshot on a word record', { ...wordAdded, after: { ...card, status: 'draft' } }],
+    [
+      'a public picture import listing a hidden card',
+      {
+        ...imported,
+        what: 'pictures',
+        items: [{ ...imported.items[0], isInLibrary: false }],
+      },
+    ],
+    ['a snapshot without its flags', { ...edit, after: { ...card, isInDraws: undefined } }],
     ['a step without who made it', { ...edit, by: null }],
     [
       'a public import listing a draft',
@@ -217,9 +248,7 @@ describe('definitionChangeSchema', () => {
     expect(definitionChangeSchema.safeParse(record).success).toBe(false)
   })
 
-  it('reads an older record without pictures or an import kind', () => {
-    const step = definitionChangeSchema.parse(edit)
-    expect(step.step === 'edited' && step.before?.picture).toBeNull()
+  it('reads a record without an import kind as a definitions import', () => {
     const run = definitionChangeSchema.parse(imported)
     expect(run.step === 'imported' && run.what).toBe('definitions')
   })

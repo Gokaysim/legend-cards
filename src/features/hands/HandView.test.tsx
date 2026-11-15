@@ -17,7 +17,7 @@ const ayla = testProfile({ id: 'ayla', displayName: 'Ayla' })
 const bora = testProfile({ id: 'bora', displayName: 'Bora' })
 const profiles = ready([testProfile(), ayla, bora])
 
-const owl = testCard('Night Owl', { setCode: 'Kesqer', cost: '3' })
+const owl = testCard('Night Owl', { setCode: 'Kesqer', cost: '3', hasHeldEffect: true })
 const greedy = testCard('Greedy Hands', {
   setCode: 'Kesqer',
   text: 'Discard a card, then draw two.',
@@ -296,9 +296,9 @@ describe('hand summary', () => {
   })
 
   it('counts the True Words and their active ones, lists them after the cards, and never as cards', () => {
-    const abyss = testTrueWord('Abyss', { text: 'Free card.' })
+    const abyss = testTrueWord('Abyss', { text: 'Free card.', hasHeldEffect: true })
     const aid = testTrueWord('Aid')
-    const chaos = testTrueWord('Chaos')
+    const chaos = testTrueWord('Chaos', { hasHeldEffect: true })
     renderApp({
       path: '/hands/ayla',
       users: { profiles },

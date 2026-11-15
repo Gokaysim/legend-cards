@@ -1,4 +1,4 @@
-import { createContext, useContext } from 'react'
+import { createContext, useContext, useMemo } from 'react'
 
 import type { Subscription } from '@/lib/firestore/subscription'
 
@@ -19,7 +19,10 @@ export type HoldingActions = {
 }
 
 export type HoldingsContextValue = {
-  /** Every open holding: every card in every hand. Empty when signed out. */
+  /**
+   * Every open holding: every card and every known True Word in every hand (design D5 of unify-cards-and-true-words).
+   * Empty when signed out. Read it through `useOpenHoldings` for the cards and `useOpenWordHoldings` for the words.
+   */
   openHoldings: Subscription<Holding[]>
   actions: HoldingActions
 }
@@ -32,9 +35,29 @@ function useHoldingsContext(): HoldingsContextValue {
   return value
 }
 
-/** Every open holding of every player. Must be used inside `<HoldingsProvider>`. */
+/** Keeps the holdings whose kind is or is not a True Word, with the subscription's loading and error states. */
+function byWordKind(holdings: Subscription<Holding[]>, words: boolean): Subscription<Holding[]> {
+  return holdings.status === 'ready'
+    ? {
+        ...holdings,
+        data: holdings.data.filter((holding) => (holding.cardKind === 'trueWord') === words),
+      }
+    : holdings
+}
+
+/**
+ * Every open holding of a card, of every player: True Words are not cards, so they are left out (spec: true-words;
+ * "True Words do not count as cards"). Must be used inside `<HoldingsProvider>`.
+ */
 export function useOpenHoldings(): Subscription<Holding[]> {
-  return useHoldingsContext().openHoldings
+  const holdings = useHoldingsContext().openHoldings
+  return useMemo(() => byWordKind(holdings, false), [holdings])
+}
+
+/** Every open holding of a True Word: every word someone knows now. Must be used inside `<HoldingsProvider>`. */
+export function useOpenWordHoldings(): Subscription<Holding[]> {
+  const holdings = useHoldingsContext().openHoldings
+  return useMemo(() => byWordKind(holdings, true), [holdings])
 }
 
 /** The card movements and holding updates. Must be used inside `<HoldingsProvider>`. */

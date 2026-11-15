@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { Card } from '@/features/cards/schema'
-import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
+import { ONLY_FROM_DM, testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 import { ready, testProfile, testUser } from '@/test/fixtures'
 import { testHolding } from '@/test/holdingFixtures'
 import { renderApp } from '@/test/renderApp'
@@ -29,7 +29,7 @@ const halo = testBlessedCard('Halo of Aboleths')
 const visions = testCursedCard('Visions of Death', { text: 'Aboleth dreams.' })
 const retired = testCard('Old Aboleth', { status: 'retired' })
 const draft = testCard('Aboleth Draft', { status: 'draft' })
-const wish = testCard('The Last Wish', { dmOnly: true })
+const wish = testCard('The Last Wish', { ...ONLY_FROM_DM })
 const CARDS: Card[] = [eyes, gaze, greedy, halo, visions, retired, draft, wish]
 
 function setup({

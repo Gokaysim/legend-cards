@@ -12,7 +12,7 @@ import {
 import { testDmDraw, testDraw } from '@/test/drawFixtures'
 import { testHolding } from '@/test/holdingFixtures'
 import { testGpEntry, testLedgerEntry } from '@/test/ledgerFixtures'
-import { testLearnedWord, testTrueWord, testWordDraft, testWordUse } from '@/test/trueWordFixtures'
+import { testTrueWord, testWordDraft, testWordHolding, testWordUse } from '@/test/trueWordFixtures'
 import { testSetChange, testSetName } from '@/test/setFixtures'
 import type { WordDraft } from '@/features/true-words/schema'
 
@@ -242,21 +242,21 @@ describe('describeEvent: True Words', () => {
     status: 'learned' as const,
     closedAt: at(2000),
     closedBy: 'ayla',
-    learned: { wordId: abyss.id, wordName: 'Abyss', recordId: 'r1' },
+    learned: { cardId: abyss.id, cardName: 'Abyss', holdingId: 'r1' },
   }
 
   it("describes a player's open draft, then the word learned from it", () => {
-    expect(text(only({ drafts: [draft()] }))).toBe("True Word draft'ı açıyor (−3 LP).")
-    expect(text(only({ drafts: [draft(learned)] }))).toBe(
+    expect(text(only({ draws: [draft()] }))).toBe("True Word draft'ı açıyor (−3 LP).")
+    expect(text(only({ draws: [draft(learned)] }))).toBe(
       "True Word draft'ı açtı ve Abyss True Word'ünü öğrendi (−3 LP).",
     )
-    expect(describeEvent(only({ drafts: [draft(learned)] }), NAMES_OF).parts).toContainEqual({
+    expect(describeEvent(only({ draws: [draft(learned)] }), NAMES_OF).parts).toContainEqual({
       card: 'Abyss',
     })
   })
 
   it('names the player when the DM started the draft, and says when the DM learned for them', () => {
-    expect(text(only({ drafts: [draft({ by: 'dana', ...learned, closedBy: 'dana' })] }))).toBe(
+    expect(text(only({ draws: [draft({ by: 'dana', ...learned, closedBy: 'dana' })] }))).toBe(
       "Ayla için True Word draft'ı açtı ve Abyss True Word'ünü öğrendi (seçimi DM yaptı) (−3 LP).",
     )
   })
@@ -266,7 +266,7 @@ describe('describeEvent: True Words', () => {
     expect(
       text(
         only({
-          drafts: [
+          draws: [
             draft({
               uid: 'bora',
               by: 'dana',
@@ -280,7 +280,7 @@ describe('describeEvent: True Words', () => {
         }),
       ),
     ).toBe("Bora için True Word draft'ı açtı (ücretsiz); Bora pas geçti.")
-    expect(text(only({ drafts: [draft({ ...skipped, closedBy: 'dana' })] }))).toBe(
+    expect(text(only({ draws: [draft({ ...skipped, closedBy: 'dana' })] }))).toBe(
       "True Word draft'ı açtı (−3 LP); DM pas geçti.",
     )
   })
@@ -289,7 +289,7 @@ describe('describeEvent: True Words', () => {
     expect(
       text(
         only({
-          drafts: [
+          draws: [
             draft({
               status: 'cancelled',
               closedAt: at(2000),
@@ -303,11 +303,15 @@ describe('describeEvent: True Words', () => {
   })
 
   it('describes a word the DM taught, and one the DM took back', () => {
-    const record = testLearnedWord('r1', abyss, 'bora', { learnedAt: at(1000) })
-    expect(text(only({ taught: [record] }))).toBe("Bora'ya Abyss True Word'ünü öğretti.")
-    expect(text(only({ takenBack: [{ ...record, removedAt: at(3000), removedBy: 'dana' }] }))).toBe(
-      "Bora'dan Abyss True Word'ünü geri aldı.",
-    )
+    const holding = testWordHolding('r1', abyss, 'bora')
+    expect(text(only({ given: [holding] }))).toBe("Bora'ya Abyss True Word'ünü öğretti.")
+    const takenBack = {
+      ...holding,
+      returnedAt: at(3000),
+      returnedBy: 'dana',
+      returnReason: 'discarded' as const,
+    }
+    expect(text(only({ closed: [takenBack] }))).toBe("Bora'dan Abyss True Word'ünü geri aldı.")
   })
 
   it('names the character a word was used on, paid or free', () => {
@@ -316,27 +320,25 @@ describe('describeEvent: True Words', () => {
       usedOn: 'Thorin',
       usedOnCharacterId: 'ThorinAyla0123456789',
     })
-    expect(text(only({ wordUses: [paid] }))).toBe(
+    expect(text(only({ uses: [paid] }))).toBe(
       "Abyss True Word'ünü Thorin üzerinde kullandı (−5 LP).",
     )
     const free = testWordUse('u2', abyss, 'ayla', { cost: 0, entryId: null, usedOn: 'Goblin şefi' })
-    expect(text(only({ wordUses: [free] }))).toBe(
-      "Abyss True Word'ünü Goblin şefi üzerinde kullandı.",
-    )
+    expect(text(only({ uses: [free] }))).toBe("Abyss True Word'ünü Goblin şefi üzerinde kullandı.")
   })
 
   it("describes a player's use of their word, with its payment", () => {
-    const event = only({ wordUses: [testWordUse('u1', abyss, 'ayla', { cost: 5 })] })
+    const event = only({ uses: [testWordUse('u1', abyss, 'ayla', { cost: 5 })] })
     expect(text(event)).toBe("Abyss True Word'ünü kullandı (−5 LP).")
     expect(describeEvent(event, NAMES_OF).parts).toContainEqual({ card: 'Abyss' })
   })
 
   it('names the player when the DM used their word, and shows no payment for a free use', () => {
+    expect(text(only({ uses: [testWordUse('u1', abyss, 'ayla', { by: 'dana', cost: 5 })] }))).toBe(
+      "Ayla'nın Abyss True Word'ünü kullandı (−5 LP).",
+    )
     expect(
-      text(only({ wordUses: [testWordUse('u1', abyss, 'ayla', { by: 'dana', cost: 5 })] })),
-    ).toBe("Ayla'nın Abyss True Word'ünü kullandı (−5 LP).")
-    expect(
-      text(only({ wordUses: [testWordUse('u1', abyss, 'ayla', { cost: 0, entryId: null })] })),
+      text(only({ uses: [testWordUse('u1', abyss, 'ayla', { cost: 0, entryId: null })] })),
     ).toBe("Abyss True Word'ünü kullandı.")
   })
 })
@@ -411,31 +413,57 @@ describe('describing definition changes', () => {
         describe_([
           testImportRecord('i2', 3, {
             public: false,
-            items: [{ id: 'legend-x', name: 'X', status: 'draft', dmOnly: false }],
+            items: [{ id: 'legend-x', name: 'X', status: 'draft', isInLibrary: true }],
           }),
         ]),
       ),
     ).toBe('1 taslak kart ekledi.')
   })
 
-  describe('the DM-only flag', () => {
+  describe('the behavior flags', () => {
     it.each([
-      ['on', false, true, "DM'e özel: hayır → evet"],
-      ['off', true, false, "DM'e özel: evet → hayır"],
-    ])('names the flag turned %s', (_case, before, after, line) => {
-      const sentence = describe_([
-        testCardChange(
-          'c1',
-          { ...eyesBefore, dmOnly: before },
-          { ...eyesBefore, dmOnly: after, cost: '3' },
-        ),
-      ])
-      expect(sentenceText(sentence)).toBe("Aboleth's Eyes kartını düzenledi.")
-      expect(sentence.lines).toEqual(['Cost: 2 → 3', line])
+      ['off', 'isInDraws', true, false, 'Kart çekmede çıkar: evet → hayır'],
+      ['on', 'isKeptOnUse', false, true, 'Kullanınca elde kalır: hayır → evet'],
+      ['off', 'isInLibrary', true, false, 'Listede görünür: evet → hayır'],
+    ] as const)(
+      'names a flag turned %s with its form label',
+      (_case, flag, before, after, line) => {
+        const sentence = describe_([
+          testCardChange(
+            'c1',
+            { ...eyesBefore, [flag]: before },
+            { ...eyesBefore, [flag]: after, cost: '3' },
+          ),
+        ])
+        expect(sentenceText(sentence)).toBe("Aboleth's Eyes kartını düzenledi.")
+        expect(sentence.lines).toEqual(['Cost: 2 → 3', line])
+      },
+    )
+
+    it('names the draw flag of a Cursed card after the Cursed Deck', () => {
+      const visions = testCardSnapshot('Visions of Death', { kind: 'cursed' })
+      const sentence = describe_([testCardChange('c1', visions, { ...visions, isInDraws: false })])
+      expect(sentence.lines).toEqual(["Cursed Deck'te çıkar: evet → hayır"])
     })
 
-    it('shows no flag line when the flag stays', () => {
-      const wish = { ...eyesBefore, dmOnly: true }
+    it('lists the flags in the form order', () => {
+      const sentence = describe_([
+        testCardChange('c1', eyesBefore, {
+          ...eyesBefore,
+          hasUseEffect: false,
+          isInLibrary: false,
+          isInDraws: false,
+        }),
+      ])
+      expect(sentence.lines).toEqual([
+        'Listede görünür: evet → hayır',
+        'Kart çekmede çıkar: evet → hayır',
+        'Kullanınca efekt bırakır: evet → hayır',
+      ])
+    })
+
+    it('shows no flag line when the flags stay', () => {
+      const wish = { ...eyesBefore, isInLibrary: false }
       const sentence = describe_([testCardChange('c1', wish, { ...wish, cost: '3' })])
       expect(sentence.lines).toEqual(['Cost: 2 → 3'])
     })
@@ -493,14 +521,14 @@ describe('describing definition changes', () => {
               what: 'pictures',
               target: 'word',
               public: false,
-              items: [{ id: 'tw-echo', name: 'Echo', status: 'draft', dmOnly: false }],
+              items: [{ id: 'tw-echo', name: 'Echo', status: 'draft', isInLibrary: true }],
             }),
           ]),
         ),
       ).toBe("1 taslak True Word'e resim ekledi.")
     })
 
-    it('describes a picture import of DM-only cards as such', () => {
+    it('describes a picture import of cards hidden from the list as such', () => {
       const sentence = describeEvent(
         only({
           changes: [
@@ -508,14 +536,19 @@ describe('describing definition changes', () => {
               what: 'pictures',
               public: false,
               items: [
-                { id: 'legend-thelastwish', name: 'The Last Wish', status: 'active', dmOnly: true },
+                {
+                  id: 'legend-thelastwish',
+                  name: 'The Last Wish',
+                  status: 'active',
+                  isInLibrary: false,
+                },
               ],
             }),
           ],
         }),
         NAMES_OF,
       )
-      expect(sentenceText(sentence)).toBe("1 DM'e özel karta resim ekledi.")
+      expect(sentenceText(sentence)).toBe('1 gizli karta resim ekledi.')
       expect(sentence.names).toEqual(['The Last Wish'])
     })
   })

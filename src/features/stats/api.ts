@@ -2,8 +2,8 @@ import { collection, type Firestore, query, type Query, where } from 'firebase/f
 
 import { DRAWS_COLLECTION, drawsRef } from '@/features/draws/api'
 import { type Draw, type PackOpening, packOpeningConverter } from '@/features/draws/schema'
-import { holdingsRef } from '@/features/hands/api'
-import type { Holding } from '@/features/hands/schema'
+import { holdingsRef, usesRef } from '@/features/hands/api'
+import type { Holding, KeptUse } from '@/features/hands/schema'
 
 // The queries of the statistics pages (design D2 and D3 of add-card-and-set-stats). Every signed-in user reads every
 // holding and every draw record, so they need no rule of their own. Each has at most one equality or array filter
@@ -14,10 +14,12 @@ function packOpeningsRef(db: Firestore) {
   return collection(db, DRAWS_COLLECTION).withConverter(packOpeningConverter)
 }
 
-/** The three queries of a card's Kart geçmişi page. */
+/** The four queries of a card's Kart geçmişi page. */
 export type CardQueries = {
   /** Every holding of the card, open and closed. */
   holdings: Query<Holding>
+  /** Every use of the card kept on use (design D10 of unify-cards-and-true-words). */
+  uses: Query<KeptUse>
   /** The card's draws. Pack openings have no `cardId`, so none matches. */
   draws: Query<Draw>
   /** Every pack opening that showed the card, face up or not. */
@@ -27,23 +29,26 @@ export type CardQueries = {
 export function cardQueries(db: Firestore, cardId: string): CardQueries {
   return {
     holdings: query(holdingsRef(db), where('cardId', '==', cardId)),
+    uses: query(usesRef(db), where('cardId', '==', cardId)),
     draws: query(drawsRef(db), where('cardId', '==', cardId)),
     packs: query(packOpeningsRef(db), where('offered', 'array-contains', cardId)),
   }
 }
 
 /**
- * The two queries of a Set istatistikleri page. Holdings do not record a set, so the page reads every holding and
- * keeps those of its cards (design D3).
+ * The three queries of a Set istatistikleri page. Holdings and uses do not record a set, so the page reads every
+ * holding and every kept use and keeps those of its cards (design D3).
  */
 export type AllQueries = {
   holdings: Query<Holding>
+  uses: Query<KeptUse>
   packs: Query<PackOpening>
 }
 
 export function allQueries(db: Firestore): AllQueries {
   return {
     holdings: query(holdingsRef(db)),
+    uses: query(usesRef(db)),
     packs: query(packOpeningsRef(db), where('kind', '==', 'pack')),
   }
 }

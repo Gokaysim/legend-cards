@@ -11,8 +11,8 @@ import {
 
 import { LEDGER_COLLECTION, newLedgerEntry } from '@/features/balances/api'
 import { cardRef } from '@/features/cards/api'
-import type { DrawFilters } from '@/features/cards/pool'
-import type { Card } from '@/features/cards/schema'
+import { type DrawFilters, inCursedDeck, inRandomDraw } from '@/features/cards/pool'
+import { type Card, type Definition, isCard } from '@/features/cards/schema'
 import { HOLDINGS_COLLECTION, openHolding } from '@/features/hands/api'
 import { profileRef, USERS_COLLECTION } from '@/features/users/api'
 import { explainDenial } from '@/features/table/api'
@@ -62,8 +62,9 @@ class TakenError extends Error {
 }
 
 /**
- * Draws one card into a hand, in one transaction that writes the draw, its holding, a normal card's new holder
- * and, when paid, the ledger entry and the player's new LP, as the rules require. Nothing is written or charged
+ * Draws one card into a hand, in one transaction that writes the draw, its holding (active when the card's "Elde
+ * etkili" is on), the new holder of a card with one copy and, when paid, the ledger entry and the player's new LP, as
+ * the rules require. Nothing is written or charged
  * unless the whole draw is saved.
  *
  * The card is picked from `candidates` with the same chance for each, outside the transaction, which re-reads
@@ -100,7 +101,7 @@ export async function drawCard(db: Firestore, input: DrawCardInput): Promise<Dra
       if (firebaseCode(error) !== 'permission-denied') throw error
       const explained = await explainDenial(db, error)
       if (explained !== error) throw explained
-      if (await isTakenOnServer(db, card.id)) {
+      if (await isTakenOnServer(db, card.id, input.kind)) {
         tried.add(card.id)
         card = null
         continue
@@ -111,13 +112,17 @@ export async function drawCard(db: Firestore, input: DrawCardInput): Promise<Dra
   throw new DrawError('retries-exhausted')
 }
 
-/** True for a card a draw cannot give now: missing, not active, or a normal card with a holder. */
-function isTaken(card: Card | undefined): boolean {
-  return !card || card.status !== 'active' || (card.kind === 'normal' && card.holder !== null)
+/**
+ * True for a definition a draw of `kind` cannot give now: missing, a True Word, or no longer in that draw (spec:
+ * card-draws): not active, its draw flag turned off, or the one copy of a card that someone holds.
+ */
+function isTaken(definition: Definition | undefined, kind: DrawKind): definition is undefined {
+  if (!definition || !isCard(definition)) return true
+  return kind === 'random' ? !inRandomDraw(definition) : !inCursedDeck(definition)
 }
 
-async function isTakenOnServer(db: Firestore, cardId: string): Promise<boolean> {
-  return isTaken((await getDocFromServer(cardRef(db, cardId))).data())
+async function isTakenOnServer(db: Firestore, cardId: string, kind: DrawKind): Promise<boolean> {
+  return isTaken((await getDocFromServer(cardRef(db, cardId))).data(), kind)
 }
 
 async function serverLp(db: Firestore, uid: string): Promise<number | null> {
@@ -135,8 +140,9 @@ function drawOnce(
   const holdingDoc = doc(collection(db, HOLDINGS_COLLECTION))
   const entryDoc = doc(collection(db, LEDGER_COLLECTION))
   return runTransaction(db, async (transaction) => {
-    const card = (await transaction.get(ref)).data()
-    if (card === undefined || isTaken(card)) throw new TakenError()
+    const stored = (await transaction.get(ref)).data()
+    if (isTaken(stored, kind) || !isCard(stored)) throw new TakenError()
+    const card = stored
     let lpAfter: number | null = null
     if (paid) {
       const lp = (await transaction.get(profileRef(db, uid))).data()?.lp ?? 0
@@ -170,9 +176,10 @@ function drawOnce(
         givenBy: by,
         givenVia: 'draw',
         drawId: drawDoc.id,
+        active: card.hasHeldEffect,
       }),
     )
-    if (card.kind === 'normal') {
+    if (!card.isRepeatable) {
       transaction.update(ref, { holder: { uid, userCardId: holdingDoc.id } })
     }
     if (lpAfter !== null) {

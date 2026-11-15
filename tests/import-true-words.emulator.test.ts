@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
+import { startingFlags } from '../scripts/lib/cardCatalog.ts'
 import { CHANGES_COLLECTION } from '../scripts/lib/importCards.ts'
 import {
   runWordImport,
@@ -79,10 +80,41 @@ describe('True Words import against the emulators', () => {
     expect(record?.items).toHaveLength(53)
     const abyss = repositoryWords().find(({ word }) => word.name === 'Abyss')?.word
     expect(await stored(trueWordId('abyss'))).toEqual({
+      kind: 'trueWord',
       ...abyss,
+      setCode: null,
+      rarity: null,
+      mechanicPack: null,
       status: 'active',
       changeId: record?.id,
+      ...startingFlags('trueWord', abyss?.text ?? ''),
     })
+  })
+
+  it('stores the words among the cards, a "Held:" word acting while held', async () => {
+    await importWords(repositoryWords())
+    expect(await stored(trueWordId('justice'))).toMatchObject({
+      kind: 'trueWord',
+      isInLibrary: true,
+      isInDraws: true,
+      isInSetPacks: false,
+      isInMechanicPacks: false,
+      isRepeatable: true,
+      hasHeldEffect: true,
+      hasUseEffect: true,
+      isKeptOnUse: true,
+    })
+    expect(await stored(trueWordId('abyss'))).toMatchObject({ hasHeldEffect: false })
+  })
+
+  it('counts only the True Words among the cards as stored', async () => {
+    await admin.db.doc(`${TRUE_WORDS_COLLECTION}/legend-abyss`).set({
+      kind: 'normal',
+      name: 'Abyss',
+      nameKey: 'abyss',
+    })
+    const { plan } = await importWords(repositoryWords(), true)
+    expect(plan.counts).toEqual({ 'added-active': 53, 'added-draft': 0, existing: 0 })
   })
 
   it('adds a word with an empty text as a draft, with a DM-only record', async () => {
@@ -92,7 +124,9 @@ describe('True Words import against the emulators', () => {
     expect(plan.counts).toEqual({ 'added-active': 1, 'added-draft': 1, existing: 0 })
     expect(await stored('tw-echo')).toMatchObject({ status: 'draft', text: '' })
     const draftRecord = (await records()).find((record) => record.public === false)
-    expect(draftRecord?.items).toEqual([{ id: 'tw-echo', name: 'Echo', status: 'draft' }])
+    expect(draftRecord?.items).toEqual([
+      { id: 'tw-echo', name: 'Echo', status: 'draft', isInLibrary: true },
+    ])
   })
 
   it('keeps an X cost as written', async () => {
@@ -128,14 +162,20 @@ describe('True Words import against the emulators', () => {
   })
 
   it('gives words stored before statuses a status, from their old retired flag', async () => {
-    await admin.db
-      .doc(`${TRUE_WORDS_COLLECTION}/tw-old`)
-      .set({ name: 'Old', nameKey: 'old', cost: '1', text: 'Old.', retired: true })
+    await admin.db.doc(`${TRUE_WORDS_COLLECTION}/tw-old`).set({
+      kind: 'trueWord',
+      name: 'Old',
+      nameKey: 'old',
+      cost: '1',
+      text: 'Old.',
+      retired: true,
+    })
 
     const { plan } = await importWords([])
 
     expect(plan.upgrades).toEqual([{ id: 'tw-old', status: 'retired' }])
     expect(await stored('tw-old')).toEqual({
+      kind: 'trueWord',
       name: 'Old',
       nameKey: 'old',
       cost: '1',
@@ -154,10 +194,13 @@ describe('True Words import against the emulators', () => {
   })
 
   it('leaves the learned words alone', async () => {
-    await admin.db.doc('userTrueWords/r1').set({ wordId: 'tw-abyss', uid: 'ayla' })
+    await admin.db
+      .doc('userCards/r1')
+      .set({ cardId: 'tw-abyss', cardKind: 'trueWord', uid: 'ayla' })
     await importWords(repositoryWords())
-    expect((await admin.db.doc('userTrueWords/r1').get()).data()).toEqual({
-      wordId: 'tw-abyss',
+    expect((await admin.db.doc('userCards/r1').get()).data()).toEqual({
+      cardId: 'tw-abyss',
+      cardKind: 'trueWord',
       uid: 'ayla',
     })
   })

@@ -8,7 +8,7 @@ import { testHolding } from '@/test/holdingFixtures'
 import { testGpEntry, testLedgerEntry } from '@/test/ledgerFixtures'
 import { testPack } from '@/test/packFixtures'
 import { testSetChange } from '@/test/setFixtures'
-import { testLearnedWord, testTrueWord, testWordDraft, testWordUse } from '@/test/trueWordFixtures'
+import { testTrueWord, testWordDraft, testWordHolding, testWordUse } from '@/test/trueWordFixtures'
 
 import { deriveEvents, EMPTY_LOG_RECORDS, type LogRecords, newestEvents } from './events'
 
@@ -265,28 +265,34 @@ describe('True Word events', () => {
   const draft = testWordDraft('w1', 'ayla', [abyss, testTrueWord('Aid'), testTrueWord('Dragon')], {
     at: Timestamp.fromMillis(3000),
   })
-  const taught = testLearnedWord('r1', abyss, 'bora', { learnedAt: Timestamp.fromMillis(1000) })
-  const takenBack = {
+  const taught = testWordHolding('r1', abyss, 'bora', { givenAt: at(1000) })
+  const takenBack: typeof taught = {
     ...taught,
-    removedAt: Timestamp.fromMillis(5000),
-    removedBy: 'dana',
+    returnedAt: at(5000),
+    returnedBy: 'dana',
+    returnReason: 'discarded',
   }
 
   it('makes one event per draft, per word taught, and per word taken back, at their own times', () => {
     const events = deriveEvents(
-      records({ drafts: [draft], taught: [takenBack], takenBack: [takenBack] }),
+      records({ draws: [draft], given: [takenBack], closed: [takenBack] }),
     )
     expect(events.map((event) => [event.kind, event.key, event.at?.toMillis(), event.by])).toEqual([
-      ['wordDraft', 'wordDraft:w1', 3000, 'ayla'],
       ['wordTaught', 'wordTaught:r1', 1000, 'dana'],
       ['wordTakenBack', 'wordTakenBack:r1', 5000, 'dana'],
+      ['wordDraft', 'wordDraft:w1', 3000, 'ayla'],
     ])
+  })
+
+  it('makes no card event of a True Word holding', () => {
+    const events = deriveEvents(records({ given: [taught], closed: [takenBack] }))
+    expect(events.map((event) => event.kind)).toEqual(['wordTaught', 'wordTakenBack'])
   })
 
   it('makes one event per word use, at its time, by whoever used it, ordered among the others', () => {
     const own = testWordUse('u1', abyss, 'ayla')
     const byDm = testWordUse('u2', abyss, 'ayla', { by: 'dana', at: Timestamp.fromMillis(6000) })
-    const { events } = newestEvents(records({ drafts: [draft], wordUses: [own, byDm] }), 50)
+    const { events } = newestEvents(records({ draws: [draft], uses: [own, byDm] }), 50)
     expect(events.map((event) => [event.kind, event.key, event.at?.toMillis(), event.by])).toEqual([
       ['wordUsed', 'wordUsed:u2', 6000, 'dana'],
       ['wordUsed', 'wordUsed:u1', 4000, 'ayla'],
@@ -294,14 +300,25 @@ describe('True Word events', () => {
     ])
   })
 
+  it('makes each use of a card kept on use its own "keptUsed" event', () => {
+    const kept = (id: string, millis: number) => ({
+      ...testWordUse(id, abyss, 'ayla', { at: at(millis) }),
+      cardId: eyes.id,
+      cardName: eyes.name,
+      cardKind: 'normal' as const,
+    })
+    const { events } = newestEvents(records({ uses: [kept('u3', 7000), kept('u4', 8000)] }), 50)
+    expect(events.map((event) => event.key)).toEqual(['keptUsed:u4', 'keptUsed:u3'])
+  })
+
   it('may have more when a True Words source is full', () => {
-    expect(
-      newestEvents(records({ wordUses: [testWordUse('u1', abyss, 'ayla')] }), 1).mayHaveMore,
-    ).toBe(true)
-    expect(newestEvents(records({ drafts: [draft] }), 1).mayHaveMore).toBe(true)
-    expect(newestEvents(records({ taught: [taught] }), 1).mayHaveMore).toBe(true)
-    expect(newestEvents(records({ takenBack: [takenBack] }), 1).mayHaveMore).toBe(true)
-    expect(newestEvents(records({ drafts: [draft] }), 2).mayHaveMore).toBe(false)
+    expect(newestEvents(records({ uses: [testWordUse('u1', abyss, 'ayla')] }), 1).mayHaveMore).toBe(
+      true,
+    )
+    expect(newestEvents(records({ draws: [draft] }), 1).mayHaveMore).toBe(true)
+    expect(newestEvents(records({ given: [taught] }), 1).mayHaveMore).toBe(true)
+    expect(newestEvents(records({ closed: [takenBack] }), 1).mayHaveMore).toBe(true)
+    expect(newestEvents(records({ draws: [draft] }), 2).mayHaveMore).toBe(false)
   })
 })
 
@@ -329,7 +346,12 @@ describe('definition changes', () => {
       what: 'pictures',
       public: false,
       items: [
-        { id: 'legend-thecartographer', name: 'The Cartographer', status: 'draft', dmOnly: false },
+        {
+          id: 'legend-thecartographer',
+          name: 'The Cartographer',
+          status: 'draft',
+          isInLibrary: true,
+        },
       ],
       at: Timestamp.fromMillis(2000),
     })

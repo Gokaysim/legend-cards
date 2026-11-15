@@ -1,5 +1,7 @@
 import { Timestamp } from 'firebase/firestore'
 
+import { startingFlags } from '@/features/definitions/flags'
+
 import type {
   CardSnapshot,
   DefinitionStepRecord,
@@ -23,7 +25,7 @@ export function testCardSnapshot(
     text: `${name} text.`,
     status: 'active',
     picture: null,
-    dmOnly: false,
+    ...startingFlags(overrides.kind ?? 'normal', overrides.text ?? ''),
     ...overrides,
   }
 }
@@ -34,12 +36,17 @@ export function testWordSnapshot(
   overrides: Partial<WordSnapshot> = {},
 ): WordSnapshot {
   return {
+    kind: 'trueWord',
     name,
     nameKey: name.toLowerCase(),
+    setCode: null,
     cost: '1',
+    rarity: null,
+    mechanicPack: null,
     text: `${name} text.`,
     status: 'active',
     picture: null,
+    ...startingFlags('trueWord', ''),
     ...overrides,
   }
 }
@@ -63,7 +70,7 @@ export function testCardChange(
     by: 'dana',
     at: Timestamp.fromMillis(1000),
     ...overrides,
-  } as DefinitionStepRecord
+  }
 }
 
 /** A DM's step on a True Word. */
@@ -85,7 +92,7 @@ export function testWordChange(
     by: 'dana',
     at: Timestamp.fromMillis(1000),
     ...overrides,
-  } as DefinitionStepRecord
+  }
 }
 
 /** An import's record of `count` active cards, unless overridden. */
@@ -103,7 +110,7 @@ export function testImportRecord(
       id: `legend-card${index}`,
       name: `Card ${index}`,
       status: 'active' as const,
-      dmOnly: false,
+      isInLibrary: true,
     })),
     public: true,
     by: null,

@@ -280,6 +280,61 @@ describe('drawing under the real rules', () => {
   })
 })
 
+describe('the behavior flags in draws under the real rules', () => {
+  async function seed(card: Card) {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(firestoreOf(admin), `cards/${card.id}`), storedCard(card))
+    })
+  }
+  const cursedDraw = () =>
+    drawCard(as('ayla'), {
+      kind: 'cursed',
+      uid: 'ayla',
+      by: 'ayla',
+      paid: false,
+      filters: null,
+      candidates: [{ ...VISIONS, isRepeatable: false }],
+    })
+
+  it('gives a Cursed card with one copy its holder through a Cursed draw, then has nothing left', async () => {
+    await seed({ ...VISIONS, isRepeatable: false })
+    const result = await cursedDraw()
+
+    expect(await stored(`cards/${VISIONS.id}`)).toMatchObject({
+      holder: { uid: 'ayla', userCardId: result.holdingId },
+    })
+    expect(toDrawFailure(await failureOf(cursedDraw()))).toEqual({ kind: 'nothing-to-draw' })
+  })
+
+  it('draws a card with "Elde etkili" active', async () => {
+    await seed({ ...EYES, hasHeldEffect: true })
+    const result = await aylaDraws([{ ...EYES, hasHeldEffect: true }])
+    expect(await stored(`userCards/${result.holdingId}`)).toMatchObject({ active: true })
+  })
+
+  it('treats a card whose draw flag went off as gone, and charges nothing', async () => {
+    await seed({ ...EYES, isInDraws: false })
+    expect(toDrawFailure(await failureOf(aylaDraws([EYES])))).toEqual({ kind: 'nothing-to-draw' })
+    expect(await stored('users/ayla')).toMatchObject({ lp: 3 })
+  })
+
+  it('draws a repeatable normal card into two hands without a holder', async () => {
+    const shared = { ...EYES, isRepeatable: true }
+    await seed(shared)
+    await aylaDraws([shared])
+    await drawCard(as('dana'), {
+      kind: 'random',
+      uid: 'bora',
+      by: 'dana',
+      paid: false,
+      filters: null,
+      candidates: [shared],
+    })
+    expect(await stored(`cards/${EYES.id}`)).not.toHaveProperty('holder')
+    expect(await all('userCards')).toHaveLength(2)
+  })
+})
+
 describe('drawing while a pack is open', () => {
   it('fails as table-busy and changes nothing', async () => {
     await testEnv.withSecurityRulesDisabled(async (admin) => {

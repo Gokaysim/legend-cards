@@ -1,33 +1,30 @@
 import { type ReactNode, useMemo } from 'react'
 
 import { useAuth } from '@/features/auth/authContext'
-import { useCurrentProfile } from '@/features/users/usersContext'
+import { useWords } from '@/features/cards/cardsContext'
+import { setHoldingCost, setHoldingNote } from '@/features/hands/api'
+import { useOpenWordHoldings } from '@/features/hands/holdingsContext'
 import { db } from '@/lib/firebase/firestore'
 import { useCollection } from '@/lib/firestore/useCollection'
 
 import {
   cancelDraft,
-  knownWordsQuery,
   learnWord,
   openDraftsQuery,
-  playerVisibleWordsQuery,
+  recordWordUse,
   setWordActive,
   skipDraft,
   startDraft,
-  recordWordUse,
   takeBackWord,
   teachWord,
-  trueWordsRef,
 } from './api'
+import { learnedWordOf } from './schema'
 import {
   type TrueWordActions,
   TrueWordsContext,
   type TrueWordsContextValue,
 } from './trueWordsContext'
 
-const allWords = trueWordsRef(db)
-const playerWords = playerVisibleWordsQuery(db)
-const knownWords = knownWordsQuery(db)
 const openDrafts = openDraftsQuery(db)
 
 const actions: TrueWordActions = {
@@ -38,32 +35,35 @@ const actions: TrueWordActions = {
   teachWord: (input) => teachWord(db, input),
   takeBackWord: (input) => takeBackWord(db, input),
   setActive: (recordId, active) => setWordActive(db, recordId, active),
+  setNote: (recordId, note) => setHoldingNote(db, recordId, note),
+  setCost: (recordId, cost) => setHoldingCost(db, recordId, cost),
   recordWordUse: (input) => recordWordUse(db, input),
 }
 
 /**
- * Shares the True Words in real time, with one subscription each for the whole app: the words this device reads, every
- * word someone knows now, and every open draft, plus the True Word steps bound to the app's Firestore. Each is small at
- * this table's scale. The role picks the words' query (design D3): the DM's device reads every word, drafts included,
- * and a player's device the active and retired ones; it waits for the profile. Signed out, it subscribes to nothing,
- * because the rules deny signed-out reads.
+ * Shares the True Words in real time (design D1, D5 of unify-cards-and-true-words): the words come from the one cards
+ * subscription (`useWords`), the known words from the open holdings of the kind `trueWord`, and the open drafts from a
+ * query on `draws`, plus the True Word steps bound to the app's Firestore. Mounted under `CardsProvider` and
+ * `HoldingsProvider`. Signed out, it subscribes to nothing, because the rules deny signed-out reads.
  */
 export function TrueWordsProvider({ children }: { children: ReactNode }) {
   const auth = useAuth()
-  const profile = useCurrentProfile()
-  const signedIn = auth.status === 'signedIn'
-  const wordSource =
-    !signedIn || profile.status === 'loading'
-      ? null
-      : profile.status === 'ready' && profile.data?.role === 'dm'
-        ? allWords
-        : playerWords
-  const wordList = useCollection(wordSource)
-  const known = useCollection(signedIn ? knownWords : null)
-  const drafts = useCollection(signedIn ? openDrafts : null)
+  const words = useWords()
+  const holdings = useOpenWordHoldings()
+  const drafts = useCollection(auth.status === 'signedIn' ? openDrafts : null)
+  const knownWords = useMemo(
+    () =>
+      holdings.status === 'ready'
+        ? {
+            ...holdings,
+            data: holdings.data.map(learnedWordOf),
+          }
+        : holdings,
+    [holdings],
+  )
   const value = useMemo<TrueWordsContextValue>(
-    () => ({ words: wordList, knownWords: known, openDrafts: drafts, actions }),
-    [wordList, known, drafts],
+    () => ({ words, knownWords, openDrafts: drafts, actions }),
+    [words, knownWords, drafts],
   )
   return <TrueWordsContext value={value}>{children}</TrueWordsContext>
 }

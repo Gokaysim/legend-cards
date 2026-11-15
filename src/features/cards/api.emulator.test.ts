@@ -6,6 +6,8 @@ import {
 import { doc, type Firestore, getDocs, setDoc, Timestamp } from 'firebase/firestore'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
+import { startingFlags } from '@/features/definitions/flags'
+
 import firestoreRules from '../../../firestore.rules?raw'
 import { cardsRef, playerVisibleCardsQuery } from './api'
 
@@ -26,7 +28,22 @@ const storedCard = (name: string, nameKey: string, status: 'active' | 'retired' 
   mechanicPack: null,
   text: 'Bad luck.',
   status,
+  ...startingFlags('cursed', ''),
 })
+
+/** A stored True Word: one definition among the cards (design D1 of unify-cards-and-true-words). */
+const storedWord = {
+  kind: 'trueWord',
+  name: 'Abyss',
+  nameKey: 'abyss',
+  setCode: null,
+  cost: '5',
+  rarity: null,
+  mechanicPack: null,
+  text: 'A random card is free.',
+  status: 'active',
+  ...startingFlags('trueWord', ''),
+}
 
 beforeAll(async () => {
   testEnv = await initializeTestEnvironment({
@@ -73,7 +90,6 @@ describe('reading the cards under the real rules', () => {
         holder: null,
         changeId: null,
         picture: null,
-        dmOnly: false,
       },
       {
         id: 'cursed-oldcurse',
@@ -81,8 +97,31 @@ describe('reading the cards under the real rules', () => {
         holder: null,
         changeId: null,
         picture: null,
-        dmOnly: false,
       },
+    ])
+  })
+
+  it("gives a player's query a card hidden from the list and a True Word, which hands need", async () => {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const db = firestoreOf(admin)
+      await setDoc(doc(db, 'cards/cursed-hex'), {
+        ...storedCard('Hex', 'hex', 'active'),
+        isInLibrary: false,
+      })
+      await setDoc(doc(db, 'cards/tw-abyss'), storedWord)
+    })
+    const snapshot = await getDocs(
+      playerVisibleCardsQuery(firestoreOf(testEnv.authenticatedContext('bob'))),
+    )
+    expect(
+      snapshot.docs.map((document) => {
+        const { id, kind, isInLibrary } = document.data()
+        return { id, kind, isInLibrary }
+      }),
+    ).toEqual([
+      { id: 'cursed-hex', kind: 'cursed', isInLibrary: false },
+      { id: 'cursed-oldcurse', kind: 'cursed', isInLibrary: true },
+      { id: 'tw-abyss', kind: 'trueWord', isInLibrary: true },
     ])
   })
 

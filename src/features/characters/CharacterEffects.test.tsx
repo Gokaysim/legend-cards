@@ -26,7 +26,7 @@ type Viewer = 'owner' | 'player' | 'dm'
 const OWNER = 'ayla'
 const devilsPride = testCursedCard("Devil's Pride", { text: 'Held: no Natural 20 [note].' })
 const nightOwl = testCard('Night Owl')
-const abyss = testTrueWord('Abyss', { text: 'Abyss word.' })
+const abyss = testTrueWord('Abyss', { text: 'Abyss word.', hasHeldEffect: true })
 
 function setup({
   viewer = 'owner',

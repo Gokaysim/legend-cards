@@ -47,7 +47,10 @@ export type DefinitionFormProps = {
   problems: readonly string[]
   /** The definition was deleted on another device while the form was open. */
   isGone?: boolean
-  /** "Kaydet" changes something that waits for an open pack, such as a card's DM-only flag. */
+  /**
+   * "Kaydet" changes something that waits for an open pack: a flag that moves the definition in or out of the pool
+   * (design D7 of unify-cards-and-true-words).
+   */
   saveWaitsForPack?: boolean
   /** Saves the fields; `publish` adds a new definition as active, or publishes a draft. */
   onSave: (publish: boolean) => Promise<unknown>
@@ -147,7 +150,7 @@ export function DefinitionForm({
         {isTableBusy ? (
           <p className="text-sm text-ink-muted">
             Bir Pack açık: yayınlama, kaldırma, geri alma ve silme seçim yapılana kadar bekler.
-            {saveWaitsForPack ? ' “Sadece DM verebilir” değişikliği de bekler.' : null}
+            {saveWaitsForPack ? ' Davranış bölümündeki bu değişiklik de bekler.' : null}
           </p>
         ) : null}
         {!isOnline ? (

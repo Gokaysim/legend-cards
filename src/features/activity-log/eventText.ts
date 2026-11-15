@@ -1,7 +1,7 @@
 import { formatAmount, formatDelta } from '@/features/balances/format'
 import type { DrawFilters } from '@/features/cards/pool'
 import type { SetName } from '@/features/cards/display'
-import { DM_ONLY_LABEL } from '@/features/cards/status'
+import { BEHAVIOR_FLAGS, flagLabel } from '@/features/definitions/flags'
 import { visibleText } from '@/features/cards/text'
 import type {
   CardSnapshot,
@@ -148,7 +148,7 @@ function draftSentence(draft: WordDraft, nameOf: NameOf): SentencePart[] {
       const learnedByDm = draft.closedBy !== null && draft.closedBy !== draft.uid
       return [
         `${into}True Word draft'ı açtı ve `,
-        card(draft.learned?.wordName ?? ''),
+        card(draft.learned?.cardName ?? ''),
         ` True Word'ünü öğrendi${learnedByDm ? ' (seçimi DM yaptı)' : ''} (${payment}).`,
       ]
     }
@@ -156,7 +156,12 @@ function draftSentence(draft: WordDraft, nameOf: NameOf): SentencePart[] {
 }
 
 const NONE = '—'
-const KIND_LABELS = { normal: 'Normal', blessed: 'Blessed', cursed: 'Cursed' } as const
+const KIND_LABELS = {
+  normal: 'Normal',
+  blessed: 'Blessed',
+  cursed: 'Cursed',
+  trueWord: 'True Word',
+} as const
 const CARD_RARITY_LABELS = { common: 'Common', rare: 'Rare' } as const
 
 /** The card fields a log line names, in the order the form shows them, with their Turkish labels. */
@@ -196,32 +201,33 @@ function pictureLine(before: string | null, after: string | null): string | null
 }
 
 /**
- * A card's DM-only flag turned on or off (spec: activity-log, "The DM-only flag in the log"): `null` when it stayed the
- * same, and always for a True Word, which has no flag.
+ * Each behavior flag turned on or off, in the form's order, with the form's label (spec: activity-log, "Behavior flags
+ * in the log"): "Kart çekmede çıkar: evet → hayır".
  */
-function dmOnlyLine(change: DefinitionStepRecord): string | null {
-  if (change.target !== 'card' || change.before === null || change.after === null) return null
-  if (change.before.dmOnly === change.after.dmOnly) return null
-  const shown = (dmOnly: boolean) => (dmOnly ? 'evet' : 'hayır')
-  return `${DM_ONLY_LABEL}: ${shown(change.before.dmOnly)} → ${shown(change.after.dmOnly)}`
+function flagLines(change: DefinitionStepRecord): string[] {
+  const { before, after } = change
+  if (before === null || after === null) return []
+  const shown = (on: boolean) => (on ? 'evet' : 'hayır')
+  return BEHAVIOR_FLAGS.filter((flag) => before[flag] !== after[flag]).map(
+    (flag) => `${flagLabel(flag, after.kind)}: ${shown(before[flag])} → ${shown(after[flag])}`,
+  )
 }
 
 /**
  * Each changed field as "Cost: 2 → 3" (spec: activity-log, "Definition changes are events"). A text is compared by its
  * visible part; when only the bracket text changed, the line says so and shows none of it ("Text changes in the log").
- * A change of the DM-only flag, then a picture change, come last.
+ * The behavior flags that changed, then a picture change, come last.
  */
 function changedLines(change: DefinitionStepRecord, setName: SetName): string[] {
   const { before, after } = change
   if (before === null || after === null) return []
   const fields = change.target === 'card' ? CARD_FIELDS : WORD_FIELDS
-  const extra = [dmOnlyLine(change), pictureLine(before.picture, after.picture)].filter(
-    (line) => line !== null,
-  )
-  const lines = fields.flatMap(([field, label]) => {
+  const picture = pictureLine(before.picture, after.picture)
+  const extra = [...flagLines(change), ...(picture === null ? [] : [picture])]
+  const lines = fields.flatMap(([field, label]: readonly [keyof CardSnapshot, string]) => {
     // Every field a log line names is text or empty.
-    const old = (before as Record<string, string | null>)[field] ?? null
-    const next = (after as Record<string, string | null>)[field] ?? null
+    const old = (before[field] as string | null) ?? null
+    const next = (after[field] as string | null) ?? null
     if (old === next) return []
     if (field === 'text') {
       const shownOld = visibleText(old ?? '')
@@ -251,7 +257,7 @@ function fieldLines(change: DefinitionStepRecord, setName: SetName): string[] {
   if (after === null) return []
   const text = visibleText(after.text) || NONE
   if (change.target === 'word') return [`Cost ${costLabel(after.cost)}`, text]
-  const cardAfter = after as CardSnapshot
+  const cardAfter = after
   const where =
     cardAfter.kind === 'normal'
       ? [
@@ -305,7 +311,8 @@ function definitionSentence(change: DefinitionStepRecord, setName: SetName): Eve
 
 /**
  * An import: "742 kart ekledi." or "3 taslak kart ekledi.", with the names it added. A picture import: "700 karta resim
- * ekledi.", "1 taslak True Word'e resim ekledi." or "1 DM'e özel karta resim ekledi.", with the names that got one.
+ * ekledi.", "1 taslak True Word'e resim ekledi." or "1 gizli karta resim ekledi." for definitions not listed for
+ * players, with the names that got one.
  */
 function importSentence(change: ImportRecord): EventSentence {
   const isWord = change.target === 'word'
@@ -313,7 +320,7 @@ function importSentence(change: ImportRecord): EventSentence {
     ? ''
     : change.items.every((item) => item.status === 'draft')
       ? 'taslak '
-      : `${DM_ONLY_LABEL} `
+      : 'gizli '
   const count = formatAmount(change.items.length)
   const sentence =
     change.what === 'pictures'
@@ -438,16 +445,19 @@ export function describeEvent(
         ],
         reason: null,
       }
-    case 'wordUsed': {
+    case 'wordUsed':
+    case 'keptUsed': {
       const { use } = event
-      // The DM's use of a player's word names the player; a free use shows no payment.
+      // The DM's use of a player's word or card names the player; a free use shows no payment. A card kept on use
+      // reads as any card's use (spec: activity-log, "A kept card's use is one event").
       const owner = event.by === use.uid ? '' : `${genitive(nameOf(use.uid))} `
       const payment = use.cost > 0 ? ` (${formatDelta(-use.cost)} LP)` : ''
+      const its = event.kind === 'wordUsed' ? " True Word'ünü" : ' kartını'
       return {
         parts: [
           owner,
-          card(use.wordName),
-          ` True Word'ünü${use.usedOn === null ? '' : ` ${use.usedOn} üzerinde`} kullandı${payment}.`,
+          card(use.cardName),
+          `${its}${use.usedOn === null ? '' : ` ${use.usedOn} üzerinde`} kullandı${payment}.`,
         ].filter((part) => part !== ''),
         reason: null,
       }

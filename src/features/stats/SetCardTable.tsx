@@ -82,7 +82,7 @@ function compareRows(a: SetCardRow, b: SetCardRow, sort: TableSort): number {
 /** "9 / 3": the packs that showed the card and those that gave it, or "—" for a card no pack may show. */
 function packsText(row: SetCardRow): string {
   const { card, stats } = row
-  const isNeverInPacks = card.status === 'draft' || card.dmOnly
+  const isNeverInPacks = card.status === 'draft' || (!card.isInSetPacks && !card.isInMechanicPacks)
   if (isNeverInPacks && stats.shown === 0 && stats.taken === 0) return NO_VALUE
   return `${stats.shown} / ${stats.taken}`
 }

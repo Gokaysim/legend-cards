@@ -244,14 +244,14 @@ describe('packStatus', () => {
     expect(packStatus(kesqer('standard'), cards).canOpen).toBe(false)
   })
 
-  it('never offers a DM-only card, and does not count one', () => {
-    const secret = { dmOnly: true }
+  it('never offers a card whose channels are off, and does not count one', () => {
+    const secret = { isInDraws: false, isInSetPacks: false, isInMechanicPacks: false }
     const cards = [
       ...cardsOf('K', 8),
       testCard('Secret Rare', { ...secret, rarity: 'rare' }),
       testCard('Secret Pandemonium', { ...secret, setCode: 'Pandemonium', rarity: 'rare' }),
       testBlessedCard('Secret Blessing', secret),
-      testCursedCard('Crown of Ash', secret),
+      testCursedCard('Crown of Ash', { isInDraws: false }),
       ...CURSED_DECK,
     ]
     expect(packStatus(kesqer('standard'), cards).canOpen).toBe(false)
@@ -264,11 +264,56 @@ describe('packStatus', () => {
       cursedGolden,
       ...packCatalog(cards).mechanicPacks,
     ]
+    const secrets = new Set([
+      'Secret Rare',
+      'Secret Pandemonium',
+      'Secret Blessing',
+      'Crown of Ash',
+    ])
     for (const def of defs) {
       const pools = packPools(def, cards)
       const offered = [...pools.cards, ...(pools.slot ?? []), ...(pools.cursed ?? [])]
-      expect(offered.filter((card) => card.dmOnly)).toEqual([])
+      expect(offered.filter((card) => secrets.has(card.name))).toEqual([])
     }
+  })
+
+  it('gives the set packs the cards with "Set paketlerinde çıkar" on, and counts only those', () => {
+    const kept = cardsOf('K', 9).map((card, index) =>
+      index < 2 ? { ...card, isInSetPacks: false as const } : card,
+    )
+    expect(packStatus(kesqer('standard'), kept).canOpen).toBe(false)
+    expect(packPools(kesqer('standard'), kept).cards).toHaveLength(7)
+    const mechanicOnly = testCard('Mechanic Only', { isInSetPacks: false })
+    expect(packPools(kesqer('standard'), [mechanicOnly]).cards).toEqual([])
+    const bloodOnly = testCard('Blood Only', {
+      isInSetPacks: false,
+      mechanicPack: 'Blood & Battle',
+    })
+    expect(packPools(bloodBattle, [bloodOnly]).cards).toHaveLength(1)
+  })
+
+  it("gives a one-pack set's packs its Rares and the Blessed cards with the set flag on", () => {
+    const rare = testCard('Pan Rare', { setCode: 'Pandemonium', rarity: 'rare' })
+    const setBlessing = testBlessedCard('Set Blessing', { isInMechanicPacks: false })
+    const mechanicBlessing = testBlessedCard('Mechanic Blessing', { isInSetPacks: false })
+    const pools = packPools(pandemonium('pandemonium'), [rare, setBlessing, mechanicBlessing])
+    expect(pools.cards.map((card) => card.name)).toEqual(['Pan Rare', 'Set Blessing'])
+  })
+
+  it('gives the Golden Packs the Rares and Blessed cards with "Mechanic paketlerinde çıkar" on', () => {
+    const rare = testCard('Golden Rare', { rarity: 'rare' })
+    const setOnlyRare = testCard('Set Rare', { rarity: 'rare', isInMechanicPacks: false })
+    const setBlessing = testBlessedCard('Set Blessing', { isInMechanicPacks: false })
+    const mechanicBlessing = testBlessedCard('Mechanic Blessing', { isInSetPacks: false })
+    const pools = packPools(golden, [rare, setOnlyRare, setBlessing, mechanicBlessing])
+    expect(pools.cards.map((card) => card.name)).toEqual(['Golden Rare', 'Mechanic Blessing'])
+  })
+
+  it('takes the Cursed slot from the Cursed Deck', () => {
+    const kept = testCursedCard('Kept Out', { isInDraws: false })
+    const one = testCursedCard('Where They Breed', { isRepeatable: false, ...held })
+    const pools = packPools(kesqer('cursed'), [...cardsOf('K', 5), kept, one, ...CURSED_DECK])
+    expect(pools.cursed).toEqual(CURSED_DECK)
   })
 
   it('opens a Premium Pack at 9 cards with 3 Rares, and not with 2', () => {

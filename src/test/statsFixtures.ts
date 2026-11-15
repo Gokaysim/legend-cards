@@ -81,6 +81,7 @@ export function abolethHistory(): CardRecords {
     chosen: { cardId: 'legend-a', cardName: 'A', cardKind: 'normal', holdingId: 'h-other' },
   })
   return {
+    uses: [],
     holdings: [
       testHolding(card, 'dana', in2026(10, 20, 19, 45), {
         id: 'h-dm',

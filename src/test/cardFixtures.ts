@@ -1,4 +1,15 @@
-import type { Card } from '@/features/cards/schema'
+import { type Card, startingFlagsOf } from '@/features/cards/schema'
+
+/**
+ * The four "where" flags off: a card only the DM gives ("Sadece DM verebilir"), hidden from players' lists. What a
+ * DM-only card was before the behavior flags.
+ */
+export const ONLY_FROM_DM = {
+  isInLibrary: false,
+  isInDraws: false,
+  isInSetPacks: false,
+  isInMechanicPacks: false,
+} as const
 
 /** A test key from a name: lowercase letters and digits only, like the import's `nameKey`. */
 const keyOf = (name: string) =>
@@ -25,7 +36,7 @@ export function testCard(
     status: 'active',
     changeId: null,
     picture: null,
-    dmOnly: false,
+    ...startingFlagsOf('normal', overrides.text ?? ''),
     holder: null,
     ...overrides,
   }
@@ -49,7 +60,7 @@ export function testBlessedCard(
     status: 'active',
     changeId: null,
     picture: null,
-    dmOnly: false,
+    ...startingFlagsOf('blessed', overrides.text ?? ''),
     holder: null,
     ...overrides,
   }
@@ -73,7 +84,7 @@ export function testCursedCard(
     status: 'active',
     changeId: null,
     picture: null,
-    dmOnly: false,
+    ...startingFlagsOf('cursed', overrides.text ?? ''),
     holder: null,
     ...overrides,
   }

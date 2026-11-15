@@ -6,8 +6,9 @@ import { testCard, testCursedCard } from '@/test/cardFixtures'
 import { ready } from '@/test/fixtures'
 import { testHolding } from '@/test/holdingFixtures'
 import { TestHoldingsProvider } from '@/test/TestHoldingsProvider'
+import { testTrueWord } from '@/test/trueWordFixtures'
 
-import { holdersOf, holdingsOf, useOpenHoldings } from './holdingsContext'
+import { holdersOf, holdingsOf, useOpenHoldings, useOpenWordHoldings } from './holdingsContext'
 
 const owl = testCard('Night Owl')
 const greedy = testCard('Greedy Hands')
@@ -70,13 +71,20 @@ describe('holdersOf', () => {
 })
 
 describe('useOpenHoldings', () => {
-  it('reads the open holdings from the provider', () => {
-    const holdings = ready([testHolding(owl, 'ayla', 1000)])
-    const wrapper = ({ children }: { children: ReactNode }) => (
-      <TestHoldingsProvider openHoldings={holdings}>{children}</TestHoldingsProvider>
-    )
+  const card = testHolding(owl, 'ayla', 1000)
+  const word = testHolding(testTrueWord('Abyss'), 'ayla', 2000, { id: 'h-abyss' })
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <TestHoldingsProvider openHoldings={ready([card, word])}>{children}</TestHoldingsProvider>
+  )
 
-    expect(renderHook(() => useOpenHoldings(), { wrapper }).result.current).toBe(holdings)
+  it('reads the open holdings of cards from the provider, leaving out the True Words', () => {
+    expect(renderHook(() => useOpenHoldings(), { wrapper }).result.current).toEqual(ready([card]))
+  })
+
+  it('reads the open holdings of True Words apart', () => {
+    expect(renderHook(() => useOpenWordHoldings(), { wrapper }).result.current).toEqual(
+      ready([word]),
+    )
   })
 
   it('fails outside a provider', () => {

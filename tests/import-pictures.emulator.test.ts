@@ -46,7 +46,7 @@ const DM_PICTURE = 'cards/legend-mirror/aaaaaaaaaa.webp'
 
 beforeEach(async () => {
   folder = await mkdtemp(join(tmpdir(), 'import-pictures-'))
-  for (const name of ['cards', 'trueWords', CHANGES_COLLECTION]) {
+  for (const name of ['cards', CHANGES_COLLECTION]) {
     await admin.db.recursiveDelete(admin.db.collection(name))
   }
   const [stored] = await admin.storage.bucket().getFiles()
@@ -67,9 +67,10 @@ beforeEach(async () => {
   await card('legend-bardsencore', "Bard's Encore", { status: 'draft' })
   await card('legend-oldcard', 'Old Card', { status: 'retired' })
   await card('cursed-hex', 'Hex')
+  // A True Word is a definition among the cards (design D1 of unify-cards-and-true-words).
   await admin.db
-    .doc('trueWords/tw-abyss')
-    .set({ name: 'Abyss', nameKey: 'abyss', status: 'active' })
+    .doc('cards/tw-abyss')
+    .set({ kind: 'trueWord', name: 'Abyss', nameKey: 'abyss', status: 'active' })
 })
 
 afterEach(async () => {
@@ -130,7 +131,7 @@ type PictureRecord = {
   what: string
   step: string
   by: null
-  items: { id: string; name: string; status: string; dmOnly: boolean }[]
+  items: { id: string; name: string; status: string; isInLibrary: boolean }[]
 }
 const records = async () =>
   (await admin.db.collection(CHANGES_COLLECTION).get()).docs.map(
@@ -163,7 +164,7 @@ describe('import-pictures', () => {
       cacheControl: 'public, max-age=31536000, immutable',
       contentDisposition: 'attachment; filename="legend-abolethseyes.webp"',
     })
-    expect(await pictureOf('trueWords/tw-abyss')).toMatch(/^words\/tw-abyss\/[0-9a-f]{10}\.webp$/)
+    expect(await pictureOf('cards/tw-abyss')).toMatch(/^words\/tw-abyss\/[0-9a-f]{10}\.webp$/)
 
     // The DM's picture and the DM's removal stay.
     expect(await pictureOf('cards/legend-mirror')).toBe(DM_PICTURE)
@@ -213,13 +214,13 @@ describe('import-pictures', () => {
     )
   })
 
-  it('names a DM-only card in a DM-only record of its own, never in the public one', async () => {
+  it('names a card hidden from the list in a DM-only record of its own, never in the public one', async () => {
     await admin.db.doc('cards/legend-thelastwish').set({
       kind: 'normal',
       name: 'The Last Wish',
       nameKey: 'thelastwish',
       status: 'active',
-      dmOnly: true,
+      isInLibrary: false,
     })
     await importPictures(await pngs(...FILES, 'thelastwish.png'))
 
@@ -235,7 +236,12 @@ describe('import-pictures', () => {
       expect.objectContaining({
         public: false,
         items: [
-          { id: 'legend-thelastwish', name: 'The Last Wish', status: 'active', dmOnly: true },
+          {
+            id: 'legend-thelastwish',
+            name: 'The Last Wish',
+            status: 'active',
+            isInLibrary: false,
+          },
         ],
       }),
     )
@@ -286,7 +292,7 @@ describe('import-pictures', () => {
     ]) {
       expect(await pictureOf(`cards/${id}`)).toMatch(/\.webp$/)
     }
-    expect(await pictureOf('trueWords/tw-abyss')).toMatch(/\.webp$/)
+    expect(await pictureOf('cards/tw-abyss')).toMatch(/\.webp$/)
   })
 
   it('keeps a picture given elsewhere meanwhile, and deletes its own upload', async () => {

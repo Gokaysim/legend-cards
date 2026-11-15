@@ -9,7 +9,7 @@ import type { Holding } from '@/features/hands/schema'
 import type { PackOpening } from '@/features/draws/schema'
 import type { CardSet } from '@/features/sets/schema'
 import { testPictureUrl } from '@/test/artFixtures'
-import { testCard } from '@/test/cardFixtures'
+import { ONLY_FROM_DM, testCard } from '@/test/cardFixtures'
 import { ready } from '@/test/fixtures'
 import { testHolding } from '@/test/holdingFixtures'
 import { testCardsOf, testPack } from '@/test/packFixtures'
@@ -22,7 +22,7 @@ const aboleth = testCard("Aboleth's Eyes")
 const gambit = testCard("Celal's Gambit", { cost: '2', text: 'A risky gambit.' })
 const heist = testCard("Hüssam's Heist")
 const draft = testCard("Kalisha's Multiclass", { status: 'draft' })
-const dmOnly = testCard("Dionus' Double Dose", { dmOnly: true, rarity: 'rare' })
+const dmOnly = testCard("Dionus' Double Dose", { ...ONLY_FROM_DM, rarity: 'rare' })
 
 type Options = {
   path?: string
@@ -49,7 +49,7 @@ function renderSet({
     sets: { sets: ready([...sets]) },
     cards: { cards: ready(cards) },
     holdings: { openHoldings: ready(openHoldings) },
-    stats: { records: ready({ holdings, draws: [], packs }) },
+    stats: { records: ready({ uses: [], holdings, draws: [], packs }) },
   })
 }
 
@@ -169,15 +169,13 @@ describe('the cards and tiles of a set', () => {
     view.unmount()
 
     renderSet({ cards, asDm: true })
-    expect(tileText('Kart')).toBe("Kart1221 taslak · 1 DM'e özel")
+    expect(tileText('Kart')).toBe('Kart1221 taslak · 1 🔒 DM')
     const rows = tableRows()
     expect(rows).toHaveLength(122)
     expect(rows.find((row) => row[0]?.startsWith('Kalisha'))?.[0]).toBe(
       "Kalisha's MulticlassTaslak",
     )
-    expect(rows.find((row) => row[0]?.startsWith('Dionus'))?.[0]).toBe(
-      "Dionus' Double DoseDM'e özel",
-    )
+    expect(rows.find((row) => row[0]?.startsWith('Dionus'))?.[0]).toBe("Dionus' Double Dose🔒 DM")
   })
 
   it('reads the tiles: pool, hands and the opened packs by type, leaving out a cancelled pack', () => {
@@ -222,6 +220,7 @@ describe('the cards and tiles of a set', () => {
 
 describe("the set's card table", () => {
   const records = () => ({
+    uses: [],
     holdings: [
       ...closedHoldings(jann, 4, 'used'),
       ...closedHoldings(aboleth, 2, 'used'),
@@ -329,6 +328,7 @@ describe("the set's card table", () => {
     const next = records()
     view.setStats({
       records: ready({
+        uses: [],
         holdings: [...next.holdings, holding],
         draws: [],
         packs: [...next.packs, chosen],

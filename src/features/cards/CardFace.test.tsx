@@ -96,12 +96,12 @@ describe('CardFace', () => {
 })
 
 describe("CardFace in the DM's library", () => {
-  it('marks a DM-only card "🔒 DM" when asked', () => {
+  it('marks a hidden card "🔒 DM" when asked', () => {
     const view = renderWithSets(
-      <CardFace card={testCard('The Last Wish', { dmOnly: true })} isDmOnlyMarked />,
+      <CardFace card={testCard('The Last Wish', { isInLibrary: false })} isHiddenMarked />,
     )
     expect(face('The Last Wish')).toHaveTextContent('🔒 DM')
-    view.rerender(<CardFace card={testCard('The Last Wish', { dmOnly: true })} />)
+    view.rerender(<CardFace card={testCard('The Last Wish', { isInLibrary: false })} />)
     expect(face('The Last Wish')).not.toHaveTextContent('🔒 DM')
   })
 })

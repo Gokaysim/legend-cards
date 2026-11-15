@@ -1,16 +1,20 @@
 import type { Timestamp } from 'firebase/firestore'
 
 import type { CardDraw, PackOpening } from '@/features/draws/schema'
-import type { Holding } from '@/features/hands/schema'
+import type { Holding, KeptUse } from '@/features/hands/schema'
 
 // What happened to one card, counted from the permanent records (spec: card-stats; design D5 of
 // add-card-and-set-stats). Pure: the records and the current time in, the tile values and the history rows out.
 
 export const DAY_MS = 24 * 60 * 60 * 1000
 
-/** A card's records: every holding of it, open and closed, and the packs that showed it. */
+/**
+ * A card's records: every holding of it, open and closed, every use of it while kept on use, and the packs that showed
+ * it.
+ */
 export type CardCountRecords = {
   holdings: readonly Holding[]
+  uses: readonly KeptUse[]
   packs: readonly PackOpening[]
 }
 
@@ -81,7 +85,8 @@ export function cardStats(cardId: string, records: CardCountRecords, now: number
   for (const holding of records.holdings) {
     if (holding.cardId !== cardId) continue
     stats.holdings += 1
-    if (holding.givenVia !== 'transfer') {
+    // A card never arrives from a True Word draft; only a True Word does, and words have no history page.
+    if (holding.givenVia !== 'transfer' && holding.givenVia !== 'draft') {
       stats.reached[holding.givenVia] += 1
       stats.reached.total += 1
     }
@@ -101,6 +106,15 @@ export function cardStats(cardId: string, records: CardCountRecords, now: number
     } else if (holding.returnReason === 'transferred') {
       stats.transferred += 1
     }
+  }
+  // A card kept on use counts each use from its record: the holding stays open (spec: card-stats, "Counting how a card
+  // left a hand").
+  for (const use of records.uses) {
+    if (use.cardId !== cardId) continue
+    const at = millisOr(use.at, now)
+    stats.used += 1
+    stats.lpPaid += use.cost
+    stats.lastUsedAt = Math.max(stats.lastUsedAt ?? at, at)
   }
   for (const pack of records.packs) {
     if (packShowed(pack, cardId)) stats.shown += 1
@@ -127,6 +141,8 @@ export type HistoryRow = { key: string; at: Timestamp | null } & (
   /** A pack's choice opened the holding: the chosen card, or a Cursed type's Cursed card. */
   | { kind: 'fromPack'; holding: Holding; pack: PackOpening | undefined }
   | { kind: 'used'; holding: Holding }
+  /** A use of a card kept on use: its holding stays open. */
+  | { kind: 'keptUsed'; use: KeptUse }
   | { kind: 'discarded'; holding: Holding }
   /** One row per transfer: the closed holding, and the receiver's holding when it was read. */
   | { kind: 'transferred'; holding: Holding; receiver: Holding | undefined }
@@ -137,6 +153,7 @@ export type HistoryRow = { key: string; at: Timestamp | null } & (
 /** At the same time, a holding's close comes above its give, and both above a pack that only showed the card. */
 const SAME_TIME_ORDER: Record<HistoryRow['kind'], number> = {
   used: 0,
+  keptUsed: 0,
   discarded: 0,
   transferred: 0,
   given: 1,
@@ -178,6 +195,11 @@ export function historyRows(cardId: string, records: CardRecords): HistoryRow[] 
         holding.transferredTo === null ? undefined : holdingsById.get(holding.transferredTo)
       rows.push({ ...closed, kind: 'transferred', holding, receiver })
     }
+  }
+
+  for (const use of records.uses) {
+    if (use.cardId !== cardId) continue
+    rows.push({ key: `${use.id}:used`, at: use.at, kind: 'keptUsed', use })
   }
 
   for (const pack of records.packs) {

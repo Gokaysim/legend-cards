@@ -65,8 +65,8 @@ export type CardTableProps = {
   statusText?: StatusText
   /** For the DM: an İşlem column with each card's "✎ Düzenle". */
   onEdit?: (card: Card) => void
-  /** For the DM: marks a DM-only card's row "🔒 DM" beside its name. */
-  marksDmOnly?: boolean
+  /** For the DM: marks "🔒 DM" beside its name the row of a card whose "Listede görünür" is off. */
+  marksHidden?: boolean
   /** In the Kart kütüphanesi and the Cursed Deck: each name links to the card's Kart geçmişi. */
   linksHistory?: boolean
 }
@@ -79,7 +79,7 @@ export function CardTable({
   onSort,
   statusText = () => null,
   onEdit,
-  marksDmOnly = false,
+  marksHidden = false,
   linksHistory = false,
 }: CardTableProps) {
   const columns = DECK_COLUMNS[deck].map((key) => COLUMNS[key])
@@ -148,7 +148,7 @@ export function CardTable({
                     ) : (
                       column.cell(card, statusText, setName)
                     )}
-                    {marksDmOnly && card.dmOnly ? (
+                    {marksHidden && !card.isInLibrary ? (
                       <span className="ml-2 rounded-full border border-ink-muted px-1.5 py-0.5 text-xs font-normal whitespace-nowrap text-ink-muted">
                         {DM_ONLY_MARK}
                       </span>

@@ -7,7 +7,7 @@ import { useIsTableBusy } from '@/features/table/tableContext'
 import { useIsDm } from '@/features/users/usersContext'
 import { useOnlineStatus } from '@/lib/useOnlineStatus'
 
-import { draftPaymentText, draftRefundText, draftSkipText } from './display'
+import { draftPaymentText, draftRefundText, draftSkipText, missingWord } from './display'
 import { toWordFailure, type WordFailure, wordFailureMessage } from './errors'
 import type { TrueWord, WordDraft } from './schema'
 import { TrueWordTile } from './TrueWordTile'
@@ -22,20 +22,6 @@ export type OpenDraftPanelProps = {
 }
 
 type Step = 'idle' | 'skip' | 'cancel'
-
-/** A shown word that is no longer in the list: drawn by its ID until the data says more. */
-function missingWord(id: string): TrueWord {
-  return {
-    id,
-    name: id,
-    nameKey: id,
-    cost: '?',
-    text: '',
-    status: 'retired',
-    changeId: null,
-    picture: null,
-  }
-}
 
 /**
  * An open True Word draft, live for everyone: its 3 words. The draft's player and the DM learn one ("Öğren") or skip

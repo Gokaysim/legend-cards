@@ -57,7 +57,7 @@ const draftRefund = { ...draftPayment, delta: 3, balanceAfter: 5, by: 'dm' }
 
 const usePayment = { ...drawEntry, delta: -2, balanceAfter: 3, source: 'use', drawId: 'holding-1' }
 
-const wordUsePayment = { ...drawEntry, delta: -5, source: 'wordUse', drawId: 'use-1' }
+const wordUsePayment = { ...drawEntry, delta: -5, source: 'keptUse', drawId: 'use-1' }
 
 const accepts = (entry: object) => ledgerEntrySchema.safeParse(entry).success
 

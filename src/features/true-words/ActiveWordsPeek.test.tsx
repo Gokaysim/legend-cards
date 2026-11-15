@@ -8,12 +8,13 @@ import { ready, testProfile } from '@/test/fixtures'
 import { renderApp } from '@/test/renderApp'
 import { testLearnedWord, testTrueWord } from '@/test/trueWordFixtures'
 
-const AID = testTrueWord('Aid', { picture: testPicturePath('word', 'tw-aid') })
+const AID = testTrueWord('Aid', { picture: testPicturePath('word', 'tw-aid'), hasHeldEffect: true })
 const ABYSS = testTrueWord('Abyss', {
+  hasHeldEffect: true,
   text: 'A random card is free.',
   picture: testPicturePath('word', 'tw-abyss'),
 })
-const BIND = testTrueWord('Bind', { text: 'Hold a creature in place.' })
+const BIND = testTrueWord('Bind', { text: 'Hold a creature in place.', hasHeldEffect: true })
 const WORDS = [AID, ABYSS, BIND]
 
 const ayla = testProfile({ id: 'ayla', displayName: 'Ayla' })
@@ -73,6 +74,21 @@ describe('the active True Words above the hand', () => {
       words: ready(WORDS),
       knownWords: ready([
         learned('r1', AID, 1000, false),
+        learned('r2', ABYSS, 2000, false),
+        learned('r3', BIND, 3000, true),
+      ]),
+    })
+
+    expect(peeking()).toEqual(['Bind: büyüt'])
+  })
+
+  it('hides an active word at once when the DM turns its "Elde etkili" off', () => {
+    const { setTrueWords } = renderHand()
+
+    setTrueWords({
+      words: ready([{ ...AID, hasHeldEffect: false }, ABYSS, BIND]),
+      knownWords: ready([
+        learned('r1', AID, 1000, true),
         learned('r2', ABYSS, 2000, false),
         learned('r3', BIND, 3000, true),
       ]),

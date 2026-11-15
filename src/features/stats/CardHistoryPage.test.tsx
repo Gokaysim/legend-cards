@@ -1,10 +1,10 @@
 import { screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
-import type { Card } from '@/features/cards/schema'
+import type { Card, Definition } from '@/features/cards/schema'
 import type { Holding } from '@/features/hands/schema'
 import type { CardRecords } from '@/features/stats/cardHistory'
-import { testCard, testCursedCard } from '@/test/cardFixtures'
+import { ONLY_FROM_DM, testCard, testCursedCard } from '@/test/cardFixtures'
 import { ready } from '@/test/fixtures'
 import { testHolding } from '@/test/holdingFixtures'
 import { renderApp } from '@/test/renderApp'
@@ -17,10 +17,11 @@ import {
   STATS_PROFILES,
 } from '@/test/statsFixtures'
 import type { Subscription } from '@/lib/firestore/subscription'
+import { testTrueWord } from '@/test/trueWordFixtures'
 
 const curse = testCursedCard('Abandon All Hope')
 const jann = testCard('Jann In A Bottle', { rarity: 'rare', cost: '0', holder: null })
-const wish = testCard('The Last Wish', { dmOnly: true })
+const wish = testCard('The Last Wish', { ...ONLY_FROM_DM })
 const draft = testCard("Kalisha's Multiclass", { status: 'draft' })
 const retired = testCard('Old Trick', { status: 'retired' })
 const CARDS = [ABOLETH, curse, jann, wish, draft, retired]
@@ -30,7 +31,7 @@ type Options = {
   asDm?: boolean
   records?: Subscription<CardRecords>
   openHoldings?: Holding[]
-  cards?: Card[]
+  cards?: Definition[]
 }
 
 function renderHistory({
@@ -61,6 +62,7 @@ describe('who opens a card page', () => {
       path: `/library/${wish.id}`,
       openHoldings: [testHolding(wish, 'bora', in2026(11, 10))],
       records: ready({
+        uses: [],
         holdings: [testHolding(wish, 'bora', in2026(11, 10))],
         draws: [],
         packs: [],
@@ -101,6 +103,18 @@ describe('who opens a card page', () => {
     expect(screen.getByText('Kart bulunamadı.')).toBeInTheDocument()
   })
 
+  it('says "Kart bulunamadı." for a True Word, even to the DM', () => {
+    const abyss = testTrueWord('Abyss')
+    renderHistory({ path: `/library/${abyss.id}`, asDm: true, cards: [...CARDS, abyss] })
+    expect(screen.getByText('Kart bulunamadı.')).toBeInTheDocument()
+  })
+
+  it('shows the DM a card only the DM gives, with its Durum "DM\'e özel"', () => {
+    renderHistory({ path: `/library/${wish.id}`, asDm: true })
+    expect(screen.getByRole('heading', { level: 1, name: 'The Last Wish' })).toBeInTheDocument()
+    expect(screen.getByText("DM'e özel")).toBeInTheDocument()
+  })
+
   it('does not show a Legend card under the Cursed Deck', () => {
     renderHistory({ path: `/cursed-deck/${ABOLETH.id}` })
     expect(screen.getByText('Kart bulunamadı.')).toBeInTheDocument()
@@ -127,7 +141,7 @@ describe('loading and errors', () => {
 
 describe('the card on its page', () => {
   it('shows a card in the pool with its face, heading, labels and pill', () => {
-    renderHistory({ records: ready({ holdings: [], draws: [], packs: [] }) })
+    renderHistory({ records: ready({ uses: [], holdings: [], draws: [], packs: [] }) })
     expect(screen.getByRole('article', { name: "Aboleth's Eyes" })).toBeInTheDocument()
     expect(screen.getByRole('heading', { level: 1, name: "Aboleth's Eyes" })).toBeInTheDocument()
     const labels = within(screen.getByRole('list', { name: 'Kart bilgileri' }))
@@ -203,7 +217,7 @@ describe('the stat tiles and the Geçmiş list', () => {
   })
 
   it('shows zeros and "Bu kart henüz kimsenin eline geçmedi." for a card never given', () => {
-    renderHistory({ records: ready({ holdings: [], draws: [], packs: [] }) })
+    renderHistory({ records: ready({ uses: [], holdings: [], draws: [], packs: [] }) })
     expect(tileText('Ele geçti')).toBe('Ele geçti0henüz yok')
     expect(tileText('Pakette göründü')).toBe('Pakette göründü0—')
     expect(tileText('Farklı oyuncu')).toBe('Farklı oyuncu0—')

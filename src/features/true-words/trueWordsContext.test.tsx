@@ -9,6 +9,7 @@ import { testLearnedWord, testTrueWord, testWordDraft } from '@/test/trueWordFix
 
 import {
   activeWordsSorted,
+  knownWordEntries,
   knownWordsOf,
   useKnownWords,
   useOpenDraft,
@@ -50,6 +51,26 @@ describe('knownWordsOf', () => {
       testLearnedWord('r2', aid, 'ayla'),
     ]
     expect(knownWordsOf(records, 'ayla').map((record) => record.id)).toEqual(['r2'])
+  })
+})
+
+describe('knownWordEntries', () => {
+  it('gives each record its word, active only while the word acts while held', () => {
+    const justice = testTrueWord('Justice', { hasHeldEffect: true })
+    const entries = knownWordEntries(
+      [
+        testLearnedWord('r1', justice, 'ayla', { active: true }),
+        testLearnedWord('r2', abyss, 'ayla', { active: true }),
+      ],
+      new Map([
+        [justice.id, justice],
+        [abyss.id, abyss],
+      ]),
+    )
+    expect(entries.map(({ word, record }) => [word.name, record.active])).toEqual([
+      ['Justice', true],
+      ['Abyss', false],
+    ])
   })
 })
 

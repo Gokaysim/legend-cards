@@ -1,30 +1,27 @@
 import type { LedgerEntry } from '@/features/balances/schema'
 import type { DefinitionStepRecord, ImportRecord } from '@/features/definitions/schema'
 import type { CardDraw, Draw, PackOpening } from '@/features/draws/schema'
-import type { Holding } from '@/features/hands/schema'
+import type { Holding, KeptUse } from '@/features/hands/schema'
 import type { SetChange } from '@/features/sets/schema'
-import type { LearnedWord, WordDraft, WordUse } from '@/features/true-words/schema'
+import { type LearnedWord, learnedWordOf, type WordDraft } from '@/features/true-words/schema'
 
 /** A server time, or `null` while it is pending in the local snapshot. */
 export type EventTime = Holding['givenAt']
 
 /**
- * The records the log is read from, each source newest first and limited to the same `n`: the holdings the DM gave
- * or transferred, by the time they were given; closed holdings, by the time they were closed; draws and pack
- * openings; the ledger's changes by hand; True Word drafts; the words the DM taught, by the time they were taught;
- * the words the DM took back, by the time they were taken back; True Word uses; the definition changes this device
- * may read; and the set changes. The holdings and entries of draws, packs and drafts, the entries of uses, and the
- * words learned from drafts, are not among them.
+ * The records the log is read from, each source newest first and limited to the same `n` (design D10 of
+ * unify-cards-and-true-words): the holdings the DM gave or transferred, the words the DM taught among them, by the time
+ * they were given; closed holdings, the words the DM took back among them, by the time they were closed; draws, pack
+ * openings and True Word drafts; the ledger's changes by hand; the uses of cards and words kept on use; the definition
+ * changes this device may read; and the set changes. The holdings and entries of draws, packs and drafts, the entries of
+ * uses, and the words learned from drafts, are not among them.
  */
 export type LogRecords = {
   given: readonly Holding[]
   closed: readonly Holding[]
   draws: readonly Draw[]
   entries: readonly LedgerEntry[]
-  drafts: readonly WordDraft[]
-  taught: readonly LearnedWord[]
-  takenBack: readonly LearnedWord[]
-  wordUses: readonly WordUse[]
+  uses: readonly KeptUse[]
   changes: readonly (DefinitionStepRecord | ImportRecord)[]
   /** Every user reads every set change (spec: activity-log, "Set changes are events"). */
   setChanges: readonly SetChange[]
@@ -36,10 +33,7 @@ export const EMPTY_LOG_RECORDS: LogRecords = {
   closed: [],
   draws: [],
   entries: [],
-  drafts: [],
-  taught: [],
-  takenBack: [],
-  wordUses: [],
+  uses: [],
   changes: [],
   setChanges: [],
 }
@@ -59,8 +53,8 @@ type EventBase = {
  * holding and its payment. A pack opening is one event for the pack, its holdings, its payment and its refund, at
  * the time it was opened; it changes as the pack goes on. A True Word draft is likewise one event for the draft, its
  * learned word, its payment and its refund. A word the DM teaches, and a word the DM takes back, are events too, and
- * so is each use of a word, with its payment. So is each definition change record: a DM step on a card or a word, or
- * an import's additions.
+ * so is each use of a word or a card kept on use, with its payment. So is each definition change record: a DM step on a
+ * card or a word, or an import's additions.
  */
 export type LogEvent =
   | (EventBase & { kind: 'given' | 'used' | 'discarded'; holding: Holding })
@@ -78,7 +72,7 @@ export type LogEvent =
   | (EventBase & { kind: 'balance'; entry: LedgerEntry })
   | (EventBase & { kind: 'wordDraft'; draft: WordDraft })
   | (EventBase & { kind: 'wordTaught' | 'wordTakenBack'; record: LearnedWord })
-  | (EventBase & { kind: 'wordUsed'; use: WordUse })
+  | (EventBase & { kind: 'wordUsed' | 'keptUsed'; use: KeptUse })
   | (EventBase & { kind: 'definition'; change: DefinitionStepRecord })
   | (EventBase & { kind: 'import'; change: ImportRecord })
   | (EventBase & { kind: 'set'; change: SetChange })
@@ -131,7 +125,10 @@ export function deriveEvents(records: LogRecords): LogEvent[] {
 
   for (const holding of records.given) {
     if (holding.givenVia === 'transfer') addTransfer(null, holding)
-    else {
+    else if (holding.cardKind === 'trueWord') {
+      // A True Word the DM taught (design D10 of unify-cards-and-true-words): never a card given.
+      addWordEvent(events, 'wordTaught', learnedWordOf(holding))
+    } else {
       events.set(`given:${holding.id}`, {
         kind: 'given',
         key: `given:${holding.id}`,
@@ -144,7 +141,10 @@ export function deriveEvents(records: LogRecords): LogEvent[] {
   for (const holding of records.closed) {
     const reason = holding.returnReason
     if (reason === 'transferred') addTransfer(holding, null)
-    else if (reason !== null) {
+    else if (holding.cardKind === 'trueWord') {
+      // A True Word's holding closes only when the DM takes the word back.
+      if (reason === 'discarded') addWordEvent(events, 'wordTakenBack', learnedWordOf(holding))
+    } else if (reason !== null) {
       events.set(`${reason}:${holding.id}`, {
         kind: reason,
         key: `${reason}:${holding.id}`,
@@ -166,36 +166,10 @@ export function deriveEvents(records: LogRecords): LogEvent[] {
       entry,
     })
   }
-  for (const draft of records.drafts) {
-    events.set(`wordDraft:${draft.id}`, {
-      kind: 'wordDraft',
-      key: `wordDraft:${draft.id}`,
-      at: draft.at,
-      by: draft.by,
-      draft,
-    })
-  }
-  for (const record of records.taught) {
-    events.set(`wordTaught:${record.id}`, {
-      kind: 'wordTaught',
-      key: `wordTaught:${record.id}`,
-      at: record.learnedAt,
-      by: record.learnedBy,
-      record,
-    })
-  }
-  for (const record of records.takenBack) {
-    events.set(`wordTakenBack:${record.id}`, {
-      kind: 'wordTakenBack',
-      key: `wordTakenBack:${record.id}`,
-      at: record.removedAt,
-      by: record.removedBy ?? record.learnedBy,
-      record,
-    })
-  }
-  for (const use of records.wordUses) {
-    const key = `wordUsed:${use.id}`
-    events.set(key, { kind: 'wordUsed', key, at: use.at, by: use.by, use })
+  for (const use of records.uses) {
+    const kind = use.cardKind === 'trueWord' ? 'wordUsed' : 'keptUsed'
+    const key = `${kind}:${use.id}`
+    events.set(key, { kind, key, at: use.at, by: use.by, use })
   }
   for (const change of records.changes) {
     const key = `definition:${change.id}`
@@ -213,11 +187,38 @@ export function deriveEvents(records: LogRecords): LogEvent[] {
   return [...events.values()]
 }
 
-/** A draw's event, or a pack opening's, at the time it was drawn or opened. */
+/** A word the DM taught, by the time it was taught, or took back, by the time it was taken back. */
+function addWordEvent(
+  events: Map<string, LogEvent>,
+  kind: 'wordTaught' | 'wordTakenBack',
+  record: LearnedWord,
+) {
+  const key = `${kind}:${record.id}`
+  events.set(key, {
+    kind,
+    key,
+    at: kind === 'wordTaught' ? record.learnedAt : record.removedAt,
+    by: kind === 'wordTaught' ? record.learnedBy : (record.removedBy ?? record.learnedBy),
+    record,
+  })
+}
+
+/** A draw's event, a pack opening's, or a True Word draft's, at the time it was drawn, opened or started. */
 function eventOfDraw(draw: Draw): LogEvent {
-  return draw.kind === 'pack'
-    ? { kind: 'pack', key: `pack:${draw.id}`, at: draw.at, by: draw.by, pack: draw }
-    : { kind: 'drawn', key: `drawn:${draw.id}`, at: draw.at, by: draw.by, draw }
+  switch (draw.kind) {
+    case 'pack':
+      return { kind: 'pack', key: `pack:${draw.id}`, at: draw.at, by: draw.by, pack: draw }
+    case 'wordDraft':
+      return {
+        kind: 'wordDraft',
+        key: `wordDraft:${draw.id}`,
+        at: draw.at,
+        by: draw.by,
+        draft: draw,
+      }
+    default:
+      return { kind: 'drawn', key: `drawn:${draw.id}`, at: draw.at, by: draw.by, draw }
+  }
 }
 
 /**
@@ -235,10 +236,7 @@ export function newestEvents(
     records.closed.length >= limit ||
     records.draws.length >= limit ||
     records.entries.length >= limit ||
-    records.drafts.length >= limit ||
-    records.taught.length >= limit ||
-    records.takenBack.length >= limit ||
-    records.wordUses.length >= limit ||
+    records.uses.length >= limit ||
     records.changes.length >= limit ||
     records.setChanges.length >= limit
   return { events: events.slice(0, limit), mayHaveMore }

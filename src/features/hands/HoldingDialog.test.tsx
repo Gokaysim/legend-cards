@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Card } from '@/features/cards/schema'
 import type { Character } from '@/features/characters/schema'
 import { testPicturePath } from '@/test/artFixtures'
-import { testCard, testCursedCard } from '@/test/cardFixtures'
+import { ONLY_FROM_DM, testCard, testCursedCard } from '@/test/cardFixtures'
 import { testCharacter } from '@/test/characterFixtures'
 import { ready, testProfile, testUser } from '@/test/fixtures'
 import { testHolding } from '@/test/holdingFixtures'
@@ -27,7 +27,8 @@ const dm = testProfile({ role: 'dm' })
 const ayla = testProfile({ id: 'ayla', displayName: 'Ayla', lp: 4 })
 const bora = testProfile({ id: 'bora', displayName: 'Bora' })
 
-const owl: Card = testCard('Night Owl', { cost: '3' })
+/** A card with a held effect, so the DM has its active switch. */
+const owl: Card = testCard('Night Owl', { cost: '3', hasHeldEffect: true })
 
 /** The api functions as test doubles. */
 function fakeActions() {
@@ -317,7 +318,7 @@ describe.each(HOSTS)('the card details in $name', (current) => {
     it("opens a held DM-only card's Kart geçmişi for another player", async () => {
       const { user } = await openDetails({
         handOf: bora,
-        card: testCard('Night Owl', { cost: '3', dmOnly: true }),
+        card: testCard('Night Owl', { cost: '3', ...ONLY_FROM_DM }),
       })
 
       await user.click(details().getByRole('link', { name: 'Kart geçmişi →' }))
@@ -737,6 +738,43 @@ describe.each(HOSTS)('the card details in $name', (current) => {
         'Bu karakter artık seçilemiyor.',
       )
       expect(host.isClosed()).toBe(false)
+    })
+
+    it('offers no effect for a card without "Kullanınca efekt bırakır", and sends none', async () => {
+      const { user, actions } = await openDetails({
+        card: { ...owl, hasUseEffect: false },
+        characters: CHARACTERS,
+      })
+
+      await user.click(details().getByRole('button', { name: 'Kullan' }))
+      await user.selectOptions(picker(), 'Thorin')
+      expect(effectBox()).not.toBeInTheDocument()
+      await user.click(details().getByRole('button', { name: 'Kullanımı onayla (3 LP)' }))
+
+      expect(actions.closeHolding).toHaveBeenCalledWith(
+        expect.objectContaining({
+          target: { kind: 'character', characterId: thorin.id },
+          addEffect: false,
+        }),
+      )
+    })
+
+    it('uses a card kept on use twice, paying each time, and it stays in the hand', async () => {
+      const { user, actions } = await openDetails({ card: { ...owl, isKeptOnUse: true } })
+
+      for (const time of [1, 2]) {
+        if (time === 2) {
+          await user.click(screen.getByRole('button', { name: 'Night Owl: ayrıntılar' }))
+        }
+        await user.click(details().getByRole('button', { name: 'Kullan' }))
+        await user.click(details().getByRole('button', { name: 'Kullanımı onayla (3 LP)' }))
+      }
+
+      expect(actions.closeHolding).toHaveBeenCalledTimes(2)
+      expect(actions.closeHolding).toHaveBeenLastCalledWith(
+        expect.objectContaining({ holdingId: 'h1', reason: 'used', amount: 3 }),
+      )
+      expect(screen.getByRole('button', { name: 'Night Owl: ayrıntılar' })).toBeInTheDocument()
     })
   })
 

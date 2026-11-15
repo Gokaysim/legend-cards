@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
+import { testTrueWord } from '@/test/trueWordFixtures'
 import { testSetIndex, testSetName } from '@/test/setFixtures'
 
 import { matchesFilters } from './filters'
@@ -9,7 +10,14 @@ import {
   cursedPool,
   type DrawFilters,
   drawablePool,
-  isDrawable,
+  hasChannel,
+  inCursedDeck,
+  inMechanicPacks,
+  inRandomDraw,
+  inSetPacks,
+  inWordDraft,
+  isAvailable,
+  isInPool,
   NO_FILTERS,
   poolDistribution,
 } from './pool'
@@ -25,23 +33,24 @@ const retiredCursed = testCursedCard('Old Curse', { status: 'retired' })
 const draft = testCard('New Card', { status: 'draft' })
 const draftBlessed = testBlessedCard('New Blessing', { status: 'draft' })
 const draftCursed = testCursedCard('New Curse', { status: 'draft' })
-const dmOnly = testCard('The Last Wish', { dmOnly: true })
-const dmOnlyBlessed = testBlessedCard('Secret Blessing', { dmOnly: true })
-const dmOnlyCursed = testCursedCard('Crown of Ash', { dmOnly: true })
+const noChannels = { isInDraws: false, isInSetPacks: false, isInMechanicPacks: false }
+const dmOnly = testCard('The Last Wish', noChannels)
+const dmOnlyBlessed = testBlessedCard('Secret Blessing', noChannels)
+const dmOnlyCursed = testCursedCard('Crown of Ash', { isInDraws: false })
 
 const filtered = (filters: Partial<DrawFilters>) => (card: Card) =>
   matchesFilters(card, { ...NO_FILTERS, ...filters }, testSetIndex)
 
 describe('the pool', () => {
   it('holds the active normal cards without a holder and every active Blessed card', () => {
-    expect(isDrawable(pool)).toBe(true)
-    expect(isDrawable(blessed)).toBe(true)
-    expect(isDrawable(held)).toBe(false)
-    expect(isDrawable(retired)).toBe(false)
-    expect(isDrawable(retiredBlessed)).toBe(false)
-    expect(isDrawable(cursed)).toBe(false)
-    expect(isDrawable(draft)).toBe(false)
-    expect(isDrawable(draftBlessed)).toBe(false)
+    expect(inRandomDraw(pool)).toBe(true)
+    expect(inRandomDraw(blessed)).toBe(true)
+    expect(inRandomDraw(held)).toBe(false)
+    expect(inRandomDraw(retired)).toBe(false)
+    expect(inRandomDraw(retiredBlessed)).toBe(false)
+    expect(inRandomDraw(cursed)).toBe(false)
+    expect(inRandomDraw(draft)).toBe(false)
+    expect(inRandomDraw(draftBlessed)).toBe(false)
     const all = [
       pool,
       held,
@@ -56,20 +65,85 @@ describe('the pool', () => {
     expect(drawablePool(all)).toEqual([pool, blessed])
   })
 
-  it('keeps a Blessed card drawable while someone holds a copy', () => {
-    // Blessed cards never get a holder: their holdings leave the card alone.
+  it('keeps a repeatable card drawable while someone holds a copy', () => {
+    // Repeatable cards never get a holder: their holdings leave the card alone.
     expect(drawablePool([blessed, blessed])).toHaveLength(2)
+    expect(inRandomDraw(testCard('Lucky Coin', { isRepeatable: true }))).toBe(true)
   })
 
   it('gives the Cursed Deck its active Cursed cards', () => {
     expect(cursedPool([pool, blessed, cursed, retiredCursed, draftCursed])).toEqual([cursed])
   })
 
-  it('never holds a DM-only card, of any kind', () => {
-    expect(isDrawable(dmOnly)).toBe(false)
-    expect(isDrawable(dmOnlyBlessed)).toBe(false)
+  it('never gives a card whose channels are off, of any kind', () => {
+    expect(inRandomDraw(dmOnly)).toBe(false)
+    expect(inRandomDraw(dmOnlyBlessed)).toBe(false)
     expect(drawablePool([pool, dmOnly, blessed, dmOnlyBlessed])).toEqual([pool, blessed])
     expect(cursedPool([cursed, dmOnlyCursed])).toEqual([cursed])
+  })
+})
+
+describe('the flag matrix', () => {
+  const held1 = { holder: { uid: 'ayla', userCardId: 'h1' } }
+
+  it('makes a card available while active and not held as its one copy', () => {
+    expect(isAvailable(pool)).toBe(true)
+    expect(isAvailable(held)).toBe(false)
+    expect(isAvailable(retired)).toBe(false)
+    expect(isAvailable(draft)).toBe(false)
+    expect(isAvailable(blessed)).toBe(true)
+    expect(isAvailable(testBlessedCard('One Blessing', { isRepeatable: false, ...held1 }))).toBe(
+      false,
+    )
+    expect(isAvailable(testCursedCard('Where They Breed', { isRepeatable: false, ...held1 }))).toBe(
+      false,
+    )
+  })
+
+  it.each([
+    ['normal', pool],
+    ['Blessed', blessed],
+  ])('puts a %s card in each channel by its own flag', (_kind, card) => {
+    expect(inRandomDraw({ ...card, isInDraws: false })).toBe(false)
+    expect(inSetPacks(card)).toBe(true)
+    expect(inSetPacks({ ...card, isInSetPacks: false })).toBe(false)
+    expect(inMechanicPacks(card)).toBe(true)
+    expect(inMechanicPacks({ ...card, isInMechanicPacks: false })).toBe(false)
+    expect(inRandomDraw({ ...card, isInSetPacks: false, isInMechanicPacks: false })).toBe(true)
+    expect(inCursedDeck(card)).toBe(false)
+  })
+
+  it('keeps a Cursed card out of the draws and the packs, and in the Cursed Deck by its draw flag', () => {
+    expect(inCursedDeck(cursed)).toBe(true)
+    expect(inCursedDeck(dmOnlyCursed)).toBe(false)
+    expect(inRandomDraw(cursed)).toBe(false)
+    expect(inSetPacks(cursed)).toBe(false)
+    expect(inMechanicPacks(cursed)).toBe(false)
+  })
+
+  it('takes a Cursed card with one copy out of the deck while held', () => {
+    const one = testCursedCard('Where They Breed', { isRepeatable: false })
+    expect(inCursedDeck(one)).toBe(true)
+    expect(inCursedDeck({ ...one, ...held1 })).toBe(false)
+  })
+
+  it('puts a card in the pool with any channel, and a card with none is never in it', () => {
+    expect(hasChannel(pool)).toBe(true)
+    expect(hasChannel(dmOnly)).toBe(false)
+    expect(isInPool(pool)).toBe(true)
+    expect(isInPool(dmOnly)).toBe(false)
+    expect(isInPool(held)).toBe(false)
+    expect(isInPool({ ...pool, isInDraws: false })).toBe(true)
+    expect(isInPool(dmOnlyCursed)).toBe(false)
+  })
+
+  it('offers a True Word in a draft while active, flagged and not known', () => {
+    const abyss = testTrueWord('Abyss')
+    expect(inWordDraft(abyss, new Set())).toBe(true)
+    expect(inWordDraft(abyss, new Set([abyss.id]))).toBe(false)
+    expect(inWordDraft({ ...abyss, isInDraws: false }, new Set())).toBe(false)
+    expect(inWordDraft({ ...abyss, status: 'retired' }, new Set())).toBe(false)
+    expect(inWordDraft({ ...abyss, status: 'draft' }, new Set())).toBe(false)
   })
 })
 

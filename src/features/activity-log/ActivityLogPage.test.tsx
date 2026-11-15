@@ -12,7 +12,7 @@ import { ready, testProfile } from '@/test/fixtures'
 import { testHolding } from '@/test/holdingFixtures'
 import { testGpEntry, testLedgerEntry } from '@/test/ledgerFixtures'
 import { testPack } from '@/test/packFixtures'
-import { testLearnedWord, testTrueWord, testWordDraft, testWordUse } from '@/test/trueWordFixtures'
+import { testTrueWord, testWordDraft, testWordHolding, testWordUse } from '@/test/trueWordFixtures'
 import { renderApp } from '@/test/renderApp'
 import type { TestActivityLog } from '@/test/TestActivityLogProvider'
 import { testSetChange } from '@/test/setFixtures'
@@ -458,7 +458,7 @@ describe('True Words in the İşlem Logu', () => {
     status: 'learned',
     closedAt: on(8, 32),
     closedBy: 'ayla',
-    learned: { wordId: ABYSS.id, wordName: 'Abyss', recordId: 'r1' },
+    learned: { cardId: ABYSS.id, cardName: 'Abyss', holdingId: 'r1' },
   })
 
   function renderWordLog(logRecords: LogRecords) {
@@ -471,7 +471,7 @@ describe('True Words in the İşlem Logu', () => {
   }
 
   it('lists a learned draft as one event, before older events, with the words it showed', () => {
-    renderWordLog(records({ drafts: [learnedDraft], entries: [lpForBora] }))
+    renderWordLog(records({ draws: [learnedDraft], entries: [lpForBora] }))
 
     const [first, second] = rows()
     expect(first).toHaveTextContent(
@@ -493,7 +493,7 @@ describe('True Words in the İşlem Logu', () => {
       closedBy: 'dana',
       refundEntryId: 'e2',
     })
-    renderWordLog(records({ drafts: [open, cancelled] }))
+    renderWordLog(records({ draws: [open, cancelled] }))
 
     expect(rowTexts()[0]).toContain("True Word draft'ı açıyor (−3 LP).")
     expect(rowTexts()[1]).toContain(
@@ -502,13 +502,13 @@ describe('True Words in the İşlem Logu', () => {
   })
 
   it('lists the words the DM taught and took back', () => {
-    const record = testLearnedWord('r2', ABYSS, 'bora', { learnedAt: on(8, 10) })
-    renderWordLog(
-      records({
-        taught: [{ ...record, removedAt: on(8, 50), removedBy: 'dana' }],
-        takenBack: [{ ...record, removedAt: on(8, 50), removedBy: 'dana' }],
-      }),
-    )
+    const holding = testWordHolding('r2', ABYSS, 'bora', {
+      givenAt: on(8, 10),
+      returnedAt: on(8, 50),
+      returnedBy: 'dana',
+      returnReason: 'discarded',
+    })
+    renderWordLog(records({ given: [holding], closed: [holding] }))
 
     expect(rowTexts()[0]).toContain("Bora'dan Abyss True Word'ünü geri aldı.")
     expect(rowTexts()[1]).toContain("Bora'ya Abyss True Word'ünü öğretti.")
@@ -518,18 +518,14 @@ describe('True Words in the İşlem Logu', () => {
     const user = userEvent.setup()
     const aylaUse = testWordUse('u-ayla', ABYSS, 'ayla', { cost: 5, at: on(8, 40) })
     const boraUse = testWordUse('u-bora', WORDS[1]!, 'bora', { at: on(8, 45) })
-    const all = records({ wordUses: [boraUse, aylaUse], entries: [lpForBora] })
+    const all = records({ uses: [boraUse, aylaUse], entries: [lpForBora] })
     renderApp({
       path: '/log',
       users: { profiles: PROFILES },
       trueWords: { words: ready(WORDS) },
       activityLog: {
         records: (uid) =>
-          ready(
-            uid === null
-              ? all
-              : records({ wordUses: all.wordUses.filter((use) => use.uid === uid) }),
-          ),
+          ready(uid === null ? all : records({ uses: all.uses.filter((use) => use.uid === uid) })),
       },
     })
     expect(rowTexts()[0]).toContain("Aid True Word'ünü kullandı (−1 LP).")
@@ -570,8 +566,8 @@ describe('definition changes in the İşlem Logu', () => {
     expect(rows()[1]).not.toHaveTextContent('Yalnızca DM')
   })
 
-  it('marks work on a DM-only card as visible to the DM only, and a flag change as public', () => {
-    const wish = testCardSnapshot('The Last Wish', { dmOnly: true })
+  it('marks work on a card hidden from the list as visible to the DM only, and a flag change as public', () => {
+    const wish = testCardSnapshot('The Last Wish', { isInLibrary: false })
     const secretEdit = testCardChange(
       'c-wish',
       wish,
@@ -581,13 +577,13 @@ describe('definition changes in the İşlem Logu', () => {
     const flagOn = testCardChange(
       'c-flag',
       eyesBefore,
-      { ...eyesBefore, dmOnly: true },
+      { ...eyesBefore, isInLibrary: false },
       { at: on(8, 50) },
     )
     renderLog({ records: ready(records({ changes: [secretEdit, flagOn] })) })
     expect(rows()[0]).toHaveTextContent('The Last Wish kartını düzenledi.')
     expect(rows()[0]).toHaveTextContent('🔒 Yalnızca DM')
-    expect(rows()[1]).toHaveTextContent("DM'e özel: hayır → evet")
+    expect(rows()[1]).toHaveTextContent('Listede görünür: evet → hayır')
     expect(rows()[1]).not.toHaveTextContent('Yalnızca DM')
   })
 

@@ -16,7 +16,7 @@ const ayla = testProfile({ id: 'ayla', displayName: 'Ayla' })
 const dm = testProfile({ role: 'dm' })
 
 const owl = testCard('Night Owl', { cost: '3' })
-const oath = testCard('Old Oath', { cost: '1' })
+const oath = testCard('Old Oath', { cost: '1', hasHeldEffect: true })
 
 /** A `matchMedia` stand-in for the wide-window query whose answer can change, with its listeners. */
 function stubWindow(isWide: boolean) {

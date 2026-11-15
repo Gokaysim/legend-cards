@@ -8,6 +8,7 @@ import { renderApp } from '@/test/renderApp'
 import type { TestTrueWords } from '@/test/TestTrueWordsProvider'
 import { testLearnedWord, testTrueWord, testWordDraft } from '@/test/trueWordFixtures'
 
+import type { WordFields } from '@/features/definitions/api'
 import type { DefinitionActions } from '@/features/definitions/definitionsContext'
 
 import { WordError } from './errors'
@@ -240,13 +241,12 @@ describe("True Words screen: the DM's definitions", () => {
     const { user } = renderScreen({ viewer: dm, trueWords: { words: ready([...WORDS, ECHO]) } })
 
     expect(tileNames()).toEqual(['Abyss', 'Aid', 'Chaos', 'Dragon', 'Hoard'])
-    // True Words have no DM-only flag, so the filter offers no "DM'e özel".
     const filter = main().getByRole('combobox', { name: 'Durum' })
     expect(
       within(filter)
         .getAllByRole('option')
         .map((option) => option.textContent),
-    ).toEqual(['Yayında', 'Taslak', 'Kaldırıldı', 'Hepsi'])
+    ).toEqual(['Yayında', 'Taslak', 'Kaldırıldı', '🔒 DM', 'Hepsi'])
     await user.selectOptions(filter, 'draft')
 
     expect(tileNames()).toEqual(['Echo'])
@@ -279,7 +279,14 @@ describe("True Words screen: the DM's definitions", () => {
     expect(addWord).toHaveBeenCalledWith(
       expect.objectContaining({
         publish: true,
-        fields: { name: 'Lull', cost: '2', text: 'Quiet.' },
+        fields: expect.objectContaining({
+          name: 'Lull',
+          cost: '2',
+          text: 'Quiet.',
+          isInLibrary: true,
+          isInDraws: true,
+          hasHeldEffect: false,
+        }) as WordFields,
       }),
     )
   })

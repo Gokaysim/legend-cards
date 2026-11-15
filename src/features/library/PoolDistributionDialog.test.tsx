@@ -71,6 +71,18 @@ describe('the pool distribution', () => {
     expect(dialog().getByText('Common').closest('li')).toHaveTextContent('%71,4 (299)')
   })
 
+  it('counts only the cards with "Kart çekmede çıkar" on', async () => {
+    const { dialog } = await openDistribution([
+      testCard('Common', { setCode: 'Pentagon' }),
+      testCard('Not Drawn', { setCode: 'Pentagon', isInDraws: false }),
+      testCard('Shared', { setCode: 'Pentagon', isRepeatable: true }),
+    ])
+
+    expect(dialog().getByText(/Havuzda çekilebilecek/)).toHaveTextContent(
+      'Havuzda çekilebilecek 2 kart var.',
+    )
+  })
+
   it('says so when the pool is empty', async () => {
     const { dialog } = await openDistribution([
       testCard('Held', { holder: { uid: 'ayla', userCardId: 'h1' } }),

@@ -1,9 +1,10 @@
 import { Timestamp } from 'firebase/firestore'
 import { z } from 'zod'
 
-import { CARD_KINDS, CARD_LIMITS, RARITIES } from '@/features/cards/schema'
-import { TRUE_WORD_LIMITS } from '@/features/true-words/schema'
+import { CARD_LIMITS, RARITIES } from '@/features/cards/schema'
 import { createConverter } from '@/lib/firestore/converter'
+
+import { DEFINITION_KINDS } from './flags'
 
 import { picturePathSchema } from './picturePath'
 
@@ -38,22 +39,23 @@ export function stepFor(
   return null
 }
 
-/** What decides whether players see a definition: its status, and for a card whether it is DM-only. */
-export type VisibilityOf = { status: DefinitionStatus; dmOnly?: boolean }
+/** What decides whether players see a definition: its status and its "Listede görünür" flag. */
+export type VisibilityOf = { status: DefinitionStatus; isInLibrary: boolean }
 
-/** True when players see the definition: it is active or retired, and not a DM-only card. */
+/** True when players see the definition: it is active or retired, with "Listede görünür" on. */
 export function isPlayerVisible(definition: VisibilityOf | null): boolean {
   return (
     definition !== null &&
     (definition.status === 'active' || definition.status === 'retired') &&
-    definition.dmOnly !== true
+    definition.isInLibrary
   )
 }
 
 /**
  * True when players may read the step's record: the definition is visible to players before or after it (spec:
- * definition-editing, "Who reads the change records"). Work on a draft or on a DM-only card stays the DM's, also after
- * the definition becomes visible. Keep in step with `visibleSnapshot` in `firestore.rules`.
+ * definition-editing, "Who reads the change records"; design D7 of unify-cards-and-true-words). Work on a draft or on
+ * a definition not listed for players stays the DM's, also after the definition becomes visible. Keep in step with
+ * `visibleSnapshot` in `firestore.rules`.
  */
 export function isPublicStep(before: VisibilityOf | null, after: VisibilityOf | null): boolean {
   return isPlayerVisible(before) || isPlayerVisible(after)
@@ -70,9 +72,13 @@ const serverTime = z.instanceof(Timestamp).nullable()
  */
 const snapshotPicture = picturePathSchema.nullable().default(null)
 
-/** A card's definition at one moment: every field the definition steps change, and its status. */
+/**
+ * A definition's state at one moment, a card's or a True Word's (design D7 of unify-cards-and-true-words): every field
+ * the definition steps change, its status and its behavior flags. Keep in step with `cardSnapshot` in
+ * `firestore.rules`.
+ */
 export const cardSnapshotSchema = z.object({
-  kind: z.enum(CARD_KINDS),
+  kind: z.enum(DEFINITION_KINDS),
   name: z.string().min(1).max(CARD_LIMITS.name),
   nameKey: z.string().min(1),
   setCode: z.string().min(1).max(CARD_LIMITS.setCode).nullable(),
@@ -82,21 +88,19 @@ export const cardSnapshotSchema = z.object({
   text: z.string().max(CARD_LIMITS.text),
   status,
   picture: snapshotPicture,
-  /** Records from before DM-only cards have no field, which reads as `false`. */
-  dmOnly: z.boolean().default(false),
+  isInLibrary: z.boolean(),
+  isInDraws: z.boolean(),
+  isInSetPacks: z.boolean(),
+  isInMechanicPacks: z.boolean(),
+  isRepeatable: z.boolean(),
+  hasHeldEffect: z.boolean(),
+  hasUseEffect: z.boolean(),
+  isKeptOnUse: z.boolean(),
 })
 export type CardSnapshot = z.infer<typeof cardSnapshotSchema>
 
-/** A True Word's definition at one moment, with its status. */
-export const wordSnapshotSchema = z.object({
-  name: z.string().min(1).max(TRUE_WORD_LIMITS.name),
-  nameKey: z.string().min(1),
-  cost: z.string().min(1).max(TRUE_WORD_LIMITS.cost).nullable(),
-  text: z.string().max(TRUE_WORD_LIMITS.text),
-  status,
-  picture: snapshotPicture,
-})
-export type WordSnapshot = z.infer<typeof wordSnapshotSchema>
+/** A True Word's snapshot: a definition snapshot of the kind `trueWord`. */
+export type WordSnapshot = CardSnapshot
 
 /** The fields every DM step record has. */
 const stepFields = {
@@ -120,19 +124,16 @@ const cardStepSchema = z.object({
 const wordStepSchema = z.object({
   target: z.literal('word'),
   ...stepFields,
-  before: wordSnapshotSchema.nullable(),
-  after: wordSnapshotSchema.nullable(),
+  before: cardSnapshotSchema.nullable(),
+  after: cardSnapshotSchema.nullable(),
 })
 
-/**
- * One definition an import added, or gave a picture. A picture import marks a DM-only card; records from before DM-only
- * cards have no field, which reads as `false`.
- */
+/** One definition an import added, or gave a picture, with whether players see it in the lists. */
 export const importItemSchema = z.object({
   id,
   name: z.string().min(1),
   status,
-  dmOnly: z.boolean().default(false),
+  isInLibrary: z.boolean(),
 })
 export type ImportItem = z.infer<typeof importItemSchema>
 
@@ -159,14 +160,23 @@ const importRecordSchema = z.object({
   at: serverTime,
 })
 
-/** A step record whose step, visibility and name agree with its two snapshots. */
+/** A step record whose step, visibility and name agree with its two snapshots, and whose target names their kind. */
 function checkStep(
-  record: { step: DefinitionStep; public: boolean; name: string } & {
-    before: (VisibilityOf & { name: string }) | null
-    after: (VisibilityOf & { name: string }) | null
+  record: { target: DefinitionTarget; step: DefinitionStep; public: boolean; name: string } & {
+    before: (VisibilityOf & { name: string; kind: string }) | null
+    after: (VisibilityOf & { name: string; kind: string }) | null
   },
   ctx: z.RefinementCtx,
 ) {
+  for (const snapshot of [record.before, record.after]) {
+    if (snapshot !== null && (snapshot.kind === 'trueWord') !== (record.target === 'word')) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['target'],
+        message: 'A True Word is the target "word", and a card the target "card"',
+      })
+    }
+  }
   const before = record.before?.status ?? null
   const after = record.after?.status ?? null
   if (stepFor(before, after) !== record.step) {
@@ -196,10 +206,10 @@ export const definitionChangeSchema = z.union([
   importRecordSchema.superRefine((record, ctx) => {
     const isPublic = record.items.every(
       (item) =>
-        !item.dmOnly &&
+        item.isInLibrary &&
         (record.what === 'pictures' ? item.status !== 'draft' : item.status === 'active'),
     )
-    const isPrivate = record.items.every((item) => item.status === 'draft' || item.dmOnly)
+    const isPrivate = record.items.every((item) => item.status === 'draft' || !item.isInLibrary)
     if (record.public ? !isPublic : !isPrivate) {
       ctx.addIssue({
         code: 'custom',

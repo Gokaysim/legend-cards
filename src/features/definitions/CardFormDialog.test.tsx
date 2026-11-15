@@ -5,7 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Card } from '@/features/cards/schema'
 import type { CardSet } from '@/features/sets/schema'
 import { testPicturePath, testPictureUrl } from '@/test/artFixtures'
-import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
+import { startingFlags } from '@/features/definitions/flags'
+import { TABLE_BUSY_NOTE } from '@/features/table/errors'
+import { ONLY_FROM_DM, testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 import { ready, testUser } from '@/test/fixtures'
 import { TestArtProvider } from '@/test/TestArtProvider'
 import { TestAuthProvider } from '@/test/TestAuthProvider'
@@ -16,6 +18,7 @@ import { TestSetsProvider } from '@/test/TestSetsProvider'
 import { TestTableProvider } from '@/test/TestTableProvider'
 
 import type { CardFields } from './api'
+import { HELD_COPY_NOTE } from './BehaviorSection'
 import { CardFormDialog } from './CardFormDialog'
 import type { DefinitionActions } from './definitionsContext'
 import { DefinitionChangedError, PictureTypeError, PictureUnsupportedError } from './errors'
@@ -85,12 +88,12 @@ function setup({
     ...actions,
   }
   const onClose = vi.fn()
-  const tree = (current: Card[]) => (
+  const tree = (current: Card[], packId: string | null = openPackId) => (
     <TestAuthProvider state={{ status: 'signedIn', user: testUser }}>
       <TestArtProvider>
         <TestSetsProvider sets={ready([...sets])}>
           <TestCardsProvider cards={ready(current)}>
-            <TestTableProvider openPackId={openPackId}>
+            <TestTableProvider openPackId={packId}>
               <TestDefinitionsProvider actions={fakes}>
                 <CardFormDialog deck={deck} cardId={cardId} onClose={onClose} />
               </TestDefinitionsProvider>
@@ -101,7 +104,14 @@ function setup({
     </TestAuthProvider>
   )
   const view = render(tree(cards))
-  return { user, fakes, onClose, rerenderWith: (next: Card[]) => view.rerender(tree(next)) }
+  return {
+    user,
+    fakes,
+    onClose,
+    rerenderWith: (next: Card[]) => view.rerender(tree(next)),
+    /** The same cards, with `packId` open or no pack. */
+    rerenderPack: (packId: string | null) => view.rerender(tree(cards, packId)),
+  }
 }
 
 /** Matches the fields of a step that contain these values. */
@@ -134,21 +144,35 @@ describe('CardFormDialog: adding', () => {
           rarity: 'common',
           mechanicPack: null,
           text: '',
-          dmOnly: false,
+          ...startingFlags('normal', ''),
         },
       }),
     )
     expect(onClose).toHaveBeenCalled()
   })
 
-  it('adds a DM-only draft with "Sadece DM verebilir"', async () => {
+  it('adds a draft only the DM gives with "Sadece DM verebilir", and drops the note when a box is back on', async () => {
     const { user, fakes } = setup()
     await user.type(field('Kart adı'), 'The Last Wish')
-    await user.click(field(/Sadece DM verebilir/))
+    await user.click(button('Sadece DM verebilir'))
+
+    expect(dialog().getByText('Bu kartı yalnızca DM verebilir.')).toBeVisible()
+    expect(button('Sadece DM verebilir')).toBeDisabled()
+    for (const label of [
+      'Listede görünür',
+      'Kart çekmede çıkar',
+      'Set paketlerinde çıkar',
+      'Mechanic paketlerinde çıkar',
+    ]) {
+      expect(field(label)).not.toBeChecked()
+    }
+    await user.click(field('Listede görünür'))
+    expect(dialog().queryByText('Bu kartı yalnızca DM verebilir.')).toBeNull()
+    await user.click(field('Listede görünür'))
     await user.click(button('Kaydet'))
 
     expect(fakes.addCard).toHaveBeenCalledWith(
-      expect.objectContaining({ publish: false, fields: fieldsWith({ dmOnly: true }) }),
+      expect.objectContaining({ publish: false, fields: fieldsWith({ ...ONLY_FROM_DM }) }),
     )
   })
 
@@ -314,36 +338,89 @@ describe('CardFormDialog: editing', () => {
   it('waits for an open pack for status steps, but lets the DM fix a text', async () => {
     const { user, fakes } = setup({ cardId: eyes.id, openPackId: 'p-open' })
     expect(button('Kaldır')).toBeDisabled()
-    expect(dialog().getByText(/Bir Pack açık/)).toBeVisible()
+    expect(dialog().getByText(/Bir Pack açık: yayınlama, kaldırma/)).toBeVisible()
 
     await user.type(field('Metin'), ' More.')
     await user.click(button('Kaydet'))
     expect(fakes.saveCard).toHaveBeenCalled()
   })
 
-  it('marks an active card DM-only, and turns the flag off again', async () => {
+  it('shows a card only the DM gives with its note, and lists it again with one box', async () => {
     const { user, fakes } = setup({
       cardId: eyes.id,
-      cards: [...CARDS.filter((card) => card.id !== eyes.id), { ...eyes, dmOnly: true }],
+      cards: [...CARDS.filter((card) => card.id !== eyes.id), { ...eyes, ...ONLY_FROM_DM }],
     })
-    expect(field(/Sadece DM verebilir/)).toBeChecked()
-    await user.click(field(/Sadece DM verebilir/))
+    expect(dialog().getByText('Bu kartı yalnızca DM verebilir.')).toBeVisible()
+    await user.click(field('Listede görünür'))
     await user.click(button('Kaydet'))
 
     expect(fakes.saveCard).toHaveBeenCalledWith(
-      expect.objectContaining({ fields: fieldsWith({ dmOnly: false }) }),
+      expect.objectContaining({
+        fields: fieldsWith({ ...ONLY_FROM_DM, isInLibrary: true }),
+      }),
     )
   })
 
-  it('waits for an open pack to change the DM-only flag', async () => {
-    const { user } = setup({ cardId: eyes.id, openPackId: 'p-open' })
-    expect(field(/Sadece DM verebilir/)).not.toBeChecked()
-    await user.click(field(/Sadece DM verebilir/))
+  it('turns off a draw flag of an active card, as an edit', async () => {
+    const { user, fakes } = setup({ cardId: eyes.id })
+    await user.click(field('Kart çekmede çıkar'))
+    await user.click(button('Kaydet'))
+
+    expect(fakes.saveCard).toHaveBeenCalledWith(
+      expect.objectContaining({ publish: false, fields: fieldsWith({ isInDraws: false }) }),
+    )
+  })
+
+  it('greys out the pool flags while a pack is open, and still hides the card from the list', async () => {
+    const { user, fakes } = setup({ cardId: eyes.id, openPackId: 'p-open' })
+    for (const label of [
+      'Kart çekmede çıkar',
+      'Set paketlerinde çıkar',
+      'Mechanic paketlerinde çıkar',
+      'Birden fazla elde olabilir',
+    ]) {
+      expect(field(label)).toBeDisabled()
+      expect(field(label)).toHaveAccessibleDescription(TABLE_BUSY_NOTE)
+    }
+    expect(button('Sadece DM verebilir')).toBeDisabled()
+    expect(field('Elde etkili')).toBeEnabled()
+
+    await user.click(field('Listede görünür'))
+    await user.click(button('Kaydet'))
+    expect(fakes.saveCard).toHaveBeenCalledWith(
+      expect.objectContaining({ fields: fieldsWith({ isInLibrary: false }) }),
+    )
+  })
+
+  it('waits for an open pack to save a pool flag changed before it opened', async () => {
+    const { user, rerenderPack } = setup({ cardId: eyes.id })
+    await user.click(field('Kart çekmede çıkar'))
+    rerenderPack('p-open')
 
     expect(button('Kaydet')).toBeDisabled()
-    expect(dialog().getByText(/“Sadece DM verebilir” değişikliği de bekler/)).toBeVisible()
-    await user.click(field(/Sadece DM verebilir/))
-    expect(button('Kaydet')).toBeEnabled()
+    expect(dialog().getByText(/Davranış bölümündeki bu değişiklik de bekler/)).toBeVisible()
+  })
+
+  it("greys out 'Birden fazla elde olabilir' while someone holds the card's one copy", () => {
+    setup({
+      cardId: eyes.id,
+      cards: [
+        ...CARDS.filter((card) => card.id !== eyes.id),
+        { ...eyes, holder: { uid: 'bora', userCardId: 'h-bora' } },
+      ],
+    })
+    expect(field('Birden fazla elde olabilir')).toBeDisabled()
+    expect(field('Birden fazla elde olabilir')).toHaveAccessibleDescription(HELD_COPY_NOTE)
+  })
+
+  it('lets the DM turn off "Birden fazla elde olabilir" of a held Cursed card', async () => {
+    const { user, fakes } = setup({ deck: 'cursed', cardId: hex.id })
+    expect(field('Birden fazla elde olabilir')).toBeChecked()
+    await user.click(field('Birden fazla elde olabilir'))
+    await user.click(button('Kaydet'))
+    expect(fakes.saveCard).toHaveBeenCalledWith(
+      expect.objectContaining({ fields: fieldsWith({ isRepeatable: false }) }),
+    )
   })
 
   it('reloads a card that changed on another device, with a Turkish message', async () => {
@@ -371,6 +448,75 @@ describe('CardFormDialog: editing', () => {
     expect(button('Kaydet')).toBeDisabled()
     expect(button('Kaldır')).toBeDisabled()
     expect(button('Resim seç')).toBeDisabled()
+  })
+})
+
+describe('CardFormDialog: the Davranış section', () => {
+  const behavior = () => within(dialog().getByRole('group', { name: 'Davranış' }))
+  const boxes = () =>
+    behavior()
+      .getAllByRole('checkbox')
+      .map((box) => [box.closest('label')?.textContent, (box as HTMLInputElement).checked])
+
+  it("starts a new normal card with its kind's behavior, in two groups of eight boxes", () => {
+    setup()
+    expect(boxes()).toEqual([
+      ['Listede görünür', true],
+      ['Kart çekmede çıkar', true],
+      ['Set paketlerinde çıkar', true],
+      ['Mechanic paketlerinde çıkar', true],
+      ['Birden fazla elde olabilir', false],
+      ['Elde etkili', false],
+      ['Kullanınca efekt bırakır', true],
+      ['Kullanınca elde kalır', false],
+    ])
+    expect(behavior().getByRole('heading', { name: 'Görünürlük ve kanallar' })).toBeVisible()
+    expect(behavior().getByRole('heading', { name: 'Sahiplik ve etki' })).toBeVisible()
+  })
+
+  it('shows a Cursed card without pack boxes, its draw flag named after the Cursed Deck', () => {
+    setup({ deck: 'cursed' })
+    expect(boxes()).toEqual([
+      ['Listede görünür', true],
+      ["Cursed Deck'te çıkar", true],
+      ['Birden fazla elde olabilir', true],
+      ['Elde etkili', false],
+      ['Kullanınca efekt bırakır', true],
+      ['Kullanınca elde kalır', false],
+    ])
+  })
+
+  it('checks "Elde etkili" for a held text until the DM decides', async () => {
+    const { user } = setup()
+    await user.type(field('Metin'), 'Held: +1 AC.')
+    expect(field('Elde etkili')).toBeChecked()
+
+    await user.click(field('Elde etkili'))
+    await user.clear(field('Metin'))
+    await user.type(field('Metin'), 'Held: +2 AC.')
+    expect(field('Elde etkili')).not.toBeChecked()
+  })
+
+  it('does not follow the text of a stored card', async () => {
+    const { user } = setup({ cardId: eyes.id })
+    await user.clear(field('Metin'))
+    await user.type(field('Metin'), 'Held: +1 AC.')
+    expect(field('Elde etkili')).not.toBeChecked()
+  })
+
+  it('starts the flags over when a draft becomes Blessed', async () => {
+    const { user, fakes } = setup({ cardId: draft.id })
+    await user.click(field('Kart çekmede çıkar'))
+    await user.selectOptions(field('Tür'), 'blessed')
+
+    expect(field('Kart çekmede çıkar')).toBeChecked()
+    expect(field('Birden fazla elde olabilir')).toBeChecked()
+    await user.click(button('Kaydet'))
+    expect(fakes.saveCard).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fields: fieldsWith({ kind: 'blessed', isInDraws: true, isRepeatable: true }),
+      }),
+    )
   })
 })
 

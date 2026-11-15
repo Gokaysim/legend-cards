@@ -13,15 +13,21 @@ import {
 } from 'firebase/firestore'
 
 import { CARDS_COLLECTION } from '@/features/cards/api'
-import { type Card, type CardKind, isComplete, type Rarity } from '@/features/cards/schema'
+import {
+  type Card,
+  type CardKind,
+  isComplete,
+  isWordComplete,
+  type Rarity,
+  type TrueWord,
+} from '@/features/cards/schema'
 import { normalize } from '@/features/cards/text'
 import { explainDenial, tableRef } from '@/features/table/api'
 import { TableBusyError } from '@/features/table/errors'
 import { openPackIdOf } from '@/features/table/schema'
-import { TRUE_WORDS_COLLECTION } from '@/features/true-words/api'
-import { isWordComplete, type TrueWord } from '@/features/true-words/schema'
 
 import { DefinitionChangedError, IncompleteDefinitionError, NameTakenError } from './errors'
+import { BEHAVIOR_FLAGS, type BehaviorFlags, POOL_FLAGS, withFixedFlags } from './flags'
 import { picturePath, type PictureTarget } from './picturePath'
 import { NO_PICTURE_STORE, type PictureStore } from './pictureStore'
 import {
@@ -48,7 +54,10 @@ export function publicChangesQuery(db: Firestore): Query<DefinitionChange> {
   return query(definitionChangesRef(db), where('public', '==', true))
 }
 
-/** The fields the DM's card form edits. The normalized name and the status are derived from them and the step. */
+/**
+ * The fields the DM's card form edits, the behavior flags among them (spec: definition-editing, "Behavior flags"). The
+ * normalized name and the status are derived from them and the step. A stored card has every one of them.
+ */
 export type CardFields = {
   kind: CardKind
   name: string
@@ -57,12 +66,10 @@ export type CardFields = {
   rarity: Rarity | null
   mechanicPack: string | null
   text: string
-  /** "Sadece DM verebilir" (spec: "Setting the DM-only flag"). */
-  dmOnly: boolean
-}
+} & BehaviorFlags
 
-/** The fields the DM's True Word form edits. */
-export type WordFields = { name: string; cost: string | null; text: string }
+/** The fields the DM's True Word form edits, the behavior flags among them. A stored word has every one of them. */
+export type WordFields = { name: string; cost: string | null; text: string } & BehaviorFlags
 
 /** The deck a card kind belongs to, which is also the prefix of its ID. */
 export function deckOfKind(kind: CardKind): 'legend' | 'cursed' {
@@ -106,7 +113,8 @@ export function deleteRecordId(targetId: string, changeId: string): string {
   return `del-${targetId}-${changeId}`
 }
 
-const CARD_SNAPSHOT_KEYS = [
+/** Every field a snapshot keeps, a card's or a True Word's. Keep in step with `cardSnapshot` in `firestore.rules`. */
+const SNAPSHOT_KEYS = [
   'kind',
   'name',
   'nameKey',
@@ -117,22 +125,21 @@ const CARD_SNAPSHOT_KEYS = [
   'text',
   'status',
   'picture',
-  'dmOnly',
+  ...BEHAVIOR_FLAGS,
 ] as const satisfies readonly (keyof CardSnapshot)[]
-
-const WORD_SNAPSHOT_KEYS = [
-  'name',
-  'nameKey',
-  'cost',
-  'text',
-  'status',
-  'picture',
-] as const satisfies readonly (keyof WordSnapshot)[]
 
 /** What a definition's picture is in a snapshot: its path, or `null` for none (design D3). */
 type WithPicture = { status: DefinitionStatus; picture?: string | null }
 
-/** A card's definition and status, as a change record keeps it. */
+/** Only the flags of a definition or a form, with the values its kind fixes put back. */
+function flagsOf(kind: CardSnapshot['kind'], fields: BehaviorFlags): BehaviorFlags {
+  return withFixedFlags(
+    kind,
+    Object.fromEntries(BEHAVIOR_FLAGS.map((flag) => [flag, fields[flag]])) as BehaviorFlags,
+  )
+}
+
+/** A card's definition, status and flags, as a change record keeps it. */
 export function cardSnapshotOf(card: CardFields & WithPicture): CardSnapshot {
   return {
     kind: card.kind,
@@ -145,43 +152,43 @@ export function cardSnapshotOf(card: CardFields & WithPicture): CardSnapshot {
     text: card.text,
     status: card.status,
     picture: card.picture ?? null,
-    dmOnly: card.dmOnly,
+    ...flagsOf(card.kind, card),
   }
 }
 
-/** A word's definition and status, as a change record keeps it. */
+/** A word's definition, status and flags, as a change record keeps it: a definition of the kind `trueWord`. */
 export function wordSnapshotOf(word: WordFields & WithPicture): WordSnapshot {
   return {
+    kind: 'trueWord',
     name: word.name,
     nameKey: normalize(word.name),
+    setCode: null,
     cost: word.cost,
+    rarity: null,
+    mechanicPack: null,
     text: word.text,
     status: word.status,
     picture: word.picture ?? null,
+    ...flagsOf('trueWord', word),
   }
 }
-
-/** What a snapshot field reads as when the stored definition lacks it: `false` for `dmOnly`, else `null`. */
-const MISSING_VALUES: Readonly<Record<string, unknown>> = { dmOnly: false }
 
 /** The stored definition as a snapshot, with the stored `nameKey`; `null` when the document does not exist. */
 function storedSnapshot(
   data: DocumentData | undefined,
   keys: readonly string[],
 ): Record<string, unknown> | null {
-  return data === undefined
-    ? null
-    : Object.fromEntries(keys.map((key) => [key, data[key] ?? MISSING_VALUES[key] ?? null]))
+  return data === undefined ? null : Object.fromEntries(keys.map((key) => [key, data[key] ?? null]))
 }
 
-/** True when the step changes a card's DM-only flag, which changes the pool as a status step does (design D5). */
-function changesDmOnly(
-  before: CardSnapshot | WordSnapshot | null,
-  after: CardSnapshot | WordSnapshot | null,
-) {
-  const flag = (snapshot: CardSnapshot | WordSnapshot | null) =>
-    snapshot !== null && 'dmOnly' in snapshot ? snapshot.dmOnly : false
-  return before !== null && after !== null && flag(before) !== flag(after)
+/**
+ * True when the step changes a flag that moves cards in or out of the pool, so it waits for an open pack as a status
+ * step does (design D7 of unify-cards-and-true-words).
+ */
+function changesPoolFlags(before: CardSnapshot | null, after: CardSnapshot | null): boolean {
+  return (
+    before !== null && after !== null && POOL_FLAGS.some((flag) => before[flag] !== after[flag])
+  )
 }
 
 function sameSnapshot(a: Record<string, unknown> | null, b: Record<string, unknown> | null) {
@@ -198,9 +205,9 @@ type Step = {
   target: DefinitionTarget
   id: string
   /** The definition as the DM's form saw it, or `null` for a new one. */
-  before: CardSnapshot | WordSnapshot | null
+  before: CardSnapshot | null
   /** The definition after the step, or `null` for a delete. */
-  after: CardSnapshot | WordSnapshot | null
+  after: CardSnapshot | null
   /** The newest record of the definition before the step; a delete's record ID is fixed by it. */
   beforeChangeId: string | null
   /** The signed-in DM. */
@@ -209,14 +216,13 @@ type Step = {
 
 /**
  * Runs one definition step in a transaction, with its change record (design D4, D5, D8, D9): it refuses a definition
- * that changed since the form opened, waits for an open pack when the status or a card's DM-only flag changes, writes the definition (created,
- * updated or deleted), and records the step. Throws `DefinitionChangedError`, `NameTakenError` (a new ID that exists
- * meanwhile) and `TableBusyError`. Returns the record's ID.
+ * that changed since the form opened, waits for an open pack when the status or a pool flag changes, writes the
+ * definition (created, updated or deleted), and records the step. Cards and True Words are both in `cards` (design D1 of
+ * unify-cards-and-true-words). Throws `DefinitionChangedError`, `NameTakenError` (a new ID that exists meanwhile) and
+ * `TableBusyError`. Returns the record's ID.
  */
 async function runStep(db: Firestore, step: Step): Promise<string> {
-  const collectionName = step.target === 'card' ? CARDS_COLLECTION : TRUE_WORDS_COLLECTION
-  const keys = step.target === 'card' ? CARD_SNAPSHOT_KEYS : WORD_SNAPSHOT_KEYS
-  const definitionDoc = doc(db, collectionName, step.id)
+  const definitionDoc = doc(db, CARDS_COLLECTION, step.id)
   const changes = collection(db, DEFINITION_CHANGES_COLLECTION)
   const recordDoc =
     step.after === null
@@ -229,10 +235,10 @@ async function runStep(db: Firestore, step: Step): Promise<string> {
       const stored = (await transaction.get(definitionDoc)).data()
       if (step.before === null) {
         if (stored !== undefined) throw new NameTakenError()
-      } else if (!sameSnapshot(storedSnapshot(stored, keys), step.before)) {
+      } else if (!sameSnapshot(storedSnapshot(stored, SNAPSHOT_KEYS), step.before)) {
         throw new DefinitionChangedError()
       }
-      if (beforeStatus !== afterStatus || changesDmOnly(step.before, step.after)) {
+      if (beforeStatus !== afterStatus || changesPoolFlags(step.before, step.after)) {
         await ensureTableFree(transaction, db)
       }
 
@@ -242,14 +248,11 @@ async function runStep(db: Firestore, step: Step): Promise<string> {
         transaction.set(definitionDoc, {
           ...withoutUnchangedPicture(step.after, null),
           changeId: recordDoc.id,
-          ...(step.target === 'card' ? { holder: null } : {}),
+          holder: null,
         })
       } else {
         transaction.update(definitionDoc, {
-          ...withoutUnchangedFlag(
-            withoutUnchangedPicture(step.after, step.before.picture),
-            step.before,
-          ),
+          ...withoutUnchangedPicture(step.after, step.before.picture),
           changeId: recordDoc.id,
         })
       }
@@ -286,16 +289,6 @@ function withoutUnchangedPicture<T extends { picture: string | null }>(
 }
 
 /**
- * The definition to write, without a card's DM-only flag when it does not change: a card stored before the flag keeps
- * the field absent, so retiring or bringing it back changes nothing but its status, as the rules require.
- */
-function withoutUnchangedFlag<T extends object>(after: T, before: CardSnapshot | WordSnapshot): T {
-  if (!('dmOnly' in after) || !('dmOnly' in before) || after.dmOnly !== before.dmOnly) return after
-  const { dmOnly: _unchanged, ...rest } = after
-  return rest as T
-}
-
-/**
  * What a save does with the definition's picture (spec: definition-editing, "The picture in the forms"): keep it,
  * replace it with a prepared one (`preparePicture`), or remove it.
  */
@@ -321,7 +314,7 @@ async function forget(call: Promise<void>): Promise<void> {
 async function runPictureStep(
   db: Firestore,
   pictures: PictureStore,
-  step: Omit<Step, 'after'> & { after: CardSnapshot | WordSnapshot },
+  step: Omit<Step, 'after'> & { after: CardSnapshot },
   current: string | null,
   choice: PictureChoice,
 ): Promise<string> {
@@ -386,10 +379,12 @@ export async function addCard(
   pictures: PictureStore = NO_PICTURE_STORE,
 ): Promise<string> {
   const after = cardSnapshotOf({ ...input.fields, status: savedStatus(null, input.publish) })
-  const deck = deckOfKind(after.kind)
+  const deck = deckOfKind(input.fields.kind)
   const sameDeck = input.existing.filter((card) => deckOfKind(card.kind) === deck)
   if (isNameTaken(after.nameKey, sameDeck, null)) throw new NameTakenError()
-  if (after.status !== 'draft' && !isComplete(after)) throw new IncompleteDefinitionError()
+  if (after.status !== 'draft' && !isComplete({ ...after, kind: input.fields.kind })) {
+    throw new IncompleteDefinitionError()
+  }
   const id = newDefinitionId(deck, after.nameKey, new Set(input.existing.map((card) => card.id)))
   await runPictureStep(
     db,
@@ -432,7 +427,9 @@ export async function saveCard(
   const deck = deckOfKind(input.card.kind)
   const sameDeck = input.existing.filter((card) => deckOfKind(card.kind) === deck)
   if (isNameTaken(after.nameKey, sameDeck, input.card.id)) throw new NameTakenError()
-  if (after.status !== 'draft' && !isComplete(after)) throw new IncompleteDefinitionError()
+  if (after.status !== 'draft' && !isComplete({ ...after, kind: input.fields.kind })) {
+    throw new IncompleteDefinitionError()
+  }
   await runPictureStep(
     db,
     pictures,

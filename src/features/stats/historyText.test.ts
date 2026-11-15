@@ -1,7 +1,7 @@
 import { Timestamp } from 'firebase/firestore'
 import { describe, expect, it } from 'vitest'
 
-import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
+import { ONLY_FROM_DM, testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 import { testDmDraw, testDraw } from '@/test/drawFixtures'
 import { testHolding } from '@/test/holdingFixtures'
 import { testPack } from '@/test/packFixtures'
@@ -115,7 +115,7 @@ describe('describeHistoryRow', () => {
       'Kael üzerinde · 1 LP',
     )
     expect(wordsOf(row, { card: curse }).details).toBe('Kael üzerinde · 1 LP')
-    expect(wordsOf(row, { card: testCard('The Last Wish', { dmOnly: true }) }).details).toBe(
+    expect(wordsOf(row, { card: testCard('The Last Wish', { ...ONLY_FROM_DM }) }).details).toBe(
       'Kael üzerinde · 1 LP',
     )
   })

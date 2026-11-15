@@ -14,6 +14,8 @@ import {
 } from 'firebase/firestore'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
+import { type BehaviorFlags, startingFlags } from '@/features/definitions/flags'
+
 import firestoreRules from '../../../firestore.rules?raw'
 import {
   closeHolding,
@@ -46,7 +48,13 @@ const X_CARD = 'cursed-xcurse'
 /** Ayla's and Bora's LP before each test. */
 const LP = { ayla: 10, bora: 2 }
 
-const storedCard = (kind: 'normal' | 'cursed', name: string, cost = '3') => ({
+/** A stored active card with its kind's starting flags, unless overridden. */
+const storedCard = (
+  kind: 'normal' | 'cursed',
+  name: string,
+  cost = '3',
+  flags: Partial<BehaviorFlags> = {},
+) => ({
   kind,
   name,
   nameKey: name.toLowerCase().replace(/[^a-z0-9]/g, ''),
@@ -56,7 +64,28 @@ const storedCard = (kind: 'normal' | 'cursed', name: string, cost = '3') => ({
   mechanicPack: kind === 'normal' ? 'Arcanus Divine' : null,
   text: `${name} text.`,
   status: 'active',
+  ...startingFlags(kind, ''),
+  ...flags,
 })
+
+/** Stores a card as the admin, replacing the seeded one. */
+async function seedCard(id: string, card: ReturnType<typeof storedCard>) {
+  await testEnv.withSecurityRulesDisabled(async (admin) => {
+    await setDoc(doc(firestoreOf(admin), `cards/${id}`), card)
+  })
+}
+
+/** Every document of a collection, as the admin reads it. */
+async function all(path: string): Promise<Record<string, unknown>[]> {
+  let docs: Record<string, unknown>[] = []
+  await testEnv.withSecurityRulesDisabled(async (admin) => {
+    docs = (await getDocs(collection(firestoreOf(admin), path))).docs.map((entry) => ({
+      id: entry.id,
+      ...entry.data(),
+    }))
+  })
+  return docs
+}
 
 async function stored(path: string): Promise<Record<string, unknown> | undefined> {
   let data: Record<string, unknown> | undefined
@@ -416,6 +445,45 @@ describe('closing holdings under the real rules', () => {
       expect(await effects()).toEqual([])
     })
 
+    it('adds no effect for a card without "Kullanınca efekt bırakır"', async () => {
+      await seedThorin()
+      await seedCard(CURSED, storedCard('cursed', 'Visions of Death', '3', { hasUseEffect: false }))
+      const id = await giveCard(as('dana'), { cardId: CURSED, uid: 'ayla', by: 'dana' })
+
+      await closeHolding(as('ayla'), {
+        holdingId: id,
+        by: 'ayla',
+        reason: 'used',
+        target: { kind: 'character', characterId: THORIN },
+        addEffect: true,
+        amount: 3,
+      })
+
+      expect(await effects()).toEqual([])
+      expect(await stored(`userCards/${id}`)).toMatchObject({ usedOnCharacterId: THORIN })
+    })
+
+    it('adds the effect of a kept use from its use record', async () => {
+      await seedThorin()
+      await seedCard(POOL, storedCard('normal', "Aboleth's Eyes", '3', { isKeptOnUse: true }))
+      const id = await giveCard(as('dana'), { cardId: POOL, uid: 'ayla', by: 'dana' })
+
+      await closeHolding(as('ayla'), {
+        holdingId: id,
+        by: 'ayla',
+        reason: 'used',
+        target: { kind: 'character', characterId: THORIN },
+        addEffect: true,
+        amount: 3,
+      })
+
+      const [use] = await all('uses')
+      expect(use).toMatchObject({ holdingId: id, usedOn: 'Thorin', usedOnCharacterId: THORIN })
+      expect(await effects()).toEqual([
+        expect.objectContaining({ source: 'card', sourceId: use?.id, name: "Aboleth's Eyes" }),
+      ])
+    })
+
     it.each([
       ['archived', () => seedThorin({ archived: true })],
       ['missing', () => Promise.resolve()],
@@ -492,12 +560,104 @@ describe('closing holdings under the real rules', () => {
   })
 })
 
+describe('behavior flags in hands under the real rules', () => {
+  const HELD = 'legend-heldcard'
+
+  it('gives a card with "Elde etkili" active, and switches only such a card', async () => {
+    await seedCard(HELD, storedCard('normal', 'Held Card', '3', { hasHeldEffect: true }))
+    const held = await giveCard(as('dana'), { cardId: HELD, uid: 'ayla', by: 'dana' })
+    const plain = await giveCard(as('dana'), { cardId: POOL, uid: 'ayla', by: 'dana' })
+    expect(await stored(`userCards/${held}`)).toMatchObject({ active: true })
+    expect(await stored(`userCards/${plain}`)).toMatchObject({ active: false })
+
+    await setHoldingActive(as('dana'), held, false)
+    expect(await stored(`userCards/${held}`)).toMatchObject({ active: false })
+    expect(toHoldingFailure(await failureOf(setHoldingActive(as('dana'), plain, true)))).toEqual({
+      kind: 'permission-denied',
+    })
+  })
+
+  it('gives a repeatable normal card twice without a holder', async () => {
+    await seedCard(POOL, storedCard('normal', "Aboleth's Eyes", '3', { isRepeatable: true }))
+    await giveCard(as('dana'), { cardId: POOL, uid: 'ayla', by: 'dana' })
+    await giveCard(as('dana'), { cardId: POOL, uid: 'bora', by: 'dana' })
+    expect((await stored(`cards/${POOL}`))?.holder ?? null).toBeNull()
+  })
+
+  it('gives a Cursed card with one copy its holder, and releases it on a discard', async () => {
+    await seedCard(CURSED, storedCard('cursed', 'Visions of Death', '3', { isRepeatable: false }))
+    const id = await giveCard(as('dana'), { cardId: CURSED, uid: 'ayla', by: 'dana' })
+    expect(await stored(`cards/${CURSED}`)).toMatchObject({
+      holder: { uid: 'ayla', userCardId: id },
+    })
+    expect(
+      toHoldingFailure(
+        await failureOf(giveCard(as('dana'), { cardId: CURSED, uid: 'bora', by: 'dana' })),
+      ),
+    ).toEqual({ kind: 'taken', holderUid: 'ayla' })
+
+    await closeHolding(as('dana'), { holdingId: id, by: 'dana', reason: 'discarded' })
+    expect(await stored(`cards/${CURSED}`)).toMatchObject({ holder: null })
+  })
+
+  it('uses a card kept on use twice: two use records with their payments, and the card stays in the hand', async () => {
+    await seedCard(POOL, storedCard('normal', "Aboleth's Eyes", '3', { isKeptOnUse: true }))
+    const id = await giveCard(as('dana'), { cardId: POOL, uid: 'ayla', by: 'dana' })
+
+    await closeHolding(as('ayla'), { holdingId: id, by: 'ayla', reason: 'used', amount: 3 })
+    await closeHolding(as('ayla'), {
+      holdingId: id,
+      by: 'ayla',
+      reason: 'used',
+      target: { kind: 'typed', name: 'Goblin şefi' },
+      amount: 3,
+    })
+
+    expect(await stored(`userCards/${id}`)).toMatchObject({ returnedAt: null, returnReason: null })
+    expect(await stored(`cards/${POOL}`)).toMatchObject({ holder: { uid: 'ayla', userCardId: id } })
+    expect(await stored('users/ayla')).toMatchObject({ lp: LP.ayla - 6 })
+    const uses = await all('uses')
+    expect(uses).toHaveLength(2)
+    for (const use of uses) {
+      expect(use).toMatchObject({
+        uid: 'ayla',
+        cardId: POOL,
+        cardName: "Aboleth's Eyes",
+        cardKind: 'normal',
+        holdingId: id,
+        by: 'ayla',
+        cost: 3,
+      })
+      expect(await stored(`ledger/${String(use.entryId)}`)).toMatchObject({
+        source: 'keptUse',
+        delta: -3,
+        drawId: use.id,
+      })
+    }
+    expect(uses.map((use) => use.usedOn ?? null).sort()).toEqual(['Goblin şefi', null])
+  })
+
+  it('records a free kept use without a payment, and discards a kept card', async () => {
+    await seedCard(FREE, storedCard('cursed', 'Free Curse', '0', { isKeptOnUse: true }))
+    const id = await giveCard(as('dana'), { cardId: FREE, uid: 'ayla', by: 'dana' })
+
+    await closeHolding(as('ayla'), { holdingId: id, by: 'ayla', reason: 'used', amount: 0 })
+    expect(await all('uses')).toEqual([expect.objectContaining({ cost: 0, entryId: null })])
+    expect(await stored('users/ayla')).toMatchObject({ lp: LP.ayla })
+
+    await closeHolding(as('dana'), { holdingId: id, by: 'dana', reason: 'discarded' })
+    expect(await stored(`userCards/${id}`)).toMatchObject({ returnReason: 'discarded' })
+  })
+})
+
 describe('transferring holdings under the real rules', () => {
   it('keeps the note, the cost override and the active state, and moves the holder', async () => {
+    await seedCard(POOL, storedCard('normal', "Aboleth's Eyes", '3', { hasHeldEffect: true }))
     const id = await giveCard(as('dana'), { cardId: POOL, uid: 'ayla', by: 'dana' })
     await setHoldingNote(as('ayla'), id, 'Boss savaşında kullan')
     await setHoldingCost(as('dana'), id, ' 1 ')
-    await setHoldingActive(as('dana'), id, true)
+    // A held card starts active; the DM switched it off, and the transfer keeps that.
+    await setHoldingActive(as('dana'), id, false)
 
     const next = await transferHolding(as('dana'), { holdingId: id, toUid: 'bora', by: 'dana' })
 
@@ -514,7 +674,7 @@ describe('transferring holdings under the real rules', () => {
       transferredFrom: id,
       note: 'Boss savaşında kullan',
       costOverride: '1',
-      active: true,
+      active: false,
       returnedAt: null,
     })
     expect(await stored(`cards/${POOL}`)).toMatchObject({

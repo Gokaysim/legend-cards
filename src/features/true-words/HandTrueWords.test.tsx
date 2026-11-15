@@ -17,7 +17,7 @@ import { testLearnedWord, testTrueWord, testWordDraft } from '@/test/trueWordFix
 import type { TrueWordActions } from './trueWordsContext'
 
 const ABYSS = testTrueWord('Abyss', { cost: '5', text: 'A random card is free.' })
-const AID = testTrueWord('Aid', { text: 'Aid Another as a swift action.' })
+const AID = testTrueWord('Aid', { text: 'Aid Another as a swift action.', hasHeldEffect: true })
 const CHAOS = testTrueWord('Chaos')
 const DRAGON = testTrueWord('Dragon', { cost: 'X', text: 'Breathe fire.' })
 const OLD = testTrueWord('Old', { status: 'retired' })
@@ -209,7 +209,7 @@ describe('using a word', () => {
     table?: { openPackId: string | null }
     characters?: Character[]
   } = {}) {
-    const recordWordUse = vi.fn<TrueWordActions['recordWordUse']>(() => Promise.resolve('u-new'))
+    const recordWordUse = vi.fn<TrueWordActions['recordWordUse']>(() => Promise.resolve())
     const player = testProfile({ displayName: 'Gökay', lp })
     const view = renderApp({
       path: `/hands/${testUser.uid}?tab=true-words`,
@@ -275,7 +275,7 @@ describe('using a word', () => {
   })
 
   it("lets the DM use a player's word for free", async () => {
-    const recordWordUse = vi.fn<TrueWordActions['recordWordUse']>(() => Promise.resolve('u-new'))
+    const recordWordUse = vi.fn<TrueWordActions['recordWordUse']>(() => Promise.resolve())
     const { user } = renderTab({ viewer: dm, trueWords: { actions: { recordWordUse } } })
 
     await user.click(main().getByRole('button', { name: 'Abyss: ayrıntılar' }))
@@ -394,13 +394,28 @@ describe('using a word', () => {
 })
 
 describe("the DM's word controls", () => {
-  it('switches a word active, even while a pack is open', async () => {
-    const { user, actions } = renderTab({ viewer: dm, table: { openPackId: 'p1' } })
+  it('switches a word with a held effect active, even while a pack is open', async () => {
+    const heldAbyss = { ...ABYSS, hasHeldEffect: true }
+    const { user, actions } = renderTab({
+      viewer: dm,
+      table: { openPackId: 'p1' },
+      trueWords: { words: ready([heldAbyss, AID, CHAOS, DRAGON, OLD]) },
+    })
 
     await user.click(main().getByRole('button', { name: 'Abyss: ayrıntılar' }))
     await user.click(screen.getByRole('button', { name: 'Aktif et' }))
 
     expect(actions.setActive).toHaveBeenCalledWith('r2', true)
+  })
+
+  it('offers no switch for a word without a held effect', async () => {
+    const { user } = renderTab({ viewer: dm })
+
+    await user.click(main().getByRole('button', { name: 'Abyss: ayrıntılar' }))
+
+    const dialog = within(screen.getByRole('dialog', { name: '✦ Abyss' }))
+    expect(dialog.queryByRole('button', { name: 'Aktif et' })).toBeNull()
+    expect(dialog.queryByRole('button', { name: 'Pasif et' })).toBeNull()
   })
 
   it('takes back a word after a confirmation', async () => {
@@ -521,5 +536,65 @@ describe('the "Seçili True Word" panel on a wide window', () => {
 
     await user.click(main().getByRole('tab', { name: '✦ True Words' }))
     expect(within(panel()).getByRole('heading', { level: 3, name: 'Abyss' })).toBeVisible()
+  })
+})
+
+describe("a word's note and the DM's cost", () => {
+  it("saves the player's note on their word when the field is left", async () => {
+    const setNote = vi.fn<TrueWordActions['setNote']>(() => Promise.resolve())
+    const player = testProfile({ displayName: 'Gökay', lp: 6 })
+    renderApp({
+      path: `/hands/${testUser.uid}?tab=true-words`,
+      users: { currentProfile: ready(player), profiles: ready([player, ayla]) },
+      trueWords: {
+        words: ready(WORDS),
+        knownWords: ready([testLearnedWord('r-abyss', ABYSS, testUser.uid)]),
+        actions: { setNote },
+      },
+    })
+    const user = userEvent.setup()
+
+    await user.click(main().getByRole('button', { name: 'Abyss: ayrıntılar' }))
+    const dialog = within(screen.getByRole('dialog', { name: '✦ Abyss' }))
+    await user.type(dialog.getByRole('textbox', { name: 'True Word notu' }), 'Boss için sakla')
+    await user.tab()
+
+    expect(setNote).toHaveBeenCalledExactlyOnceWith('r-abyss', 'Boss için sakla')
+  })
+
+  it("shows another player the word's note, read only", async () => {
+    const { user } = renderTab({
+      trueWords: {
+        knownWords: ready([learned('r2', ABYSS, 2000, { note: 'Sakla' })]),
+      },
+    })
+
+    await user.click(main().getByRole('button', { name: 'Abyss: ayrıntılar' }))
+    const dialog = within(screen.getByRole('dialog', { name: '✦ Abyss' }))
+    expect(dialog.getByText('Sakla')).toBeVisible()
+    expect(dialog.queryByRole('textbox', { name: 'True Word notu' })).toBeNull()
+  })
+
+  it("lets the DM set the word's cost in this hand, and prices the use from it", async () => {
+    const setCost = vi.fn<TrueWordActions['setCost']>(() => Promise.resolve())
+    const { user } = renderTab({
+      viewer: dm,
+      trueWords: {
+        knownWords: ready([learned('r2', ABYSS, 2000, { costOverride: '2' })]),
+        actions: { setCost },
+      },
+    })
+
+    await user.click(main().getByRole('button', { name: 'Abyss: ayrıntılar' }))
+    const dialog = within(screen.getByRole('dialog', { name: '✦ Abyss' }))
+    expect(
+      within(dialog.getByRole('list', { name: 'True Word bilgileri' })).getByText('2 LP'),
+    ).toBeVisible()
+    const field = dialog.getByRole('textbox', { name: 'Bu eldeki cost' })
+    await user.clear(field)
+    await user.type(field, '3')
+    await user.tab()
+
+    expect(setCost).toHaveBeenCalledExactlyOnceWith('r2', '3')
   })
 })

@@ -13,12 +13,23 @@ import {
 import { MECHANIC_PACKS } from '@/features/cards/mechanicPacks'
 import { normalize } from '@/features/cards/text'
 import { useSetIndex } from '@/features/sets/setsContext'
+import { useIsTableBusy } from '@/features/table/tableContext'
 import { useOnlineStatus } from '@/lib/useOnlineStatus'
 
 import { type CardFields, deckOfKind, isNameTaken } from './api'
+import { BehaviorSection } from './BehaviorSection'
 import { useDefinitionActions } from './definitionsContext'
 import { DefinitionForm, FormField } from './DefinitionForm'
 import { FIELD_CLASSES } from './fieldClasses'
+import {
+  BEHAVIOR_FLAGS,
+  type BehaviorFlags,
+  isHeldText,
+  POOL_FLAGS,
+  startingFlags,
+  WHERE_FLAGS,
+  withFixedFlags,
+} from './flags'
 import { PictureField } from './PictureField'
 import { choiceOf, KEEP_DRAFT, type PictureDraft } from './pictureDraft'
 
@@ -31,8 +42,10 @@ type FormValues = {
   rarity: '' | Rarity
   mechanicPack: string
   text: string
-  /** "Sadece DM verebilir". */
-  dmOnly: boolean
+  /** The behavior flags of the "Davranış" section. */
+  flags: BehaviorFlags
+  /** The DM changed "Elde etkili": it no longer follows the text (design D8 of unify-cards-and-true-words). */
+  heldTouched: boolean
 }
 
 const MISSING_LABELS: Readonly<Record<MissingCardField, string>> = {
@@ -59,20 +72,23 @@ function valuesOf(card: Card): FormValues {
     rarity: card.rarity ?? '',
     mechanicPack: card.mechanicPack ?? '',
     text: card.text,
-    dmOnly: card.dmOnly,
+    flags: Object.fromEntries(BEHAVIOR_FLAGS.map((flag) => [flag, card[flag]])) as BehaviorFlags,
+    heldTouched: true,
   }
 }
 
 function emptyValues(deck: Deck): FormValues {
+  const kind = deck === 'cursed' ? 'cursed' : 'normal'
   return {
-    kind: deck === 'cursed' ? 'cursed' : 'normal',
+    kind,
     name: '',
     setCode: '',
     cost: '',
     rarity: '',
     mechanicPack: '',
     text: '',
-    dmOnly: false,
+    flags: startingFlags(kind, ''),
+    heldTouched: false,
   }
 }
 
@@ -88,7 +104,7 @@ function fieldsOf(values: FormValues): CardFields {
     mechanicPack:
       values.kind !== 'cursed' && values.mechanicPack !== '' ? values.mechanicPack : null,
     text: values.text.trim(),
-    dmOnly: values.dmOnly,
+    ...withFixedFlags(values.kind, values.flags),
   }
 }
 
@@ -111,8 +127,9 @@ export type CardFormDialogProps = {
  * The DM's card form (spec: definition-editing, "Adding a card", "Card form fields", "Editing a definition"). It offers
  * the fields of the card's kind; the kind itself only for a draft, between normal and Blessed. The set, rarity and
  * mechanic pack come from the fixed lists, each with an empty choice for a draft. The cost is free text, where empty
- * or "—" means no cost, and the text shows its bracket text. The name must be unique in the deck. "Sadece DM verebilir"
- * makes the card DM-only (spec: "Setting the DM-only flag").
+ * or "—" means no cost, and the text shows its bracket text. The name must be unique in the deck. The "Davranış"
+ * section sets the behavior flags (spec: "The Davranış section"): a new card starts with its kind's starting flags, its
+ * "Elde etkili" following the text until the DM touches it, and a kind change resets them.
  */
 export function CardFormDialog({ deck, cardId, onClose }: CardFormDialogProps) {
   const ids = useId()
@@ -134,15 +151,33 @@ export function CardFormDialog({ deck, cardId, onClose }: CardFormDialogProps) {
   )
   const set = <K extends keyof FormValues>(key: K, value: FormValues[K]) =>
     setValues((current) => ({ ...current, [key]: value }))
+  // A new card's "Elde etkili" follows a text that starts with "Held:" until the DM touches the box.
+  const setText = (text: string) =>
+    setValues((current) => ({
+      ...current,
+      text,
+      flags: current.heldTouched
+        ? current.flags
+        : { ...current.flags, hasHeldEffect: isHeldText(text) },
+    }))
+  // A kind change starts the flags over from the new kind (spec: "A card's kind changes only in a draft").
+  const setKind = (kind: 'normal' | 'blessed') =>
+    setValues((current) => ({
+      ...current,
+      kind,
+      flags: startingFlags(kind, current.text),
+      heldTouched: false,
+    }))
   const [picture, setPicture] = useState<PictureDraft>(KEEP_DRAFT)
   const isOnline = useOnlineStatus()
+  const isTableBusy = useIsTableBusy()
 
   const fields = fieldsOf(values)
   const status = base?.status ?? null
   const isGone = cardId !== null && cardsById.status === 'ready' && live === null
   const canChooseKind = values.kind !== 'cursed' && (base === null || base.status === 'draft')
-  // Turning the flag on or off changes the pool, so it waits for an open pack (design D5).
-  const changesDmOnly = base !== null && base.dmOnly !== values.dmOnly
+  // A change of a pool flag moves cards in or out of the pool, so it waits for an open pack (design D7).
+  const changesPoolFlags = base !== null && POOL_FLAGS.some((flag) => base[flag] !== fields[flag])
 
   const sameDeck = existing.filter((card) => deckOfKind(card.kind) === deckOfKind(values.kind))
   const nameKey = normalize(fields.name)
@@ -186,7 +221,7 @@ export function CardFormDialog({ deck, cardId, onClose }: CardFormDialogProps) {
       missing={missing}
       problems={problems}
       isGone={isGone}
-      saveWaitsForPack={changesDmOnly}
+      saveWaitsForPack={changesPoolFlags}
       onSave={(publish) =>
         base === null
           ? actions.addCard({ fields, publish, by: uid, existing, picture: choiceOf(picture) })
@@ -232,9 +267,7 @@ export function CardFormDialog({ deck, cardId, onClose }: CardFormDialogProps) {
             <select
               id={`${ids}-kind`}
               value={values.kind}
-              onChange={(event) =>
-                set('kind', event.target.value === 'blessed' ? 'blessed' : 'normal')
-              }
+              onChange={(event) => setKind(event.target.value === 'blessed' ? 'blessed' : 'normal')}
               className={FIELD_CLASSES}
             >
               {(['normal', 'blessed'] as const).map((kind) => (
@@ -316,7 +349,7 @@ export function CardFormDialog({ deck, cardId, onClose }: CardFormDialogProps) {
               lang="en"
               rows={5}
               value={values.text}
-              onChange={(event) => set('text', event.target.value)}
+              onChange={(event) => setText(event.target.value)}
               className={FIELD_CLASSES}
             />
           </FormField>
@@ -325,20 +358,28 @@ export function CardFormDialog({ deck, cardId, onClose }: CardFormDialogProps) {
           </p>
         </div>
         <div className="sm:col-span-2">
-          <label className="flex items-start gap-2 text-sm text-ink">
-            <input
-              type="checkbox"
-              checked={values.dmOnly}
-              onChange={(event) => set('dmOnly', event.target.checked)}
-              className="mt-0.5 size-4 accent-gold"
-            />
-            <span>
-              Sadece DM verebilir
-              <span className="block text-xs text-ink-muted">
-                Çekilmez, paketlerde çıkmaz, oyuncuların listelerinde görünmez.
-              </span>
-            </span>
-          </label>
+          <BehaviorSection
+            kind={values.kind}
+            flags={fields}
+            stored={base}
+            isTableBusy={isTableBusy}
+            onChange={(flag, value) =>
+              setValues((current) => ({
+                ...current,
+                flags: { ...current.flags, [flag]: value },
+                heldTouched: current.heldTouched || flag === 'hasHeldEffect',
+              }))
+            }
+            onOnlyFromDm={() =>
+              setValues((current) => ({
+                ...current,
+                flags: {
+                  ...current.flags,
+                  ...Object.fromEntries(WHERE_FLAGS.map((flag) => [flag, false])),
+                },
+              }))
+            }
+          />
         </div>
         <div className="sm:col-span-2">
           <PictureField

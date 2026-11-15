@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
+import { startingFlags } from '../scripts/lib/cardCatalog.ts'
 import { type Deck, parseCardFile, unknownSetWarnings } from '../scripts/lib/cardRows.ts'
 import {
   CARDS_COLLECTION,
@@ -134,6 +135,7 @@ describe('card import against the emulators', () => {
       id: 'legend-thecartographer',
       name: 'The Cartographer',
       status: 'draft',
+      isInLibrary: true,
     })
     expect(await card('legend-thecartographer')).toMatchObject({ changeId: draftRecord?.id })
     expect(await card('cursed-visionsofdeath')).toMatchObject({ changeId: publicRecord?.id })
@@ -152,6 +154,8 @@ describe('card import against the emulators', () => {
       cost: null,
       status: 'active',
       changeId: expect.any(String) as string,
+      ...startingFlags('blessed', blessed?.text ?? ''),
+      isRepeatable: true,
     })
     expect(await card('cursed-visionsofdeath')).toEqual({
       kind: 'cursed',
@@ -164,6 +168,15 @@ describe('card import against the emulators', () => {
       text: 'Held: Every hour draw a cursed card. Discard them at the end of the session.',
       status: 'active',
       changeId: expect.any(String) as string,
+      // A Cursed card: repeatable, in no pack, and a "Held:" text acts while held.
+      isInLibrary: true,
+      isInDraws: true,
+      isInSetPacks: false,
+      isInMechanicPacks: false,
+      isRepeatable: true,
+      hasHeldEffect: true,
+      hasUseEffect: true,
+      isKeptOnUse: false,
     })
     expect(await card('legend-thecartographer')).toMatchObject({
       kind: 'normal',
@@ -172,6 +185,19 @@ describe('card import against the emulators', () => {
       mechanicPack: null,
       cost: '1',
       status: 'draft',
+      isRepeatable: false,
+      isKeptOnUse: false,
+    })
+    // A normal card whose text starts with "Held:" acts while held, and has one copy.
+    expect(await card('legend-aesnasassist')).toMatchObject({
+      isInLibrary: true,
+      isInDraws: true,
+      isInSetPacks: true,
+      isInMechanicPacks: true,
+      isRepeatable: false,
+      hasHeldEffect: true,
+      hasUseEffect: true,
+      isKeptOnUse: false,
     })
   })
 

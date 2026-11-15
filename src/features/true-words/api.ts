@@ -10,113 +10,73 @@ import {
   runTransaction,
   serverTimestamp,
   type Transaction,
-  updateDoc,
   where,
   type WithFieldValue,
 } from 'firebase/firestore'
 
 import { LEDGER_COLLECTION, newLedgerEntry, readBalance, setBalance } from '@/features/balances/api'
-import { priceAllows, priceOfUse } from '@/features/cards/display'
-import { profileRef } from '@/features/users/api'
-import { PLAYER_VISIBLE_STATUSES } from '@/features/definitions/status'
 import { BalanceError } from '@/features/balances/errors'
+import { cardRef } from '@/features/cards/api'
+import { inWordDraft } from '@/features/cards/pool'
+import { isTrueWord, type TrueWord } from '@/features/cards/schema'
+import type { UseTarget } from '@/features/characters/useTarget'
+import { DRAWS_COLLECTION } from '@/features/draws/api'
+import {
+  closeHolding,
+  HOLDINGS_COLLECTION,
+  holdingRef,
+  openHolding,
+  setHoldingActive,
+} from '@/features/hands/api'
+import { HoldingError } from '@/features/hands/errors'
 import { explainDenial, openPackIdOnServer, tableRef } from '@/features/table/api'
 import { TableBusyError } from '@/features/table/errors'
 import { openPackIdOf } from '@/features/table/schema'
 import { firebaseCode } from '@/lib/firestore/errors'
 import { cryptoRandom, type RandomSource, sample } from '@/lib/random'
-import { readUseTarget, setUseEffect } from '@/features/characters/api'
-import type { UseTarget } from '@/features/characters/useTarget'
-import { visibleText } from '@/features/cards/text'
 
 import { WordError } from './errors'
 import {
   DRAFT_COST_MAX,
   draftPrice,
   EMPTY_PLAYER_WORDS,
-  type LearnedWord,
-  learnedWordConverter,
   type PlayerWords,
   playerWordsConverter,
-  type StoredLearnedWord,
   type StoredWordDraft,
-  type NewWordUse,
-  type TrueWord,
-  trueWordConverter,
   WORD_DRAFT_SIZE,
   type WordDraft,
   wordDraftConverter,
-  WORD_USE_COST_MAX,
-  type WordUse,
-  wordUseConverter,
 } from './schema'
 
-/** Collections. Keep in step with `firestore.rules` and `scripts/lib/importTrueWords.ts`. */
-export const TRUE_WORDS_COLLECTION = 'trueWords'
-export const LEARNED_WORDS_COLLECTION = 'userTrueWords'
+/**
+ * Collections. Since unify-cards-and-true-words, a word is a definition in `cards`, a learned word a holding in
+ * `userCards`, a draft a `draws` record of the kind `wordDraft`, and a use a `uses` record. Keep in step with
+ * `firestore.rules`.
+ */
 export const PLAYER_WORDS_COLLECTION = 'playerWords'
-export const WORD_DRAFTS_COLLECTION = 'wordDrafts'
-export const WORD_USES_COLLECTION = 'wordUses'
-
-/**
- * Every word, drafts and retired ones included. Only the DM may read the whole collection: a player reads it through
- * `playerVisibleWordsQuery` (design D3).
- */
-export function trueWordsRef(db: Firestore): CollectionReference<TrueWord> {
-  return collection(db, TRUE_WORDS_COLLECTION).withConverter(trueWordConverter)
-}
-
-/**
- * The words a player may read: the active ones, and the retired ones, which stay with the players who know them. A
- * draft never reaches a player's device.
- */
-export function playerVisibleWordsQuery(db: Firestore): Query<TrueWord> {
-  return query(trueWordsRef(db), where('status', 'in', [...PLAYER_VISIBLE_STATUSES]))
-}
-
-export function trueWordRef(db: Firestore, wordId: string): DocumentReference<TrueWord> {
-  return doc(db, TRUE_WORDS_COLLECTION, wordId).withConverter(trueWordConverter)
-}
-
-export function learnedWordsRef(db: Firestore): CollectionReference<LearnedWord> {
-  return collection(db, LEARNED_WORDS_COLLECTION).withConverter(learnedWordConverter)
-}
-
-export function learnedWordRef(db: Firestore, recordId: string): DocumentReference<LearnedWord> {
-  return doc(db, LEARNED_WORDS_COLLECTION, recordId).withConverter(learnedWordConverter)
-}
-
-/** Every record of a word someone knows now: none taken back. */
-export function knownWordsQuery(db: Firestore): Query<LearnedWord> {
-  return query(learnedWordsRef(db), where('removedBy', '==', null))
-}
 
 export function playerWordsRef(db: Firestore, uid: string): DocumentReference<PlayerWords> {
   return doc(db, PLAYER_WORDS_COLLECTION, uid).withConverter(playerWordsConverter)
 }
 
-export function wordDraftsRef(db: Firestore): CollectionReference<WordDraft> {
-  return collection(db, WORD_DRAFTS_COLLECTION).withConverter(wordDraftConverter)
+/** The True Word drafts among the draws, validated as drafts. Query them by kind; never read the whole collection. */
+function wordDraftsRef(db: Firestore): CollectionReference<WordDraft> {
+  return collection(db, DRAWS_COLLECTION).withConverter(wordDraftConverter)
 }
 
 export function wordDraftRef(db: Firestore, draftId: string): DocumentReference<WordDraft> {
-  return doc(db, WORD_DRAFTS_COLLECTION, draftId).withConverter(wordDraftConverter)
+  return doc(wordDraftsRef(db), draftId)
 }
 
-/** Every True Word use, validated and with the document ID as `id`. */
-export function wordUsesRef(db: Firestore): CollectionReference<WordUse> {
-  return collection(db, WORD_USES_COLLECTION).withConverter(wordUseConverter)
-}
-
-/** Every open draft, at most one per player. */
+/** Every open draft, at most one per player. Two equality filters, so no composite index is needed. */
 export function openDraftsQuery(db: Firestore): Query<WordDraft> {
-  return query(wordDraftsRef(db), where('status', '==', 'open'))
+  return query(wordDraftsRef(db), where('kind', '==', 'wordDraft'), where('status', '==', 'open'))
 }
 
 /** Plain refs for writes: the converted refs' types would ask for the `id` field, which is never stored. */
-const writableDraft = (db: Firestore, draftId: string) => doc(db, WORD_DRAFTS_COLLECTION, draftId)
-const writableRecord = (db: Firestore, recordId: string) =>
-  doc(db, LEARNED_WORDS_COLLECTION, recordId)
+const writableDraft = (db: Firestore, draftId: string) => doc(db, DRAWS_COLLECTION, draftId)
+const writableHolding = (db: Firestore, holdingId: string) =>
+  doc(db, HOLDINGS_COLLECTION, holdingId)
 const writableState = (db: Firestore, uid: string) => doc(db, PLAYER_WORDS_COLLECTION, uid)
 
 /** Throws `TableBusyError` when a pack is open: the table waits for it, True Words included. */
@@ -147,23 +107,31 @@ async function readActiveWord(
   db: Firestore,
   wordId: string,
 ): Promise<TrueWord> {
-  const word = (await transaction.get(trueWordRef(db, wordId))).data()
-  if (!word || word.status !== 'active') throw new WordError('unavailable')
+  const word = (await transaction.get(cardRef(db, wordId))).data()
+  if (!word || !isTrueWord(word) || word.status !== 'active') throw new WordError('unavailable')
   return word
 }
 
-/** The record of a word learned now, inactive. */
-function newRecord(
-  fields: Pick<StoredLearnedWord, 'wordId' | 'wordName' | 'uid' | 'learnedBy'> &
-    ({ learnedVia: 'draft'; draftId: string } | { learnedVia: 'dm'; draftId: null }),
-): WithFieldValue<StoredLearnedWord> {
-  return {
-    ...fields,
-    learnedAt: serverTimestamp(),
-    active: false,
-    removedAt: null,
-    removedBy: null,
-  }
+/**
+ * The holding of a word learned now (design D5 of unify-cards-and-true-words): from a draft, naming it, or taught by the
+ * DM. It starts active exactly when the word's "Elde etkili" is on.
+ */
+function newWordHolding(
+  word: TrueWord,
+  uid: string,
+  by: string,
+  draftId: string | null,
+): ReturnType<typeof openHolding> {
+  return openHolding({
+    cardId: word.id,
+    cardName: word.name,
+    cardKind: 'trueWord',
+    uid,
+    givenBy: by,
+    givenVia: draftId === null ? 'dm' : 'draft',
+    drawId: draftId,
+    active: word.hasHeldEffect,
+  })
 }
 
 /**
@@ -210,9 +178,12 @@ class KnownWordError extends Error {
   }
 }
 
-/** The active words a draft for a player who knows `known` can show. */
+/**
+ * The words a draft for a player who knows `known` can show: active, with "Draft'ta çıkar" on, and not known (spec:
+ * true-words, "Starting a draft").
+ */
 export function learnableWords(words: readonly TrueWord[], known: ReadonlySet<string>): TrueWord[] {
-  return words.filter((word) => word.status === 'active' && !known.has(word.id))
+  return words.filter((word) => inWordDraft(word, known))
 }
 
 /**
@@ -258,7 +229,7 @@ export async function startDraft(db: Firestore, input: StartDraftInput): Promise
 }
 
 function startOnce(db: Firestore, input: StartDraftInput, offered: string[]): Promise<string> {
-  const draftDoc = doc(collection(db, WORD_DRAFTS_COLLECTION))
+  const draftDoc = doc(collection(db, DRAWS_COLLECTION))
   const entryDoc = doc(collection(db, LEDGER_COLLECTION))
   return runTransaction(db, async (transaction) => {
     await ensureTableFree(transaction, db)
@@ -276,6 +247,7 @@ function startOnce(db: Firestore, input: StartDraftInput, offered: string[]): Pr
     }
 
     const draft: WithFieldValue<StoredWordDraft> = {
+      kind: 'wordDraft',
       uid: input.uid,
       by: input.by,
       at: serverTimestamp(),
@@ -331,7 +303,8 @@ export type LearnWordInput = DraftStepInput & { wordId: string }
 
 /**
  * Learns one of an open draft's words and ends the draft, in one transaction: the word joins the player's True
- * Words, inactive, with a new record, and the draft is marked learned. Returns the record's ID.
+ * Words with a new holding, active when its "Elde etkili" is on, and the draft is marked learned. Returns the
+ * holding's ID.
  *
  * Throws `WordError` (`closed`, `invalid-choice`, `unavailable`, `word-known`) and `TableBusyError`.
  */
@@ -344,7 +317,7 @@ export async function learnWord(db: Firestore, input: LearnWordInput): Promise<s
 }
 
 function learnOnce(db: Firestore, { draftId, wordId, by }: LearnWordInput): Promise<string> {
-  const recordDoc = doc(collection(db, LEARNED_WORDS_COLLECTION))
+  const holdingDoc = doc(collection(db, HOLDINGS_COLLECTION))
   return runTransaction(db, async (transaction) => {
     await ensureTableFree(transaction, db)
     const draft = await readOpenDraft(transaction, db, draftId)
@@ -353,29 +326,19 @@ function learnOnce(db: Firestore, { draftId, wordId, by }: LearnWordInput): Prom
     const state = await readState(transaction, db, draft.uid)
     if (state.known[wordId] !== undefined) throw new WordError('word-known')
 
-    transaction.set(
-      recordDoc,
-      newRecord({
-        wordId,
-        wordName: word.name,
-        uid: draft.uid,
-        learnedBy: by,
-        learnedVia: 'draft',
-        draftId,
-      }),
-    )
+    transaction.set(holdingDoc, newWordHolding(word, draft.uid, by, draftId))
     transaction.set(writableState(db, draft.uid), {
-      known: { ...state.known, [wordId]: recordDoc.id },
+      known: { ...state.known, [wordId]: holdingDoc.id },
       openDraftId: null,
-      recordId: recordDoc.id,
+      holdingId: holdingDoc.id,
     })
     transaction.update(writableDraft(db, draftId), {
       status: 'learned',
       closedAt: serverTimestamp(),
       closedBy: by,
-      learned: { wordId, wordName: word.name, recordId: recordDoc.id },
+      learned: { cardId: wordId, cardName: word.name, holdingId: holdingDoc.id },
     })
-    return recordDoc.id
+    return holdingDoc.id
   })
 }
 
@@ -453,12 +416,12 @@ export type TeachWordInput = {
 }
 
 /**
- * Teaches a word directly (the DM only), without a draft and without LP: a new record, inactive, and the word in the
- * player's state. An open draft stays open. Returns the record's ID.
+ * Teaches a word directly (the DM only), whatever its flags, without a draft and without LP: a new holding, active when
+ * its "Elde etkili" is on, and the word in the player's state. An open draft stays open. Returns the holding's ID.
  * Throws `WordError` (`unavailable`, `word-known`) and `TableBusyError`.
  */
 export async function teachWord(db: Firestore, input: TeachWordInput): Promise<string> {
-  const recordDoc = doc(collection(db, LEARNED_WORDS_COLLECTION))
+  const holdingDoc = doc(collection(db, HOLDINGS_COLLECTION))
   try {
     return await runTransaction(db, async (transaction) => {
       await ensureTableFree(transaction, db)
@@ -466,23 +429,13 @@ export async function teachWord(db: Firestore, input: TeachWordInput): Promise<s
       const state = await readState(transaction, db, input.uid)
       if (state.known[input.wordId] !== undefined) throw new WordError('word-known')
 
-      transaction.set(
-        recordDoc,
-        newRecord({
-          wordId: input.wordId,
-          wordName: word.name,
-          uid: input.uid,
-          learnedBy: input.by,
-          learnedVia: 'dm',
-          draftId: null,
-        }),
-      )
+      transaction.set(holdingDoc, newWordHolding(word, input.uid, input.by, null))
       transaction.set(writableState(db, input.uid), {
         ...state,
-        known: { ...state.known, [input.wordId]: recordDoc.id },
-        recordId: recordDoc.id,
+        known: { ...state.known, [input.wordId]: holdingDoc.id },
+        holdingId: holdingDoc.id,
       })
-      return recordDoc.id
+      return holdingDoc.id
     })
   } catch (error) {
     throw await explainDenial(db, error)
@@ -490,168 +443,109 @@ export async function teachWord(db: Firestore, input: TeachWordInput): Promise<s
 }
 
 export type TakeBackWordInput = {
+  /** The player's open holding of the word. */
   recordId: string
   /** The signed-in DM. */
   by: string
 }
 
 /**
- * Takes back a word a player knows (the DM only), to correct a mistake: its record closes for good, and the word
- * leaves the player's state, so it can be learned again with a new record.
+ * Takes back a word a player knows (the DM only), to correct a mistake: its holding closes for good as discarded, and
+ * the word leaves the player's state, so it can be learned again with a new holding.
  * Throws `WordError('not-known')` and `TableBusyError`.
  */
 export async function takeBackWord(db: Firestore, input: TakeBackWordInput): Promise<void> {
   try {
     await runTransaction(db, async (transaction) => {
       await ensureTableFree(transaction, db)
-      const record = (await transaction.get(learnedWordRef(db, input.recordId))).data()
-      if (!record || record.removedBy !== null) throw new WordError('not-known')
-      const state = await readState(transaction, db, record.uid)
-      if (state.known[record.wordId] !== input.recordId) throw new WordError('not-known')
+      const holding = (await transaction.get(holdingRef(db, input.recordId))).data()
+      if (!holding || holding.returnedAt !== null || holding.cardKind !== 'trueWord') {
+        throw new WordError('not-known')
+      }
+      const state = await readState(transaction, db, holding.uid)
+      if (state.known[holding.cardId] !== input.recordId) throw new WordError('not-known')
 
       const known = { ...state.known }
-      delete known[record.wordId]
-      transaction.update(writableRecord(db, input.recordId), {
-        removedAt: serverTimestamp(),
-        removedBy: input.by,
+      delete known[holding.cardId]
+      transaction.update(writableHolding(db, input.recordId), {
+        returnedAt: serverTimestamp(),
+        returnedBy: input.by,
+        returnReason: 'discarded',
+        usedOn: null,
       })
-      transaction.set(writableState(db, record.uid), { ...state, known, recordId: input.recordId })
+      transaction.set(writableState(db, holding.uid), {
+        ...state,
+        known,
+        holdingId: input.recordId,
+      })
     })
   } catch (error) {
     throw await explainDenial(db, error)
   }
 }
 
-/** Switches a known word active or inactive (the DM only). Allowed while a pack is open. */
+/** Switches a known word with a held effect active or inactive (the DM only). Allowed while a pack is open. */
 export function setWordActive(db: Firestore, recordId: string, active: boolean): Promise<void> {
-  return updateDoc(writableRecord(db, recordId), { active })
+  return setHoldingActive(db, recordId, active)
 }
 
 export type RecordWordUseInput = {
-  /** The player's open record of the word. */
+  /** The player's open holding of the word. */
   recordId: string
   /** The signed-in user: the player, or the DM. */
   by: string
   /**
-   * The LP the user confirmed, taken from the player's LP: the price of the word's cost for the player's own use,
-   * any whole amount for the DM, 0 for free (spec: true-words, "Using a True Word").
+   * The LP the user confirmed, taken from the player's LP: the price of the word's cost in this hand for the player's
+   * own use, any whole amount for the DM, 0 for free (spec: true-words, "Using a True Word").
    */
   amount: number
   /** On which character the word was used. None by default. */
   target?: UseTarget
-  /** Adds the word's effect to the chosen character in the same step. Ignored without a chosen character. */
+  /** Adds the word's effect to the chosen character in the same step, when its "Kullanınca efekt bırakır" is on. */
   addEffect?: boolean
 }
 
-/** At most this many tries when the rules deny a use because another device moved the player's LP first. */
-const MAX_USE_ATTEMPTS = 3
-
-/**
- * Records one use of a word a player knows, in one transaction with its payment: the use, and when it pays, the
- * ledger entry and the player's new LP (design D6 of `pay-lp-on-use`). The word stays known. When another device
- * moves the LP between the transaction's read and its commit, the rules deny the commit before the transaction
- * could retry, so a denied use reads the LP from the server and tries again when it moved. Returns the use's ID.
- *
- * Throws `WordError`: `not-known` for a word taken back, `unavailable` for a draft or missing word, `price-changed`
- * with the price now when the player's own use confirms another fixed price, `invalid-amount` for an amount the
- * price does not allow, `insufficient` when the LP is below the amount, and `not-a-player` for a paid use of the
- * DM's word. Throws `TableBusyError` while a pack is open.
- */
-export async function recordWordUse(db: Firestore, input: RecordWordUseInput): Promise<string> {
-  const { amount } = input
-  if (!Number.isInteger(amount) || amount < 0 || amount > WORD_USE_COST_MAX) {
-    throw new WordError('invalid-amount')
-  }
-  for (let attempt = 1; ; attempt += 1) {
-    const read: { uid: string | null; lp: number | null } = { uid: null, lp: null }
-    try {
-      return await recordWordUseOnce(db, input, read)
-    } catch (error) {
-      const explained = await explainDenial(db, error)
-      if (
-        explained !== error ||
-        firebaseCode(error) !== 'permission-denied' ||
-        attempt >= MAX_USE_ATTEMPTS ||
-        read.uid === null ||
-        (await getDocFromServer(profileRef(db, read.uid))).data()?.lp === read.lp
-      ) {
-        throw explained
-      }
-    }
+/** A holding step's refusal, as a True Word step names it. */
+function asWordError(error: unknown): unknown {
+  if (!(error instanceof HoldingError)) return error
+  switch (error.kind) {
+    case 'closed':
+      return new WordError('not-known')
+    case 'card-missing':
+      return new WordError('unavailable')
+    case 'insufficient':
+      return new WordError('insufficient', error.shortfall)
+    case 'price-changed':
+      return new WordError('price-changed', null, error.price)
+    case 'invalid-amount':
+    case 'not-a-player':
+      return new WordError(error.kind)
+    default:
+      return error
   }
 }
 
-function recordWordUseOnce(
-  db: Firestore,
-  { recordId, by, amount, target, addEffect }: RecordWordUseInput,
-  read: { uid: string | null; lp: number | null },
-): Promise<string> {
-  const useDoc = doc(collection(db, WORD_USES_COLLECTION))
-  const entryDoc = doc(collection(db, LEDGER_COLLECTION))
-  return runTransaction(db, async (transaction) => {
-    await ensureTableFree(transaction, db)
-    const record = (await transaction.get(learnedWordRef(db, recordId))).data()
-    if (!record || record.removedBy !== null) throw new WordError('not-known')
-    const word = (await transaction.get(trueWordRef(db, record.wordId))).data()
-    if (!word || (word.status !== 'active' && word.status !== 'retired')) {
-      throw new WordError('unavailable')
-    }
-    const usedOn = await readUseTarget(transaction, db, target)
-    if (by === record.uid) {
-      const price = priceOfUse(word.cost)
-      if (!priceAllows(price, amount)) {
-        throw price.kind === 'fixed'
-          ? new WordError('price-changed', null, price.amount)
-          : new WordError('invalid-amount')
-      }
-    }
-    let balanceAfter: number | null = null
-    if (amount > 0) {
-      const balance = await readLp(transaction, db, record.uid)
-      read.uid = record.uid
-      read.lp = balance
-      if (balance < amount) throw new WordError('insufficient', { balance, amount })
-      balanceAfter = balance - amount
-    }
-
-    const use: WithFieldValue<NewWordUse> = {
-      uid: record.uid,
-      wordId: record.wordId,
-      wordName: word.name,
-      recordId,
-      by,
-      at: serverTimestamp(),
-      cost: amount,
-      entryId: amount > 0 ? entryDoc.id : null,
-      // Written only for a use on a character (design D4 of add-character-effects).
-      ...(usedOn === null ? {} : { usedOn: usedOn.name }),
-      ...(usedOn?.characterId ? { usedOnCharacterId: usedOn.characterId } : {}),
-    }
-    transaction.set(useDoc, use)
-    if (addEffect === true) {
-      setUseEffect(transaction, db, {
-        target: usedOn,
-        source: 'word',
-        sourceId: useDoc.id,
-        content: { name: word.name, text: visibleText(word.text), cursed: false },
-        by,
-      })
-    }
-    if (balanceAfter !== null) {
-      transaction.set(
-        entryDoc,
-        newLedgerEntry({
-          currency: 'lp',
-          account: record.uid,
-          delta: -amount,
-          balanceAfter,
-          source: 'wordUse',
-          drawId: useDoc.id,
-          by,
-        }),
-      )
-      setBalance(transaction, db, { currency: 'lp', uid: record.uid }, balanceAfter, entryDoc.id)
-    }
-    return useDoc.id
-  })
+/**
+ * Records one use of a word a player knows, with its payment (design D5 of unify-cards-and-true-words): a True Word is
+ * kept on use, so the holding's use step records a `uses` record, and when it pays, the ledger entry and the player's
+ * new LP. The word stays known.
+ *
+ * Throws `WordError`: `not-known` for a word taken back, `unavailable` for a missing word, `price-changed` with the
+ * price now when the player's own use confirms another fixed price, `invalid-amount` for an amount the price does not
+ * allow, `insufficient` when the LP is below the amount, and `not-a-player` for a paid use of the DM's word. Throws
+ * `TableBusyError` while a pack is open.
+ */
+export async function recordWordUse(db: Firestore, input: RecordWordUseInput): Promise<void> {
+  try {
+    await closeHolding(db, {
+      holdingId: input.recordId,
+      by: input.by,
+      reason: 'used',
+      amount: input.amount,
+      target: input.target,
+      addEffect: input.addEffect,
+    })
+  } catch (error) {
+    throw asWordError(error)
+  }
 }

@@ -1,17 +1,29 @@
 import { z } from 'zod'
 
+import { type BehaviorFlag, type DefinitionKind, startingFlags } from '@/features/definitions/flags'
 import { picturePathSchema } from '@/features/definitions/picturePath'
 import { DEFINITION_STATUSES } from '@/features/definitions/status'
 import { createConverter } from '@/lib/firestore/converter'
 
-/** The kinds of card. Keep in step with `scripts/lib/cardRows.ts`. */
+export {
+  BEHAVIOR_FLAGS,
+  type BehaviorFlag,
+  type BehaviorFlags,
+  DEFINITION_KINDS,
+  type DefinitionKind,
+} from '@/features/definitions/flags'
+
+/** The kinds of card: every definition kind but the True Word. Keep in step with `scripts/lib/cardRows.ts`. */
 export const CARD_KINDS = ['normal', 'blessed', 'cursed'] as const
 export type CardKind = (typeof CARD_KINDS)[number]
 
 export const RARITIES = ['common', 'rare'] as const
 export type Rarity = (typeof RARITIES)[number]
 
-/** Field limits. Keep in step with `LIMITS` in `scripts/lib/cardRows.ts`. */
+/**
+ * Field limits, the same for cards and True Words. Keep in step with `LIMITS` in `scripts/lib/cardRows.ts` and
+ * `WORD_LIMITS` in `scripts/lib/trueWordRows.ts`.
+ */
 export const CARD_LIMITS = {
   name: 200,
   setCode: 100,
@@ -23,8 +35,8 @@ export const CARD_LIMITS = {
 const name = z.string().min(1).max(CARD_LIMITS.name)
 
 /**
- * Who holds a normal card: the user and their open holding (`userCards/{userCardId}`). `null` means the card is
- * in the pool. Stored cards from before card holdings have no field, which reads as `null`.
+ * Who holds a card with one copy: the user and their open holding (`userCards/{userCardId}`). `null` means the card
+ * is in the pool. A card without the field has no holder.
  */
 export const cardHolderSchema = z.object({
   uid: z.string().min(1),
@@ -33,13 +45,29 @@ export const cardHolderSchema = z.object({
 export type CardHolder = z.infer<typeof cardHolderSchema>
 const setCode = z.string().min(1).max(CARD_LIMITS.setCode)
 const mechanicPack = z.string().min(1).max(CARD_LIMITS.mechanicPack)
+const holder = cardHolderSchema.nullable().default(null)
+
+/**
+ * The eight behavior flags (spec: definition-editing, "Behavior flags"; design D2 of unify-cards-and-true-words).
+ * Every definition stores all of them; the values a kind fixes are literals on that kind below.
+ */
+const flags = {
+  isInLibrary: z.boolean(),
+  isInDraws: z.boolean(),
+  isInSetPacks: z.boolean(),
+  isInMechanicPacks: z.boolean(),
+  isRepeatable: z.boolean(),
+  hasHeldEffect: z.boolean(),
+  hasUseEffect: z.boolean(),
+  isKeptOnUse: z.boolean(),
+}
 
 /** Fields every kind has. */
 const common = {
   name,
-  /** The normalized name the import and the DM's form match cards by. It follows the name when it is renamed. */
+  /** The normalized name the import and the DM's form match definitions by. It follows the name when renamed. */
   nameKey: z.string().min(1),
-  /** As written ("1", "X", "d6"); null when the card has no cost. A cost is never required. */
+  /** As written ("1", "X", "d6"); null when there is no cost. Only a True Word outside a draft needs one. */
   cost: z.string().min(1).max(CARD_LIMITS.cost).nullable(),
   /** Raw text, including the hidden `[bracket]` metadata. Show it through `visibleText`. Empty only in a draft. */
   text: z.string().max(CARD_LIMITS.text),
@@ -47,21 +75,16 @@ const common = {
   status: z.enum(DEFINITION_STATUSES),
   /**
    * The change record of the newest definition step (`definitionChanges/{changeId}`), as a balance points at its
-   * ledger entry. Cards from before definition editing have none.
+   * ledger entry. Definitions the import added and nobody changed since have none.
    */
   changeId: z.string().min(1).nullable().default(null),
   /**
-   * Where the card's picture is in Cloud Storage (`cards/<id>/<hash>.webp`), or `null` for none. A stored card may
-   * lack the field (it never had a picture) or hold `null` (the DM removed it): both read as `null` here, and the
-   * difference matters only to the picture import (design D3 of upload-card-and-word-pictures).
+   * Where the picture is in Cloud Storage (`cards/<id>/<hash>.webp`, `words/<id>/<hash>.webp` for a True Word), or
+   * `null` for none. A stored definition may lack the field (it never had a picture) or hold `null` (the DM removed
+   * it): both read as `null` here, and the difference matters only to the picture import.
    */
   picture: picturePathSchema.nullable().default(null),
-  /**
-   * True for a card only the DM gives (spec: definition-editing, "DM-only cards"): no draw or pack gives it, and players'
-   * lists leave it out. Independent of the status. Cards stored without the field are not DM-only; the imports never
-   * write it.
-   */
-  dmOnly: z.boolean().default(false),
+  ...flags,
 }
 
 /** A normal card's set, rarity and mechanic pack may be empty only in a draft (see `isComplete`). */
@@ -71,7 +94,7 @@ const normalCardSchema = z.object({
   setCode: setCode.nullable(),
   rarity: z.enum(RARITIES).nullable(),
   mechanicPack: mechanicPack.nullable(),
-  holder: cardHolderSchema.nullable().default(null),
+  holder,
 })
 
 /** "Blessed" is a marker, not a set: Blessed cards have no set code and no rarity. */
@@ -81,18 +104,37 @@ const blessedCardSchema = z.object({
   setCode: z.null(),
   rarity: z.null(),
   mechanicPack: mechanicPack.nullable(),
-  /** Blessed cards are repeatable: they never have a holder. */
-  holder: z.null().default(null),
+  holder,
 })
 
-/** Cursed cards form one global deck: no set code, rarity, or mechanic pack. */
+/** Cursed cards form one global deck: no set code, rarity, or mechanic pack, and never in a pack's own cards. */
 const cursedCardSchema = z.object({
   kind: z.literal('cursed'),
   ...common,
+  // Fixed by the kind (FIXED_FLAGS in definitions/flags.ts).
+  isInSetPacks: z.literal(false),
+  isInMechanicPacks: z.literal(false),
   setCode: z.null(),
   rarity: z.null(),
   mechanicPack: z.null(),
-  /** Cursed cards are repeatable: they never have a holder. */
+  holder,
+})
+
+/**
+ * A True Word (design D1 of unify-cards-and-true-words): a definition in the same collection, with its own `tw-` IDs.
+ * No set, rarity or mechanic pack; any number of players can know it, and a use keeps it known.
+ */
+const trueWordSchema = z.object({
+  kind: z.literal('trueWord'),
+  ...common,
+  // Fixed by the kind (FIXED_FLAGS in definitions/flags.ts).
+  isInSetPacks: z.literal(false),
+  isInMechanicPacks: z.literal(false),
+  isRepeatable: z.literal(true),
+  isKeptOnUse: z.literal(true),
+  setCode: z.null(),
+  rarity: z.null(),
+  mechanicPack: z.null(),
   holder: z.null().default(null),
 })
 
@@ -129,27 +171,91 @@ export function isComplete(card: CardCompletenessFields): boolean {
   return missingCardFields(card).length === 0
 }
 
+/** The definition fields whose emptiness decides whether a word is complete. */
+export type WordCompletenessFields = { cost: string | null; text: string }
+
+/** The fields a word requires and that are empty here. */
+export type MissingWordField = 'cost' | 'text'
+
 /**
- * A card definition at `cards/{cardId}`. The import script adds cards; the DM adds and changes them through the
- * definition steps (spec: definition-editing); a normal card's `holder` changes under the card-holdings rules. An
- * active or retired card is always complete. Fields added later (`holder`, `changeId`) have defaults.
+ * The required fields this word leaves empty: a True Word needs a cost and a text (spec: definition-editing,
+ * "Complete definitions"). Keep in step with `completeCard` in `firestore.rules` and `scripts/lib/trueWordRows.ts`.
  */
-export const cardSchema = z
-  .discriminatedUnion('kind', [normalCardSchema, blessedCardSchema, cursedCardSchema])
-  .superRefine((card, ctx) => {
-    if (card.status === 'draft') return
-    for (const field of missingCardFields(card)) {
+export function missingWordFields(word: WordCompletenessFields): MissingWordField[] {
+  const missing: MissingWordField[] = []
+  if (word.cost === null) missing.push('cost')
+  if (word.text === '') missing.push('text')
+  return missing
+}
+
+/** True when the word has a cost and a text, so it may be active or retired. */
+export function isWordComplete(word: WordCompletenessFields): boolean {
+  return missingWordFields(word).length === 0
+}
+
+/**
+ * A definition at `cards/{cardId}`: a card or a True Word (design D1 of unify-cards-and-true-words). The import scripts
+ * add them; the DM adds and changes them through the definition steps (spec: definition-editing); a card with one copy
+ * changes its `holder` under the card-holdings rules. An active or retired definition is always complete, and only a
+ * card with one copy (`isRepeatable` off) has a holder.
+ */
+export const definitionSchema = z
+  .discriminatedUnion('kind', [
+    normalCardSchema,
+    blessedCardSchema,
+    cursedCardSchema,
+    trueWordSchema,
+  ])
+  .superRefine((definition, ctx) => {
+    if (definition.holder !== null && definition.isRepeatable) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['holder'],
+        message: 'A repeatable card has no holder',
+      })
+    }
+    if (definition.status === 'draft') return
+    const missing =
+      definition.kind === 'trueWord' ? missingWordFields(definition) : missingCardFields(definition)
+    for (const field of missing) {
       ctx.addIssue({
         code: 'custom',
         path: [field],
-        message: `An ${card.status} card needs ${field}`,
+        message: `An ${definition.status} definition needs ${field}`,
       })
     }
   })
 
-export const cardConverter = createConverter(cardSchema, { idField: 'id' })
+export const definitionConverter = createConverter(definitionSchema, { idField: 'id' })
 
-/** A card as features see it: the stored fields plus the document ID as `id`. */
-export type Card = z.infer<typeof cardSchema> & { id: string }
+/** A definition as features see it: the stored fields plus the document ID as `id`. */
+export type Definition = z.infer<typeof definitionSchema> & { id: string }
+/** A card: a normal, Blessed or Cursed definition. */
+export type Card = Exclude<Definition, { kind: 'trueWord' }>
+/** A True Word definition. */
+export type TrueWord = Extract<Definition, { kind: 'trueWord' }>
 export type NormalCard = Extract<Card, { kind: 'normal' }>
 export type CursedCard = Extract<Card, { kind: 'cursed' }>
+
+/** True for a card, false for a True Word. */
+export function isCard(definition: Definition): definition is Card {
+  return definition.kind !== 'trueWord'
+}
+
+/** True for a True Word. */
+export function isTrueWord(definition: Definition): definition is TrueWord {
+  return definition.kind === 'trueWord'
+}
+
+/** True when someone holds this card's one copy: it is out of the pool until that holding closes. */
+export function isHeldCopy(definition: Pick<Definition, 'holder'>): boolean {
+  return definition.holder !== null
+}
+
+/** The flags of a definition of kind `K`, with the values the kind fixes typed as literals. */
+export type FlagsOf<K extends DefinitionKind> = Pick<Extract<Definition, { kind: K }>, BehaviorFlag>
+
+/** `startingFlags`, typed for the kind's own definition. */
+export function startingFlagsOf<K extends DefinitionKind>(kind: K, text: string): FlagsOf<K> {
+  return startingFlags(kind, text) as FlagsOf<K>
+}

@@ -1,7 +1,9 @@
 import type { Firestore } from 'firebase-admin/firestore'
 
+import { startingFlags } from './cardCatalog.ts'
 import {
   type Addition,
+  CARDS_COLLECTION,
   type CardOutcome,
   countOutcomes,
   type StoredDefinition,
@@ -11,8 +13,11 @@ import {
 } from './importCards.ts'
 import type { ParsedTrueWord, TrueWordDefinition, WordColumn } from './trueWordRows.ts'
 
-/** The True Words collection. Keep in step with `src/features/true-words/api.ts` and `firestore.rules`. */
-export const TRUE_WORDS_COLLECTION = 'trueWords'
+/**
+ * The collection of the True Words: the cards collection, where a word is a definition of the kind `trueWord` (design
+ * D1 of unify-cards-and-true-words). Keep in step with `src/features/cards/api.ts` and `firestore.rules`.
+ */
+export const TRUE_WORDS_COLLECTION = CARDS_COLLECTION
 
 /** A stored word as read from Firestore, unvalidated: the import must cope with anything stored there. */
 export type StoredWord = StoredDefinition
@@ -71,13 +76,16 @@ export function planWordImport(
   return { words, counts: countOutcomes(words), upgrades }
 }
 
-/** Every stored word, as raw data. */
+/** Every stored word, as raw data: the definitions of the kind `trueWord` among the cards. */
 export async function readWords(db: Firestore): Promise<StoredWord[]> {
-  const snapshot = await db.collection(TRUE_WORDS_COLLECTION).get()
+  const snapshot = await db.collection(TRUE_WORDS_COLLECTION).where('kind', '==', 'trueWord').get()
   return snapshot.docs.map((document) => ({ id: document.id, data: document.data() }))
 }
 
-/** Writes the plan as the card import does (`writeImport`). Returns the number of words written. */
+/**
+ * Writes the plan as the card import does (`writeImport`): each word a definition of the kind `trueWord`, without a
+ * set, rarity or mechanic pack, with a True Word's starting flags. Returns the number of words written.
+ */
 export async function applyWordPlan(db: Firestore, plan: WordPlan): Promise<number> {
   const additions = plan.words.flatMap(({ id, name, outcome, definition }): Addition[] =>
     definition === null
@@ -87,7 +95,14 @@ export async function applyWordPlan(db: Firestore, plan: WordPlan): Promise<numb
             id,
             name,
             status: outcome === 'added-active' ? 'active' : 'draft',
-            fields: { ...definition },
+            fields: {
+              kind: 'trueWord',
+              ...definition,
+              setCode: null,
+              rarity: null,
+              mechanicPack: null,
+              ...startingFlags('trueWord', definition.text),
+            },
           },
         ],
   )

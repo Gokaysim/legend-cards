@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 
 import { type Deck, isInDeck, useCards, useCardsById } from '@/features/cards/cardsContext'
+import { isInPool } from '@/features/cards/pool'
 import type { Card } from '@/features/cards/schema'
 import type { CardStatus, DeckStatus } from '@/features/cards/status'
 import type { UserProfile } from '@/features/users/schema'
@@ -28,14 +29,11 @@ export function cardStatuses(
 
   return new Map(
     cards.map((card) => {
-      const holder = card.kind === 'normal' ? card.holder : null
+      const { holder } = card
       const uids = holdersOf(byCard.get(card.id) ?? [], card.id)
       if (holder && !uids.includes(holder.uid)) uids.unshift(holder.uid)
       const status: CardStatus = {
-        inPool:
-          card.status === 'active' &&
-          !card.dmOnly &&
-          (card.kind === 'blessed' || (card.kind === 'normal' && holder === null)),
+        inPool: card.kind !== 'cursed' && isInPool(card),
         holderNames: uids.map((uid) => names.get(uid) ?? 'İsimsiz oyuncu'),
       }
       return [card.id, status]
@@ -76,8 +74,9 @@ export function useDeckStatus(deck: Deck): DeckStatus | undefined {
     return {
       byCard: statuses,
       poolCount: deckCards.filter((card) => statuses.get(card.id)?.inPool).length,
-      handCount: holdings.data.filter((holding) => isInDeck({ kind: holding.cardKind }, deck))
-        .length,
+      handCount: holdings.data.filter(
+        (holding) => holding.cardKind !== 'trueWord' && isInDeck({ kind: holding.cardKind }, deck),
+      ).length,
     }
   }, [statuses, cards, holdings, deck])
 }

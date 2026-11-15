@@ -215,32 +215,33 @@ describe('the log queries and the parts of draws and packs', () => {
 })
 
 describe('the log queries of True Words', () => {
-  /** A learned word as stored: taught by the DM unless `draftId` names its draft, and maybe taken back. */
-  function storedRecord(
+  /** A word's holding as stored: taught by the DM unless `draftId` names its draft, and maybe taken back. */
+  function storedWordHolding(
     uid: string,
-    learnedAt: number,
+    givenAt: number,
     {
       draftId = null,
-      removedAt = null,
-    }: { draftId?: string | null; removedAt?: number | null } = {},
+      takenBackAt = null,
+    }: { draftId?: string | null; takenBackAt?: number | null } = {},
   ) {
     return {
-      wordId: 'tw-abyss',
-      wordName: 'Abyss',
-      uid,
-      learnedAt: at(learnedAt),
-      learnedBy: draftId === null ? 'dana' : uid,
-      learnedVia: draftId === null ? 'dm' : 'draft',
-      draftId,
-      active: false,
-      removedAt: removedAt === null ? null : at(removedAt),
-      removedBy: removedAt === null ? null : 'dana',
+      ...storedHolding(uid, givenAt),
+      cardId: 'tw-abyss',
+      cardName: 'Abyss',
+      cardKind: 'trueWord',
+      givenBy: draftId === null ? 'dana' : uid,
+      givenVia: draftId === null ? 'dm' : 'draft',
+      drawId: draftId,
+      returnedAt: takenBackAt === null ? null : at(takenBackAt),
+      returnedBy: takenBackAt === null ? null : 'dana',
+      returnReason: takenBackAt === null ? null : 'discarded',
     }
   }
 
-  /** A paid draft for `uid` that ended with a learned word. */
+  /** A paid draft for `uid` that ended with a learned word, among the draws. */
   function storedDraft(uid: string, millis: number) {
     return {
+      kind: 'wordDraft',
       uid,
       by: uid,
       at: at(millis),
@@ -251,7 +252,7 @@ describe('the log queries of True Words', () => {
       entryId: `pay-${uid}`,
       closedAt: at(millis + 100),
       closedBy: uid,
-      learned: { wordId: 'tw-abyss', wordName: 'Abyss', recordId: `r-${uid}-draft` },
+      learned: { cardId: 'tw-abyss', cardName: 'Abyss', holdingId: `r-${uid}-draft` },
       refundEntryId: null,
     }
   }
@@ -259,23 +260,23 @@ describe('the log queries of True Words', () => {
   beforeEach(async () => {
     await testEnv.withSecurityRulesDisabled(async (admin) => {
       const db = firestoreOf(admin)
-      await setDoc(doc(db, 'wordDrafts/w-ayla'), storedDraft('ayla', 20000))
-      await setDoc(doc(db, 'wordDrafts/w-bora'), storedDraft('bora', 21000))
+      await setDoc(doc(db, 'draws/w-ayla'), storedDraft('ayla', 20000))
+      await setDoc(doc(db, 'draws/w-bora'), storedDraft('bora', 21000))
       // Learned from the drafts: part of their events.
       await setDoc(
-        doc(db, 'userTrueWords/r-ayla-draft'),
-        storedRecord('ayla', 20100, { draftId: 'w-ayla' }),
+        doc(db, 'userCards/r-ayla-draft'),
+        storedWordHolding('ayla', 20100, { draftId: 'w-ayla' }),
       )
       await setDoc(
-        doc(db, 'userTrueWords/r-bora-draft'),
-        storedRecord('bora', 21100, { draftId: 'w-bora' }),
+        doc(db, 'userCards/r-bora-draft'),
+        storedWordHolding('bora', 21100, { draftId: 'w-bora' }),
       )
       // Taught by the DM; Ayla's later taken back.
       await setDoc(
-        doc(db, 'userTrueWords/r-ayla-taught'),
-        storedRecord('ayla', 22000, { removedAt: 24000 }),
+        doc(db, 'userCards/r-ayla-taught'),
+        storedWordHolding('ayla', 22000, { takenBackAt: 24000 }),
       )
-      await setDoc(doc(db, 'userTrueWords/r-bora-taught'), storedRecord('bora', 23000))
+      await setDoc(doc(db, 'userCards/r-bora-taught'), storedWordHolding('bora', 23000))
       // A draft's payment: not a change by hand.
       await setDoc(doc(db, 'ledger/pay-ayla'), {
         ...storedEntry('ayla', 20000),
@@ -287,50 +288,39 @@ describe('the log queries of True Words', () => {
     })
   })
 
-  async function wordIds(uid: string | null, n: number) {
-    const db = firestoreOf(testEnv.authenticatedContext('ayla'))
-    const queries = logQueries(db, uid, n, false)
-    const idsOf = async <T>(query: Query<T>) =>
-      (await getDocs(query)).docs.map((document) => document.id)
-    return {
-      drafts: await idsOf(queries.drafts),
-      taught: await idsOf(queries.taught),
-      takenBack: await idsOf(queries.takenBack),
-      entries: await idsOf(queries.entries),
-    }
-  }
-
-  it('return the drafts, and the taught and taken-back words, without the words learned in drafts or their payments', async () => {
-    expect(await wordIds(null, 50)).toEqual({
-      drafts: ['w-bora', 'w-ayla'],
-      taught: ['r-bora-taught', 'r-ayla-taught'],
-      takenBack: ['r-ayla-taught'],
+  it('return the drafts among the draws, and the taught and taken-back words among the holdings, without the words learned in drafts or their payments', async () => {
+    expect(await ids(null, 50)).toEqual({
+      given: ['r-bora-taught', 'r-ayla-taught', 'b-used', 'b-open', 'a-used', 'a-open'],
+      closed: ['r-ayla-taught', 'a-used', 'b-used'],
+      draws: ['w-bora', 'w-ayla', 'd-ayla-2', 'd-bora', 'd-ayla'],
       entries: ['gp', 'lp-bora', 'lp-ayla'],
     })
   })
 
   it("keep only one user's", async () => {
-    expect(await wordIds('ayla', 50)).toEqual({
-      drafts: ['w-ayla'],
-      taught: ['r-ayla-taught'],
-      takenBack: ['r-ayla-taught'],
+    expect(await ids('ayla', 50)).toEqual({
+      given: ['r-ayla-taught', 'a-used', 'a-open'],
+      closed: ['r-ayla-taught', 'a-used'],
+      draws: ['w-ayla', 'd-ayla-2', 'd-ayla'],
       entries: ['lp-ayla'],
     })
   })
 
   it('stop at n', async () => {
-    expect(await wordIds(null, 1)).toMatchObject({ drafts: ['w-bora'], taught: ['r-bora-taught'] })
+    expect(await ids(null, 1)).toMatchObject({ given: ['r-bora-taught'], draws: ['w-bora'] })
   })
 })
 
 describe('the log queries of uses and their payments', () => {
-  /** A use of Abyss by `uid` at `millis`, paid with `pay-<id>`. */
-  function storedWordUse(uid: string, millis: number) {
+  /** A use of a card or word kept on use, by `uid` at `millis`, paid with `pay-<id>`. */
+  function storedUse(uid: string, millis: number, kind: 'trueWord' | 'normal') {
+    const word = kind === 'trueWord'
     return {
       uid,
-      wordId: 'tw-abyss',
-      wordName: 'Abyss',
-      recordId: `r-${uid}`,
+      cardId: word ? 'tw-abyss' : 'legend-abolethseyes',
+      cardName: word ? 'Abyss' : "Aboleth's Eyes",
+      cardKind: kind,
+      holdingId: `r-${uid}`,
       by: uid,
       at: at(millis),
       cost: 2,
@@ -338,11 +328,11 @@ describe('the log queries of uses and their payments', () => {
     }
   }
 
-  /** A use payment as stored: `source` of a card's or a word's use, for the record `drawId`. */
+  /** A use payment as stored: `source` of a closing use or a kept use, for the record `drawId`. */
   function storedPayment(
     account: string,
     millis: number,
-    source: 'use' | 'wordUse',
+    source: 'use' | 'keptUse',
     drawId: string,
   ) {
     return { ...storedEntry(account, millis), delta: -2, source, reason: null, drawId }
@@ -351,9 +341,9 @@ describe('the log queries of uses and their payments', () => {
   beforeEach(async () => {
     await testEnv.withSecurityRulesDisabled(async (admin) => {
       const db = firestoreOf(admin)
-      await setDoc(doc(db, 'wordUses/u-ayla'), storedWordUse('ayla', 30000))
-      await setDoc(doc(db, 'wordUses/u-bora'), storedWordUse('bora', 31000))
-      await setDoc(doc(db, 'ledger/pay-u-ayla'), storedPayment('ayla', 30000, 'wordUse', 'u-ayla'))
+      await setDoc(doc(db, 'uses/u-ayla'), storedUse('ayla', 30000, 'trueWord'))
+      await setDoc(doc(db, 'uses/u-bora'), storedUse('bora', 31000, 'normal'))
+      await setDoc(doc(db, 'ledger/pay-u-ayla'), storedPayment('ayla', 30000, 'keptUse', 'u-ayla'))
       await setDoc(doc(db, 'ledger/pay-a-used'), storedPayment('ayla', 6000, 'use', 'a-used'))
     })
   })
@@ -364,15 +354,15 @@ describe('the log queries of uses and their payments', () => {
     const idsOf = async <T>(query: Query<T>) =>
       (await getDocs(query)).docs.map((document) => document.id)
     return {
-      wordUses: await idsOf(queries.wordUses),
+      uses: await idsOf(queries.uses),
       closed: await idsOf(queries.closed),
       entries: await idsOf(queries.entries),
     }
   }
 
-  it('return the word uses, newest first, and never a use payment as a change by hand', async () => {
+  it('return the kept uses of words and cards, newest first, and never a use payment as a change by hand', async () => {
     expect(await useIds(null, 50)).toEqual({
-      wordUses: ['u-bora', 'u-ayla'],
+      uses: ['u-bora', 'u-ayla'],
       closed: ['a-used', 'b-used'],
       entries: ['gp', 'lp-bora', 'lp-ayla'],
     })
@@ -380,11 +370,11 @@ describe('the log queries of uses and their payments', () => {
 
   it("keep only one user's uses, and stop at n", async () => {
     expect(await useIds('ayla', 50)).toEqual({
-      wordUses: ['u-ayla'],
+      uses: ['u-ayla'],
       closed: ['a-used'],
       entries: ['lp-ayla'],
     })
-    expect((await useIds(null, 1)).wordUses).toEqual(['u-bora'])
+    expect((await useIds(null, 1)).uses).toEqual(['u-bora'])
   })
 })
 

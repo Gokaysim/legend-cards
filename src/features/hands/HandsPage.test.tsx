@@ -181,7 +181,7 @@ describe('character effects in the hand summary', () => {
     within(screen.getByLabelText('El özeti')).getByText(label).nextElementSibling?.textContent
 
   it("counts and lists the stored effects of the player's active characters, not an archived one's", () => {
-    const owl = testCard('Night Owl')
+    const owl = testCard('Night Owl', { hasHeldEffect: true })
     const thorin = testCharacter('Thorin', 'ayla', { addedAtMillis: 1000 })
     const kuzgun = testCharacter('Kuzgun', 'ayla', { addedAtMillis: 2000, archived: true })
     renderApp({
@@ -207,6 +207,32 @@ describe('character effects in the hand summary', () => {
     expect(list.getByText('Kutsal su')).toBeInTheDocument()
     expect(list.queryByText('Unutulmuş')).not.toBeInTheDocument()
     expect(list.queryByText('Kuzgun')).not.toBeInTheDocument()
+  })
+})
+
+describe('active cards in the hand summary', () => {
+  const stat = (label: string) =>
+    within(screen.getByLabelText('El özeti')).getByText(label).nextElementSibling?.textContent
+
+  it('counts an active holding only while its card acts while held', () => {
+    const owl = testCard('Night Owl', { hasHeldEffect: true })
+    const pride = testCursedCard("Devil's Pride", { hasHeldEffect: false })
+    renderApp({
+      path: '/hands/ayla',
+      users: { profiles: ready([ayla, me]) },
+      cards: { cards: ready([owl, pride]) },
+      holdings: {
+        openHoldings: ready([
+          testHolding(owl, 'ayla', 1000, { active: true }),
+          testHolding(pride, 'ayla', 2000, { active: true }),
+        ]),
+      },
+    })
+
+    expect(stat('Aktif efekt')).toBe('1')
+    const list = within(screen.getByRole('region', { name: 'Aktif Efektler' }))
+    expect(list.getByText('Night Owl')).toBeInTheDocument()
+    expect(list.queryByText("Devil's Pride")).not.toBeInTheDocument()
   })
 })
 
@@ -287,6 +313,25 @@ describe('drawing on the hand', () => {
 
     expect(main().getByRole('button', { name: '☠ Cursed Kart Çek' })).toBeDisabled()
     expect(main().getByRole('button', { name: '🎲 Kart Çek' })).toBeEnabled()
+  })
+
+  it('disables the Cursed draw when every Cursed card is out of the Cursed Deck by its flags', () => {
+    renderApp({
+      path: `/hands/${testUser.uid}`,
+      users: { profiles: ready([meWithLp]) },
+      cards: {
+        cards: ready([
+          eyes,
+          testCursedCard('Hex', { isInDraws: false }),
+          testCursedCard('Crown of Ash', {
+            isRepeatable: false,
+            holder: { uid: 'bora', userCardId: 'h-crown' },
+          }),
+        ]),
+      },
+    })
+
+    expect(main().getByRole('button', { name: '☠ Cursed Kart Çek' })).toBeDisabled()
   })
 
   it('disables both draws and "+ Kart ver" while a pack is open, and says why', () => {

@@ -1,6 +1,9 @@
 import { Timestamp } from 'firebase/firestore'
 
-import type { LearnedWord, TrueWord, WordDraft, WordUse } from '@/features/true-words/schema'
+import { startingFlagsOf } from '@/features/cards/schema'
+import type { Holding, KeptUse } from '@/features/hands/schema'
+import type { LearnedWord, TrueWord, WordDraft } from '@/features/true-words/schema'
+import { testHolding } from '@/test/holdingFixtures'
 
 /** A test key from a name: lowercase letters and digits only, like the import's `nameKey`. */
 const keyOf = (name: string) =>
@@ -16,13 +19,19 @@ export function testTrueWord(
 ): TrueWord {
   return {
     id: `tw-${keyOf(name)}`,
+    kind: 'trueWord',
     name,
     nameKey: keyOf(name),
+    setCode: null,
     cost: '1',
+    rarity: null,
+    mechanicPack: null,
     text: `${name} text.`,
     status: 'active',
     changeId: null,
     picture: null,
+    holder: null,
+    ...startingFlagsOf('trueWord', overrides.text ?? ''),
     ...overrides,
   }
 }
@@ -44,6 +53,8 @@ export function testLearnedWord(
     learnedVia: 'dm',
     draftId: null,
     active: false,
+    note: '',
+    costOverride: null,
     removedAt: null,
     removedBy: null,
     ...overrides,
@@ -59,6 +70,7 @@ export function testWordDraft(
 ): WordDraft {
   return {
     id,
+    kind: 'wordDraft',
     uid,
     by: uid,
     at: Timestamp.fromMillis(5000),
@@ -75,19 +87,23 @@ export function testWordDraft(
   }
 }
 
-/** A use of a known word for tests: by its player at 4000, paying 1 LP with the entry `e-<id>`, unless overridden. */
+/**
+ * A use of a known word for tests (a kept use): by its player at 4000, paying 1 LP with the entry `e-<id>`, unless
+ * overridden. Its holding is `r-<uid>-<word ID>`.
+ */
 export function testWordUse(
   id: string,
   word: TrueWord,
   uid: string,
-  overrides: Partial<WordUse> = {},
-): WordUse {
+  overrides: Partial<KeptUse> = {},
+): KeptUse {
   return {
     id,
     uid,
-    wordId: word.id,
-    wordName: word.name,
-    recordId: `r-${uid}-${word.id}`,
+    cardId: word.id,
+    cardName: word.name,
+    cardKind: 'trueWord',
+    holdingId: `r-${uid}-${word.id}`,
     by: uid,
     at: Timestamp.fromMillis(4000),
     cost: 1,
@@ -96,4 +112,17 @@ export function testWordUse(
     usedOnCharacterId: null,
     ...overrides,
   }
+}
+
+/**
+ * The open holding of a known word for tests: taught by the DM ("dana") at 1000, inactive, with the ID `id`, unless
+ * overridden.
+ */
+export function testWordHolding(
+  id: string,
+  word: TrueWord,
+  uid: string,
+  overrides: Partial<Holding> = {},
+): Holding {
+  return testHolding(word, uid, 1000, { id, givenBy: 'dana', ...overrides })
 }

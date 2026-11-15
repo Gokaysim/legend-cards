@@ -1,6 +1,6 @@
 import { Timestamp } from 'firebase/firestore'
 
-import type { Card } from '@/features/cards/schema'
+import type { Definition } from '@/features/cards/schema'
 import type { Holding } from '@/features/hands/schema'
 
 /**
@@ -8,7 +8,7 @@ import type { Holding } from '@/features/hands/schema'
  * `<uid>:<card ID>` unless overridden.
  */
 export function testHolding(
-  card: Pick<Card, 'id' | 'name' | 'kind'>,
+  card: Pick<Definition, 'id' | 'name' | 'kind'>,
   uid: string,
   givenAtMillis: number,
   overrides: Partial<Holding> = {},

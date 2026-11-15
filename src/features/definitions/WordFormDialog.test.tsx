@@ -12,6 +12,7 @@ import { TestTableProvider } from '@/test/TestTableProvider'
 import { TestTrueWordsProvider } from '@/test/TestTrueWordsProvider'
 import { testTrueWord } from '@/test/trueWordFixtures'
 
+import type { WordFields } from './api'
 import type { DefinitionActions } from './definitionsContext'
 import { PictureUnsupportedError } from './errors'
 import type * as PictureModule from './picture'
@@ -136,5 +137,44 @@ describe('WordFormDialog: the picture', () => {
     vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
     setup(abyss.id)
     expect(button('Resim seç')).toBeDisabled()
+  })
+})
+
+describe('WordFormDialog: the Davranış section', () => {
+  const behavior = () => within(dialog().getByRole('group', { name: 'Davranış' }))
+
+  it('shows only the four flags a True Word does not fix, its draw flag named after the draft', () => {
+    setup(abyss.id)
+    expect(
+      behavior()
+        .getAllByRole('checkbox')
+        .map((box) => box.closest('label')?.textContent),
+    ).toEqual(['Listede görünür', "Draft'ta çıkar", 'Elde etkili', 'Kullanınca efekt bırakır'])
+  })
+
+  it('makes a word only the DM teaches, and saves it with every "where" flag off', async () => {
+    const { user, fakes } = setup(abyss.id)
+    await user.click(button('Sadece DM verebilir'))
+
+    expect(dialog().getByText("Bu True Word'ü yalnızca DM öğretebilir.")).toBeVisible()
+    await user.click(button('Kaydet'))
+    expect(fakes.saveWord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fields: expect.objectContaining({
+          isInLibrary: false,
+          isInDraws: false,
+          isInSetPacks: false,
+          isInMechanicPacks: false,
+          isRepeatable: true,
+          isKeptOnUse: true,
+        }) as WordFields,
+      }),
+    )
+  })
+
+  it('checks "Elde etkili" for a new word with a held text', async () => {
+    const { user } = setup(null)
+    await user.type(dialog().getByLabelText('Metin'), 'Held: you glow.')
+    expect(dialog().getByLabelText('Elde etkili')).toBeChecked()
   })
 })

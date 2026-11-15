@@ -14,6 +14,8 @@ import {
 } from 'firebase/firestore'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
+import { cardsRef, playerVisibleCardsQuery } from '@/features/cards/api'
+import { setHoldingCost, setHoldingNote } from '@/features/hands/api'
 import { TableBusyError } from '@/features/table/errors'
 import type { RandomSource } from '@/lib/random'
 import { testTrueWord } from '@/test/trueWordFixtures'
@@ -22,7 +24,7 @@ import firestoreRules from '../../../firestore.rules?raw'
 import {
   cancelDraft,
   learnWord,
-  playerVisibleWordsQuery,
+  openDraftsQuery,
   recordWordUse,
   setWordActive,
   skipDraft,
@@ -30,7 +32,6 @@ import {
   type StartDraftInput,
   takeBackWord,
   teachWord,
-  trueWordsRef,
 } from './api'
 import { toWordFailure, WordError } from './errors'
 import type { TrueWord } from './schema'
@@ -57,9 +58,16 @@ const OLD = testTrueWord('Old', { status: 'retired' })
 const ECHO = testTrueWord('Echo', { status: 'draft', cost: null, text: '' })
 const WORDS: TrueWord[] = [ABYSS, AID, CHAOS, DRAGON, HOARD, MIMIC, OLD]
 
-/** A word as the import stores it: without the ID. */
+/** A word as the import stores it: without the ID, in `cards`. */
 function storedWord({ id: _id, ...word }: TrueWord) {
   return word
+}
+
+/** Stores a word as the admin, replacing the seeded one. */
+async function seedWord(word: TrueWord) {
+  await testEnv.withSecurityRulesDisabled(async (admin) => {
+    await setDoc(doc(firestoreOf(admin), `cards/${word.id}`), storedWord(word))
+  })
 }
 
 async function stored(path: string): Promise<Record<string, unknown> | undefined> {
@@ -73,12 +81,16 @@ async function stored(path: string): Promise<Record<string, unknown> | undefined
 async function all(collectionPath: string): Promise<Record<string, unknown>[]> {
   let docs: Record<string, unknown>[] = []
   await testEnv.withSecurityRulesDisabled(async (admin) => {
-    docs = (await getDocs(collection(firestoreOf(admin), collectionPath))).docs.map((entry) =>
-      entry.data(),
-    )
+    docs = (await getDocs(collection(firestoreOf(admin), collectionPath))).docs.map((entry) => ({
+      id: entry.id,
+      ...entry.data(),
+    }))
   })
   return docs
 }
+
+/** The True Word drafts among the draws. */
+const drafts = async () => (await all('draws')).filter((draw) => draw.kind === 'wordDraft')
 
 /** The rejection of a promise that must fail. */
 async function failureOf(promise: Promise<unknown>): Promise<unknown> {
@@ -141,30 +153,47 @@ beforeEach(async () => {
     await setDoc(doc(db, 'users/bora'), { ...profile('player', 'Bora'), lp: 4, lpEntryId: 'seed' })
     await setDoc(doc(db, 'users/dana'), profile('dm', 'Dana'))
     for (const word of [...WORDS, ECHO]) {
-      await setDoc(doc(db, `trueWords/${word.id}`), storedWord(word))
+      await setDoc(doc(db, `cards/${word.id}`), storedWord(word))
     }
   })
 })
 
 describe('reading the words under the real rules', () => {
-  it("gives a player's query the active and retired words, and never a draft", async () => {
-    const snapshot = await getDocs(playerVisibleWordsQuery(as('ayla')))
-    const ids = snapshot.docs.map((entry) => entry.id)
-    expect(ids).toContain(OLD.id)
-    expect(ids).not.toContain(ECHO.id)
-    expect(ids).toHaveLength(WORDS.length)
+  it("gives a player's card query the active and retired words, and never a draft", async () => {
+    const snapshot = await getDocs(playerVisibleCardsQuery(as('ayla')))
+    const words = snapshot.docs.map((entry) => entry.data()).filter((d) => d.kind === 'trueWord')
+    expect(words.map((word) => word.id)).toContain(OLD.id)
+    expect(words.map((word) => word.id)).not.toContain(ECHO.id)
+    expect(words).toHaveLength(WORDS.length)
   })
 
-  it('gives the DM every word, the drafts included, and refuses a player the whole collection', async () => {
-    const snapshot = await getDocs(trueWordsRef(as('dana')))
+  it('gives the DM every word among the cards, the drafts included', async () => {
+    const snapshot = await getDocs(cardsRef(as('dana')))
     expect(snapshot.docs.map((entry) => entry.id)).toContain(ECHO.id)
-    await expect(getDocs(trueWordsRef(as('ayla')))).rejects.toThrow()
   })
 
   it('never offers a draft word in a draft, even when it is passed in', async () => {
     const id = await aylaStarts({ words: [...WORDS, ECHO] })
-    const draft = await stored(`wordDrafts/${id}`)
+    const draft = await stored(`draws/${id}`)
     expect(draft?.offered).not.toContain(ECHO.id)
+  })
+
+  it('never offers a word whose "Draft\'ta çıkar" is off, and the DM still teaches it', async () => {
+    const hidden = { ...ABYSS, isInDraws: false }
+    await seedWord(hidden)
+    const id = await aylaStarts({ words: [hidden, ...WORDS.slice(1)] })
+    expect((await stored(`draws/${id}`))?.offered).not.toContain(ABYSS.id)
+
+    await teach('bora', hidden)
+    expect(await stored('playerWords/bora')).toMatchObject({
+      known: { [ABYSS.id]: expect.any(String) as string },
+    })
+  })
+
+  it('lets every signed-in user read the open drafts', async () => {
+    const id = await aylaStarts()
+    const snapshot = await getDocs(openDraftsQuery(as('bora')))
+    expect(snapshot.docs.map((entry) => entry.id)).toEqual([id])
   })
 })
 
@@ -175,7 +204,7 @@ describe('starting a draft under the real rules', () => {
 
     const id = await aylaStarts({ known: new Set([CHAOS.id, HOARD.id]) })
 
-    const draft = await stored(`wordDrafts/${id}`)
+    const draft = await stored(`draws/${id}`)
     expect(draft).toMatchObject({
       uid: 'ayla',
       by: 'ayla',
@@ -225,7 +254,7 @@ describe('starting a draft under the real rules', () => {
       known: new Set(),
       random: first,
     })
-    expect(await stored(`wordDrafts/${free}`)).toMatchObject({
+    expect(await stored(`draws/${free}`)).toMatchObject({
       paidWith: 'none',
       cost: 0,
       entryId: null,
@@ -246,13 +275,13 @@ describe('starting a draft under the real rules', () => {
       }),
     )
     expect(toWordFailure(error)).toEqual({ kind: 'insufficient', balance: 5, amount: 6 })
-    expect(await all('wordDrafts')).toEqual([])
+    expect(await drafts()).toEqual([])
   })
 
   it('refuses a draft with fewer than 3 learnable words, before writing', async () => {
     const error = await failureOf(aylaStarts({ words: [ABYSS, AID, OLD] }))
     expect(toWordFailure(error)).toEqual({ kind: 'too-few-words' })
-    expect(await all('wordDrafts')).toEqual([])
+    expect(await drafts()).toEqual([])
   })
 
   it('refuses a second draft while one is open', async () => {
@@ -290,46 +319,51 @@ describe('starting a draft under the real rules', () => {
     // The client still thinks Ayla knows nothing, so the first pick shows Abyss.
     const id = await aylaStarts({ known: new Set() })
 
-    const draft = await stored(`wordDrafts/${id}`)
+    const draft = await stored(`draws/${id}`)
     expect(draft?.offered).toEqual([AID.id, CHAOS.id, DRAGON.id])
     expect(draft?.cost).toBe(2)
-    expect(await all('wordDrafts')).toHaveLength(1)
+    expect(await drafts()).toHaveLength(1)
     expect(await stored('users/ayla')).toMatchObject({ lp: 3 })
   })
 })
 
 describe('learning and skipping under the real rules', () => {
-  it('learns a word, inactive, and ends the draft', async () => {
+  it('learns a word as a holding, inactive, and ends the draft', async () => {
     const id = await aylaStarts()
 
     const recordId = await learnWord(as('ayla'), { draftId: id, wordId: AID.id, by: 'ayla' })
 
-    expect(await stored(`userTrueWords/${recordId}`)).toMatchObject({
-      wordId: AID.id,
-      wordName: 'Aid',
+    expect(await stored(`userCards/${recordId}`)).toMatchObject({
+      cardId: AID.id,
+      cardName: 'Aid',
+      cardKind: 'trueWord',
       uid: 'ayla',
-      learnedBy: 'ayla',
-      learnedVia: 'draft',
-      draftId: id,
+      givenBy: 'ayla',
+      givenVia: 'draft',
+      drawId: id,
       active: false,
-      removedBy: null,
+      note: '',
+      costOverride: null,
+      returnedAt: null,
+      returnReason: null,
     })
-    expect(await stored(`wordDrafts/${id}`)).toMatchObject({
+    expect(await stored(`draws/${id}`)).toMatchObject({
+      kind: 'wordDraft',
       status: 'learned',
       closedBy: 'ayla',
-      learned: { wordId: AID.id, wordName: 'Aid', recordId },
+      learned: { cardId: AID.id, cardName: 'Aid', holdingId: recordId },
     })
     expect(await stored('playerWords/ayla')).toEqual({
       known: { [AID.id]: recordId },
       openDraftId: null,
-      recordId,
+      holdingId: recordId,
     })
   })
 
   it('lets the DM learn for the player', async () => {
     const id = await aylaStarts()
     await learnWord(as('dana'), { draftId: id, wordId: ABYSS.id, by: 'dana' })
-    expect(await stored(`wordDrafts/${id}`)).toMatchObject({ status: 'learned', closedBy: 'dana' })
+    expect(await stored(`draws/${id}`)).toMatchObject({ status: 'learned', closedBy: 'dana' })
   })
 
   it('refuses a shown word that the DM taught meanwhile', async () => {
@@ -368,7 +402,7 @@ describe('learning and skipping under the real rules', () => {
 
     await skipDraft(as('ayla'), { draftId: id, by: 'ayla' })
 
-    expect(await stored(`wordDrafts/${id}`)).toMatchObject({ status: 'skipped', closedBy: 'ayla' })
+    expect(await stored(`draws/${id}`)).toMatchObject({ status: 'skipped', closedBy: 'ayla' })
     expect(await stored('users/ayla')).toMatchObject({ lp: 4 })
     expect(await stored('playerWords/ayla')).toMatchObject({ openDraftId: null })
   })
@@ -382,7 +416,7 @@ describe('learning and skipping under the real rules', () => {
     )
 
     expect(toWordFailure(error)).toEqual({ kind: 'table-busy' })
-    expect(await stored(`wordDrafts/${id}`)).toMatchObject({ status: 'open' })
+    expect(await stored(`draws/${id}`)).toMatchObject({ status: 'open' })
   })
 })
 
@@ -392,7 +426,7 @@ describe('cancelling under the real rules', () => {
 
     await cancelDraft(as('dana'), { draftId: id, by: 'dana' })
 
-    const draft = await stored(`wordDrafts/${id}`)
+    const draft = await stored(`draws/${id}`)
     expect(draft).toMatchObject({ status: 'cancelled', closedBy: 'dana' })
     expect(await stored(`ledger/${String(draft?.refundEntryId)}`)).toMatchObject({
       source: 'wordDraft',
@@ -416,7 +450,7 @@ describe('cancelling under the real rules', () => {
 
     await cancelDraft(as('dana'), { draftId: id, by: 'dana' })
 
-    expect(await stored(`wordDrafts/${id}`)).toMatchObject({
+    expect(await stored(`draws/${id}`)).toMatchObject({
       status: 'cancelled',
       refundEntryId: null,
     })
@@ -433,12 +467,39 @@ describe('cancelling under the real rules', () => {
 describe('teaching, taking back and switching active under the real rules', () => {
   it('teaches a word for free', async () => {
     const recordId = await teach('bora', AID)
-    expect(await stored(`userTrueWords/${recordId}`)).toMatchObject({
-      learnedVia: 'dm',
-      draftId: null,
-      learnedBy: 'dana',
+    expect(await stored(`userCards/${recordId}`)).toMatchObject({
+      cardKind: 'trueWord',
+      givenVia: 'dm',
+      drawId: null,
+      givenBy: 'dana',
+      active: false,
     })
     expect(await stored('users/bora')).toMatchObject({ lp: 4 })
+  })
+
+  it('teaches a word with "Elde etkili" active, and lets the DM switch it', async () => {
+    await seedWord({ ...AID, hasHeldEffect: true })
+    const recordId = await teach('ayla', AID)
+    expect(await stored(`userCards/${recordId}`)).toMatchObject({ active: true })
+
+    await setWordActive(as('dana'), recordId, false)
+    expect(await stored(`userCards/${recordId}`)).toMatchObject({ active: false })
+  })
+
+  it('refuses switching a word without "Elde etkili"', async () => {
+    const recordId = await teach('ayla', AID)
+    expect(await failureOf(setWordActive(as('dana'), recordId, true))).toBeDefined()
+    expect(await stored(`userCards/${recordId}`)).toMatchObject({ active: false })
+  })
+
+  it("keeps a player's note on their word, and the DM's cost for it", async () => {
+    const recordId = await teach('ayla', AID)
+    await setHoldingNote(as('ayla'), recordId, 'Boss için sakla')
+    await setHoldingCost(as('dana'), recordId, '3')
+    expect(await stored(`userCards/${recordId}`)).toMatchObject({
+      note: 'Boss için sakla',
+      costOverride: '3',
+    })
   })
 
   it('refuses a word the player knows, and a retired word', async () => {
@@ -452,7 +513,10 @@ describe('teaching, taking back and switching active under the real rules', () =
 
     await takeBackWord(as('dana'), { recordId, by: 'dana' })
 
-    expect(await stored(`userTrueWords/${recordId}`)).toMatchObject({ removedBy: 'dana' })
+    expect(await stored(`userCards/${recordId}`)).toMatchObject({
+      returnedBy: 'dana',
+      returnReason: 'discarded',
+    })
     expect(await stored('playerWords/ayla')).toMatchObject({ known: {} })
   })
 
@@ -475,12 +539,14 @@ describe('teaching, taking back and switching active under the real rules', () =
   })
 
   it('switches a word active while a pack is open', async () => {
+    await seedWord({ ...AID, hasHeldEffect: true })
     const recordId = await teach('ayla', AID)
+    await setWordActive(as('dana'), recordId, false)
     await seedTable('p1')
 
     await setWordActive(as('dana'), recordId, true)
 
-    expect(await stored(`userTrueWords/${recordId}`)).toMatchObject({ active: true })
+    expect(await stored(`userCards/${recordId}`)).toMatchObject({ active: true })
   })
 
   it('waits for an open pack before teaching or taking back', async () => {
@@ -527,7 +593,7 @@ describe('using a word under the real rules', () => {
       await seedThorin()
       const recordId = await teach('ayla', AID)
 
-      const useId = await recordWordUse(as('ayla'), {
+      await recordWordUse(as('ayla'), {
         recordId,
         by: 'ayla',
         amount: 1,
@@ -535,10 +601,9 @@ describe('using a word under the real rules', () => {
         addEffect: true,
       })
 
-      expect(await stored(`wordUses/${useId}`)).toMatchObject({
-        usedOn: 'Thorin',
-        usedOnCharacterId: THORIN,
-      })
+      const [recorded] = await all('uses')
+      expect(recorded).toMatchObject({ usedOn: 'Thorin', usedOnCharacterId: THORIN })
+      const useId = recorded?.id
       expect(await effects()).toEqual([
         expect.objectContaining({
           characterId: THORIN,
@@ -556,13 +621,13 @@ describe('using a word under the real rules', () => {
       await seedThorin()
       const recordId = await teach('ayla', AID)
 
-      const onThorin = await recordWordUse(as('ayla'), {
+      await recordWordUse(as('ayla'), {
         recordId,
         by: 'ayla',
         amount: 1,
         target: { kind: 'character', characterId: THORIN },
       })
-      const typed = await recordWordUse(as('dana'), {
+      await recordWordUse(as('dana'), {
         recordId,
         by: 'dana',
         amount: 0,
@@ -570,10 +635,29 @@ describe('using a word under the real rules', () => {
         addEffect: true,
       })
 
-      expect(await stored(`wordUses/${onThorin}`)).toMatchObject({ usedOnCharacterId: THORIN })
-      const typedUse = await stored(`wordUses/${typed}`)
+      const uses = await all('uses')
+      const onThorin = uses.find((use) => use.by === 'ayla')
+      const typedUse = uses.find((use) => use.by === 'dana')
+      expect(onThorin).toMatchObject({ usedOnCharacterId: THORIN })
       expect(typedUse).toMatchObject({ usedOn: 'Goblin şefi' })
       expect(typedUse).not.toHaveProperty('usedOnCharacterId')
+      expect(await effects()).toEqual([])
+    })
+
+    it('adds no effect for a word without "Kullanınca efekt bırakır"', async () => {
+      await seedThorin()
+      await seedWord({ ...AID, hasUseEffect: false })
+      const recordId = await teach('ayla', AID)
+
+      await recordWordUse(as('ayla'), {
+        recordId,
+        by: 'ayla',
+        amount: 1,
+        target: { kind: 'character', characterId: THORIN },
+        addEffect: true,
+      })
+
+      expect(await all('uses')).toHaveLength(1)
       expect(await effects()).toEqual([])
     })
 
@@ -596,23 +680,21 @@ describe('using a word under the real rules', () => {
     })
   })
 
-  async function setCost(word: TrueWord, cost: string) {
-    await testEnv.withSecurityRulesDisabled(async (admin) => {
-      await setDoc(doc(firestoreOf(admin), `trueWords/${word.id}`), storedWord({ ...word, cost }))
-    })
-  }
+  const setCost = (word: TrueWord, cost: string) => seedWord({ ...word, cost })
 
   it("pays the word's price: the use, the entry and the LP agree, and the word stays known", async () => {
     const recordId = await teach('ayla', AID)
 
-    const useId = await use('ayla', recordId, 1)
+    await use('ayla', recordId, 1)
 
-    const recorded = await stored(`wordUses/${useId}`)
+    const [recorded] = await all('uses')
+    const useId = recorded?.id
     expect(recorded).toMatchObject({
       uid: 'ayla',
-      wordId: AID.id,
-      wordName: 'Aid',
-      recordId,
+      cardId: AID.id,
+      cardName: 'Aid',
+      cardKind: 'trueWord',
+      holdingId: recordId,
       by: 'ayla',
       cost: 1,
     })
@@ -623,13 +705,14 @@ describe('using a word under the real rules', () => {
       account: 'ayla',
       delta: -1,
       balanceAfter: 4,
-      source: 'wordUse',
+      source: 'keptUse',
       reason: null,
       drawId: useId,
       by: 'ayla',
     })
     expect(await stored('users/ayla')).toMatchObject({ lp: 4, lpEntryId: entryId })
     expect(await stored('playerWords/ayla')).toMatchObject({ known: { [AID.id]: recordId } })
+    expect(await stored(`userCards/${recordId}`)).toMatchObject({ returnedAt: null })
   })
 
   it('uses a word again, paying each time', async () => {
@@ -637,7 +720,7 @@ describe('using a word under the real rules', () => {
     await use('ayla', recordId, 1)
     await use('ayla', recordId, 1)
     expect(await stored('users/ayla')).toMatchObject({ lp: 3 })
-    expect(await all('wordUses')).toHaveLength(2)
+    expect(await all('uses')).toHaveLength(2)
   })
 
   it('pays the amount the player chose for an "X" word', async () => {
@@ -653,18 +736,20 @@ describe('using a word under the real rules', () => {
     await setCost(CHAOS, '0')
     const recordId = await teach('ayla', CHAOS)
 
-    const useId = await use('ayla', recordId, 0)
+    await use('ayla', recordId, 0)
 
-    expect(await stored(`wordUses/${useId}`)).toMatchObject({ cost: 0, entryId: null })
+    expect(await all('uses')).toEqual([expect.objectContaining({ cost: 0, entryId: null })])
     expect(await stored('users/ayla')).toMatchObject({ lp: 5, lpEntryId: 'seed' })
   })
 
   it("lets the DM use a player's word for free", async () => {
     const recordId = await teach('ayla', AID)
 
-    const useId = await use('dana', recordId, 0)
+    await use('dana', recordId, 0)
 
-    expect(await stored(`wordUses/${useId}`)).toMatchObject({ uid: 'ayla', by: 'dana', cost: 0 })
+    expect(await all('uses')).toEqual([
+      expect.objectContaining({ uid: 'ayla', by: 'dana', cost: 0 }),
+    ])
     expect(await stored('users/ayla')).toMatchObject({ lp: 5 })
   })
 
@@ -675,7 +760,7 @@ describe('using a word under the real rules', () => {
     const error = await failureOf(use('bora', recordId, 5))
 
     expect(toWordFailure(error)).toEqual({ kind: 'insufficient', balance: 4, amount: 5 })
-    expect(await all('wordUses')).toHaveLength(0)
+    expect(await all('uses')).toHaveLength(0)
     expect(await stored('users/bora')).toMatchObject({ lp: 4 })
   })
 
@@ -688,6 +773,16 @@ describe('using a word under the real rules', () => {
     expect(toWordFailure(error)).toEqual({ kind: 'price-changed', price: 2 })
   })
 
+  it("prices a player's own use from the DM's cost for their word", async () => {
+    const recordId = await teach('ayla', AID)
+    await setHoldingCost(as('dana'), recordId, '0')
+
+    await use('ayla', recordId, 0)
+
+    expect(await all('uses')).toEqual([expect.objectContaining({ cost: 0, entryId: null })])
+    expect(await stored('users/ayla')).toMatchObject({ lp: 5 })
+  })
+
   it('fails with "not-known" for a word taken back', async () => {
     const recordId = await teach('ayla', AID)
     await takeBackWord(as('dana'), { recordId, by: 'dana' })
@@ -698,22 +793,29 @@ describe('using a word under the real rules', () => {
   it('uses a retired word the player knows', async () => {
     await testEnv.withSecurityRulesDisabled(async (admin) => {
       const db = firestoreOf(admin)
-      await setDoc(doc(db, 'userTrueWords/r-old'), {
-        wordId: OLD.id,
-        wordName: 'Old',
+      await setDoc(doc(db, 'userCards/r-old'), {
+        cardId: OLD.id,
+        cardName: 'Old',
+        cardKind: 'trueWord',
         uid: 'ayla',
-        learnedAt: Timestamp.fromMillis(1000),
-        learnedBy: 'dana',
-        learnedVia: 'dm',
-        draftId: null,
+        givenAt: Timestamp.fromMillis(1000),
+        givenBy: 'dana',
+        givenVia: 'dm',
+        transferredFrom: null,
+        drawId: null,
         active: false,
-        removedAt: null,
-        removedBy: null,
+        note: '',
+        costOverride: null,
+        returnedAt: null,
+        returnedBy: null,
+        returnReason: null,
+        usedOn: null,
+        transferredTo: null,
       })
       await setDoc(doc(db, 'playerWords/ayla'), {
         known: { [OLD.id]: 'r-old' },
         openDraftId: null,
-        recordId: 'r-old',
+        holdingId: 'r-old',
       })
     })
 
@@ -727,6 +829,6 @@ describe('using a word under the real rules', () => {
     await seedTable('p1')
 
     expect(toWordFailure(await failureOf(use('ayla', recordId, 1)))).toEqual({ kind: 'table-busy' })
-    expect(await all('wordUses')).toHaveLength(0)
+    expect(await all('uses')).toHaveLength(0)
   })
 })

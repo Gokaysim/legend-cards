@@ -524,8 +524,8 @@ describe('CardBrowser pool status', () => {
 describe('CardBrowser for the DM: the status filter and the edit control', () => {
   const draft = testCard('Lute Song', { status: 'draft', setCode: null, rarity: null })
   const retired = testCard('Old Aboleth', { status: 'retired', setCode: 'Kesqer' })
-  const wish = testCard('The Last Wish', { dmOnly: true })
-  const ash = testCard('Crown of Ash', { dmOnly: true, status: 'draft' })
+  const wish = testCard('The Last Wish', { isInLibrary: false })
+  const ash = testCard('Crown of Ash', { isInLibrary: false, status: 'draft' })
   const ALL_CARDS: Card[] = [...LEGEND, draft, retired, wish, ash]
   const byStatus = (value: CardFilterValue) => filterCards(ready(ALL_CARDS), value)
 
@@ -550,7 +550,7 @@ describe('CardBrowser for the DM: the status filter and the edit control', () =>
     const user = userEvent.setup()
     renderWithSets(<DmBrowser />)
 
-    expect(options('Durum')).toEqual(['Yayında', 'Taslak', 'Kaldırıldı', "DM'e özel", 'Hepsi'])
+    expect(options('Durum')).toEqual(['Yayında', 'Taslak', 'Kaldırıldı', '🔒 DM', 'Hepsi'])
     expect(screen.getByRole('combobox', { name: 'Durum' })).toHaveValue('active')
     expect(shownNames()).not.toContain('Lute Song')
     expect(screen.getByRole('article', { name: 'Let Go' })).not.toHaveTextContent('Yayında')
@@ -565,14 +565,14 @@ describe('CardBrowser for the DM: the status filter and the edit control', () =>
     expect(screen.getByRole('article', { name: 'Let Go' })).toHaveTextContent('Yayında')
   })
 
-  it('lists the DM-only cards of every status under "DM\'e özel", each marked', async () => {
+  it('lists the hidden cards of every status under "🔒 DM", each marked', async () => {
     const user = userEvent.setup()
     renderWithSets(<DmBrowser />)
-    // "Yayında" keeps the active DM-only card, marked.
+    // "Yayında" keeps the active hidden card, marked.
     expect(shownNames()).toContain('The Last Wish')
     expect(screen.getByRole('article', { name: 'The Last Wish' })).toHaveTextContent('🔒 DM')
 
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Durum' }), 'dmOnly')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Durum' }), 'hidden')
     expect(shownNames()?.toSorted()).toEqual(['Crown of Ash', 'The Last Wish'])
     expect(screen.getByRole('article', { name: 'Crown of Ash' })).toHaveTextContent('🔒 DM')
     expect(screen.getByText('2 kart')).toBeInTheDocument()

@@ -1,15 +1,18 @@
 import { Timestamp } from 'firebase/firestore'
 import { z } from 'zod'
 
-import { CARD_KINDS, CARD_LIMITS } from '@/features/cards/schema'
+import { CARD_LIMITS, DEFINITION_KINDS } from '@/features/cards/schema'
 import { createConverter } from '@/lib/firestore/converter'
 
-/** How a card reached the hand. Keep in step with `firestore.rules`. */
-export const GIVEN_VIA = ['dm', 'transfer', 'draw', 'pack'] as const
+/**
+ * How a card or True Word reached the hand: the DM's give (for a True Word, the DM's teaching), a transfer, a draw, a
+ * pack's choice, or a True Word draft. Keep in step with `firestore.rules`.
+ */
+export const GIVEN_VIA = ['dm', 'transfer', 'draw', 'pack', 'draft'] as const
 export type GivenVia = (typeof GIVEN_VIA)[number]
 
-/** The ways of giving that name their draw or pack opening in `drawId`. */
-const NAMES_A_DRAW: readonly GivenVia[] = ['draw', 'pack']
+/** The ways of giving that name their draw, pack opening or draft in `drawId`. */
+const NAMES_A_DRAW: readonly GivenVia[] = ['draw', 'pack', 'draft']
 
 /** Why a card left the hand. Keep in step with `firestore.rules`. */
 export const RETURN_REASONS = ['used', 'discarded', 'transferred'] as const
@@ -27,8 +30,9 @@ const id = z.string().min(1)
 const serverTime = z.instanceof(Timestamp).nullable()
 
 /**
- * One card's stay with one player, at `userCards/{holdingId}`. A holding starts open (`returnedAt` is `null`)
- * and is closed when the card leaves the hand. Holdings are never deleted, so the history is permanent.
+ * One card's or True Word's stay with one player, at `userCards/{holdingId}` (design D5 of unify-cards-and-true-words).
+ * A holding starts open (`returnedAt` is `null`) and is closed when the card leaves the hand, or when the DM takes the
+ * word back. Holdings are never deleted, so the history is permanent.
  */
 export const holdingSchema = z
   .object({
@@ -36,8 +40,8 @@ export const holdingSchema = z
     cardId: id,
     /** The card's name when it was given, so the history reads well after a rename. */
     cardName: z.string().min(1).max(CARD_LIMITS.name),
-    /** Copied from the card; the rules check it against the card. */
-    cardKind: z.enum(CARD_KINDS),
+    /** Copied from the definition; the rules check it against it. */
+    cardKind: z.enum(DEFINITION_KINDS),
     /** The player who holds the card. */
     uid: id,
     givenAt: serverTime,
@@ -47,8 +51,8 @@ export const holdingSchema = z
     /** For a transfer: the closed holding this one continues. */
     transferredFrom: id.nullable(),
     /**
-     * For a drawn card, the draw that opened this holding; for a card chosen from a pack, the pack opening. Stored
-     * holdings from before draws read as `null`.
+     * For a drawn card, the draw that opened this holding; for a card chosen from a pack, the pack opening; for a
+     * word learned from a draft, the draft.
      */
     drawId: id.nullable().default(null),
     active: z.boolean(),
@@ -122,3 +126,58 @@ export type NewHolding = Omit<StoredHolding, 'useCost' | 'useEntryId' | 'usedOnC
 export type Holding = StoredHolding & { id: string }
 
 export const holdingConverter = createConverter(holdingSchema, { idField: 'id' })
+
+/** The most LP one kept use may take. Keep in step with `firestore.rules`. */
+export const KEPT_USE_COST_MAX = 1_000_000
+
+/**
+ * One use of a card or True Word kept on use, at `uses/{useId}` (design D5 of unify-cards-and-true-words): its holding
+ * stays open, so each use is its own record, created once with its payment and never changed or deleted.
+ */
+export const keptUseSchema = z
+  .object({
+    /** The player whose hand holds it. */
+    uid: id,
+    cardId: id,
+    /** The definition's name when it was used, so the history reads well after a rename. */
+    cardName: z.string().min(1).max(CARD_LIMITS.name),
+    cardKind: z.enum(DEFINITION_KINDS),
+    /** The player's open holding of it (`userCards/{holdingId}`). */
+    holdingId: id,
+    /** Who used it: the player, or the DM. */
+    by: id,
+    at: serverTime,
+    /** The LP paid; 0 when free. */
+    cost: z.number().int().min(0).max(KEPT_USE_COST_MAX),
+    /** The payment's ledger entry; `null` when free. */
+    entryId: id.nullable(),
+    /** On which character it was used, as its name was then; written only for a use on a character. */
+    usedOn: z.string().min(1).max(HOLDING_LIMITS.usedOn).nullable().default(null),
+    /** The stored character, when it was chosen from the list rather than typed. */
+    usedOnCharacterId: id.nullable().default(null),
+  })
+  .superRefine((use, context) => {
+    if (use.usedOnCharacterId !== null && use.usedOn === null) {
+      context.addIssue({
+        code: 'custom',
+        path: ['usedOnCharacterId'],
+        message: 'a use on a character also keeps its name',
+      })
+    }
+    if (use.cost > 0 !== (use.entryId !== null)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['entryId'],
+        message: 'a paid use names its entry, and a free one does not',
+      })
+    }
+  })
+
+export type StoredKeptUse = z.infer<typeof keptUseSchema>
+
+/** A new kept use as written: the character fields come only with a use on a character. */
+export type NewKeptUse = Omit<StoredKeptUse, 'usedOn' | 'usedOnCharacterId'> &
+  Partial<Pick<StoredKeptUse, 'usedOn' | 'usedOnCharacterId'>>
+
+export type KeptUse = StoredKeptUse & { id: string }
+export const keptUseConverter = createConverter(keptUseSchema, { idField: 'id' })

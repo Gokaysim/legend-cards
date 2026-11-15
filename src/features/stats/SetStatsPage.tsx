@@ -37,11 +37,11 @@ function SetCardback({ set }: { set: CardSet }) {
   )
 }
 
-/** "1 taslak · 1 DM'e özel", or "aktif" when every counted card is active and open to all. */
+/** "1 taslak · 1 🔒 DM", or "aktif" when every counted card is active and listed for all. */
 function markedText({ marked }: SetTiles): string {
   const parts = [
     marked.draft > 0 ? `${marked.draft} taslak` : null,
-    marked.dmOnly > 0 ? `${marked.dmOnly} DM'e özel` : null,
+    marked.hidden > 0 ? `${marked.hidden} 🔒 DM` : null,
     marked.retired > 0 ? `${marked.retired} kaldırıldı` : null,
   ].filter((part) => part !== null)
   return parts.length === 0 ? 'aktif' : parts.join(' · ')

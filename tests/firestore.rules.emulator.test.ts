@@ -24,6 +24,7 @@ import {
 } from 'firebase/firestore'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
+import { type DefinitionKind, startingFlags } from '../src/features/definitions/flags.ts'
 import { USE_PRICE_CASES, type UsePriceCase } from '../src/test/usePriceCases.ts'
 
 const PROJECT_ID = 'demo-legend-cards'
@@ -274,6 +275,7 @@ describe('card definitions (cards/{cardId})', () => {
     mechanicPack: 'Arcanus Divine',
     text: 'Gain Immune.',
     status: 'active',
+    ...startingFlags('normal', ''),
   }
   const CARD_PATH = 'cards/legend-abolethseyes'
   const DRAFT_PATH = 'cards/legend-bardsencore'
@@ -297,6 +299,7 @@ describe('card definitions (cards/{cardId})', () => {
       await setDoc(doc(db, CARD_PATH), seededCard)
       await setDoc(doc(db, 'cards/cursed-hex'), {
         ...seededCard,
+        ...startingFlags('cursed', ''),
         kind: 'cursed',
         setCode: null,
         rarity: null,
@@ -369,7 +372,17 @@ describe('card definitions (cards/{cardId})', () => {
   )
 })
 
-describe('definition steps (cards, trueWords and definitionChanges)', () => {
+describe('definition steps (cards with True Words, and definitionChanges)', () => {
+  const FLAG_KEYS = [
+    'isInLibrary',
+    'isInDraws',
+    'isInSetPacks',
+    'isInMechanicPacks',
+    'isRepeatable',
+    'hasHeldEffect',
+    'hasUseEffect',
+    'isKeptOnUse',
+  ]
   const CARD_KEYS = [
     'kind',
     'name',
@@ -380,11 +393,12 @@ describe('definition steps (cards, trueWords and definitionChanges)', () => {
     'mechanicPack',
     'text',
     'status',
+    ...FLAG_KEYS,
   ]
-  const WORD_KEYS = ['name', 'nameKey', 'cost', 'text', 'status']
   type Definition = Record<string, unknown>
   type Status = 'draft' | 'active' | 'retired' | null
 
+  /** A card of `extra.kind` (normal unless given), with its kind's starting flags. */
   const card = (name: string, extra: Definition = {}): Definition => ({
     kind: 'normal',
     name,
@@ -395,23 +409,37 @@ describe('definition steps (cards, trueWords and definitionChanges)', () => {
     mechanicPack: 'Arcanus Divine',
     text: `${name} text.`,
     status: 'active',
+    ...startingFlags((extra.kind as DefinitionKind | undefined) ?? 'normal', ''),
     ...extra,
   })
+  /** A True Word, stored among the cards. */
   const word = (name: string, extra: Definition = {}): Definition => ({
+    kind: 'trueWord',
     name,
     nameKey: name.toLowerCase(),
+    setCode: null,
     cost: '1',
+    rarity: null,
+    mechanicPack: null,
     text: `${name} text.`,
     status: 'active',
+    ...startingFlags('trueWord', ''),
     ...extra,
   })
+  /** The four "where" flags off: a card only the DM gives ("Sadece DM verebilir"). */
+  const ONLY_FROM_DM = {
+    isInLibrary: false,
+    isInDraws: false,
+    isInSetPacks: false,
+    isInMechanicPacks: false,
+  }
 
   const EYES = 'legend-abolethseyes'
   const OLD = 'legend-oldcard'
   const ENCORE = 'legend-bardsencore'
   const MAP = 'legend-thecartographer'
   const HEX = 'cursed-hex'
-  /** An active DM-only card. */
+  /** An active card only the DM gives: hidden from players, with no channel. */
   const WISH = 'legend-thelastwish'
 
   beforeEach(async () => {
@@ -445,12 +473,12 @@ describe('definition steps (cards, trueWords and definitionChanges)', () => {
       )
       await setDoc(
         doc(db, `cards/${WISH}`),
-        card('The Last Wish', { dmOnly: true, holder: null, changeId: 'c-wish' }),
+        card('The Last Wish', { ...ONLY_FROM_DM, holder: null, changeId: 'c-wish' }),
       )
-      await setDoc(doc(db, 'trueWords/tw-abyss'), word('Abyss'))
-      await setDoc(doc(db, 'trueWords/tw-old'), word('Old', { status: 'retired' }))
+      await setDoc(doc(db, 'cards/tw-abyss'), word('Abyss'))
+      await setDoc(doc(db, 'cards/tw-old'), word('Old', { status: 'retired' }))
       await setDoc(
-        doc(db, 'trueWords/tw-echo'),
+        doc(db, 'cards/tw-echo'),
         word('Echo', { status: 'draft', cost: null, text: '', changeId: 'c-echo' }),
       )
       const at = Timestamp.fromMillis(1000)
@@ -472,16 +500,13 @@ describe('definition steps (cards, trueWords and definitionChanges)', () => {
     })
   })
 
+  /** The fields named by `keys` that `data` has: a field set to `undefined` is left out, as if never stored. */
   const pick = (keys: readonly string[], data: Definition) =>
-    Object.fromEntries(keys.map((key) => [key, data[key]]))
-  /**
-   * A definition as a record keeps it: its fields, and its picture, `null` when it has none. A card's also has its
-   * DM-only flag, `false` when it has none.
-   */
+    Object.fromEntries(keys.filter((key) => data[key] !== undefined).map((key) => [key, data[key]]))
+  /** A definition as a record keeps it: its fields with its flags, and its picture, `null` when it has none. */
   const snapshot = (keys: readonly string[], data: Definition): Definition => ({
     ...pick(keys, data),
     picture: data.picture ?? null,
-    ...(keys === CARD_KEYS ? { dmOnly: data.dmOnly ?? false } : {}),
   })
   const statusOf = (data: Definition | null): Status => (data?.status as Status) ?? null
   const stepName = (before: Status, after: Status) =>
@@ -497,7 +522,7 @@ describe('definition steps (cards, trueWords and definitionChanges)', () => {
               ? 'retired'
               : 'restored'
   const isPlayerVisible = (data: Definition | null) =>
-    (statusOf(data) === 'active' || statusOf(data) === 'retired') && data?.dmOnly !== true
+    (statusOf(data) === 'active' || statusOf(data) === 'retired') && data?.isInLibrary === true
 
   type StepSpec = {
     /** The change record's ID. Default: `c-new`, or the fixed delete ID for a delete. */
@@ -507,12 +532,15 @@ describe('definition steps (cards, trueWords and definitionChanges)', () => {
     /** Leave out the definition's change, or its record. */
     withoutChange?: boolean
     withoutRecord?: boolean
+    /** Fields written to the definition but left out of the record, as a field no definition has. */
+    alsoWrite?: Definition
   }
 
   /**
    * One DM step as the app writes it: the definition (created, merged or deleted) with its change record, in one
-   * batch. `changes` are merged into the stored definition; `null` deletes it. The picture and the DM-only flag are
-   * written only when `changes` names them, so a definition without the field keeps it absent.
+   * batch. `changes` are merged into the stored definition; `null` deletes it. The picture is written only when
+   * `changes` names it, so a definition without the field keeps it absent. A True Word is a definition among the
+   * cards, with the record target 'word'.
    */
   async function step(
     uid: string,
@@ -521,8 +549,8 @@ describe('definition steps (cards, trueWords and definitionChanges)', () => {
     changes: Definition | null,
     spec: StepSpec = {},
   ) {
-    const path = `${target === 'card' ? 'cards' : 'trueWords'}/${id}`
-    const keys = target === 'card' ? CARD_KEYS : WORD_KEYS
+    const path = `cards/${id}`
+    const keys = CARD_KEYS
     const stored = (await readAsAdmin(path)) as Definition | undefined
     const merged = { ...stored, ...changes }
     const before = stored ? snapshot(keys, stored) : null
@@ -533,7 +561,6 @@ describe('definition steps (cards, trueWords and definitionChanges)', () => {
         : {
             ...pick(keys, merged),
             ...('picture' in changes ? { picture: changes.picture } : {}),
-            ...('dmOnly' in changes ? { dmOnly: changes.dmOnly } : {}),
           }
     const changeId =
       spec.changeId ?? (after === null ? `del-${id}-${String(stored?.changeId)}` : 'c-new')
@@ -541,7 +568,7 @@ describe('definition steps (cards, trueWords and definitionChanges)', () => {
     const batch = writeBatch(db)
     if (!spec.withoutChange) {
       if (written === null) batch.delete(doc(db, path))
-      else batch.set(doc(db, path), { ...written, changeId }, { merge: true })
+      else batch.set(doc(db, path), { ...written, ...spec.alsoWrite, changeId }, { merge: true })
     }
     if (!spec.withoutRecord) {
       batch.set(doc(db, `definitionChanges/${changeId}`), {
@@ -656,22 +683,24 @@ describe('definition steps (cards, trueWords and definitionChanges)', () => {
       await assertSucceeds(step('dana', 'card', EYES, { text: 'Typo fixed.' }))
     })
 
-    describe('DM-only cards', () => {
-      it('lets the DM mark an active card DM-only and back, each with a public record', async () => {
-        await assertSucceeds(step('dana', 'card', EYES, { dmOnly: true }, { changeId: 'c-1' }))
-        expect(await readAsAdmin(`cards/${EYES}`)).toMatchObject({ dmOnly: true })
+    describe('behavior flags', () => {
+      it('lets the DM hide an active card and show it again, each with a public record', async () => {
+        await assertSucceeds(
+          step('dana', 'card', EYES, { isInLibrary: false }, { changeId: 'c-1' }),
+        )
+        expect(await readAsAdmin(`cards/${EYES}`)).toMatchObject({ isInLibrary: false })
         expect(await readAsAdmin('definitionChanges/c-1')).toMatchObject({
           step: 'edited',
           public: true,
-          before: { dmOnly: false },
-          after: { dmOnly: true },
+          before: { isInLibrary: true },
+          after: { isInLibrary: false },
         })
         await assertSucceeds(getDoc(doc(asUser('ayla'), 'definitionChanges/c-1')))
-        await assertSucceeds(step('dana', 'card', EYES, { dmOnly: false }, { changeId: 'c-2' }))
+        await assertSucceeds(step('dana', 'card', EYES, { isInLibrary: true }, { changeId: 'c-2' }))
         await assertSucceeds(getDoc(doc(asUser('ayla'), 'definitionChanges/c-2')))
       })
 
-      it('keeps the records of work on a DM-only card from players', async () => {
+      it('keeps the records of work on a hidden card from players', async () => {
         await assertSucceeds(step('dana', 'card', WISH, { text: 'Other.' }, { changeId: 'c-1' }))
         expect(await readAsAdmin('definitionChanges/c-1')).toMatchObject({ public: false })
         await assertFails(getDoc(doc(asUser('ayla'), 'definitionChanges/c-1')))
@@ -679,13 +708,13 @@ describe('definition steps (cards, trueWords and definitionChanges)', () => {
         expect(await readAsAdmin('definitionChanges/c-2')).toMatchObject({ public: false })
       })
 
-      it('lets the DM add a DM-only draft and a DM-only Cursed card straight to active', async () => {
+      it('lets the DM add a hidden draft and a hidden Cursed card straight to active', async () => {
         await assertSucceeds(
           step(
             'dana',
             'card',
             'legend-lutesong',
-            card('Lute Song', { status: 'draft', dmOnly: true }),
+            card('Lute Song', { status: 'draft', ...ONLY_FROM_DM }),
             { changeId: 'c-1' },
           ),
         )
@@ -699,7 +728,8 @@ describe('definition steps (cards, trueWords and definitionChanges)', () => {
               setCode: null,
               rarity: null,
               mechanicPack: null,
-              dmOnly: true,
+              isInLibrary: false,
+              isInDraws: false,
             }),
             { changeId: 'c-2' },
           ),
@@ -707,8 +737,82 @@ describe('definition steps (cards, trueWords and definitionChanges)', () => {
         expect(await readAsAdmin('definitionChanges/c-2')).toMatchObject({ public: false })
       })
 
-      it('lets players read a DM-only card, as the hands need it', async () => {
+      it('lets players read a hidden card, as the hands need it', async () => {
         await assertSucceeds(getDoc(doc(asUser('ayla'), `cards/${WISH}`)))
+      })
+
+      it('lets the DM change every flag the kind does not fix, each as an edit', async () => {
+        const changes = [
+          { isInDraws: false },
+          { isInSetPacks: false },
+          { isInMechanicPacks: false },
+          { isRepeatable: true },
+          { hasHeldEffect: true },
+          { hasUseEffect: false },
+          { isKeptOnUse: true },
+        ]
+        for (const [index, change] of changes.entries()) {
+          await assertSucceeds(step('dana', 'card', EYES, change, { changeId: `c-${index}` }))
+        }
+        expect(await readAsAdmin(`cards/${EYES}`)).toMatchObject(Object.assign({}, ...changes))
+      })
+
+      it('lets the DM change the flags that move no card while a pack is open', async () => {
+        await openPack()
+        await assertSucceeds(
+          step('dana', 'card', EYES, { isInLibrary: false }, { changeId: 'c-1' }),
+        )
+        await assertSucceeds(
+          step('dana', 'card', EYES, { hasHeldEffect: true }, { changeId: 'c-2' }),
+        )
+        await assertSucceeds(
+          step('dana', 'card', EYES, { hasUseEffect: false }, { changeId: 'c-3' }),
+        )
+        await assertSucceeds(step('dana', 'card', EYES, { isKeptOnUse: true }, { changeId: 'c-4' }))
+      })
+
+      it('lets the DM give a card with one copy back its copies: turning "Birden fazla elde olabilir" off', async () => {
+        await testEnv.withSecurityRulesDisabled(async (admin) => {
+          await setDoc(
+            doc(firestoreOf(admin), `cards/${HEX}`),
+            card('Hex', {
+              kind: 'cursed',
+              setCode: null,
+              rarity: null,
+              mechanicPack: null,
+              holder: null,
+            }),
+          )
+        })
+        await assertSucceeds(step('dana', 'card', HEX, { isRepeatable: false }))
+        expect(await readAsAdmin(`cards/${HEX}`)).toMatchObject({
+          isRepeatable: false,
+          holder: null,
+        })
+      })
+
+      it('lets the DM add, publish and hide a True Word with its flags', async () => {
+        await assertSucceeds(
+          step('dana', 'word', 'tw-lull', word('Lull', { status: 'draft', hasHeldEffect: true }), {
+            changeId: 'c-1',
+          }),
+        )
+        await assertSucceeds(
+          step(
+            'dana',
+            'word',
+            'tw-lull',
+            { status: 'active', isInDraws: false },
+            { changeId: 'c-2' },
+          ),
+        )
+        await assertSucceeds(
+          step('dana', 'word', 'tw-lull', { isInLibrary: false }, { changeId: 'c-3' }),
+        )
+        expect(await readAsAdmin('definitionChanges/c-3')).toMatchObject({
+          target: 'word',
+          public: true,
+        })
       })
     })
 
@@ -768,7 +872,7 @@ describe('definition steps (cards, trueWords and definitionChanges)', () => {
         await assertSucceeds(
           step('dana', 'word', 'tw-old', { status: 'active' }, { changeId: 'c-2' }),
         )
-        expect(await readAsAdmin('trueWords/tw-old')).toMatchObject({ picture, status: 'active' })
+        expect(await readAsAdmin('cards/tw-old')).toMatchObject({ picture, status: 'active' })
       })
 
       it('lets the DM add a word with a picture', async () => {
@@ -801,7 +905,7 @@ describe('definition steps (cards, trueWords and definitionChanges)', () => {
         step('dana', 'word', 'tw-lull', { status: 'active' }, { changeId: 'c-6' }),
       )
       await assertSucceeds(step('dana', 'word', 'tw-echo', null))
-      expect(await readAsAdmin('trueWords/tw-echo')).toBeUndefined()
+      expect(await readAsAdmin('cards/tw-echo')).toBeUndefined()
     })
   })
 
@@ -880,27 +984,47 @@ describe('definition steps (cards, trueWords and definitionChanges)', () => {
       ],
       ['a record by someone else', 'card', EYES, { text: 'Other.' }, { record: { by: 'ayla' } }],
       [
-        'a record of work on a DM-only card marked public',
+        'a record of work on a hidden card marked public',
         'card',
         WISH,
         { text: 'Other.' },
         { record: { public: true } },
       ],
       [
-        'a record of a flag change marked private',
+        'a record of hiding a card marked private',
         'card',
         EYES,
-        { dmOnly: true },
+        { isInLibrary: false },
         { record: { public: false } },
       ],
       [
-        'a record that leaves the flag out of its snapshot',
+        'a record whose flags disagree with the card',
         'card',
         WISH,
         { text: 'Other.' },
         { record: { after: card('The Last Wish', { text: 'Other.', picture: null }) } },
       ],
-      ['a DM-only flag that is not a boolean', 'card', EYES, { dmOnly: 'yes' }],
+      ['a flag that is not a boolean', 'card', EYES, { isInDraws: 'yes' }],
+      [
+        'a card without a flag',
+        'card',
+        'legend-lutesong',
+        card('Lute Song', { status: 'draft', hasUseEffect: undefined }),
+      ],
+      ['a Cursed card in set packs', 'card', HEX, { isInSetPacks: true }],
+      ['a Cursed card in Mechanic Packs', 'card', HEX, { isInMechanicPacks: true }],
+      ['a True Word in set packs', 'word', 'tw-abyss', { isInSetPacks: true }],
+      ['a True Word with one copy', 'word', 'tw-abyss', { isRepeatable: false }],
+      ['a True Word that leaves the hand when used', 'word', 'tw-abyss', { isKeptOnUse: false }],
+      ['a True Word under the card target', 'card', 'tw-abyss', { text: 'Other.' }],
+      ['a card under the word target', 'word', EYES, { text: 'Other.' }],
+      [
+        'a True Word made a card',
+        'word',
+        'tw-echo',
+        { kind: 'normal', setCode: 'Kesqer', rarity: 'common', mechanicPack: 'Arcanus Divine' },
+      ],
+      ['a removed DM-only flag', 'card', EYES, { text: 'Other.' }, { alsoWrite: { dmOnly: true } }],
       [
         'deleting a draft with a record under another ID',
         'card',
@@ -911,6 +1035,7 @@ describe('definition steps (cards, trueWords and definitionChanges)', () => {
       ['publishing an incomplete word', 'word', 'tw-echo', { status: 'active' }],
       ['retiring a draft word', 'word', 'tw-echo', { status: 'retired' }],
       ['a word under a card ID', 'word', 'legend-lull', word('Lull')],
+      ['a card under a word ID', 'card', 'tw-lull', card('Lull')],
       ['a picture of another card', 'card', EYES, { picture: 'cards/legend-hex/93e6f39a91.webp' }],
       ['a picture in the words folder', 'card', EYES, { picture: `words/${EYES}/93e6f39a91.webp` }],
       [
@@ -978,18 +1103,32 @@ describe('definition steps (cards, trueWords and definitionChanges)', () => {
       )
     })
 
-    it('denies turning the DM-only flag on or off while a pack is open, also on a draft', async () => {
+    it('denies changing a pool flag while a pack is open, also on a draft', async () => {
       await openPack()
-      await assertFails(step('dana', 'card', EYES, { dmOnly: true }))
-      await assertFails(step('dana', 'card', WISH, { dmOnly: false }))
-      await assertFails(step('dana', 'card', ENCORE, { dmOnly: true }))
-      // Editing a DM-only card's other fields stays possible.
+      await assertFails(step('dana', 'card', EYES, { isInDraws: false }))
+      await assertFails(step('dana', 'card', EYES, { isInSetPacks: false }))
+      await assertFails(step('dana', 'card', EYES, { isInMechanicPacks: false }))
+      await assertFails(step('dana', 'card', EYES, { isRepeatable: true }))
+      await assertFails(step('dana', 'card', WISH, { isInDraws: true }))
+      await assertFails(step('dana', 'card', ENCORE, { isInDraws: false }))
+      await assertFails(step('dana', 'card', EYES, { ...ONLY_FROM_DM }))
+      // Editing a hidden card's other fields stays possible.
       await assertSucceeds(step('dana', 'card', WISH, { text: 'Typo fixed.' }))
     })
 
-    it('denies a player setting the DM-only flag', async () => {
-      await assertFails(step('ayla', 'card', EYES, { dmOnly: true }))
-      await assertFails(updateDoc(doc(asUser('ayla'), `cards/${EYES}`), { dmOnly: true }))
+    it('denies making a card repeatable while someone holds its one copy', async () => {
+      await testEnv.withSecurityRulesDisabled(async (admin) => {
+        await updateDoc(doc(firestoreOf(admin), `cards/${EYES}`), {
+          holder: { uid: 'ayla', userCardId: 'h-ayla' },
+        })
+      })
+      await assertFails(step('dana', 'card', EYES, { isRepeatable: true }))
+      await assertFails(step('dana', 'card', EYES, { isRepeatable: true, holder: null }))
+    })
+
+    it('denies a player setting a flag', async () => {
+      await assertFails(step('ayla', 'card', EYES, { isInLibrary: false }))
+      await assertFails(updateDoc(doc(asUser('ayla'), `cards/${EYES}`), { isInDraws: false }))
     })
 
     it('denies a holder change together with a text change', async () => {
@@ -1039,15 +1178,19 @@ describe('definition steps (cards, trueWords and definitionChanges)', () => {
       expect(all.size).toBe(2)
     })
 
-    it('lets a player read the active and retired words, and no draft', async () => {
+    it('lets a player read the active and retired words among the cards, and no draft', async () => {
       const db = asUser('ayla')
       const visible = await assertSucceeds(
-        getDocs(query(collection(db, 'trueWords'), where('status', 'in', ['active', 'retired']))),
+        getDocs(query(collection(db, 'cards'), where('status', 'in', ['active', 'retired']))),
       )
-      expect(visible.docs.map((entry) => entry.id).sort()).toEqual(['tw-abyss', 'tw-old'])
-      await assertFails(getDoc(doc(db, 'trueWords/tw-echo')))
-      await assertFails(getDocs(collection(db, 'trueWords')))
-      await assertSucceeds(getDoc(doc(asUser('dana'), 'trueWords/tw-echo')))
+      expect(
+        visible.docs
+          .map((entry) => entry.id)
+          .filter((id) => id.startsWith('tw-'))
+          .sort(),
+      ).toEqual(['tw-abyss', 'tw-old'])
+      await assertFails(getDoc(doc(db, 'cards/tw-echo')))
+      await assertSucceeds(getDoc(doc(asUser('dana'), 'cards/tw-echo')))
     })
 
     it('denies signed-out reads of the records', async () => {
@@ -1072,17 +1215,28 @@ const HOLDINGS_SEED = {
   RETIRED: 'legend-oldcard',
   /** A normal draft, complete but not published: only the DM reads it, and nobody gives, draws or chooses it. */
   DRAFT: 'legend-newcard',
-  /** An active DM-only normal card in no hand: only the DM gives it, and nobody draws or chooses it. */
+  /** An active normal card in no hand with the four "where" flags off: only the DM gives it, nobody draws or chooses it. */
   DM_ONLY: 'legend-thelastwish',
-  /** An active DM-only Cursed card. */
+  /** An active Cursed card kept out of the Cursed Deck and the lists. */
   DM_ONLY_CURSED: 'cursed-crownofash',
+  /** A Cursed card with a held effect ("Elde etkili"), active in Ayla's hand through `h-ayla-held`. */
+  HELD_EFFECT: 'cursed-devilspride',
 }
 
 function seededUser(role: 'player' | 'dm', displayName: string) {
   return { displayName, photoURL: null, role, createdAt: Timestamp.fromMillis(0) }
 }
 
-function seededCardOf(kind: 'normal' | 'blessed' | 'cursed', name: string, extra = {}) {
+/** The four "where" flags off: a card only the DM gives ("Sadece DM verebilir"). */
+const ONLY_FROM_DM = {
+  isInLibrary: false,
+  isInDraws: false,
+  isInSetPacks: false,
+  isInMechanicPacks: false,
+}
+
+/** A definition as stored, with its kind's starting flags: a True Word has no set, rarity or mechanic pack. */
+function seededCardOf(kind: DefinitionKind, name: string, extra = {}) {
   return {
     kind,
     name,
@@ -1090,9 +1244,10 @@ function seededCardOf(kind: 'normal' | 'blessed' | 'cursed', name: string, extra
     setCode: kind === 'normal' ? 'Kesqer' : null,
     cost: kind === 'blessed' ? null : '1',
     rarity: kind === 'normal' ? 'common' : null,
-    mechanicPack: kind === 'cursed' ? null : 'Arcanus Divine',
+    mechanicPack: kind === 'normal' || kind === 'blessed' ? 'Arcanus Divine' : null,
     text: `${name} text.`,
     status: 'active',
+    ...startingFlags(kind, ''),
     ...extra,
   }
 }
@@ -1190,11 +1345,24 @@ async function seedHoldings() {
     await setDoc(doc(db, `cards/${DRAFT}`), seededCardOf('normal', 'New Card', { status: 'draft' }))
     await setDoc(
       doc(db, `cards/${HOLDINGS_SEED.DM_ONLY}`),
-      seededCardOf('normal', 'The Last Wish', { dmOnly: true, holder: null }),
+      seededCardOf('normal', 'The Last Wish', { ...ONLY_FROM_DM, holder: null }),
     )
     await setDoc(
       doc(db, `cards/${HOLDINGS_SEED.DM_ONLY_CURSED}`),
-      seededCardOf('cursed', 'Crown of Ash', { dmOnly: true }),
+      seededCardOf('cursed', 'Crown of Ash', { isInLibrary: false, isInDraws: false }),
+    )
+    await setDoc(
+      doc(db, `cards/${HOLDINGS_SEED.HELD_EFFECT}`),
+      seededCardOf('cursed', "Devil's Pride", { hasHeldEffect: true }),
+    )
+    await setDoc(
+      doc(db, 'userCards/h-ayla-held'),
+      seededHolding({
+        cardId: HOLDINGS_SEED.HELD_EFFECT,
+        cardName: "Devil's Pride",
+        cardKind: 'cursed',
+        active: true,
+      }),
     )
     const greedy = { cardId: HELD, cardName: 'Greedy Hands' }
     await setDoc(doc(db, 'userCards/h-bora'), seededHolding({ ...greedy, uid: 'bora' }))
@@ -1230,7 +1398,7 @@ describe('card holdings (userCards/{holdingId})', () => {
       const open = await assertSucceeds(
         getDocs(query(collection(asUser(uid), 'userCards'), where('returnedAt', '==', null))),
       )
-      expect(open.size).toBe(3)
+      expect(open.size).toBe(4)
     })
 
     it('denies signed-out reads', async () => {
@@ -1252,11 +1420,39 @@ describe('card holdings (userCards/{holdingId})', () => {
       await assertSucceeds(setDoc(doc(db, 'userCards/new-4'), newHolding(blessed)))
     })
 
-    it('lets the DM give a card to themselves, active, with a note and a cost', async () => {
+    it('lets the DM give a card to themselves, with a note and a cost', async () => {
       await assertSucceeds(
         setDoc(
           doc(asUser('dana'), 'userCards/new-1'),
-          newHolding({ ...cursedGift, uid: 'dana', active: true, note: 'Not', costOverride: 'd6' }),
+          newHolding({ ...cursedGift, uid: 'dana', note: 'Not', costOverride: 'd6' }),
+        ),
+      )
+    })
+
+    it('starts a card with a held effect active, and only then', async () => {
+      const held = {
+        cardId: HOLDINGS_SEED.HELD_EFFECT,
+        cardName: "Devil's Pride",
+        cardKind: 'cursed',
+      }
+      const db = asUser('dana')
+      await assertFails(setDoc(doc(db, 'userCards/new-1'), newHolding({ ...held, active: false })))
+      await assertSucceeds(
+        setDoc(doc(db, 'userCards/new-1'), newHolding({ ...held, active: true })),
+      )
+      await assertFails(
+        setDoc(doc(db, 'userCards/new-2'), newHolding({ ...cursedGift, active: true })),
+      )
+    })
+
+    it('denies giving a True Word as a card', async () => {
+      await testEnv.withSecurityRulesDisabled(async (admin) => {
+        await setDoc(doc(firestoreOf(admin), 'cards/tw-abyss'), seededCardOf('trueWord', 'Abyss'))
+      })
+      await assertFails(
+        setDoc(
+          doc(asUser('dana'), 'userCards/new-1'),
+          newHolding({ cardId: 'tw-abyss', cardName: 'Abyss', cardKind: 'trueWord' }),
         ),
       )
     })
@@ -1341,15 +1537,17 @@ describe('card holdings (userCards/{holdingId})', () => {
       )
     })
 
-    it('lets only the DM switch a card active or inactive', async () => {
-      await assertSucceeds(
-        updateDoc(doc(asUser('dana'), 'userCards/h-ayla-cursed'), { active: true }),
-      )
-      await assertFails(
-        updateDoc(doc(asUser('ayla'), 'userCards/h-ayla-cursed'), { active: false }),
-      )
-      await assertFails(updateDoc(doc(asUser('dana'), 'userCards/h-ayla-cursed'), { active: 'no' }))
-      expect(await readAsAdmin('userCards/h-ayla-cursed')).toMatchObject({ active: true })
+    it('lets only the DM switch a card with a held effect active or inactive', async () => {
+      const ref = (uid: string) => doc(asUser(uid), 'userCards/h-ayla-held')
+      await assertSucceeds(updateDoc(ref('dana'), { active: false }))
+      await assertFails(updateDoc(ref('ayla'), { active: true }))
+      await assertFails(updateDoc(ref('dana'), { active: 'no' }))
+      await assertSucceeds(updateDoc(ref('dana'), { active: true }))
+      expect(await readAsAdmin('userCards/h-ayla-held')).toMatchObject({ active: true })
+    })
+
+    it('denies switching a card without a held effect', async () => {
+      await assertFails(updateDoc(doc(asUser('dana'), 'userCards/h-ayla-cursed'), { active: true }))
     })
 
     it('lets only the DM set and clear a cost override of up to 10 characters', async () => {
@@ -1447,7 +1645,7 @@ describe('card movements (userCards with cards/{cardId}.holder)', () => {
       fromId: string
       cardId: string
       cardName: string
-      cardKind?: 'normal' | 'cursed'
+      cardKind?: 'normal' | 'cursed' | 'trueWord'
       toUid: string
       newId: string
       moveHolder: boolean
@@ -1489,7 +1687,7 @@ describe('card movements (userCards with cards/{cardId}.holder)', () => {
       })
     })
 
-    it('lets the DM give a DM-only card, and its holder use it, which clears the holder', async () => {
+    it('lets the DM give a card only the DM gives, and its holder use it, which clears the holder', async () => {
       const wish = { cardId: HOLDINGS_SEED.DM_ONLY, cardName: 'The Last Wish' }
       const dm = asUser('dana')
       const give = writeBatch(dm)
@@ -1516,8 +1714,39 @@ describe('card movements (userCards with cards/{cardId}.holder)', () => {
       await assertSucceeds(use.commit())
       expect(await readAsAdmin(`cards/${wish.cardId}`)).toMatchObject({
         holder: null,
-        dmOnly: true,
+        isInDraws: false,
       })
+    })
+
+    it('gives a Cursed card with one copy a holder, and releases it when used', async () => {
+      await updateDocAsAdmin(`cards/${CURSED}`, { isRepeatable: false })
+      const gift = { cardId: CURSED, cardName: 'Visions of Death', cardKind: 'cursed' }
+      const dm = asUser('dana')
+      // Without the holder, the give is refused: the card has one copy now.
+      await assertFails(setDoc(doc(dm, 'userCards/new-1'), newHolding(gift)))
+      const give = writeBatch(dm)
+      give.set(doc(dm, 'userCards/new-1'), newHolding(gift))
+      give.update(doc(dm, `cards/${CURSED}`), { holder: poolHolder('ayla', 'new-1') })
+      await assertSucceeds(give.commit())
+
+      const ayla = asUser('ayla')
+      const use = writeBatch(ayla)
+      use.update(doc(ayla, 'userCards/new-1'), closing('ayla', 'used', null, 1))
+      use.update(doc(ayla, `cards/${CURSED}`), { holder: null })
+      payForUse(use, ayla, { by: 'ayla', holdingId: 'new-1', payer: 'ayla', cost: 1, lpBefore: 5 })
+      await assertSucceeds(use.commit())
+      expect(await readAsAdmin(`cards/${CURSED}`)).toMatchObject({ holder: null })
+    })
+
+    it('gives a repeatable normal card without a holder, any number of times', async () => {
+      await updateDocAsAdmin(`cards/${POOL}`, { isRepeatable: true })
+      const db = asUser('dana')
+      await assertSucceeds(setDoc(doc(db, 'userCards/new-1'), newHolding()))
+      await assertSucceeds(setDoc(doc(db, 'userCards/new-2'), newHolding({ uid: 'bora' })))
+      const withHolder = writeBatch(db)
+      withHolder.set(doc(db, 'userCards/new-3'), newHolding())
+      withHolder.update(doc(db, `cards/${POOL}`), { holder: poolHolder('ayla', 'new-3') })
+      await assertFails(withHolder.commit())
     })
 
     it('lets the DM give an extra copy of a held card, which keeps its holder', async () => {
@@ -1631,6 +1860,55 @@ describe('card movements (userCards with cards/{cardId}.holder)', () => {
   })
 
   describe('denied', () => {
+    it('denies closing a card kept on use as used', async () => {
+      await updateDocAsAdmin(`cards/${HELD}`, { isKeptOnUse: true })
+      const db = asUser('bora')
+      const batch = writeBatch(db)
+      batch.update(doc(db, 'userCards/h-bora'), closing('bora', 'used', null, 1))
+      batch.update(doc(db, `cards/${HELD}`), { holder: null })
+      payForUse(batch, db, { by: 'bora', holdingId: 'h-bora', payer: 'bora', cost: 1, lpBefore: 5 })
+      await assertFails(batch.commit())
+    })
+
+    it('denies transferring, using or discarding a True Word as a card', async () => {
+      await testEnv.withSecurityRulesDisabled(async (admin) => {
+        const db = firestoreOf(admin)
+        await setDoc(doc(db, 'cards/tw-abyss'), seededCardOf('trueWord', 'Abyss'))
+        await setDoc(
+          doc(db, 'userCards/h-word'),
+          seededHolding({
+            cardId: 'tw-abyss',
+            cardName: 'Abyss',
+            cardKind: 'trueWord',
+            givenVia: 'dm',
+          }),
+        )
+        await setDoc(doc(db, 'playerWords/ayla'), {
+          known: { 'tw-abyss': 'h-word' },
+          openDraftId: null,
+          holdingId: 'h-word',
+        })
+      })
+      await assertFails(
+        transferBatch('dana', {
+          fromId: 'h-word',
+          cardId: 'tw-abyss',
+          cardName: 'Abyss',
+          cardKind: 'trueWord',
+          toUid: 'bora',
+          newId: 'new-1',
+          moveHolder: false,
+        }).commit(),
+      )
+      await assertFails(
+        updateDoc(doc(asUser('dana'), 'userCards/h-word'), closing('dana', 'used', null, 0)),
+      )
+      // Discarding it without taking it out of the player's known words is refused.
+      await assertFails(
+        updateDoc(doc(asUser('dana'), 'userCards/h-word'), closing('dana', 'discarded')),
+      )
+    })
+
     it('denies a holder set without a holding', async () => {
       await assertFails(
         updateDoc(doc(asUser('dana'), `cards/${POOL}`), { holder: poolHolder('ayla', 'nothing') }),
@@ -2148,6 +2426,17 @@ describe('card uses and their payments (userCards with ledger/{entryId} and user
           extra: cardEffect('bora', 'h-bora', ELARA, { name: 'Greedy Hands', cursed: false }),
         }),
       )
+    })
+
+    it('denies the effect of a card whose "Kullanınca efekt bırakır" is off, and allows the use alone', async () => {
+      await updateDocAsAdmin(`cards/${HOLDINGS_SEED.CURSED}`, { hasUseEffect: false })
+      await assertFails(
+        use('ayla', 'h-ayla-cursed', 1, {
+          ...on(THORIN, 'Thorin'),
+          extra: cardEffect('ayla', 'h-ayla-cursed'),
+        }),
+      )
+      await assertSucceeds(use('ayla', 'h-ayla-cursed', 1, on(THORIN, 'Thorin')))
     })
 
     it('denies a card effect that does not follow its use', async () => {
@@ -2704,7 +2993,7 @@ describe('draws (draws/{drawId} with its holding, card, ledger entry and LP)', (
       })
     })
 
-    it("denies every draw of a DM-only card, also the DM's", async () => {
+    it("denies every draw of a card kept out of its draw, also the DM's", async () => {
       const wish = { cardId: HOLDINGS_SEED.DM_ONLY, cardName: 'The Last Wish', cardKind: 'normal' }
       const crown = {
         cardId: HOLDINGS_SEED.DM_ONLY_CURSED,
@@ -2716,6 +3005,27 @@ describe('draws (draws/{drawId} with its holding, card, ledger entry and LP)', (
       await assertFails(draw('ayla', { card: crown }))
       await assertFails(draw('dana', { uid: 'ayla', card: crown }))
       expect(await readAsAdmin(`cards/${wish.cardId}`)).toMatchObject({ holder: null })
+    })
+
+    it('denies a random draw of a card with only its draw flag off', async () => {
+      await updateDocAsAdmin(`cards/${POOL}`, { isInDraws: false })
+      await assertFails(draw('ayla'))
+      await assertFails(draw('dana', { uid: 'ayla' }))
+    })
+
+    it('denies a draw of a repeatable card that sets its holder', async () => {
+      await updateDocAsAdmin(`cards/${POOL}`, { isRepeatable: true })
+      await assertFails(draw('ayla'))
+      await assertSucceeds(draw('ayla', { takesCard: false }))
+    })
+
+    it('gives a Cursed card with one copy a holder by a Cursed draw, and refuses it while held', async () => {
+      await updateDocAsAdmin(`cards/${CURSED}`, { isRepeatable: false })
+      await assertFails(draw('ayla', { card: CURSED_CARD }))
+      await assertSucceeds(draw('ayla', { card: CURSED_CARD, takesCard: true }))
+      expect(await readAsAdmin(`cards/${CURSED}`)).toMatchObject({
+        holder: { uid: 'ayla', userCardId: 'h-new' },
+      })
     })
 
     it('denies a Cursed draw of a normal card, and a Cursed draw with filters', async () => {
@@ -3425,7 +3735,9 @@ describe('packs (draws/{drawId} with kind pack, table/main, and their holdings a
       await assertSucceeds(
         updateDoc(doc(asUser('ayla'), 'userCards/h-ayla-cursed'), { note: 'Sonra' }),
       )
-      await assertSucceeds(updateDoc(doc(asUser('dana'), 'userCards/h-bora'), { active: true }))
+      await assertSucceeds(
+        updateDoc(doc(asUser('dana'), 'userCards/h-ayla-held'), { active: false }),
+      )
       await assertSucceeds(
         updateDoc(doc(asUser('dana'), 'userCards/h-bora'), { costOverride: 'd6' }),
       )
@@ -3704,7 +4016,31 @@ describe('packs (draws/{drawId} with kind pack, table/main, and their holdings a
       )
     })
 
-    it('denies choosing a DM-only card, or taking one as the mandatory Cursed card', async () => {
+    it("denies choosing a card out of the pack's channel, and allows it from the other kind of pack", async () => {
+      await updateDocAsAdmin(`cards/${POOL}`, { isInSetPacks: false })
+      await seedOpenPack()
+      await assertFails(choose('ayla'))
+      await seedOpenPack({
+        packType: 'mechanic',
+        setCode: null,
+        mechanicPack: 'Arcanus Divine',
+        cost: 4,
+      })
+      await assertSucceeds(choose('ayla'))
+    })
+
+    it('denies choosing a card from a Mechanic Pack with "Mechanic paketlerinde çıkar" off', async () => {
+      await updateDocAsAdmin(`cards/${POOL}`, { isInMechanicPacks: false })
+      await seedOpenPack({
+        packType: 'mechanic',
+        setCode: null,
+        mechanicPack: 'Arcanus Divine',
+        cost: 4,
+      })
+      await assertFails(choose('ayla'))
+    })
+
+    it('denies choosing a card only the DM gives, or taking one as the mandatory Cursed card', async () => {
       const { DM_ONLY, DM_ONLY_CURSED } = HOLDINGS_SEED
       await seedOpenPack({ offered: [DM_ONLY, ...PACK_CARDS] })
       await assertFails(
@@ -3874,37 +4210,24 @@ describe('packs (draws/{drawId} with kind pack, table/main, and their holdings a
   })
 })
 
-describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with their ledger entries and LP)', () => {
+describe('True Words (cards, userCards, playerWords, draws of kind wordDraft and uses, with their ledger entries and LP)', () => {
   /** The three words a new draft shows: none of them known by Ayla. */
   const OFFERED = ['tw-abyss', 'tw-aid', 'tw-dragon']
-  /** Words Ayla knows, through the open records `r-chaos` and `r-hoard`, taught by Dana. */
+  /** Words Ayla knows, through the open holdings `r-chaos` and `r-hoard`, taught by Dana. */
   const AYLA_KNOWN = { 'tw-chaos': 'r-chaos', 'tw-hoard': 'r-hoard' }
   /** Ayla's state: two words known, no open draft. Her draft costs 1 + 2 = 3 LP. */
-  const AYLA_STATE = { known: AYLA_KNOWN, openDraftId: null, recordId: 'r-hoard' }
+  const AYLA_STATE = { known: AYLA_KNOWN, openDraftId: null, holdingId: 'r-hoard' }
 
-  const word = (name: string, extra: Record<string, unknown> = {}) => ({
-    name,
-    nameKey: name.toLowerCase(),
-    cost: '1',
-    text: `${name} text.`,
-    status: 'active',
-    ...extra,
-  })
+  /** A True Word as stored among the cards. */
+  const word = (name: string, extra: Record<string, unknown> = {}) =>
+    seededCardOf('trueWord', name, extra)
 
-  /** An open record as stored: Dana taught it to Ayla long ago. */
-  const seededRecord = (wordId: string, wordName: string, extra: Record<string, unknown> = {}) => ({
-    wordId,
-    wordName,
-    uid: 'ayla',
-    learnedAt: Timestamp.fromMillis(1000),
-    learnedBy: 'dana',
-    learnedVia: 'dm',
-    draftId: null,
-    active: false,
-    removedAt: null,
-    removedBy: null,
-    ...extra,
-  })
+  /** An open holding of a word as stored: Dana taught it to Ayla long ago. */
+  const seededWordHolding = (
+    cardId: string,
+    cardName: string,
+    extra: Record<string, unknown> = {},
+  ) => seededHolding({ cardId, cardName, cardKind: 'trueWord', uid: 'ayla', ...extra })
 
   beforeEach(async () => {
     await seedHoldings()
@@ -3913,12 +4236,14 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
       await updateDoc(doc(db, 'users/ayla'), { lp: 5, lpEntryId: 'e-old' })
       await updateDoc(doc(db, 'users/bora'), { lp: 4, lpEntryId: 'e-old-bora' })
       for (const name of ['Abyss', 'Aid', 'Dragon', 'Chaos', 'Hoard', 'Mimic']) {
-        await setDoc(doc(db, `trueWords/tw-${name.toLowerCase()}`), word(name))
+        await setDoc(doc(db, `cards/tw-${name.toLowerCase()}`), word(name))
       }
-      await setDoc(doc(db, 'trueWords/tw-old'), word('Old', { status: 'retired' }))
-      await setDoc(doc(db, 'trueWords/tw-echo'), word('Echo', { status: 'draft' }))
-      await setDoc(doc(db, 'userTrueWords/r-chaos'), seededRecord('tw-chaos', 'Chaos'))
-      await setDoc(doc(db, 'userTrueWords/r-hoard'), seededRecord('tw-hoard', 'Hoard'))
+      // A word with a held effect: it starts active, and only it has the switch.
+      await setDoc(doc(db, 'cards/tw-justice'), word('Justice', { hasHeldEffect: true }))
+      await setDoc(doc(db, 'cards/tw-old'), word('Old', { status: 'retired' }))
+      await setDoc(doc(db, 'cards/tw-echo'), word('Echo', { status: 'draft' }))
+      await setDoc(doc(db, 'userCards/r-chaos'), seededWordHolding('tw-chaos', 'Chaos'))
+      await setDoc(doc(db, 'userCards/r-hoard'), seededWordHolding('tw-hoard', 'Hoard'))
       await setDoc(doc(db, 'playerWords/ayla'), AYLA_STATE)
     })
   })
@@ -3926,6 +4251,7 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
   /** A draft's fields at its start: Ayla's draft for 3 LP, by `by`. */
   function draftFields(by: string, overrides: Record<string, unknown> = {}) {
     return {
+      kind: 'wordDraft',
       uid: 'ayla',
       by,
       at: serverTimestamp(),
@@ -3972,7 +4298,7 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
   const LP_BEFORE: Record<string, number> = { ayla: 5, bora: 4 }
   const STATE_BEFORE: Record<string, Record<string, unknown>> = {
     ayla: AYLA_STATE,
-    bora: { known: {}, openDraftId: null, recordId: null },
+    bora: { known: {}, openDraftId: null, holdingId: null },
   }
 
   /**
@@ -3985,7 +4311,7 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
     const uid = String(fields.uid)
     const cost = Number(fields.cost)
     const batch = writeBatch(db)
-    batch.set(doc(db, 'wordDrafts/d-new'), fields)
+    batch.set(doc(db, 'draws/d-new'), fields)
     if (spec.state !== null) {
       batch.set(doc(db, `playerWords/${uid}`), {
         ...STATE_BEFORE[uid],
@@ -4026,7 +4352,7 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
         entryId: 'e-pay-old',
         ...overrides,
       })
-      await setDoc(doc(db, 'wordDrafts/d-open'), fields)
+      await setDoc(doc(db, 'draws/d-open'), fields)
       await setDoc(doc(db, 'playerWords/ayla'), { ...AYLA_STATE, openDraftId: 'd-open' })
       if (fields.paidWith === 'lp')
         await updateDoc(doc(db, 'users/ayla'), { lp: 2, lpEntryId: 'e-pay-old' })
@@ -4037,44 +4363,49 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
     /** The learned word. Default: Abyss. */
     wordId?: string
     wordName?: string
-    /** Overrides of the draft's update. */
+    /** Overrides of the draft's update, or `null` to write none. */
     draft?: Record<string, unknown> | null
-    /** Overrides of the new record, or `null` to write none. */
-    record?: Record<string, unknown> | null
+    /** Overrides of the new holding, or `null` to write none. */
+    holding?: Record<string, unknown> | null
     /** The player's new state, or `null` to leave it alone. */
     state?: Record<string, unknown> | null
   }
 
-  /** Learning from `d-open` as the application writes it: the draft closed, the record `r-new`, the state. */
+  /** Learning from `d-open` as the application writes it: the draft closed, the holding `r-new`, the state. */
   function learn(writer: string, spec: LearnSpec = {}) {
     const db = asUser(writer)
     const wordId = spec.wordId ?? 'tw-abyss'
     const wordName = spec.wordName ?? 'Abyss'
     const batch = writeBatch(db)
     if (spec.draft !== null) {
-      batch.update(doc(db, 'wordDrafts/d-open'), {
+      batch.update(doc(db, 'draws/d-open'), {
         status: 'learned',
         closedAt: serverTimestamp(),
         closedBy: writer,
-        learned: { wordId, wordName, recordId: 'r-new' },
+        learned: { cardId: wordId, cardName: wordName, holdingId: 'r-new' },
         ...spec.draft,
       })
     }
-    if (spec.record !== null) {
-      batch.set(doc(db, 'userTrueWords/r-new'), {
-        ...seededRecord(wordId, wordName),
-        learnedAt: serverTimestamp(),
-        learnedBy: writer,
-        learnedVia: 'draft',
-        draftId: 'd-open',
-        ...spec.record,
-      })
+    if (spec.holding !== null) {
+      batch.set(
+        doc(db, 'userCards/r-new'),
+        newHolding({
+          cardId: wordId,
+          cardName: wordName,
+          cardKind: 'trueWord',
+          uid: 'ayla',
+          givenBy: writer,
+          givenVia: 'draft',
+          drawId: 'd-open',
+          ...spec.holding,
+        }),
+      )
     }
     if (spec.state !== null) {
       batch.set(doc(db, 'playerWords/ayla'), {
         known: { ...AYLA_KNOWN, [wordId]: 'r-new' },
         openDraftId: null,
-        recordId: 'r-new',
+        holdingId: 'r-new',
         ...spec.state,
       })
     }
@@ -4085,7 +4416,7 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
   function skip(writer: string) {
     const db = asUser(writer)
     const batch = writeBatch(db)
-    batch.update(doc(db, 'wordDrafts/d-open'), {
+    batch.update(doc(db, 'draws/d-open'), {
       status: 'skipped',
       closedAt: serverTimestamp(),
       closedBy: writer,
@@ -4098,7 +4429,7 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
   function cancel(writer: string, { paid = true } = {}) {
     const db = asUser(writer)
     const batch = writeBatch(db)
-    batch.update(doc(db, 'wordDrafts/d-open'), {
+    batch.update(doc(db, 'draws/d-open'), {
       status: 'cancelled',
       closedAt: serverTimestamp(),
       closedBy: writer,
@@ -4119,48 +4450,55 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
     uid?: string
     wordId?: string
     wordName?: string
-    record?: Record<string, unknown>
+    holding?: Record<string, unknown>
     state?: Record<string, unknown> | null
   }
 
-  /** The DM teaching a word as the application writes it: the record `r-new` and the player's state. */
+  /** The DM teaching a word as the application writes it: the holding `r-new` and the player's state. */
   function teach(writer: string, spec: TeachSpec = {}) {
     const db = asUser(writer)
     const uid = spec.uid ?? 'ayla'
     const wordId = spec.wordId ?? 'tw-abyss'
     const before = STATE_BEFORE[uid] ?? { known: {}, openDraftId: null }
     const batch = writeBatch(db)
-    batch.set(doc(db, 'userTrueWords/r-new'), {
-      ...seededRecord(wordId, spec.wordName ?? 'Abyss'),
-      uid,
-      learnedAt: serverTimestamp(),
-      learnedBy: writer,
-      ...spec.record,
-    })
+    batch.set(
+      doc(db, 'userCards/r-new'),
+      newHolding({
+        cardId: wordId,
+        cardName: spec.wordName ?? 'Abyss',
+        cardKind: 'trueWord',
+        uid,
+        givenBy: writer,
+        givenVia: 'dm',
+        ...spec.holding,
+      }),
+    )
     if (spec.state !== null) {
       batch.set(doc(db, `playerWords/${uid}`), {
         ...before,
         known: { ...(before.known as Record<string, string>), [wordId]: 'r-new' },
-        recordId: 'r-new',
+        holdingId: 'r-new',
         ...spec.state,
       })
     }
     return batch.commit()
   }
 
-  /** The DM taking back Ayla's Chaos: the record `r-chaos` closed, and the word gone from her state. */
+  /** The DM taking back Ayla's Chaos: the holding `r-chaos` closed as discarded, and the word gone from her state. */
   function takeBack(writer: string, { state = true } = {}) {
     const db = asUser(writer)
     const batch = writeBatch(db)
-    batch.update(doc(db, 'userTrueWords/r-chaos'), {
-      removedAt: serverTimestamp(),
-      removedBy: writer,
+    batch.update(doc(db, 'userCards/r-chaos'), {
+      returnedAt: serverTimestamp(),
+      returnedBy: writer,
+      returnReason: 'discarded',
+      usedOn: null,
     })
     if (state) {
       batch.set(doc(db, 'playerWords/ayla'), {
         known: { 'tw-hoard': 'r-hoard' },
         openDraftId: null,
-        recordId: 'r-chaos',
+        holdingId: 'r-chaos',
       })
     }
     return batch.commit()
@@ -4174,24 +4512,32 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
 
   describe('reading', () => {
     it.each(['ayla', 'bora', 'dana'])(
-      'lets %s read words, states, records and drafts',
+      'lets %s read words, states, holdings and drafts',
       async (uid) => {
         await seedOpenDraft()
         const db = asUser(uid)
-        await assertSucceeds(getDoc(doc(db, 'trueWords/tw-abyss')))
+        await assertSucceeds(getDoc(doc(db, 'cards/tw-abyss')))
         await assertSucceeds(getDoc(doc(db, 'playerWords/ayla')))
-        await assertSucceeds(getDoc(doc(db, 'userTrueWords/r-chaos')))
-        await assertSucceeds(getDoc(doc(db, 'wordDrafts/d-open')))
-        await assertSucceeds(getDocs(collection(db, 'userTrueWords')))
+        await assertSucceeds(getDoc(doc(db, 'userCards/r-chaos')))
+        await assertSucceeds(getDoc(doc(db, 'draws/d-open')))
+        await assertSucceeds(
+          getDocs(
+            query(
+              collection(db, 'draws'),
+              where('kind', '==', 'wordDraft'),
+              where('status', '==', 'open'),
+            ),
+          ),
+        )
       },
     )
 
     it('denies signed-out users', async () => {
       const db = firestoreOf(testEnv.unauthenticatedContext())
-      await assertFails(getDoc(doc(db, 'trueWords/tw-abyss')))
+      await assertFails(getDoc(doc(db, 'cards/tw-abyss')))
       await assertFails(getDoc(doc(db, 'playerWords/ayla')))
-      await assertFails(getDoc(doc(db, 'userTrueWords/r-chaos')))
-      await assertFails(getDocs(collection(db, 'wordDrafts')))
+      await assertFails(getDoc(doc(db, 'userCards/r-chaos')))
+      await assertFails(getDocs(collection(db, 'draws')))
     })
   })
 
@@ -4208,14 +4554,18 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
       expect(await readAsAdmin('playerWords/bora')).toEqual({
         known: {},
         openDraftId: 'd-new',
-        recordId: null,
+        holdingId: null,
       })
     })
 
     it('lets the DM start a draft for a player at the price', async () => {
       await assertSucceeds(start('dana'))
       expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 2 })
-      expect(await readAsAdmin('wordDrafts/d-new')).toMatchObject({ by: 'dana', uid: 'ayla' })
+      expect(await readAsAdmin('draws/d-new')).toMatchObject({
+        kind: 'wordDraft',
+        by: 'dana',
+        uid: 'ayla',
+      })
     })
 
     it('lets the DM charge any amount up to the LP', async () => {
@@ -4234,6 +4584,7 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
       ['a free draft by a player', 'ayla', { draft: { paidWith: 'none', cost: 0, entryId: null } }],
       ['a player starting a draft for someone else', 'ayla', { draft: { uid: 'bora', cost: 1 } }],
       ['a draft paid in GP', 'dana', { draft: { paidWith: 'gp' } }],
+      ['a draft without its kind', 'ayla', { draft: { kind: 'pack' } }],
       [
         'a draft showing a word the player knows',
         'ayla',
@@ -4273,26 +4624,34 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
   })
 
   describe('learning', () => {
-    it("lets the draft's player learn one of its words, inactive", async () => {
+    it("lets the draft's player learn one of its words, inactive without a held effect", async () => {
       await seedOpenDraft()
       await assertSucceeds(learn('ayla'))
-      expect(await readAsAdmin('wordDrafts/d-open')).toMatchObject({
+      expect(await readAsAdmin('draws/d-open')).toMatchObject({
         status: 'learned',
         closedBy: 'ayla',
-        learned: { wordId: 'tw-abyss', wordName: 'Abyss', recordId: 'r-new' },
+        learned: { cardId: 'tw-abyss', cardName: 'Abyss', holdingId: 'r-new' },
       })
-      expect(await readAsAdmin('userTrueWords/r-new')).toMatchObject({
+      expect(await readAsAdmin('userCards/r-new')).toMatchObject({
         uid: 'ayla',
-        learnedVia: 'draft',
-        draftId: 'd-open',
+        cardKind: 'trueWord',
+        givenVia: 'draft',
+        drawId: 'd-open',
         active: false,
       })
+    })
+
+    it('starts a word with a held effect active, and only active', async () => {
+      await seedOpenDraft({ offered: ['tw-justice', 'tw-aid', 'tw-dragon'] })
+      const justice = { wordId: 'tw-justice', wordName: 'Justice' }
+      await assertFails(learn('ayla', justice))
+      await assertSucceeds(learn('ayla', { ...justice, holding: { active: true } }))
     })
 
     it('lets the DM learn for the player', async () => {
       await seedOpenDraft()
       await assertSucceeds(learn('dana'))
-      expect(await readAsAdmin('wordDrafts/d-open')).toMatchObject({ closedBy: 'dana' })
+      expect(await readAsAdmin('draws/d-open')).toMatchObject({ closedBy: 'dana' })
     })
 
     it('denies another player', async () => {
@@ -4309,11 +4668,11 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
       await seedOpenDraft()
       await testEnv.withSecurityRulesDisabled(async (admin) => {
         const db = firestoreOf(admin)
-        await setDoc(doc(db, 'userTrueWords/r-abyss'), seededRecord('tw-abyss', 'Abyss'))
+        await setDoc(doc(db, 'userCards/r-abyss'), seededWordHolding('tw-abyss', 'Abyss'))
         await setDoc(doc(db, 'playerWords/ayla'), {
           known: { ...AYLA_KNOWN, 'tw-abyss': 'r-abyss' },
           openDraftId: 'd-open',
-          recordId: 'r-abyss',
+          holdingId: 'r-abyss',
         })
       })
       await assertFails(learn('ayla', { state: { known: { ...AYLA_KNOWN, 'tw-abyss': 'r-new' } } }))
@@ -4326,17 +4685,19 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
       await assertFails(learn('ayla', { wordId: 'tw-echo', wordName: 'Echo' }))
     })
 
-    it('denies a learned record without ending the draft, and a draft ended without its record', async () => {
+    it('denies a learned holding without ending the draft, and a draft ended without its holding', async () => {
       await seedOpenDraft()
       await assertFails(learn('ayla', { draft: null }))
-      await assertFails(learn('ayla', { record: null }))
+      await assertFails(learn('ayla', { holding: null }))
       await assertFails(learn('ayla', { state: null }))
     })
 
-    it('denies a record that names another draft or another word', async () => {
+    it('denies a holding that names another draft, another word, another name, or another way', async () => {
       await seedOpenDraft()
-      await assertFails(learn('ayla', { record: { draftId: 'd-other' } }))
-      await assertFails(learn('ayla', { record: { wordId: 'tw-aid', wordName: 'Aid' } }))
+      await assertFails(learn('ayla', { holding: { drawId: 'd-other' } }))
+      await assertFails(learn('ayla', { holding: { cardId: 'tw-aid', cardName: 'Aid' } }))
+      await assertFails(learn('ayla', { holding: { cardName: 'Renamed' } }))
+      await assertFails(learn('ayla', { holding: { givenVia: 'dm', drawId: null } }))
     })
   })
 
@@ -4359,7 +4720,7 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
       await seedOpenDraft()
       await assertSucceeds(cancel('dana'))
       expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 5, lpEntryId: 'e-refund' })
-      expect(await readAsAdmin('wordDrafts/d-open')).toMatchObject({
+      expect(await readAsAdmin('draws/d-open')).toMatchObject({
         status: 'cancelled',
         refundEntryId: 'e-refund',
       })
@@ -4384,11 +4745,14 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
   describe('teaching and taking back', () => {
     it('lets the DM teach any player a word they do not know, for free', async () => {
       await assertSucceeds(teach('dana'))
-      expect(await readAsAdmin('userTrueWords/r-new')).toMatchObject({ learnedVia: 'dm' })
+      expect(await readAsAdmin('userCards/r-new')).toMatchObject({
+        cardKind: 'trueWord',
+        givenVia: 'dm',
+      })
       expect(await readAsAdmin('playerWords/ayla')).toEqual({
         known: { ...AYLA_KNOWN, 'tw-abyss': 'r-new' },
         openDraftId: null,
-        recordId: 'r-new',
+        holdingId: 'r-new',
       })
       expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 5 })
     })
@@ -4398,8 +4762,24 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
       expect(await readAsAdmin('playerWords/bora')).toEqual({
         known: { 'tw-aid': 'r-new' },
         openDraftId: null,
-        recordId: 'r-new',
+        holdingId: 'r-new',
       })
+    })
+
+    it('lets the DM teach a word kept out of drafts and lists', async () => {
+      await updateDocAsAdmin('cards/tw-abyss', { isInDraws: false, isInLibrary: false })
+      await assertSucceeds(teach('dana'))
+    })
+
+    it('lets the DM teach a held word, active', async () => {
+      await assertSucceeds(
+        teach('dana', {
+          uid: 'bora',
+          wordId: 'tw-justice',
+          wordName: 'Justice',
+          holding: { active: true },
+        }),
+      )
     })
 
     it('keeps an open draft open while the DM teaches', async () => {
@@ -4415,10 +4795,12 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
       ['teaching a retired word', 'dana', { wordId: 'tw-old', wordName: 'Old' }],
       ['teaching a draft word', 'dana', { wordId: 'tw-echo', wordName: 'Echo' }],
       ['teaching a word that does not exist', 'dana', { wordId: 'tw-none', wordName: 'None' }],
-      ['a record under another name', 'dana', { record: { wordName: 'Renamed' } }],
-      ['a record that starts active', 'dana', { record: { active: true } }],
-      ['a record without the state', 'dana', { state: null }],
-      ['a state that keeps the old record', 'dana', { state: { recordId: 'r-hoard' } }],
+      ['a holding under another name', 'dana', { holding: { cardName: 'Renamed' } }],
+      ['a holding that starts active', 'dana', { holding: { active: true } }],
+      ['a held word that starts inactive', 'dana', { wordId: 'tw-justice', wordName: 'Justice' }],
+      ['a holding with a note', 'dana', { holding: { note: 'Not' } }],
+      ['a holding without the state', 'dana', { state: null }],
+      ['a state that keeps the old holding', 'dana', { state: { holdingId: 'r-hoard' } }],
       [
         'a state that also drops a word',
         'dana',
@@ -4430,17 +4812,20 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
       await assertFails(teach(writer, spec))
     })
 
-    it('lets the DM take back a word, closing its record for good', async () => {
+    it('lets the DM take back a word, closing its holding for good', async () => {
       await assertSucceeds(takeBack('dana'))
-      expect(await readAsAdmin('userTrueWords/r-chaos')).toMatchObject({ removedBy: 'dana' })
+      expect(await readAsAdmin('userCards/r-chaos')).toMatchObject({
+        returnedBy: 'dana',
+        returnReason: 'discarded',
+      })
       expect(await readAsAdmin('playerWords/ayla')).toEqual({
         known: { 'tw-hoard': 'r-hoard' },
         openDraftId: null,
-        recordId: 'r-chaos',
+        holdingId: 'r-chaos',
       })
     })
 
-    it('lets the DM teach a word again after taking it back, with a new record', async () => {
+    it('lets the DM teach a word again after taking it back, with a new holding', async () => {
       await assertSucceeds(takeBack('dana'))
       await assertSucceeds(
         teach('dana', {
@@ -4461,39 +4846,60 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
         setDoc(doc(asUser('dana'), 'playerWords/ayla'), {
           known: { 'tw-hoard': 'r-hoard' },
           openDraftId: null,
-          recordId: 'r-chaos',
+          holdingId: 'r-chaos',
         }),
       )
     })
   })
 
+  describe('notes and costs on known words', () => {
+    it('lets the player and the DM write a note, and only the DM set the cost', async () => {
+      await assertSucceeds(updateDoc(doc(asUser('ayla'), 'userCards/r-chaos'), { note: 'Sonra' }))
+      await assertSucceeds(updateDoc(doc(asUser('dana'), 'userCards/r-chaos'), { note: '' }))
+      await assertFails(updateDoc(doc(asUser('bora'), 'userCards/r-chaos'), { note: 'Mine' }))
+      await assertSucceeds(
+        updateDoc(doc(asUser('dana'), 'userCards/r-chaos'), { costOverride: '3' }),
+      )
+      await assertFails(updateDoc(doc(asUser('ayla'), 'userCards/r-chaos'), { costOverride: '0' }))
+    })
+  })
+
   describe('the active switch', () => {
-    it('lets the DM switch a known word active and back', async () => {
-      await assertSucceeds(
-        updateDoc(doc(asUser('dana'), 'userTrueWords/r-chaos'), { active: true }),
-      )
-      await assertSucceeds(
-        updateDoc(doc(asUser('dana'), 'userTrueWords/r-chaos'), { active: false }),
-      )
+    beforeEach(async () => {
+      await testEnv.withSecurityRulesDisabled(async (admin) => {
+        await setDoc(
+          doc(firestoreOf(admin), 'userCards/r-justice'),
+          seededWordHolding('tw-justice', 'Justice', { active: true }),
+        )
+      })
+    })
+
+    it('lets the DM switch a known word with a held effect inactive and back', async () => {
+      const ref = doc(asUser('dana'), 'userCards/r-justice')
+      await assertSucceeds(updateDoc(ref, { active: false }))
+      await assertSucceeds(updateDoc(ref, { active: true }))
+    })
+
+    it('denies switching a word without a held effect', async () => {
+      await assertFails(updateDoc(doc(asUser('dana'), 'userCards/r-chaos'), { active: true }))
     })
 
     it('denies a player switching their own word', async () => {
-      await assertFails(updateDoc(doc(asUser('ayla'), 'userTrueWords/r-chaos'), { active: true }))
+      await assertFails(updateDoc(doc(asUser('ayla'), 'userCards/r-justice'), { active: false }))
     })
 
     it('denies switching a word that was taken back', async () => {
-      await testEnv.withSecurityRulesDisabled(async (admin) => {
-        await updateDoc(doc(firestoreOf(admin), 'userTrueWords/r-chaos'), {
-          removedAt: Timestamp.fromMillis(2000),
-          removedBy: 'dana',
-        })
+      await updateDocAsAdmin('userCards/r-justice', {
+        returnedAt: Timestamp.fromMillis(2000),
+        returnedBy: 'dana',
+        returnReason: 'discarded',
       })
-      await assertFails(updateDoc(doc(asUser('dana'), 'userTrueWords/r-chaos'), { active: true }))
+      await assertFails(updateDoc(doc(asUser('dana'), 'userCards/r-justice'), { active: false }))
     })
 
     it('denies changing anything else with the switch', async () => {
       await assertFails(
-        updateDoc(doc(asUser('dana'), 'userTrueWords/r-chaos'), { active: true, wordName: 'X' }),
+        updateDoc(doc(asUser('dana'), 'userCards/r-justice'), { active: false, cardName: 'X' }),
       )
     })
   })
@@ -4502,7 +4908,7 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
     uid?: string
     wordId?: string
     wordName?: string
-    recordId?: string
+    holdingId?: string
     /** The LP paid. Default: 1, the price of the seeded words. */
     cost?: number
     /** Overrides of the use's fields. */
@@ -4525,11 +4931,12 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
     const cost = spec.cost ?? 1
     const lpAfter = (LP_BEFORE[uid] ?? 0) - cost
     const batch = writeBatch(db)
-    batch.set(doc(db, 'wordUses/u-new'), {
+    batch.set(doc(db, 'uses/u-new'), {
       uid,
-      wordId: spec.wordId ?? 'tw-chaos',
-      wordName: spec.wordName ?? 'Chaos',
-      recordId: spec.recordId ?? 'r-chaos',
+      cardId: spec.wordId ?? 'tw-chaos',
+      cardName: spec.wordName ?? 'Chaos',
+      cardKind: 'trueWord',
+      holdingId: spec.holdingId ?? 'r-chaos',
       by: writer,
       at: serverTimestamp(),
       cost,
@@ -4542,7 +4949,7 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
         account: uid,
         delta: -cost,
         balanceAfter: lpAfter,
-        source: 'wordUse',
+        source: 'keptUse',
         reason: null,
         drawId: 'u-new',
         by: writer,
@@ -4558,7 +4965,7 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
   }
 
   const setWordCost = async (wordId: string, cost: string | null) =>
-    updateDocAsAdmin(`trueWords/${wordId}`, { cost })
+    updateDocAsAdmin(`cards/${wordId}`, { cost })
 
   describe('using a word on a character, with its effect', () => {
     const THORIN = 'ThorinAyla0123456789'
@@ -4604,13 +5011,13 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
 
     it('allows a use on a character whose name it keeps, a typed name, and a use without one', async () => {
       await assertSucceeds(useWord('ayla', on(THORIN, 'Thorin')))
-      expect(await readAsAdmin('wordUses/u-new')).toMatchObject({
+      expect(await readAsAdmin('uses/u-new')).toMatchObject({
         usedOn: 'Thorin',
         usedOnCharacterId: THORIN,
       })
-      await deleteAsAdmin('wordUses/u-new')
+      await deleteAsAdmin('uses/u-new')
       await assertSucceeds(useWord('dana', { cost: 0, ...on(null, 'Goblin şefi') }))
-      await deleteAsAdmin('wordUses/u-new')
+      await deleteAsAdmin('uses/u-new')
       await assertSucceeds(useWord('dana', { cost: 0 }))
     })
 
@@ -4631,6 +5038,21 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
         source: 'word',
         sourceId: 'u-new',
       })
+    })
+
+    it('denies the effect of a word whose "Kullanınca efekt bırakır" is off', async () => {
+      await updateDocAsAdmin('cards/tw-chaos', { hasUseEffect: false })
+      await assertFails(useWord('ayla', { ...on(THORIN, 'Thorin'), extra: wordEffect('ayla') }))
+      await assertSucceeds(useWord('ayla', on(THORIN, 'Thorin')))
+    })
+
+    it("denies a word's effect marked as a card's", async () => {
+      await assertFails(
+        useWord('ayla', {
+          ...on(THORIN, 'Thorin'),
+          extra: wordEffect('ayla', THORIN, { source: 'card' }),
+        }),
+      )
     })
 
     it('denies an effect without its use, on another character, or for another user', async () => {
@@ -4660,56 +5082,65 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
       expect(await readAsAdmin('users/ayla')).toEqual(
         expect.objectContaining({ lp: 4, lpEntryId: 'e-word' }),
       )
-      expect(await readAsAdmin('wordUses/u-new')).toMatchObject({
+      expect(await readAsAdmin('uses/u-new')).toMatchObject({
         uid: 'ayla',
-        wordId: 'tw-chaos',
-        recordId: 'r-chaos',
+        cardId: 'tw-chaos',
+        holdingId: 'r-chaos',
         cost: 1,
         entryId: 'e-word',
       })
       expect(await readAsAdmin('ledger/e-word')).toMatchObject({
-        source: 'wordUse',
+        source: 'keptUse',
         drawId: 'u-new',
       })
-      expect(await readAsAdmin('userTrueWords/r-chaos')).toMatchObject({ removedBy: null })
+      expect(await readAsAdmin('userCards/r-chaos')).toMatchObject({ returnedBy: null })
     })
 
     it('lets a player choose the amount of an X word, and use a 0-cost word for free', async () => {
       await setWordCost('tw-chaos', 'X')
       await assertSucceeds(useWord('ayla', { cost: 3 }))
-      await deleteAsAdmin('wordUses/u-new')
+      await deleteAsAdmin('uses/u-new')
       await setWordCost('tw-hoard', '0')
       await assertFails(
-        useWord('ayla', { wordId: 'tw-hoard', wordName: 'Hoard', recordId: 'r-hoard', cost: 1 }),
+        useWord('ayla', { wordId: 'tw-hoard', wordName: 'Hoard', holdingId: 'r-hoard', cost: 1 }),
       )
       await assertSucceeds(
-        useWord('ayla', { wordId: 'tw-hoard', wordName: 'Hoard', recordId: 'r-hoard', cost: 0 }),
+        useWord('ayla', { wordId: 'tw-hoard', wordName: 'Hoard', holdingId: 'r-hoard', cost: 0 }),
       )
       expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 2 })
+    })
+
+    it("prices a player's use by the cost in this hand", async () => {
+      await updateDocAsAdmin('userCards/r-chaos', { costOverride: '3' })
+      await assertFails(useWord('ayla', { cost: 1 }))
+      await assertSucceeds(useWord('ayla', { cost: 3 }))
     })
 
     it("lets the DM charge any amount of the player's LP, or nothing", async () => {
       await assertSucceeds(useWord('dana', { cost: 4 }))
       expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 1 })
-      await deleteAsAdmin('wordUses/u-new')
+      await deleteAsAdmin('uses/u-new')
       await assertSucceeds(useWord('dana', { cost: 0 }))
     })
 
     it('lets a player use a retired word they know', async () => {
       await testEnv.withSecurityRulesDisabled(async (admin) => {
-        await setDoc(doc(firestoreOf(admin), 'userTrueWords/r-old'), seededRecord('tw-old', 'Old'))
+        await setDoc(doc(firestoreOf(admin), 'userCards/r-old'), seededWordHolding('tw-old', 'Old'))
       })
       await assertSucceeds(
-        useWord('ayla', { wordId: 'tw-old', wordName: 'Old', recordId: 'r-old' }),
+        useWord('ayla', { wordId: 'tw-old', wordName: 'Old', holdingId: 'r-old' }),
       )
     })
 
     it('denies a word the player does not know, or has been taken back', async () => {
-      await assertFails(useWord('ayla', { wordId: 'tw-abyss', wordName: 'Abyss', recordId: 'r-x' }))
+      await assertFails(
+        useWord('ayla', { wordId: 'tw-abyss', wordName: 'Abyss', holdingId: 'r-x' }),
+      )
       await assertFails(useWord('ayla', { wordId: 'tw-abyss', wordName: 'Abyss' }))
-      await updateDocAsAdmin('userTrueWords/r-chaos', {
-        removedAt: Timestamp.fromMillis(3000),
-        removedBy: 'dana',
+      await updateDocAsAdmin('userCards/r-chaos', {
+        returnedAt: Timestamp.fromMillis(3000),
+        returnedBy: 'dana',
+        returnReason: 'discarded',
       })
       await assertFails(useWord('ayla'))
       await assertFails(useWord('dana', { cost: 0 }))
@@ -4728,6 +5159,7 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
         useWord('ayla', { entry: { delta: -2, balanceAfter: 3 }, balance: { lp: 3 } }),
       )
       await assertFails(useWord('ayla', { entry: { drawId: 'u-other' } }))
+      await assertFails(useWord('ayla', { entry: { source: 'use' } }))
       await assertFails(useWord('dana', { use: { entryId: null } }))
     })
 
@@ -4736,23 +5168,22 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
       await assertFails(useWord('bora', { uid: 'bora' }))
     })
 
-    it('denies a wrong name, another user as the user, or another time than now', async () => {
+    it('denies a wrong name or kind, another user as the user, or another time than now', async () => {
       await assertFails(useWord('ayla', { wordName: 'Kaos' }))
+      await assertFails(useWord('ayla', { use: { cardKind: 'normal' } }))
       await assertFails(useWord('ayla', { use: { by: 'dana' } }))
       await assertFails(useWord('ayla', { use: { at: Timestamp.fromMillis(5) } }))
     })
 
     it('lets everyone signed in read a use, and nobody change or delete one', async () => {
       await assertSucceeds(useWord('ayla'))
-      await assertSucceeds(getDoc(doc(asUser('bora'), 'wordUses/u-new')))
-      await assertFails(
-        getDoc(doc(firestoreOf(testEnv.unauthenticatedContext()), 'wordUses/u-new')),
-      )
-      await assertFails(updateDoc(doc(asUser('dana'), 'wordUses/u-new'), { cost: 0 }))
-      await assertFails(deleteDoc(doc(asUser('dana'), 'wordUses/u-new')))
+      await assertSucceeds(getDoc(doc(asUser('bora'), 'uses/u-new')))
+      await assertFails(getDoc(doc(firestoreOf(testEnv.unauthenticatedContext()), 'uses/u-new')))
+      await assertFails(updateDoc(doc(asUser('dana'), 'uses/u-new'), { cost: 0 }))
+      await assertFails(deleteDoc(doc(asUser('dana'), 'uses/u-new')))
     })
 
-    it('allows the heaviest request: a paid use with its record, word, entry and LP', async () => {
+    it('allows the heaviest request: a paid use with its holding, word, entry and LP', async () => {
       await setTable(null)
       await assertSucceeds(useWord('dana', { cost: 3 }))
     })
@@ -4788,11 +5219,15 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
       },
     )
 
-    it('still lets the DM switch a word active while a pack is open', async () => {
+    it('still lets the DM switch a held word while a pack is open', async () => {
+      await testEnv.withSecurityRulesDisabled(async (admin) => {
+        await setDoc(
+          doc(firestoreOf(admin), 'userCards/r-justice'),
+          seededWordHolding('tw-justice', 'Justice', { active: true }),
+        )
+      })
       await setTable('p-open')
-      await assertSucceeds(
-        updateDoc(doc(asUser('dana'), 'userTrueWords/r-chaos'), { active: true }),
-      )
+      await assertSucceeds(updateDoc(doc(asUser('dana'), 'userCards/r-justice'), { active: false }))
     })
   })
 
@@ -4812,39 +5247,37 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
       await assertSucceeds(cancel('dana'))
     })
 
-    it('allows the DM learning for the player: the draft, the record, the state and the word', async () => {
+    it('allows the DM learning for the player: the draft, the holding, the state and the word', async () => {
       await setTable(null)
       await seedOpenDraft()
       await assertSucceeds(learn('dana'))
     })
   })
 
-  describe('ended drafts, closed records and deleting', () => {
+  describe('ended drafts, closed holdings and deleting', () => {
     it('denies changing an ended draft, even for the DM', async () => {
       await seedOpenDraft()
-      await testEnv.withSecurityRulesDisabled(async (admin) => {
-        await updateDoc(doc(firestoreOf(admin), 'wordDrafts/d-open'), {
-          status: 'skipped',
-          closedAt: Timestamp.fromMillis(6000),
-          closedBy: 'ayla',
-        })
+      await updateDocAsAdmin('draws/d-open', {
+        status: 'skipped',
+        closedAt: Timestamp.fromMillis(6000),
+        closedBy: 'ayla',
       })
       await assertFails(cancel('dana'))
-      await assertFails(updateDoc(doc(asUser('dana'), 'wordDrafts/d-open'), { cost: 0 }))
+      await assertFails(updateDoc(doc(asUser('dana'), 'draws/d-open'), { cost: 0 }))
     })
 
-    it('denies deleting a word, a state, a record or a draft', async () => {
+    it('denies deleting a word, a state, a holding or a draft', async () => {
       await seedOpenDraft()
       const db = asUser('dana')
-      await assertFails(deleteDoc(doc(db, 'trueWords/tw-abyss')))
+      await assertFails(deleteDoc(doc(db, 'cards/tw-abyss')))
       await assertFails(deleteDoc(doc(db, 'playerWords/ayla')))
-      await assertFails(deleteDoc(doc(db, 'userTrueWords/r-chaos')))
-      await assertFails(deleteDoc(doc(db, 'wordDrafts/d-open')))
+      await assertFails(deleteDoc(doc(db, 'userCards/r-chaos')))
+      await assertFails(deleteDoc(doc(db, 'draws/d-open')))
     })
 
-    it('denies writing a word from the application, even for the DM', async () => {
-      await assertFails(setDoc(doc(asUser('dana'), 'trueWords/tw-new'), word('New')))
-      await assertFails(updateDoc(doc(asUser('dana'), 'trueWords/tw-abyss'), { cost: '2' }))
+    it('denies writing a word from the application without its record, even for the DM', async () => {
+      await assertFails(setDoc(doc(asUser('dana'), 'cards/tw-new'), word('New')))
+      await assertFails(updateDoc(doc(asUser('dana'), 'cards/tw-abyss'), { cost: '2' }))
     })
 
     it('denies a player state written alone', async () => {
@@ -4855,10 +5288,176 @@ describe('True Words (trueWords, playerWords, userTrueWords, wordDrafts, with th
         setDoc(doc(asUser('dana'), 'playerWords/bora'), {
           known: { 'tw-abyss': 'r-x' },
           openDraftId: null,
-          recordId: 'r-x',
+          holdingId: 'r-x',
         }),
       )
     })
+
+    it('denies the removed True Word paths', async () => {
+      const db = asUser('dana')
+      await assertFails(getDoc(doc(db, 'trueWords/tw-abyss')))
+      await assertFails(getDoc(doc(db, 'userTrueWords/r-chaos')))
+      await assertFails(getDocs(collection(db, 'wordDrafts')))
+      await assertFails(getDocs(collection(db, 'wordUses')))
+    })
+  })
+})
+
+describe('kept uses of cards (uses with userCards, ledger/{entryId} and users/{uid}.lp)', () => {
+  /** A normal card kept on use: Ayla holds its one copy through `h-coin`. */
+  const COIN = 'legend-luckycoin'
+  const THORIN = 'ThorinAyla0123456789'
+
+  beforeEach(async () => {
+    await seedHoldings()
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const db = firestoreOf(admin)
+      await updateDoc(doc(db, 'users/ayla'), { lp: 5, lpEntryId: 'e-old' })
+      await setDoc(
+        doc(db, `cards/${COIN}`),
+        seededCardOf('normal', 'Lucky Coin', {
+          cost: '2',
+          isKeptOnUse: true,
+          holder: { uid: 'ayla', userCardId: 'h-coin' },
+        }),
+      )
+      await setDoc(
+        doc(db, 'userCards/h-coin'),
+        seededHolding({ cardId: COIN, cardName: 'Lucky Coin' }),
+      )
+      await setDoc(doc(db, `characters/${THORIN}`), {
+        uid: 'ayla',
+        name: 'Thorin',
+        picture: null,
+        archived: false,
+        createdAt: Timestamp.fromMillis(1000),
+        createdBy: 'ayla',
+      })
+    })
+  })
+
+  type UseSpec = {
+    useId?: string
+    lpBefore?: number
+    cost?: number
+    use?: Record<string, unknown>
+    entry?: Record<string, unknown> | null
+    extra?: (batch: ReturnType<typeof writeBatch>, db: Firestore) => void
+  }
+
+  /** One use of Ayla's Lucky Coin as the application writes it: the use, and when it pays, its entry and LP. */
+  function useCoin(writer: string, spec: UseSpec = {}) {
+    const db = asUser(writer)
+    const useId = spec.useId ?? 'u-new'
+    const cost = spec.cost ?? 2
+    const lpBefore = spec.lpBefore ?? 5
+    const entryId = `e-${useId}`
+    const batch = writeBatch(db)
+    batch.set(doc(db, `uses/${useId}`), {
+      uid: 'ayla',
+      cardId: COIN,
+      cardName: 'Lucky Coin',
+      cardKind: 'normal',
+      holdingId: 'h-coin',
+      by: writer,
+      at: serverTimestamp(),
+      cost,
+      entryId: cost > 0 ? entryId : null,
+      ...spec.use,
+    })
+    if (cost > 0 && spec.entry !== null) {
+      batch.set(doc(db, `ledger/${entryId}`), {
+        currency: 'lp',
+        account: 'ayla',
+        delta: -cost,
+        balanceAfter: lpBefore - cost,
+        source: 'keptUse',
+        reason: null,
+        drawId: useId,
+        by: writer,
+        at: serverTimestamp(),
+        ...spec.entry,
+      })
+      batch.update(doc(db, 'users/ayla'), { lp: lpBefore - cost, lpEntryId: entryId })
+    }
+    spec.extra?.(batch, db)
+    return batch.commit()
+  }
+
+  /** The card's effect on Thorin, as the application adds it to the use's batch. */
+  const coinEffect =
+    (overrides: Record<string, unknown> = {}) =>
+    (batch: ReturnType<typeof writeBatch>, db: Firestore) => {
+      batch.set(doc(db, 'characterEffects/fx-coin'), {
+        characterId: THORIN,
+        uid: 'ayla',
+        source: 'card',
+        sourceId: 'u-new',
+        name: 'Lucky Coin',
+        text: 'Lucky Coin text.',
+        cursed: false,
+        createdBy: 'ayla',
+        createdAt: serverTimestamp(),
+        ...overrides,
+      })
+    }
+
+  const onThorin = { usedOn: 'Thorin', usedOnCharacterId: THORIN }
+
+  it('lets the holder use the card for its price twice, keeping it in the hand and out of the pool', async () => {
+    await assertSucceeds(useCoin('ayla', { useId: 'u-1' }))
+    await assertSucceeds(useCoin('ayla', { useId: 'u-2', lpBefore: 3 }))
+    expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 1, lpEntryId: 'e-u-2' })
+    expect(await readAsAdmin('userCards/h-coin')).toMatchObject({ returnedAt: null })
+    expect(await readAsAdmin(`cards/${COIN}`)).toMatchObject({
+      holder: { uid: 'ayla', userCardId: 'h-coin' },
+    })
+  })
+
+  it("prices the holder's use by the cost in this hand, and lets the DM charge any amount", async () => {
+    await updateDocAsAdmin('userCards/h-coin', { costOverride: '1' })
+    await assertFails(useCoin('ayla', { cost: 2 }))
+    await assertSucceeds(useCoin('ayla', { cost: 1 }))
+    await deleteAsAdmin('uses/u-new')
+    await assertSucceeds(useCoin('dana', { cost: 0 }))
+  })
+
+  it('allows the use with its effect, marked as a card', async () => {
+    await assertSucceeds(useCoin('ayla', { use: onThorin, extra: coinEffect() }))
+    expect(await readAsAdmin('characterEffects/fx-coin')).toMatchObject({ source: 'card' })
+  })
+
+  it('denies the effect when "Kullanınca efekt bırakır" is off, or marked as a word', async () => {
+    await assertFails(useCoin('ayla', { use: onThorin, extra: coinEffect({ source: 'word' }) }))
+    await updateDocAsAdmin(`cards/${COIN}`, { hasUseEffect: false })
+    await assertFails(useCoin('ayla', { use: onThorin, extra: coinEffect() }))
+  })
+
+  it('denies a use record of a card that leaves the hand when used', async () => {
+    await updateDocAsAdmin(`cards/${COIN}`, { isKeptOnUse: false })
+    await assertFails(useCoin('ayla'))
+    await assertFails(useCoin('dana', { cost: 0 }))
+  })
+
+  it("denies another player's use, a closed holding, and a wrong kind or name", async () => {
+    await assertFails(useCoin('bora'))
+    await assertFails(useCoin('ayla', { use: { cardKind: 'blessed' } }))
+    await assertFails(useCoin('ayla', { use: { cardName: 'Unlucky Coin' } }))
+    await updateDocAsAdmin('userCards/h-coin', {
+      returnedAt: Timestamp.fromMillis(3000),
+      returnedBy: 'dana',
+      returnReason: 'discarded',
+    })
+    await assertFails(useCoin('dana', { cost: 0 }))
+  })
+
+  it('denies a payment that disagrees, and a use while a pack is open', async () => {
+    await assertFails(useCoin('ayla', { entry: null }))
+    await assertFails(useCoin('ayla', { entry: { source: 'use' } }))
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(firestoreOf(admin), 'table/main'), { openPackId: 'p-open' })
+    })
+    await assertFails(useCoin('ayla'))
   })
 })
 

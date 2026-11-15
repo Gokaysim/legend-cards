@@ -5,11 +5,12 @@ import { cardsContextValue } from '@/features/cards/cardsContext'
 import type { Card } from '@/features/cards/schema'
 import type { CardStatus } from '@/features/cards/status'
 import type { PackOpening } from '@/features/draws/schema'
-import { testCard } from '@/test/cardFixtures'
+import { ONLY_FROM_DM, testCard } from '@/test/cardFixtures'
 import { ready } from '@/test/fixtures'
 import { testHolding } from '@/test/holdingFixtures'
 import { testCardsOf, testPack } from '@/test/packFixtures'
 import { testSetByCode, testSetIndex } from '@/test/setFixtures'
+import { testTrueWord, testWordUse } from '@/test/trueWordFixtures'
 
 import { setCardRows, setCards, setTiles } from './setStats'
 
@@ -18,7 +19,7 @@ const kesqer = testSetByCode('Kesqer')
 const pandemonium = testSetByCode('Pandemonium')
 
 const draft = testCard("Kalisha's Multiclass", { status: 'draft' })
-const dmOnly = testCard("Dionus' Double Dose", { dmOnly: true })
+const dmOnly = testCard("Dionus' Double Dose", { ...ONLY_FROM_DM })
 const retired = testCard('Old Trick', { status: 'retired' })
 const active = testCardsOf('Kesqer', 120)
 
@@ -54,15 +55,20 @@ function opened(id: string, packType: PackOpening['packType'], setCode: string, 
 }
 
 describe('setCards', () => {
-  it('counts 120 cards for a player and 122 for the DM, marking the draft and the DM-only card', () => {
+  it('counts 120 cards for a player and 122 for the DM, marking the draft and the hidden card', () => {
     const all = [...active, draft, dmOnly]
     expect(countedOn(false, all)).toHaveLength(120)
     const dmCards = countedOn(true, all)
     expect(dmCards).toHaveLength(122)
 
-    const rows = setCardRows(dmCards, { holdings: [], packs: [] }, statusesOf(dmCards), NOW)
+    const rows = setCardRows(
+      dmCards,
+      { uses: [], holdings: [], packs: [] },
+      statusesOf(dmCards),
+      NOW,
+    )
     expect(rows.find((row) => row.card.id === draft.id)?.marks).toEqual(['Taslak'])
-    expect(rows.find((row) => row.card.id === dmOnly.id)?.marks).toEqual(["DM'e özel"])
+    expect(rows.find((row) => row.card.id === dmOnly.id)?.marks).toEqual(['🔒 DM'])
     expect(rows.find((row) => row.card.id === active[0]?.id)?.marks).toEqual([])
   })
 
@@ -70,7 +76,12 @@ describe('setCards', () => {
     const all = [...active.slice(0, 2), retired]
     expect(countedOn(false, all)).toHaveLength(2)
     const dmCards = countedOn(true, all)
-    const rows = setCardRows(dmCards, { holdings: [], packs: [] }, statusesOf(dmCards), NOW)
+    const rows = setCardRows(
+      dmCards,
+      { uses: [], holdings: [], packs: [] },
+      statusesOf(dmCards),
+      NOW,
+    )
     expect(rows.find((row) => row.card.id === retired.id)?.marks).toEqual(['Kaldırıldı'])
   })
 
@@ -103,20 +114,46 @@ describe('setCardRows', () => {
       chosen: { cardId: second.id, cardName: second.name, cardKind: 'normal', holdingId: 'h-3' },
     })
     const cards = [first, second]
-    const rows = setCardRows(cards, { holdings, packs: [shown] }, statusesOf(cards), NOW)
+    const rows = setCardRows(cards, { uses: [], holdings, packs: [shown] }, statusesOf(cards), NOW)
     expect(rows).toHaveLength(2)
     expect(rows[0]?.stats).toMatchObject({ used: 1, lpPaid: 1, shown: 1, taken: 0 })
     expect(rows[1]?.stats).toMatchObject({ used: 0, shown: 1, taken: 1 })
   })
 
-  it('gives the Durum text, a draft reading "Taslak" and a DM-only card only its holders', () => {
+  it('counts each use of a card kept on use, and the LP paid for them', () => {
+    const [first] = active
+    if (!first) throw new Error('missing card')
+    const keptUse = (id: string, cost: number) => ({
+      ...testWordUse(id, testTrueWord('Unused'), 'ayla', { cost }),
+      cardId: first.id,
+      cardName: first.name,
+      cardKind: 'normal' as const,
+    })
+    const rows = setCardRows(
+      [first],
+      {
+        uses: [keptUse('u1', 2), keptUse('u2', 3)],
+        holdings: [testHolding(first, 'ayla', 1000)],
+        packs: [],
+      },
+      statusesOf([first]),
+      NOW,
+    )
+    expect(rows[0]?.stats).toMatchObject({ used: 2, lpPaid: 5 })
+  })
+
+  it('gives the Durum text, a draft reading "Taslak" and a card only the DM gives "DM\'e özel"', () => {
     const [first] = active
     if (!first) throw new Error('missing card')
     const cards = [first, draft, dmOnly]
     const statuses = statusesOf(cards, { [first.id]: ['Bora'], [dmOnly.id]: ['Ayla'] })
     statuses.set(draft.id, { inPool: false, holderNames: [] })
-    const rows = setCardRows(cards, { holdings: [], packs: [] }, statuses, NOW)
-    expect(rows.map((row) => row.status)).toEqual(['Elde: Bora', 'Taslak', 'Elde: Ayla'])
+    const rows = setCardRows(cards, { uses: [], holdings: [], packs: [] }, statuses, NOW)
+    expect(rows.map((row) => row.status)).toEqual([
+      'Elde: Bora',
+      'Taslak',
+      "DM'e özel · Elde: Ayla",
+    ])
   })
 })
 
@@ -124,7 +161,12 @@ describe('setTiles', () => {
   it('sums the rows, and counts the opened packs of the set by type, leaving out a cancelled one', () => {
     const cards = active.slice(0, 5)
     const held = { [cards[0]?.id ?? '']: ['Bora'], [cards[1]?.id ?? '']: ['Ayla'] }
-    const rows = setCardRows(cards, { holdings: [], packs: [] }, statusesOf(cards, held), NOW)
+    const rows = setCardRows(
+      cards,
+      { uses: [], holdings: [], packs: [] },
+      statusesOf(cards, held),
+      NOW,
+    )
     const packs = [
       ...Array.from({ length: 21 }, (_, i) => opened(`s${i}`, 'standard', 'Kesqer')),
       ...Array.from({ length: 12 }, (_, i) => opened(`p${i}`, 'premium', 'Kesqer')),
@@ -190,7 +232,7 @@ describe('setTiles', () => {
         useEntryId: 'e-1',
       }),
     ]
-    const rows = setCardRows(cards, { holdings, packs: [] }, statusesOf(cards), NOW)
+    const rows = setCardRows(cards, { uses: [], holdings, packs: [] }, statusesOf(cards), NOW)
     const tiles = setTiles(rows, kesqer, [], testSetIndex)
     expect(tiles).toMatchObject({
       neverHeld: 2,
@@ -205,10 +247,10 @@ describe('setTiles', () => {
 
   it("counts the marked cards on the DM's page", () => {
     const cards = [...active.slice(0, 2), draft, dmOnly, retired]
-    const rows = setCardRows(cards, { holdings: [], packs: [] }, statusesOf(cards), NOW)
+    const rows = setCardRows(cards, { uses: [], holdings: [], packs: [] }, statusesOf(cards), NOW)
     expect(setTiles(rows, kesqer, [], testSetIndex).marked).toEqual({
       draft: 1,
-      dmOnly: 1,
+      hidden: 1,
       retired: 1,
     })
   })

@@ -12,21 +12,23 @@ import { StatsContext, type StatsSource } from './statsContext'
 function useFirestoreCardRecords(cardId: string | null): Subscription<CardRecords> {
   const queries = useMemo(() => (cardId === null ? null : cardQueries(db, cardId)), [cardId])
   const holdings = useCollection(queries?.holdings ?? null)
+  const uses = useCollection(queries?.uses ?? null)
   const draws = useCollection(queries?.draws ?? null)
   const packs = useCollection(queries?.packs ?? null)
   return useMemo(() => {
-    const combined = combineSubscriptions({ holdings, draws, packs })
+    const combined = combineSubscriptions({ holdings, uses, draws, packs })
     return combined.status === 'ready'
       ? { ...combined, data: { ...combined.data, draws: combined.data.draws.filter(isCardDraw) } }
       : combined
-  }, [holdings, draws, packs])
+  }, [holdings, uses, draws, packs])
 }
 
 function useFirestoreAllRecords() {
   const queries = useMemo(() => allQueries(db), [])
   const holdings = useCollection(queries.holdings)
+  const uses = useCollection(queries.uses)
   const packs = useCollection(queries.packs)
-  return useMemo(() => combineSubscriptions({ holdings, packs }), [holdings, packs])
+  return useMemo(() => combineSubscriptions({ holdings, uses, packs }), [holdings, uses, packs])
 }
 
 const source: StatsSource = {

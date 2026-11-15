@@ -1,7 +1,7 @@
 import { type ReactNode, useContext, useMemo } from 'react'
 
 import { CardsContext, cardsContextValue } from '@/features/cards/cardsContext'
-import type { Card } from '@/features/cards/schema'
+import type { Definition } from '@/features/cards/schema'
 import { UsersContext } from '@/features/users/usersContext'
 import type { Subscription } from '@/lib/firestore/subscription'
 
@@ -10,10 +10,10 @@ import { ready } from './fixtures'
 export type TestCards = {
   /**
    * Every card the device reads, as the one subscription of `CardsProvider` delivers them: drafts and retired cards are
-   * left out of `useCards()` and kept in `useCardsById()` and `useDeckDefinitions()`. On a player's device the DM-only
-   * cards are left out of both lists. Defaults to a ready, empty list.
+   * left out of `useCards()` and kept in `useCardsById()` and `useDeckDefinitions()`. On a player's device the hidden
+   * cards (whose "Listede görünür" is off) are left out of both lists. Defaults to a ready, empty list.
    */
-  cards?: Subscription<Card[]>
+  cards?: Subscription<Definition[]>
 }
 
 export type TestCardsProviderProps = TestCards & { children: ReactNode }

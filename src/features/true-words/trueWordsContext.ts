@@ -11,6 +11,9 @@ import type {
   TakeBackWordInput,
   TeachWordInput,
 } from './api'
+import { showsActive } from '@/features/hands/handEntries'
+
+import { missingWord } from './display'
 import { isKnown, type LearnedWord, type TrueWord, type WordDraft } from './schema'
 
 /**
@@ -25,17 +28,21 @@ export type TrueWordActions = {
   teachWord: (input: TeachWordInput) => Promise<string>
   takeBackWord: (input: TakeBackWordInput) => Promise<void>
   setActive: (recordId: string, active: boolean) => Promise<void>
-  /** Records a use of a known word with its payment; returns the use's ID. */
-  recordWordUse: (input: RecordWordUseInput) => Promise<string>
+  /** Saves the note on a known word: the player or the DM (spec: true-words, "Notes and costs on known words"). */
+  setNote: (recordId: string, note: string) => Promise<void>
+  /** Sets the word's cost in this hand (the DM); a blank value restores the word's own cost. */
+  setCost: (recordId: string, cost: string) => Promise<void>
+  /** Records a use of a known word with its payment. */
+  recordWordUse: (input: RecordWordUseInput) => Promise<void>
 }
 
 export type TrueWordsContextValue = {
   /**
-   * Every word this device reads: for the DM all of them, drafts included; for a player the active and retired ones.
-   * Empty when signed out.
+   * Every word this device reads: for the DM all of them, drafts included; for a player the active and retired ones,
+   * hidden ones included. Empty when signed out.
    */
   words: Subscription<TrueWord[]>
-  /** Every record of a word someone knows now. */
+  /** Every word someone knows now: the open True Word holdings, as known words. */
   knownWords: Subscription<LearnedWord[]>
   /** Every open draft: at most one per player. */
   openDrafts: Subscription<WordDraft[]>
@@ -113,23 +120,15 @@ export type KnownWordEntry = { record: LearnedWord; word: TrueWord }
 
 /**
  * Pairs each known word's record with its definition. A word missing from the list (it should not be) is drawn
- * from the record's name, with an unknown cost.
+ * from the record's name, with an unknown cost. A word shows as active only while its "Elde etkili" is on (design D6 of
+ * unify-cards-and-true-words).
  */
 export function knownWordEntries(
   records: readonly LearnedWord[],
   wordsById: ReadonlyMap<string, TrueWord>,
 ): KnownWordEntry[] {
-  return records.map((record) => ({
-    record,
-    word: wordsById.get(record.wordId) ?? {
-      id: record.wordId,
-      name: record.wordName,
-      nameKey: record.wordId,
-      cost: '?',
-      text: '',
-      status: 'retired',
-      changeId: null,
-      picture: null,
-    },
-  }))
+  return records.map((record) => {
+    const word = wordsById.get(record.wordId) ?? missingWord(record.wordId, record.wordName)
+    return { record: { ...record, active: showsActive(record, word) }, word }
+  })
 }

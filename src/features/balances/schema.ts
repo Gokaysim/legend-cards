@@ -9,13 +9,13 @@ export type Currency = (typeof CURRENCIES)[number]
 
 /**
  * Where a balance change came from: the DM by hand, a player's payment for a draw, a pack's payment or refund, a
- * True Word draft's payment or refund, or the payment for using a card (`use`) or a True Word (`wordUse`). Keep in
- * step with `firestore.rules`.
+ * True Word draft's payment or refund, or the payment for a use that closes its holding (`use`) or for a use of a card
+ * or True Word kept on use (`keptUse`). Keep in step with `firestore.rules`.
  */
-export const LEDGER_SOURCES = ['manual', 'draw', 'pack', 'wordDraft', 'use', 'wordUse'] as const
+export const LEDGER_SOURCES = ['manual', 'draw', 'pack', 'wordDraft', 'use', 'keptUse'] as const
 
 /** The sources that are always paid in LP: every one but the DM's changes by hand and packs. */
-const LP_ONLY_SOURCES: readonly LedgerSource[] = ['draw', 'wordDraft', 'use', 'wordUse']
+const LP_ONLY_SOURCES: readonly LedgerSource[] = ['draw', 'wordDraft', 'use', 'keptUse']
 export type LedgerSource = (typeof LEDGER_SOURCES)[number]
 
 /** Limits of one change. Keep in step with `validLedgerEntry` in `firestore.rules`. */

@@ -14,12 +14,13 @@ export type CharacterPickerProps = {
 
 /**
  * The use step's "Hangi karakter üzerinde?" (design D5 of add-character-effects): "Karakter seçilmedi", the table's
- * active characters grouped by owner, and "Başka (yaz)…" with its text field. For a chosen character, "Aktif efekt
- * olarak ekle", checked by default. The card's and the True Word's use steps share it.
+ * active characters grouped by owner, and "Başka (yaz)…" with its text field. For a chosen character of a definition
+ * that leaves an effect when used, "Aktif efekt olarak ekle", checked by default. The card's and the True Word's use
+ * steps share it.
  */
 export function CharacterPicker({ choice, onInput }: CharacterPickerProps) {
   const ids = useId()
-  const { state, change, groups, isCharacterChosen } = choice
+  const { state, change, groups, isCharacterChosen, offersEffect } = choice
   return (
     <div className="flex flex-col gap-2">
       <label htmlFor={`${ids}-used-on`} className="text-sm font-medium text-ink">
@@ -61,7 +62,7 @@ export function CharacterPicker({ choice, onInput }: CharacterPickerProps) {
           />
         </>
       ) : null}
-      {isCharacterChosen ? (
+      {isCharacterChosen && offersEffect ? (
         <label className="flex items-start gap-2 text-sm text-ink">
           <input
             type="checkbox"

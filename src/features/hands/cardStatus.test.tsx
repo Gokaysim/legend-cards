@@ -2,7 +2,7 @@ import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
-import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
+import { ONLY_FROM_DM, testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 import { ready, testProfile } from '@/test/fixtures'
 import { testHolding } from '@/test/holdingFixtures'
 import { renderApp } from '@/test/renderApp'
@@ -62,13 +62,13 @@ describe('cardStatuses', () => {
   })
 
   it('keeps DM-only cards out of the pool, and names them "DM\'e özel"', () => {
-    const wish = testCard('The Last Wish', { dmOnly: true })
+    const wish = testCard('The Last Wish', { ...ONLY_FROM_DM })
     const heldWish = testCard('Held Wish', {
-      dmOnly: true,
+      ...ONLY_FROM_DM,
       holder: { uid: 'bora', userCardId: 'bora-wish' },
     })
-    const secretBlessing = testBlessedCard('Secret Blessing', { dmOnly: true })
-    const crown = testCursedCard('Crown of Ash', { dmOnly: true })
+    const secretBlessing = testBlessedCard('Secret Blessing', { ...ONLY_FROM_DM })
+    const crown = testCursedCard('Crown of Ash', { ...ONLY_FROM_DM })
     const statuses = cardStatuses(
       [wish, heldWish, secretBlessing, crown],
       [testHolding(heldWish, 'bora', 1000, { id: 'bora-wish' }), testHolding(crown, 'ayla', 2000)],
@@ -85,6 +85,32 @@ describe('cardStatuses', () => {
     expect(labelOf(wish)).toEqual({ label: "DM'e özel", marked: false })
     expect(labelOf(heldWish)).toEqual({ label: "DM'e özel · Elde: Bora", marked: true })
     expect(labelOf(crown)).toEqual({ label: "DM'e özel · Elde: Ayla", marked: true })
+  })
+
+  it('names a listed card without a channel "DM\'e özel", and keeps one in any channel in the pool', () => {
+    const listedOnly = testCard('Listed Only', {
+      isInDraws: false,
+      isInSetPacks: false,
+      isInMechanicPacks: false,
+    })
+    const mechanicOnly = testCard('Mechanic Only', { isInDraws: false, isInSetPacks: false })
+    const statuses = cardStatuses([listedOnly, mechanicOnly], [], profiles)
+
+    expect(statuses.get(listedOnly.id)).toEqual({ inPool: false, holderNames: [] })
+    expect(statusLabel(listedOnly, { inPool: false, holderNames: [] })).toBe("DM'e özel")
+    expect(statuses.get(mechanicOnly.id)).toEqual({ inPool: true, holderNames: [] })
+  })
+
+  it('keeps a repeatable normal card in the pool while several players hold it', () => {
+    const shared = testCard('Shared Luck', { isRepeatable: true })
+    const statuses = cardStatuses(
+      [shared],
+      [testHolding(shared, 'ayla', 1000), testHolding(shared, 'bora', 2000, { id: 'b' })],
+      profiles,
+    )
+    const status = statuses.get(shared.id)
+    expect(status).toEqual({ inPool: true, holderNames: ['Ayla', 'Bora'] })
+    expect(status && statusLabel(shared, status)).toBe('Havuzda · Elde: Ayla, Bora')
   })
 
   it('names the holder before its holding arrives, and a user without a profile generically', () => {

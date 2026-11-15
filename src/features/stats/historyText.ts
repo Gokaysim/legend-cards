@@ -1,3 +1,4 @@
+import { hasChannel } from '@/features/cards/pool'
 import type { SetName } from '@/features/cards/display'
 import type { Card } from '@/features/cards/schema'
 import type { PackOpening } from '@/features/draws/schema'
@@ -17,7 +18,7 @@ export type NameOf = (uid: string) => string
 export type HistoryNames = {
   nameOf: NameOf
   setName: SetName
-  card: Pick<Card, 'kind' | 'dmOnly'>
+  card: Pick<Card, 'kind' | 'isRepeatable' | 'isInDraws' | 'isInSetPacks' | 'isInMechanicPacks'>
 }
 
 /** The dot of a row: how the card reached a hand, left it, changed hands, or was only seen. */
@@ -45,11 +46,12 @@ function packName(pack: PackOpening, setName: SetName): string {
 }
 
 /**
- * Whether the card went back to the pool when its holding closed as used or discarded: a normal card that is not
- * DM-only. Blessed and Cursed cards never leave the pool or the deck, and a DM-only card is never in the pool.
+ * Whether the card went back to the pool when its holding closed as used or discarded: a normal or Blessed card with one
+ * copy and a channel. A repeatable card never leaves the pool, a Cursed card's deck is not the pool, and a card without
+ * a channel is never in it.
  */
 function returnsToPool(card: HistoryNames['card']): boolean {
-  return card.kind === 'normal' && !card.dmOnly
+  return card.kind !== 'cursed' && !card.isRepeatable && hasChannel(card)
 }
 
 /** "1 LP", or "ücretsiz" for 0. */
@@ -117,6 +119,17 @@ export function describeHistoryRow(row: HistoryRow, names: HistoryNames): Histor
           holding.useCost === null ? null : lp(holding.useCost),
           returnsToPool(card) ? 'kart havuza döndü' : null,
         ]),
+        tone: 'used',
+      }
+    }
+    case 'keptUsed': {
+      const { use } = row
+      return {
+        text:
+          use.by === use.uid
+            ? `${nameOf(use.uid)} kullandı`
+            : `${nameOf(use.by)}, ${genitive(nameOf(use.uid))} kartını kullandı`,
+        details: details([use.usedOn === null ? null : `${use.usedOn} üzerinde`, lp(use.cost)]),
         tone: 'used',
       }
     }

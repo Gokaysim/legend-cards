@@ -1,3 +1,4 @@
+import { hasChannel } from '@/features/cards/pool'
 import { useId, useState } from 'react'
 import { Link } from 'react-router'
 
@@ -116,8 +117,10 @@ export function HoldingDetails({ entry, holderName, onDone, layout }: HoldingDet
   )
 
   // The use step's character, the holder's group first (spec: card-holdings, "Choosing the character of a use").
-  const choice = useCharacterChoice(holding.uid, () =>
-    setFailure({ kind: 'character-unavailable' }),
+  const choice = useCharacterChoice(
+    holding.uid,
+    () => setFailure({ kind: 'character-unavailable' }),
+    card.hasUseEffect,
   )
 
   const receivers =
@@ -213,7 +216,7 @@ export function HoldingDetails({ entry, holderName, onDone, layout }: HoldingDet
     <div className="flex flex-col gap-2 rounded-xl border border-danger-line bg-pane-raised p-3">
       <p className="text-sm text-ink">
         Bu kart kullanılmadan elden atılsın mı?
-        {card.kind === 'normal' && !isExtraCopy ? ' Kart havuza döner.' : ''}
+        {!card.isRepeatable && !isExtraCopy && hasChannel(card) ? ' Kart havuza döner.' : ''}
       </p>
       <div className="flex flex-wrap gap-2">
         <Button
@@ -382,14 +385,19 @@ export function HoldingDetails({ entry, holderName, onDone, layout }: HoldingDet
                 </span>
               </div>
               {step === 'idle' ? (
-                <div className="grid grid-cols-3 gap-2">
-                  <Button
-                    onClick={toggleActive}
-                    className={cn(TOOL_BUTTON_CLASSES, holding.active && 'border-green/55')}
-                  >
-                    <PowerIcon className={cn('size-4.5', holding.active && 'text-green')} />
-                    {holding.active ? 'Aktifliği kaldır' : 'Aktif et'}
-                  </Button>
+                <div
+                  className={cn('grid gap-2', card.hasHeldEffect ? 'grid-cols-3' : 'grid-cols-2')}
+                >
+                  {/* Only a card with a held effect has the switch (spec: card-holdings, "Active cards"). */}
+                  {card.hasHeldEffect ? (
+                    <Button
+                      onClick={toggleActive}
+                      className={cn(TOOL_BUTTON_CLASSES, holding.active && 'border-green/55')}
+                    >
+                      <PowerIcon className={cn('size-4.5', holding.active && 'text-green')} />
+                      {holding.active ? 'Aktifliği kaldır' : 'Aktif et'}
+                    </Button>
+                  ) : null}
                   <Button
                     disabled={isTableBusy}
                     title={busyTitle}

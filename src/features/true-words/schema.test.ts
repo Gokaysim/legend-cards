@@ -1,18 +1,17 @@
 import { Timestamp } from 'firebase/firestore'
 import { describe, expect, it } from 'vitest'
 
+import { keptUseSchema } from '@/features/hands/schema'
+import { testHolding } from '@/test/holdingFixtures'
+import { testTrueWord } from '@/test/trueWordFixtures'
+
 import {
   draftPrice,
   EMPTY_PLAYER_WORDS,
   isKnown,
-  isWordComplete,
-  type LearnedWord,
-  learnedWordSchema,
-  missingWordFields,
+  learnedWordOf,
   playerWordsSchema,
-  trueWordSchema,
   wordDraftSchema,
-  wordUseSchema,
 } from './schema'
 
 const at = Timestamp.fromMillis(1000)
@@ -24,109 +23,66 @@ describe('draftPrice', () => {
   })
 })
 
-describe('trueWordSchema', () => {
-  const abyss = {
-    name: 'Abyss',
-    nameKey: 'abyss',
-    cost: '5',
-    text: 'Once per turn, a random card of yours is free to play.',
-    status: 'active',
-  }
+describe('learnedWordOf', () => {
+  const abyss = testTrueWord('Abyss')
 
-  it.each([
-    ['a word', abyss],
-    ['an X cost', { ...abyss, cost: 'X' }],
-    ['a retired word', { ...abyss, status: 'retired' }],
-    ['a draft without a cost or a text', { ...abyss, status: 'draft', cost: null, text: '' }],
-    ['a change record', { ...abyss, changeId: 'c1' }],
-    ['a picture', { ...abyss, picture: 'words/tw-abyss/abcdef0123.webp' }],
-    ['a removed picture', { ...abyss, picture: null }],
-  ])('accepts %s', (_case, word) => {
-    expect(trueWordSchema.safeParse(word).success).toBe(true)
+  it('reads a holding taught by the DM as a known word', () => {
+    const holding = testHolding(abyss, 'ayla', 1000, {
+      id: 'h1',
+      givenBy: 'dana',
+      note: 'Sonra',
+      costOverride: '3',
+    })
+    expect(learnedWordOf(holding)).toEqual({
+      id: 'h1',
+      wordId: 'tw-abyss',
+      wordName: 'Abyss',
+      uid: 'ayla',
+      learnedAt: holding.givenAt,
+      learnedBy: 'dana',
+      learnedVia: 'dm',
+      draftId: null,
+      active: false,
+      note: 'Sonra',
+      costOverride: '3',
+      removedAt: null,
+      removedBy: null,
+    })
   })
 
-  it.each([
-    ['an empty cost', { ...abyss, cost: '' }],
-    ['a cost over 10 characters', { ...abyss, cost: '12345678901' }],
-    ['an active word without a cost', { ...abyss, cost: null }],
-    ['an active word with an empty text', { ...abyss, text: '' }],
-    ['a retired word without a cost', { ...abyss, status: 'retired', cost: null }],
-    ['a missing status', { ...abyss, status: undefined }],
-    ['the old retired flag in place of a status', { ...abyss, status: undefined, retired: false }],
-    ['a picture that is not a stored path', { ...abyss, picture: 'twabyss.png' }],
-  ])('rejects %s', (_case, word) => {
-    expect(trueWordSchema.safeParse(word).success).toBe(false)
+  it('reads a holding from a draft as learned from it', () => {
+    const holding = testHolding(abyss, 'ayla', 1000, { givenVia: 'draft', drawId: 'd1' })
+    expect(learnedWordOf(holding)).toMatchObject({ learnedVia: 'draft', draftId: 'd1' })
   })
 
-  it('reads a word without a picture field as having no picture', () => {
-    expect(trueWordSchema.parse(abyss).picture).toBeNull()
-  })
-})
-
-describe('missingWordFields', () => {
-  it('needs a cost and a text', () => {
-    expect(missingWordFields({ cost: '1', text: 'Text.' })).toEqual([])
-    expect(isWordComplete({ cost: '1', text: 'Text.' })).toBe(true)
-    expect(missingWordFields({ cost: null, text: '' })).toEqual(['cost', 'text'])
-    expect(isWordComplete({ cost: null, text: 'Text.' })).toBe(false)
-  })
-})
-
-describe('learnedWordSchema', () => {
-  const fromDraft = {
-    wordId: 'tw-abyss',
-    wordName: 'Abyss',
-    uid: 'ayla',
-    learnedAt: at,
-    learnedBy: 'ayla',
-    learnedVia: 'draft',
-    draftId: 'd1',
-    active: false,
-    removedAt: null,
-    removedBy: null,
-  }
-  const taught = { ...fromDraft, learnedBy: 'dana', learnedVia: 'dm', draftId: null }
-
-  it.each([
-    ['a word learned from a draft', fromDraft],
-    ['a word the DM taught', taught],
-    ['a word taken back', { ...taught, removedAt: at, removedBy: 'dana' }],
-    ['a take-back whose server time is pending', { ...taught, removedBy: 'dana' }],
-    ['a learning whose server time is pending', { ...fromDraft, learnedAt: null }],
-  ])('accepts %s', (_case, record) => {
-    expect(learnedWordSchema.safeParse(record).success).toBe(true)
-  })
-
-  it.each([
-    ['a draft word without its draft', { ...fromDraft, draftId: null }],
-    ['a taught word that names a draft', { ...taught, draftId: 'd1' }],
-    ['a take-back time without who took it back', { ...taught, removedAt: at }],
-    ['an unknown way of learning', { ...taught, learnedVia: 'pack' }],
-  ])('rejects %s', (_case, record) => {
-    expect(learnedWordSchema.safeParse(record).success).toBe(false)
-  })
-
-  it('reads a record as known until the DM takes it back', () => {
-    const record = { ...learnedWordSchema.parse(taught), id: 'r1' } satisfies LearnedWord
-    expect(isKnown(record)).toBe(true)
-    expect(isKnown({ ...record, removedBy: 'dana' })).toBe(false)
+  it('reads a word as known until the DM takes it back', () => {
+    const known = learnedWordOf(testHolding(abyss, 'ayla', 1000))
+    expect(isKnown(known)).toBe(true)
+    const takenBack = learnedWordOf(
+      testHolding(abyss, 'ayla', 1000, {
+        returnedAt: at,
+        returnedBy: 'dana',
+        returnReason: 'discarded',
+      }),
+    )
+    expect(isKnown(takenBack)).toBe(false)
   })
 })
 
 describe('playerWordsSchema', () => {
-  it('accepts the known words with their records and an open draft', () => {
-    const state = { known: { 'tw-abyss': 'r1' }, openDraftId: 'd2', recordId: 'r1' }
+  it('accepts the known words with their holdings and an open draft', () => {
+    const state = { known: { 'tw-abyss': 'r1' }, openDraftId: 'd2', holdingId: 'r1' }
     expect(playerWordsSchema.safeParse(state).success).toBe(true)
   })
 
   it('reads a missing document as knowing nothing, with no open draft', () => {
-    expect(EMPTY_PLAYER_WORDS).toEqual({ known: {}, openDraftId: null, recordId: null })
+    expect(EMPTY_PLAYER_WORDS).toEqual({ known: {}, openDraftId: null, holdingId: null })
     expect(playerWordsSchema.safeParse(EMPTY_PLAYER_WORDS).success).toBe(true)
   })
 
-  it('rejects a known word without its record', () => {
+  it('rejects a known word without its holding', () => {
     expect(
-      playerWordsSchema.safeParse({ known: { 'tw-abyss': '' }, openDraftId: null, recordId: null })
+      playerWordsSchema.safeParse({ known: { 'tw-abyss': '' }, openDraftId: null, holdingId: null })
         .success,
     ).toBe(false)
   })
@@ -134,6 +90,7 @@ describe('playerWordsSchema', () => {
 
 describe('wordDraftSchema', () => {
   const open = {
+    kind: 'wordDraft',
     uid: 'ayla',
     by: 'ayla',
     at,
@@ -153,7 +110,7 @@ describe('wordDraftSchema', () => {
     status: 'learned',
     closedAt: at,
     closedBy: 'ayla',
-    learned: { wordId: 'tw-abyss', wordName: 'Abyss', recordId: 'r1' },
+    learned: { cardId: 'tw-abyss', cardName: 'Abyss', holdingId: 'r1' },
   }
   const skipped = { ...open, status: 'skipped', closedAt: at, closedBy: 'ayla' }
   const cancelled = {
@@ -194,22 +151,24 @@ describe('wordDraftSchema', () => {
     ['a skipped draft with a learned word', { ...skipped, learned: learned.learned }],
     [
       'a learned word that was not shown',
-      { ...learned, learned: { wordId: 'tw-chaos', wordName: 'Chaos', recordId: 'r1' } },
+      { ...learned, learned: { cardId: 'tw-chaos', cardName: 'Chaos', holdingId: 'r1' } },
     ],
     ['a cancelled paid draft without its refund', { ...cancelled, refundEntryId: null }],
     ['a skipped draft with a refund', { ...skipped, refundEntryId: 'e2' }],
     ['an ended draft without who ended it', { ...skipped, closedBy: null }],
+    ['a draft without its kind', { ...open, kind: undefined }],
   ])('rejects %s', (_case, draft) => {
     expect(wordDraftSchema.safeParse(draft).success).toBe(false)
   })
 })
 
-describe('wordUseSchema', () => {
+describe('keptUseSchema (a True Word use)', () => {
   const paid = {
     uid: 'ayla',
-    wordId: 'tw-abyss',
-    wordName: 'Abyss',
-    recordId: 'r1',
+    cardId: 'tw-abyss',
+    cardName: 'Abyss',
+    cardKind: 'trueWord',
+    holdingId: 'r1',
     by: 'ayla',
     at,
     cost: 5,
@@ -226,7 +185,7 @@ describe('wordUseSchema', () => {
     ],
     ['a use on a typed name', { ...paid, usedOn: 'Goblin şefi', usedOnCharacterId: null }],
   ])('accepts %s', (_case, use) => {
-    expect(wordUseSchema.safeParse(use).success).toBe(true)
+    expect(keptUseSchema.safeParse(use).success).toBe(true)
   })
 
   it.each([
@@ -234,16 +193,16 @@ describe('wordUseSchema', () => {
     ['a free use that names an entry', { ...paid, cost: 0 }],
     ['a negative cost', { ...paid, cost: -1 }],
     ['a fractional cost', { ...paid, cost: 1.5 }],
-    ['a use without its record', { ...paid, recordId: '' }],
+    ['a use without its holding', { ...paid, holdingId: '' }],
     ['a character without its name', { ...paid, usedOnCharacterId: 'ThorinAyla0123456789' }],
     ['an empty name', { ...paid, usedOn: '' }],
     ['a name over 100 characters', { ...paid, usedOn: 'x'.repeat(101) }],
   ])('rejects %s', (_case, use) => {
-    expect(wordUseSchema.safeParse(use).success).toBe(false)
+    expect(keptUseSchema.safeParse(use).success).toBe(false)
   })
 
-  it('reads a use from before characters as one without a character', () => {
-    const result = wordUseSchema.safeParse(paid)
+  it('reads a use without a character as one without a character', () => {
+    const result = keptUseSchema.safeParse(paid)
     expect(result.success && [result.data.usedOn, result.data.usedOnCharacterId]).toEqual([
       null,
       null,

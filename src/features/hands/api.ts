@@ -21,17 +21,33 @@ import { visibleText } from '@/features/cards/text'
 import { MAX_USE_AMOUNT, priceAllows, priceOfUse } from '@/features/cards/display'
 import { readUseTarget, setUseEffect } from '@/features/characters/api'
 import type { UseTarget } from '@/features/characters/useTarget'
-import type { Card } from '@/features/cards/schema'
+import { type Card, type Definition, isCard } from '@/features/cards/schema'
 import { explainDenial } from '@/features/table/api'
 import { profileRef, USERS_COLLECTION } from '@/features/users/api'
 import { firebaseCode } from '@/lib/firestore/errors'
 import { cleanText } from '@/lib/text'
 
 import { HoldingError } from './errors'
-import { HOLDING_LIMITS, type Holding, holdingConverter, type NewHolding } from './schema'
+import {
+  HOLDING_LIMITS,
+  type Holding,
+  holdingConverter,
+  type KeptUse,
+  keptUseConverter,
+  type NewHolding,
+  type NewKeptUse,
+} from './schema'
 
 /** Keep in step with `firestore.rules`. */
 export const HOLDINGS_COLLECTION = 'userCards'
+
+/** The uses of cards and True Words kept on use (design D5 of unify-cards-and-true-words). Keep in step with the rules. */
+export const USES_COLLECTION = 'uses'
+
+/** Every kept use, validated and with the document ID as `id`. */
+export function usesRef(db: Firestore): CollectionReference<KeptUse> {
+  return collection(db, USES_COLLECTION).withConverter(keptUseConverter)
+}
 
 /** Every holding, open or closed, validated and with the document ID as `id`. */
 export function holdingsRef(db: Firestore): CollectionReference<Holding> {
@@ -83,10 +99,23 @@ export function openHolding(
   }
 }
 
-async function readCard(transaction: Transaction, ref: DocumentReference<Card>): Promise<Card> {
-  const card = (await transaction.get(ref)).data()
-  if (!card) throw new HoldingError('card-missing')
-  return card
+async function readDefinition(
+  transaction: Transaction,
+  ref: DocumentReference<Definition>,
+): Promise<Definition> {
+  const definition = (await transaction.get(ref)).data()
+  if (!definition) throw new HoldingError('card-missing')
+  return definition
+}
+
+/** A card, not a True Word: a True Word is taught on its own tab, never given as a card. */
+async function readCard(
+  transaction: Transaction,
+  ref: DocumentReference<Definition>,
+): Promise<Card> {
+  const definition = await readDefinition(transaction, ref)
+  if (!isCard(definition)) throw new HoldingError('card-missing')
+  return definition
 }
 
 async function readOpenHolding(
@@ -100,9 +129,9 @@ async function readOpenHolding(
   return holding
 }
 
-/** True when a normal card's holder is this holding, so the holding's closing moves or releases the card. */
-function isHolderOf(card: Card, holdingId: string): boolean {
-  return card.kind === 'normal' && card.holder?.userCardId === holdingId
+/** True when a card's holder is this holding, so the holding's closing moves or releases the card. */
+function isHolderOf(card: Definition, holdingId: string): boolean {
+  return card.holder?.userCardId === holdingId
 }
 
 export type GiveCardInput = {
@@ -112,15 +141,16 @@ export type GiveCardInput = {
   /** The signed-in DM. */
   by: string
   /**
-   * Give a held normal card anyway, as an extra copy that leaves its holder alone. Without it, a held normal
-   * card fails with `HoldingError('taken')`.
+   * Give a held card with one copy anyway, as an extra copy that leaves its holder alone. Without it, such a card
+   * fails with `HoldingError('taken')`.
    */
   allowExtraCopy?: boolean
 }
 
 /**
- * Gives a card, in one transaction that re-reads the card. A normal card in the pool gets the new holding as its
- * holder; Blessed and Cursed cards never get one. Returns the new holding's ID.
+ * Gives a card, in one transaction that re-reads the card. A card with one copy in the pool gets the new holding as its
+ * holder; a repeatable card never gets one. The holding starts active when the card's "Elde etkili" is on. Returns the
+ * new holding's ID.
  *
  * When two devices give the same pool card at once, the loser's commit can reach the server after the winner's.
  * The rules then deny it (the card is no longer in the pool) before the transaction could retry, so a denied
@@ -132,9 +162,7 @@ export async function giveCard(db: Firestore, input: GiveCardInput): Promise<str
   } catch (error) {
     if (!input.allowExtraCopy && firebaseCode(error) === 'permission-denied') {
       const card = (await getDocFromServer(cardRef(db, input.cardId))).data()
-      if (card?.kind === 'normal' && card.holder !== null) {
-        throw new HoldingError('taken', { holderUid: card.holder.uid })
-      }
+      if (card?.holder) throw new HoldingError('taken', { holderUid: card.holder.uid })
     }
     throw await explainDenial(db, error)
   }
@@ -148,7 +176,7 @@ function giveCardOnce(
   const holding = writableHolding(db)
   return runTransaction(db, async (transaction) => {
     const current = await readCard(transaction, card)
-    const holder = current.kind === 'normal' ? current.holder : null
+    const { holder } = current
     if (holder !== null && !allowExtraCopy) {
       throw new HoldingError('taken', { holderUid: holder.uid })
     }
@@ -160,9 +188,10 @@ function giveCardOnce(
         cardKind: current.kind,
         uid,
         givenBy: by,
+        active: current.hasHeldEffect,
       }),
     )
-    if (current.kind === 'normal' && holder === null) {
+    if (!current.isRepeatable && holder === null) {
       transaction.update(card, { holder: { uid, userCardId: holding.id } })
     }
     return holding.id
@@ -197,8 +226,11 @@ export type CloseHoldingInput = {
 const MAX_USE_ATTEMPTS = 3
 
 /**
- * Uses or discards a held card, in one transaction that re-reads the holding and the card. A normal card whose
- * holder is this holding returns to the pool; an extra copy, a Blessed or a Cursed card leaves the card alone.
+ * Uses or discards a held card, in one transaction that re-reads the holding and the card. A card with one copy whose
+ * holder is this holding returns to the pool; an extra copy or a repeatable card leaves the card alone. A card or True
+ * Word kept on use ("Kullanınca elde kalır") is not closed by a use: the use is recorded at `uses/{useId}` instead, and
+ * the holding stays open (design D5 of unify-cards-and-true-words). An effect is added only when the definition's
+ * "Kullanınca efekt bırakır" is on.
  *
  * A use pays its amount from the holder's LP in the same transaction: the ledger entry, the holder's new LP, and
  * the holding's `useCost` and `useEntryId`, as the rules require (design D6 of `pay-lp-on-use`). When another
@@ -246,84 +278,107 @@ function closeHoldingOnce(db: Firestore, input: CloseHoldingInput, read: LpRead)
   const { holdingId, by, reason } = input
   const ref = holdingRef(db, holdingId)
   const entryDoc = doc(collection(db, LEDGER_COLLECTION))
+  const useDoc = doc(collection(db, USES_COLLECTION))
   return runTransaction(db, async (transaction) => {
     const holding = await readOpenHolding(transaction, ref)
     const card = cardRef(db, holding.cardId)
-    // A use reads the card of every kind, for its cost; a discard only a normal card, for its holder.
-    const current =
-      reason === 'used' || holding.cardKind === 'normal' ? await readCard(transaction, card) : null
+    const current = await readDefinition(transaction, card)
     const usedOn = reason === 'used' ? await readUseTarget(transaction, db, input.target) : null
-    const closing = {
-      returnedAt: serverTimestamp(),
-      returnedBy: by,
-      returnReason: reason,
-      usedOn: usedOn?.name ?? null,
-    }
-    if (reason === 'used' && current) {
-      const { amount } = input
-      if (!Number.isInteger(amount) || amount < 0 || amount > MAX_USE_AMOUNT) {
-        throw new HoldingError('invalid-amount')
-      }
-      const owner = (await transaction.get(profileRef(db, holding.uid))).data()
-      const isPlayer = owner?.role === 'player'
-      if (!isPlayer && amount > 0) throw new HoldingError('not-a-player')
-      if (isPlayer && by === holding.uid) {
-        const price = priceOfUse(holding.costOverride ?? current.cost)
-        if (!priceAllows(price, amount)) {
-          throw price.kind === 'fixed'
-            ? new HoldingError('price-changed', { price: price.amount })
-            : new HoldingError('invalid-amount')
-        }
-      }
-      let useEntryId: string | null = null
-      if (amount > 0 && owner) {
-        read.uid = holding.uid
-        read.lp = owner.lp
-        if (owner.lp < amount) {
-          throw new HoldingError('insufficient', { shortfall: { balance: owner.lp, amount } })
-        }
-        useEntryId = entryDoc.id
-        transaction.set(
-          entryDoc,
-          newLedgerEntry({
-            currency: 'lp',
-            account: holding.uid,
-            delta: -amount,
-            balanceAfter: owner.lp - amount,
-            source: 'use',
-            drawId: holdingId,
-            by,
-          }),
-        )
-        transaction.update(doc(db, USERS_COLLECTION, holding.uid), {
-          lp: owner.lp - amount,
-          lpEntryId: entryDoc.id,
-        })
-      }
+    if (reason !== 'used') {
       transaction.update(writableHolding(db, holdingId), {
-        ...closing,
+        returnedAt: serverTimestamp(),
+        returnedBy: by,
+        returnReason: reason,
+        usedOn: null,
+      })
+      if (isHolderOf(current, holdingId)) transaction.update(card, { holder: null })
+      return
+    }
+    const { amount } = input
+    if (!Number.isInteger(amount) || amount < 0 || amount > MAX_USE_AMOUNT) {
+      throw new HoldingError('invalid-amount')
+    }
+    const owner = (await transaction.get(profileRef(db, holding.uid))).data()
+    const isPlayer = owner?.role === 'player'
+    if (!isPlayer && amount > 0) throw new HoldingError('not-a-player')
+    if (isPlayer && by === holding.uid) {
+      const price = priceOfUse(holding.costOverride ?? current.cost)
+      if (!priceAllows(price, amount)) {
+        throw price.kind === 'fixed'
+          ? new HoldingError('price-changed', { price: price.amount })
+          : new HoldingError('invalid-amount')
+      }
+    }
+    const isKept = current.isKeptOnUse
+    // A kept use names its use record; a use that closes the holding names the holding.
+    const paidFor = isKept ? useDoc.id : holdingId
+    let entryId: string | null = null
+    if (amount > 0 && owner) {
+      read.uid = holding.uid
+      read.lp = owner.lp
+      if (owner.lp < amount) {
+        throw new HoldingError('insufficient', { shortfall: { balance: owner.lp, amount } })
+      }
+      entryId = entryDoc.id
+      transaction.set(
+        entryDoc,
+        newLedgerEntry({
+          currency: 'lp',
+          account: holding.uid,
+          delta: -amount,
+          balanceAfter: owner.lp - amount,
+          source: isKept ? 'keptUse' : 'use',
+          drawId: paidFor,
+          by,
+        }),
+      )
+      transaction.update(doc(db, USERS_COLLECTION, holding.uid), {
+        lp: owner.lp - amount,
+        lpEntryId: entryDoc.id,
+      })
+    }
+    if (isKept) {
+      const use: WithFieldValue<NewKeptUse> = {
+        uid: holding.uid,
+        cardId: holding.cardId,
+        cardName: current.name,
+        cardKind: current.kind,
+        holdingId,
+        by,
+        at: serverTimestamp(),
+        cost: amount,
+        entryId,
+        // Written only for a use on a character (design D4 of add-character-effects).
+        ...(usedOn === null ? {} : { usedOn: usedOn.name }),
+        ...(usedOn?.characterId ? { usedOnCharacterId: usedOn.characterId } : {}),
+      }
+      transaction.set(useDoc, use)
+    } else {
+      transaction.update(writableHolding(db, holdingId), {
+        returnedAt: serverTimestamp(),
+        returnedBy: by,
+        returnReason: 'used',
+        usedOn: usedOn?.name ?? null,
         useCost: amount,
-        useEntryId,
+        useEntryId: entryId,
         // Written only for a chosen character, so a typed name stores no field (design D7 of add-characters).
         ...(usedOn?.characterId ? { usedOnCharacterId: usedOn.characterId } : {}),
       })
-      if (input.addEffect === true) {
-        setUseEffect(transaction, db, {
-          target: usedOn,
-          source: 'card',
-          sourceId: holdingId,
-          content: {
-            name: current.name,
-            text: visibleText(current.text),
-            cursed: current.kind === 'cursed',
-          },
-          by,
-        })
-      }
-    } else {
-      transaction.update(writableHolding(db, holdingId), closing)
+      if (isHolderOf(current, holdingId)) transaction.update(card, { holder: null })
     }
-    if (current && isHolderOf(current, holdingId)) transaction.update(card, { holder: null })
+    if (input.addEffect === true && current.hasUseEffect) {
+      setUseEffect(transaction, db, {
+        target: usedOn,
+        source: current.kind === 'trueWord' ? 'word' : 'card',
+        sourceId: paidFor,
+        content: {
+          name: current.name,
+          text: visibleText(current.text),
+          cursed: current.kind === 'cursed',
+        },
+        by,
+      })
+    }
   })
 }
 
@@ -337,8 +392,8 @@ export type TransferHoldingInput = {
 
 /**
  * Moves a held card to another player's hand, in one transaction: the old holding closes as transferred, and a
- * new holding opens at the end of the receiver's hand with the same note, cost override and active state. A
- * normal card's holder moves with it when it pointed at the old holding. Returns the new holding's ID. Fails with
+ * new holding opens at the end of the receiver's hand with the same note, cost override and active state. The holder
+ * of a card with one copy moves with it when it pointed at the old holding. A True Word is never transferred. Returns the new holding's ID. Fails with
  * `TableBusyError` while a pack is open.
  */
 export async function transferHolding(db: Firestore, input: TransferHoldingInput): Promise<string> {
@@ -358,7 +413,7 @@ function transferHoldingOnce(
   return runTransaction(db, async (transaction) => {
     const holding = await readOpenHolding(transaction, ref)
     const card = cardRef(db, holding.cardId)
-    const current = holding.cardKind === 'normal' ? await readCard(transaction, card) : null
+    const current = await readCard(transaction, card)
     transaction.update(writableHolding(db, holdingId), {
       returnedAt: serverTimestamp(),
       returnedBy: by,
@@ -380,7 +435,7 @@ function transferHoldingOnce(
         costOverride: holding.costOverride,
       }),
     )
-    if (current && isHolderOf(current, holdingId)) {
+    if (isHolderOf(current, holdingId)) {
       transaction.update(card, { holder: { uid: toUid, userCardId: next.id } })
     }
     return next.id

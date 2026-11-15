@@ -48,11 +48,11 @@ const headers = () =>
 const rowNames = () => screen.getAllByRole('rowheader').map((cell) => cell.textContent)
 
 describe('CardTable', () => {
-  it('marks a DM-only row "🔒 DM" for the DM only', () => {
-    const wish = testCard('The Last Wish', { dmOnly: true })
+  it('marks a hidden card\'s row "🔒 DM" for the DM only', () => {
+    const wish = testCard('The Last Wish', { isInLibrary: false })
     const eyes = testCard("Aboleth's Eyes")
     const props = { deck: 'legend' as const, sort: DEFAULT_SORT, onSort: () => {} }
-    const view = renderWithSets(<CardTable {...props} cards={[eyes, wish]} marksDmOnly />)
+    const view = renderWithSets(<CardTable {...props} cards={[eyes, wish]} marksHidden />)
     expect(screen.getByRole('rowheader', { name: /The Last Wish/ })).toHaveTextContent('🔒 DM')
     expect(screen.getByRole('rowheader', { name: /Aboleth's Eyes/ })).not.toHaveTextContent('🔒')
     view.rerender(<CardTable {...props} cards={[eyes, wish]} />)

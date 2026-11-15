@@ -2,7 +2,7 @@ import type { ArtLookup } from '@/features/art/artContext'
 import { CURSED_BACK, NEUTRAL_BACK, type SpreadBack } from '@/features/art/spreadBack'
 import { formatAmount } from '@/features/balances/format'
 import { AS_WRITTEN, type SetName } from '@/features/cards/display'
-import { cursedPool, isDrawable } from '@/features/cards/pool'
+import { cursedPool, inMechanicPacks, inSetPacks } from '@/features/cards/pool'
 import type { Card } from '@/features/cards/schema'
 import { compareLabels } from '@/features/cards/sort'
 import { type PackType, SET_PACK_TYPES } from '@/features/draws/schema'
@@ -228,8 +228,10 @@ export function packDefOf(def: Pick<PackDef, 'type' | 'setCode' | 'mechanicPack'
 }
 
 /**
- * The cards a pack can show, from the pool. `slot` is the Premium Pack's guaranteed Rare. Blessed cards have no set
- * and no rarity: they are among a Mechanic Pack's cards, and the rare packs add every one of them (docs/domain.md).
+ * The cards a pack can show, from the pool and by the pack flags (spec: pack-shop, "Packs follow the pack flags"):
+ * a set's packs take the cards with "Set paketlerinde çıkar" on, and the Mechanic and Golden Packs those with
+ * "Mechanic paketlerinde çıkar" on. `slot` is the Premium Pack's guaranteed Rare. Blessed cards have no set and no
+ * rarity: they are among a Mechanic Pack's cards, and the rare packs add those with the pack's flag on.
  */
 export type PackPools = {
   /** The cards its 5 (or, for Premium, 4) cards come from. */
@@ -240,20 +242,29 @@ export type PackPools = {
   cursed: Card[] | null
 }
 
-/** The cards in the pool, without Blessed cards: the normal cards no one holds. */
-function poolNormals(cards: readonly Card[]): Card[] {
-  return cards.filter((card) => card.kind === 'normal' && isDrawable(card))
-}
-
 const isRare = (card: Card) => card.rarity === 'rare'
 const isCommon = (card: Card) => card.rarity === 'common'
 
-function poolBlessed(cards: readonly Card[]): Card[] {
-  return cards.filter((card) => card.kind === 'blessed' && isDrawable(card))
+/** The normal cards of a set that its packs can show: in the pool, with "Set paketlerinde çıkar" on. */
+function inSet(cards: readonly Card[], setCode: string | null): Card[] {
+  return cards.filter(
+    (card) => card.kind === 'normal' && card.setCode === setCode && inSetPacks(card),
+  )
 }
 
-function inSet(cards: readonly Card[], setCode: string | null): Card[] {
-  return poolNormals(cards).filter((card) => card.setCode === setCode)
+/** The Blessed cards a one-pack set's packs add to its Rares: those with "Set paketlerinde çıkar" on. */
+function setPackBlessed(cards: readonly Card[]): Card[] {
+  return cards.filter((card) => card.kind === 'blessed' && inSetPacks(card))
+}
+
+/** The normal Rares across all sets the Golden Packs can show: those with "Mechanic paketlerinde çıkar" on. */
+function goldenRares(cards: readonly Card[]): Card[] {
+  return cards.filter((card) => card.kind === 'normal' && isRare(card) && inMechanicPacks(card))
+}
+
+/** The Blessed cards the Golden Packs add to their Rares: those with "Mechanic paketlerinde çıkar" on. */
+function goldenBlessed(cards: readonly Card[]): Card[] {
+  return cards.filter((card) => card.kind === 'blessed' && inMechanicPacks(card))
 }
 
 /** The candidate cards of a pack, by its type (docs/domain.md, Packs). */
@@ -272,19 +283,20 @@ export function packPools(def: PackDef, cards: readonly Card[]): PackPools {
     case 'pandemoniumCursed': {
       const rares = inSet(cards, def.setCode).filter(isRare)
       const cursed = def.type === 'pandemoniumCursed' ? cursedDeck : null
-      return { cards: [...rares, ...poolBlessed(cards)], slot: null, cursed }
+      return { cards: [...rares, ...setPackBlessed(cards)], slot: null, cursed }
     }
     case 'mechanic':
       return {
-        cards: cards.filter((card) => card.mechanicPack === def.mechanicPack && isDrawable(card)),
+        cards: cards.filter(
+          (card) => card.mechanicPack === def.mechanicPack && inMechanicPacks(card),
+        ),
         slot: null,
         cursed: null,
       }
     case 'golden':
     case 'cursedGolden': {
-      const rares = poolNormals(cards).filter(isRare)
       const cursed = def.type === 'cursedGolden' ? cursedDeck : null
-      return { cards: [...rares, ...poolBlessed(cards)], slot: null, cursed }
+      return { cards: [...goldenRares(cards), ...goldenBlessed(cards)], slot: null, cursed }
     }
   }
 }
@@ -333,7 +345,7 @@ function countFor(
       return { count: packPools(def, cards).cards.length, what: `${def.mechanicPack ?? ''} kartı` }
     case 'golden':
     case 'cursedGolden':
-      return { count: poolNormals(cards).filter(isRare).length, what: 'Rare kart' }
+      return { count: goldenRares(cards).length, what: 'Rare kart' }
   }
 }
 

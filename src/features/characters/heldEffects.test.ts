@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
+import { handEntries } from '@/features/hands/handEntries'
+import { testCard } from '@/test/cardFixtures'
+import { testHolding } from '@/test/holdingFixtures'
+
 import { heldEffects } from './heldEffects'
 
 const card = (
@@ -49,5 +53,15 @@ describe('heldEffects', () => {
 
   it('gives nothing for a hand without active cards or words', () => {
     expect(heldEffects([card('h2', 'Night Owl', false)], [word('r2', 'Chaos', false)])).toEqual([])
+  })
+
+  it('leaves out an active holding whose card no longer acts while held', () => {
+    const owl = testCard('Night Owl', { hasHeldEffect: false })
+    const entries = handEntries(
+      [testHolding(owl, 'ayla', 1000, { active: true })],
+      new Map([[owl.id, owl]]),
+      'ayla',
+    )
+    expect(heldEffects(entries, [])).toEqual([])
   })
 })
