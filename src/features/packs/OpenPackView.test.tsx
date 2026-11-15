@@ -79,16 +79,28 @@ const aylasPack = (overrides: Partial<PackOpening> = {}) =>
   testPack(testUser.uid, { offered: CARDS.map((card) => card.id), ...overrides })
 
 const packDialog = () => within(screen.getByRole('dialog'))
+/** The chips above the pack's table, as read on screen. */
+const chips = () =>
+  within(screen.getByRole('list', { name: 'Pack' }))
+    .getAllByRole('listitem')
+    .map((chip) => chip.textContent)
 
 describe('everyone watches the open pack', () => {
   it("shows another player's pack on any screen, with its cards face down and no controls", () => {
     watch({ pack: testPack('ayla', { offered: CARDS.map((card) => card.id) }) })
 
     const dialog = packDialog()
-    expect(
-      screen.getByRole('dialog', { name: 'Ayla · Kesqerian Nights Standard Pack' }),
-    ).toBeInTheDocument()
-    expect(dialog.getByText('−2 LP')).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Ayla Pack açıyor' })).toBeInTheDocument()
+    expect(chips()).toEqual([
+      'Canlı',
+      'Kesqerian Nights Standard Pack',
+      "Ayla'nın eline",
+      '−2 LP',
+      'Masa bekliyor',
+    ])
+    // The pack stands on the table where a draw's deck stands, with its 5 cards on it.
+    expect(dialog.getByTestId('draw-table')).toContainElement(dialog.getByTestId('pack-source'))
+    expect(dialog.getByTestId('pack-source')).toHaveTextContent('5')
     expect(dialog.getAllByRole('img', { name: /: kapalı$/ })).toHaveLength(5)
     expect(dialog.queryByRole('button', { name: /çevir/ })).not.toBeInTheDocument()
     expect(dialog.getByText('Ayla seçim yapıyor…')).toBeInTheDocument()
@@ -111,7 +123,8 @@ describe('everyone watches the open pack', () => {
 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     const banner = screen.getByRole('status')
-    expect(banner).toHaveTextContent('Ayla bir Pack açıyor: Kesqerian Nights Standard Pack')
+    expect(banner).toHaveTextContent('Ayla Pack açıyor · Kesqerian Nights Standard Pack')
+    expect(within(banner).getByTestId('live-mark')).toBeInTheDocument()
     await user.click(within(banner).getByRole('button', { name: 'Göster' }))
     expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
@@ -395,6 +408,25 @@ describe('the DM cancels a pack', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('drops the live mark and "Masa bekliyor" once the pack has ended', () => {
+    const offered = CARDS.map((card) => card.id)
+    const { setPack } = watch({ pack: testPack('ayla', { offered }) })
+
+    setPack(
+      testPack('ayla', {
+        offered,
+        status: 'cancelled',
+        closedBy: testUser.uid,
+        refundEntryId: 'e2',
+      }),
+    )
+
+    expect(screen.getByRole('dialog', { name: 'Ayla Pack açtı' })).toBeInTheDocument()
+    expect(chips()).not.toContain('Canlı')
+    expect(chips()).not.toContain('Masa bekliyor')
+    expect(packDialog().queryByTestId('live-mark')).not.toBeInTheDocument()
+  })
+
   it('says that a cancelled pack was refunded', () => {
     const offered = CARDS.map((card) => card.id)
     const { setPack } = watch({ pack: testPack('ayla', { offered }) })
@@ -535,7 +567,7 @@ describe('the glows of an open pack', () => {
     within(screen.getByRole('dialog'))
       .getByRole('button', { name: `${name}: seç` })
       .closest('li')
-      ?.querySelector(':scope > div')
+      ?.querySelector(':scope > div > div')
 
   it('makes a selectable card glow gold under the pointer only once every card is face up', () => {
     watch({ viewer: asAyla, pack: aylasPack({ revealed: [0, 1, 2, 3] }) })

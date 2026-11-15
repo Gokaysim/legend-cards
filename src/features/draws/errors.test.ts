@@ -13,6 +13,7 @@ describe('toDrawFailure', () => {
     expect(toDrawFailure(new DrawError('retries-exhausted'))).toEqual({
       kind: 'retries-exhausted',
     })
+    expect(toDrawFailure(new DrawError('session-ended'))).toEqual({ kind: 'session-ended' })
   })
 
   it('maps a denial while a pack is open', () => {
@@ -37,6 +38,7 @@ describe('drawFailureMessage', () => {
       { kind: 'retries-exhausted' },
       'Kart çekilemedi: kartlar o sırada başka ellere geçti. Tekrar dene.',
     ],
+    [{ kind: 'session-ended' }, 'Bu çekiş bitirildi. Tekrar çekersen yeni bir çekiş başlar.'],
     [
       { kind: 'table-busy' },
       'Şu anda açık bir Pack var: seçim yapılana kadar kart ve bakiye işlemleri bekler.',

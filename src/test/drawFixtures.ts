@@ -1,7 +1,7 @@
 import { Timestamp } from 'firebase/firestore'
 
 import type { Card } from '@/features/cards/schema'
-import type { CardDraw } from '@/features/draws/schema'
+import type { CardDraw, DrawSession } from '@/features/draws/schema'
 
 /**
  * A draw of `card` into `uid`'s hand at `atMillis`, by `uid` itself: a paid random draw of a normal or Blessed
@@ -30,6 +30,7 @@ export function testDraw(
     paidWith: isCursed ? 'none' : 'lp',
     cost: isCursed ? 0 : 1,
     entryId: isCursed ? null : `entry-${suffix}`,
+    sessionId: null,
     ...overrides,
   }
 }
@@ -48,4 +49,30 @@ export function testDmDraw(
     entryId: null,
     ...overrides,
   })
+}
+
+/**
+ * An open draw session `session-<uid>-<startMillis>` with `cards` drawn into `uid`'s hand by `by` (default: `uid`), the
+ * last change at `startMillis` (spec: live-draws). A Cursed session when the first card is Cursed. Each draw's ID is
+ * `draw-<cardId>`, as `TestDrawsProvider` gives it.
+ */
+export function testSession(
+  uid: string,
+  cards: readonly Pick<Card, 'id' | 'kind'>[],
+  startMillis: number,
+  overrides: Partial<DrawSession> = {},
+): DrawSession {
+  return {
+    id: `session-${uid}-${startMillis}`,
+    kind: cards[0]?.kind === 'cursed' ? 'cursed' : 'random',
+    uid,
+    by: uid,
+    startedAt: Timestamp.fromMillis(startMillis),
+    lastAt: Timestamp.fromMillis(startMillis),
+    draws: cards.map((card) => ({ drawId: `draw-${card.id}`, cardId: card.id, backSet: null })),
+    turned: [],
+    endedAt: null,
+    endedBy: null,
+    ...overrides,
+  }
 }

@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/Button'
 import { Dialog } from '@/components/ui/Dialog'
@@ -31,16 +31,22 @@ import { compareLabels } from '@/features/cards/sort'
 import { useSetIndex } from '@/features/sets/setsContext'
 import type { UserProfile } from '@/features/users/schema'
 import { profileName, useIsDm } from '@/features/users/usersContext'
-import { cn } from '@/lib/cn'
 import { genitive } from '@/lib/turkish'
 import { useOnlineStatus } from '@/lib/useOnlineStatus'
 
 import type { DrawResult } from './api'
 import { DeckPile } from './DeckPile'
-import { useDrawActions } from './drawsContext'
-import { type DrawFailure, drawFailureMessage, toDrawFailure } from './errors'
+import { useDrawActions, useDrawSessions } from './drawsContext'
+import { DrawError, type DrawFailure, drawFailureMessage, toDrawFailure } from './errors'
 import { FaceDownCard } from './FaceDownCard'
 import { DRAW_LIMITS, DRAW_PRICE, type DrawKind } from './schema'
+import { isSessionCardUp, SESSION_TICK_MS, sessionState } from './sessions'
+import { DrawSpread } from './table/DrawSpread'
+import { DrawTable } from './table/DrawTable'
+import { LiveMark } from './table/LiveMark'
+import { TableChip, TableChips } from './table/TableChip'
+import { useShockOnTurn } from './useShockOnTurn'
+import { useNow } from '@/lib/useNow'
 
 const TITLES: Record<DrawKind, string> = {
   random: '🎲 Kart Çek',
@@ -51,18 +57,16 @@ const TITLES: Record<DrawKind, string> = {
 const PEEK_PAGE = 20
 
 /**
- * Each drawn card's slight turn in the fan, by its place. Only with motion: with reduced motion the cards lie
- * straight (spec: visual-effects, "The draw spread").
+ * A drawn card with the back of the deck it was drawn from (spec: card-draws, "The deck's back"), and its place in its
+ * draw session (spec: live-draws). A dialog's cards are in one session, unless it went stale or was ended meanwhile.
  */
-const FAN_TILTS = [
-  'motion-safe:-rotate-3',
-  'motion-safe:rotate-1',
-  'motion-safe:-rotate-1',
-  'motion-safe:rotate-3',
-]
+type Drawn = { result: DrawResult; back: SpreadBack; sessionId: string; index: number }
 
-/** A drawn card with the back of the deck it was drawn from (spec: card-draws, "The deck's back"). */
-type Drawn = { result: DrawResult; back: SpreadBack }
+/** The dialog's current session: its ID, and how many of its cards were drawn here. */
+type OwnSession = { id: string; count: number }
+
+const turnKey = ({ sessionId, index }: Pick<Drawn, 'sessionId' | 'index'>) =>
+  `${sessionId}:${index}`
 
 export type DrawDialogProps = {
   mode: DrawKind
@@ -79,6 +83,10 @@ export type DrawDialogProps = {
  * - A player's random draw costs 1 LP and has no filters.
  * - The DM's random draw is free, can be narrowed with the filter pills, and can look into the deck.
  * - A Cursed draw is free for both.
+ *
+ * Every other device watches the draws (spec: live-draws): the first draw starts the dialog's session, each card is
+ * turned for everyone through it, and closing the dialog ends it once any draw still running has settled. A session
+ * that went stale or was ended meanwhile is replaced by a new one at the next draw.
  */
 export function DrawDialog({ mode, owner, onClose }: DrawDialogProps) {
   const ids = useId()
@@ -100,6 +108,32 @@ export function DrawDialog({ mode, owner, onClose }: DrawDialogProps) {
   const [isBusy, setIsBusy] = useState(false)
   const [failure, setFailure] = useState<DrawFailure | null>(null)
   const [peekCount, setPeekCount] = useState(0)
+  const [turnedHere, setTurnedHere] = useState<ReadonlySet<string>>(new Set())
+  const sessions = useDrawSessions()
+  const now = useNow(SESSION_TICK_MS)
+  const ownSession = useRef<OwnSession | null>(null)
+  const inFlight = useRef<Promise<void> | null>(null)
+  const latest = useRef({ actions, uid, sessions })
+  useEffect(() => {
+    latest.current = { actions, uid, sessions }
+  })
+
+  // Closing the dialog ends its session, after a draw that is still running has settled (design D3 of live-draws).
+  useEffect(
+    () => () => {
+      const end = () => {
+        const session = ownSession.current
+        const { actions: current, uid: by, sessions: stored } = latest.current
+        if (session === null || session.count === 0 || by === null) return
+        const found = stored.find((entry) => entry.id === session.id)
+        if (found && sessionState(found, Date.now()) === 'ended') return
+        current.endDrawSession(session.id, by).catch(() => undefined)
+      }
+      if (inFlight.current) void inFlight.current.finally(end)
+      else end()
+    },
+    [],
+  )
 
   const pool = useMemo(() => {
     if (cards.status !== 'ready') return null
@@ -125,31 +159,86 @@ export function DrawDialog({ mode, owner, onClose }: DrawDialogProps) {
   const canDraw =
     uid !== null && !isBusy && !isShort && candidates !== null && candidates.length > 0
 
+  /** The session the next draw joins: a new one at first, and after the last one went stale. */
+  const sessionForDraw = (): OwnSession => {
+    const current = ownSession.current
+    const stored = current && sessions.find((entry) => entry.id === current.id)
+    if (current === null || (stored && sessionState(stored, Date.now()) === 'ended')) {
+      ownSession.current = { id: actions.newSessionId(), count: 0 }
+    }
+    return ownSession.current as OwnSession
+  }
+
+  const runDraw = async (by: string, drawFrom: NonNullable<typeof candidates>) => {
+    const back = deckBack
+    const input = {
+      kind: mode,
+      uid: owner.id,
+      by,
+      paid,
+      filters: hasFilters ? activeFilters(filters) : null,
+      candidates: drawFrom,
+    }
+    let session = sessionForDraw()
+    try {
+      let result: DrawResult
+      try {
+        result = await actions.drawCard({ ...input, sessionId: session.id })
+      } catch (error) {
+        // The DM or another tab ended the session meanwhile: draw once more, into a new one.
+        if (!(error instanceof DrawError && error.kind === 'session-ended')) throw error
+        session = { id: actions.newSessionId(), count: 0 }
+        ownSession.current = session
+        result = await actions.drawCard({ ...input, sessionId: session.id })
+      }
+      const index = session.count
+      session.count += 1
+      setDrawn((current) => [...current, { result, back, sessionId: session.id, index }])
+    } catch (error) {
+      setFailure(toDrawFailure(error))
+    }
+  }
+
   const draw = async () => {
-    if (!canDraw || uid === null) return
+    if (!canDraw || uid === null || candidates === null) return
     setFailure(null)
     if (!isOnline) {
       setFailure({ kind: 'offline' })
       return
     }
     setIsBusy(true)
-    const back = deckBack
-    try {
-      const result = await actions.drawCard({
-        kind: mode,
-        uid: owner.id,
-        by: uid,
-        paid,
-        filters: hasFilters ? activeFilters(filters) : null,
-        candidates,
-      })
-      setDrawn((current) => [...current, { result, back }])
-    } catch (error) {
-      setFailure(toDrawFailure(error))
-    } finally {
-      setIsBusy(false)
-    }
+    const running = runDraw(uid, candidates)
+    inFlight.current = running
+    await running
+    if (inFlight.current === running) inFlight.current = null
+    setIsBusy(false)
   }
+
+  /** Whether a drawn card is face up: turned here or on another device, or its session has ended. */
+  const isUp = (entry: Drawn) => {
+    if (turnedHere.has(turnKey(entry))) return true
+    const stored = sessions.find((session) => session.id === entry.sessionId)
+    return stored !== undefined && isSessionCardUp(stored, entry.index, sessionState(stored, now))
+  }
+
+  const turn = (entry: Drawn) => {
+    setTurnedHere((current) => new Set([...current, turnKey(entry)]))
+    actions.turnDrawCard(entry.sessionId, entry.index).catch(() => undefined)
+  }
+
+  // The shocked pair for a Blessed card turned here or on another device; not for the cards a session's end shows.
+  const turnedKeys = drawn
+    .filter((entry) => {
+      const stored = sessions.find((session) => session.id === entry.sessionId)
+      return turnedHere.has(turnKey(entry)) || (stored?.turned.includes(entry.index) ?? false)
+    })
+    .map(turnKey)
+  const isBlessedKey = useCallback(
+    (key: string) =>
+      drawn.some((entry) => turnKey(entry) === key && entry.result.card.kind === 'blessed'),
+    [drawn],
+  )
+  useShockOnTurn(turnedKeys, isBlessedKey, shock)
 
   const control =
     mode === 'cursed' ? '☠ Cursed Kart Çek' : paid ? `🎲 Çek · ${DRAW_PRICE} LP` : '🎲 Çek'
@@ -185,19 +274,23 @@ export function DrawDialog({ mode, owner, onClose }: DrawDialogProps) {
 
   return (
     <Dialog title={`${TITLES[mode]} · ${ownerName}`} onClose={onClose} className="sm:max-w-5xl">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink-muted">
+      <TableChips label="Çekiş">
+        <TableChip variant={mode === 'cursed' ? 'cursed' : 'plain'}>
+          {mode === 'cursed' ? '☠ Cursed' : '🎲 Rastgele'}
+        </TableChip>
+        <TableChip>{`${genitive(ownerName)} eline`}</TableChip>
         {paid ? (
           <>
-            <p className="inline-flex items-center rounded-full border border-gold px-3 py-1 text-gold">
+            <TableChip variant="gold">
               <span className="sr-only">Bakiye: </span>
-              <span className="font-semibold tabular-nums">{formatAmount(owner.lp)} LP</span>
-            </p>
-            <p>Her kart {DRAW_PRICE} LP</p>
+              <span className="tabular-nums">{formatAmount(owner.lp)} LP</span>
+            </TableChip>
+            <TableChip>Her kart {DRAW_PRICE} LP</TableChip>
           </>
         ) : (
-          <p>{mode === 'cursed' ? 'Ücretsiz' : 'DM çekilişi ücretsizdir.'}</p>
+          <TableChip>Ücretsiz</TableChip>
         )}
-      </div>
+      </TableChips>
 
       {hasFilters && pool !== null ? (
         <FilterBar
@@ -236,34 +329,36 @@ export function DrawDialog({ mode, owner, onClose }: DrawDialogProps) {
         </p>
       ) : null}
 
-      {/* The table: the deck and its control, and the drawn cards beside it from 640 px, under it below. */}
-      <div className="flex flex-col items-center gap-6 rounded-2xl border border-line bg-[radial-gradient(80%_120%_at_30%_50%,var(--color-pane-raised),var(--color-canvas)_75%)] p-4 sm:flex-row sm:items-start sm:p-6">
-        <div className="flex w-40 shrink-0 flex-col items-center gap-3 sm:w-44">
-          <DeckPile back={deckBack} count={candidates?.length ?? 0} />
-          <Button
-            variant="primary"
-            data-autofocus
-            disabled={!canDraw}
-            aria-busy={isBusy}
-            onClick={() => void draw()}
-            className="mt-1 h-12 w-full text-base"
-          >
-            {isBusy ? 'Çekiliyor…' : control}
-          </Button>
-          {hasFilters ? (
+      <DrawTable
+        tone={mode === 'cursed' ? 'cursed' : 'neutral'}
+        source={
+          <>
+            <DeckPile back={deckBack} count={candidates?.length ?? 0} />
             <Button
-              variant="ghost"
-              aria-expanded={peekCount > 0}
-              aria-controls={`${ids}-peek`}
-              onClick={() => setPeekCount((count) => (count > 0 ? 0 : PEEK_PAGE))}
-              className="py-1 text-ink-muted"
+              variant="primary"
+              data-autofocus
+              disabled={!canDraw}
+              aria-busy={isBusy}
+              onClick={() => void draw()}
+              className="mt-1 h-12 w-full text-base"
             >
-              Destede ne var?
+              {isBusy ? 'Çekiliyor…' : control}
             </Button>
-          ) : null}
-        </div>
-
-        <section aria-labelledby={`${ids}-drawn`} className="flex w-full min-w-0 flex-col gap-3">
+            {hasFilters ? (
+              <Button
+                variant="ghost"
+                aria-expanded={peekCount > 0}
+                aria-controls={`${ids}-peek`}
+                onClick={() => setPeekCount((count) => (count > 0 ? 0 : PEEK_PAGE))}
+                className="py-1 text-ink-muted"
+              >
+                Destede ne var?
+              </Button>
+            ) : null}
+          </>
+        }
+      >
+        <section aria-labelledby={`${ids}-drawn`} className="flex flex-col gap-3">
           <h3
             id={`${ids}-drawn`}
             className="text-xs font-bold tracking-widest text-ink-muted uppercase"
@@ -278,29 +373,27 @@ export function DrawDialog({ mode, owner, onClose }: DrawDialogProps) {
           {drawn.length === 0 ? (
             <p className="text-sm text-ink-muted">Çektiğin kartlar burada açılır.</p>
           ) : (
-            // The fan (spec: visual-effects, "The draw spread"): slightly turned, overlapping cards; the card under
-            // the pointer or the focus lifts and comes to the front. The right padding makes up for the overlap.
-            <ol className="flex flex-wrap justify-center gap-y-4 pt-3 pr-3 pb-1 sm:justify-start sm:pr-3.75">
-              {drawn.map(({ result, back }, index) => (
-                <li
-                  key={result.drawId}
-                  className={cn(
-                    'relative z-1 -mr-3 w-[clamp(202.5px,51vw,277.5px)] max-w-[calc(100vw-84px)] transition duration-200 focus-within:z-50 hover:z-50 motion-safe:focus-within:-translate-y-2.5 motion-safe:focus-within:scale-[1.035] motion-safe:hover:-translate-y-2.5 motion-safe:hover:scale-[1.035] sm:-mr-3.75 sm:w-[clamp(210px,24vw,300px)]',
-                    FAN_TILTS[index % FAN_TILTS.length],
-                  )}
-                >
-                  <FaceDownCard
-                    card={result.card}
-                    position={index + 1}
-                    back={back}
-                    onTurn={result.card.kind === 'blessed' ? shock : undefined}
-                  />
-                </li>
-              ))}
-            </ol>
+            <DrawSpread
+              items={drawn}
+              itemKey={({ result }) => result.drawId}
+              renderItem={(entry, index) => (
+                <FaceDownCard
+                  card={entry.result.card}
+                  position={index + 1}
+                  back={entry.back}
+                  isRevealed={isUp(entry)}
+                  onReveal={() => turn(entry)}
+                />
+              )}
+            />
           )}
         </section>
-      </div>
+      </DrawTable>
+
+      <p className="flex items-center gap-2 text-sm text-ink-muted">
+        <LiveMark />
+        Herkes bu çekişi canlı görür; çevirdiğin kartlar onlarda da döner.
+      </p>
 
       {hasFilters && peekCount > 0 ? (
         <section

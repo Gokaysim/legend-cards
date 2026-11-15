@@ -8,6 +8,7 @@ import {
   type RulesTestEnvironment,
 } from '@firebase/rules-unit-testing'
 import {
+  arrayUnion,
   collection,
   deleteDoc,
   doc,
@@ -2713,6 +2714,28 @@ describe('balances (users/{uid}.lp, party/main, ledger/{entryId})', () => {
   })
 })
 
+/** A new draw session with one card, as the application creates it together with its first draw. */
+function newSession(
+  by: string,
+  uid: string,
+  kind: 'random' | 'cursed',
+  drawId: string,
+  cardId: string,
+  backSet: string | null = null,
+) {
+  return {
+    kind,
+    uid,
+    by,
+    startedAt: serverTimestamp(),
+    lastAt: serverTimestamp(),
+    draws: [{ drawId, cardId, backSet }],
+    turned: [],
+    endedAt: null,
+    endedBy: null,
+  }
+}
+
 describe('draws (draws/{drawId} with its holding, card, ledger entry and LP)', () => {
   const { POOL, HELD, BLESSED, CURSED, RETIRED } = HOLDINGS_SEED
   const POOL_CARD = { cardId: POOL, cardName: "Aboleth's Eyes", cardKind: 'normal' }
@@ -2768,6 +2791,39 @@ describe('draws (draws/{drawId} with its holding, card, ledger entry and LP)', (
     balance?: Record<string, unknown> | null
     /** Whose LP pays. Default: the hand's owner. */
     payer?: string
+    /**
+     * The draw's session `s-new`: `new` creates it with this draw (default), `join` adds this draw to the seeded one
+     * (`seedSession`), and `null` writes no session.
+     */
+    session?: 'new' | 'join' | null
+    /** Overrides of the session's fields. */
+    sessionFields?: Record<string, unknown>
+    /** Overrides of this draw's entry in the session. */
+    sessionEntry?: Record<string, unknown>
+  }
+
+  /** The cards of the session that `seedSession` stores: two earlier draws by Ayla. */
+  const SEEDED_DRAWS = [
+    { drawId: 'd-old', cardId: OTHER_CARD.cardId, backSet: null },
+    { drawId: 'd-old2', cardId: BLESSED, backSet: null },
+  ]
+
+  /** Stores Ayla's open session `s-new` with two cards, bypassing the rules. */
+  async function seedSession(overrides: Record<string, unknown> = {}) {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(firestoreOf(admin), 'drawSessions/s-new'), {
+        kind: 'random',
+        uid: 'ayla',
+        by: 'ayla',
+        startedAt: Timestamp.fromMillis(1000),
+        lastAt: Timestamp.fromMillis(2000),
+        draws: SEEDED_DRAWS,
+        turned: [],
+        endedAt: null,
+        endedBy: null,
+        ...overrides,
+      })
+    })
   }
 
   /** Ayla's payment of 1 LP (3 -> 2) for the draw `d-new`, as `writer` writes it. */
@@ -2799,7 +2855,7 @@ describe('draws (draws/{drawId} with its holding, card, ledger entry and LP)', (
     const paid = spec.paid ?? (kind === 'random' && writer !== 'dana')
     const payer = spec.payer ?? uid
     const batch = writeBatch(db)
-    batch.set(doc(db, 'draws/d-new'), {
+    const drawFields: Record<string, unknown> = {
       kind,
       uid,
       by: writer,
@@ -2810,8 +2866,31 @@ describe('draws (draws/{drawId} with its holding, card, ledger entry and LP)', (
       paidWith: paid ? 'lp' : 'none',
       cost: paid ? 1 : 0,
       entryId: paid ? 'e-new' : null,
+      sessionId: 's-new',
       ...spec.draw,
-    })
+    }
+    batch.set(doc(db, 'draws/d-new'), drawFields)
+    const filters = drawFields.filters as { setCode?: string | null } | null
+    const entry = {
+      drawId: 'd-new',
+      cardId: card.cardId,
+      backSet: filters?.setCode ?? null,
+      ...spec.sessionEntry,
+    }
+    const session = spec.session === undefined ? 'new' : spec.session
+    if (session === 'new') {
+      batch.set(doc(db, 'drawSessions/s-new'), {
+        ...newSession(writer, uid, kind, 'd-new', card.cardId),
+        draws: [entry],
+        ...spec.sessionFields,
+      })
+    } else if (session === 'join') {
+      batch.update(doc(db, 'drawSessions/s-new'), {
+        draws: [...SEEDED_DRAWS, entry],
+        lastAt: serverTimestamp(),
+        ...spec.sessionFields,
+      })
+    }
     if (spec.holding !== null) {
       batch.set(
         doc(db, 'userCards/h-new'),
@@ -3069,7 +3148,12 @@ describe('draws (draws/{drawId} with its holding, card, ledger entry and LP)', (
         paidWith: 'none',
         cost: 0,
         entryId: null,
+        sessionId: 's-new',
       })
+      twoHoldings.set(
+        doc(db, 'drawSessions/s-new'),
+        newSession('dana', 'ayla', 'random', 'd-new', BLESSED),
+      )
       for (const id of ['h-new', 'h-two']) {
         twoHoldings.set(
           doc(db, `userCards/${id}`),
@@ -3091,8 +3175,13 @@ describe('draws (draws/{drawId} with its holding, card, ledger entry and LP)', (
           paidWith: 'none',
           cost: 0,
           entryId: null,
+          sessionId: 's-new',
         })
       }
+      twoDraws.set(
+        doc(db, 'drawSessions/s-new'),
+        newSession('dana', 'ayla', 'random', 'd-two', BLESSED),
+      )
       twoDraws.set(
         doc(db, 'userCards/h-new'),
         newHolding({ ...BLESSED_CARD, givenVia: 'draw', drawId: 'd-two' }),
@@ -3118,12 +3207,17 @@ describe('draws (draws/{drawId} with its holding, card, ledger entry and LP)', (
           paidWith: 'lp',
           cost: 1,
           entryId: 'e-new',
+          sessionId: 's-new',
         })
         twoDraws.set(
           doc(db, `userCards/${holdingId}`),
           newHolding({ ...BLESSED_CARD, givenBy: 'ayla', givenVia: 'draw', drawId }),
         )
       }
+      twoDraws.set(
+        doc(db, 'drawSessions/s-new'),
+        newSession('ayla', 'ayla', 'random', 'd-two', BLESSED),
+      )
       twoDraws.set(doc(db, 'ledger/e-new'), drawEntry('ayla', { drawId: 'd-two' }))
       twoDraws.update(doc(db, 'users/ayla'), { lp: 2, lpEntryId: 'e-new' })
       await assertFails(twoDraws.commit())
@@ -3142,7 +3236,12 @@ describe('draws (draws/{drawId} with its holding, card, ledger entry and LP)', (
         paidWith: 'none',
         cost: 0,
         entryId: null,
+        sessionId: 's-new',
       })
+      paidCursed.set(
+        doc(db, 'drawSessions/s-new'),
+        newSession('ayla', 'ayla', 'cursed', 'd-new', CURSED),
+      )
       paidCursed.set(
         doc(db, 'userCards/h-new'),
         newHolding({ ...CURSED_CARD, givenBy: 'ayla', givenVia: 'draw', drawId: 'd-new' }),
@@ -3233,6 +3332,219 @@ describe('draws (draws/{drawId} with its holding, card, ledger entry and LP)', (
       await assertFails(updateDoc(doc(asUser('ayla'), 'draws/d-new'), { cardName: 'Changed' }))
       await assertFails(deleteDoc(doc(asUser('dana'), 'draws/d-new')))
       await assertFails(deleteDoc(doc(asUser('ayla'), 'draws/d-new')))
+    })
+  })
+
+  describe('draw sessions (drawSessions/{sessionId})', () => {
+    const sessionDoc = (uid: string) => doc(asUser(uid), 'drawSessions/s-new')
+    const turn = (uid: string, index: number) =>
+      updateDoc(sessionDoc(uid), { turned: arrayUnion(index), lastAt: serverTimestamp() })
+    const end = (uid: string, overrides: Record<string, unknown> = {}) =>
+      updateDoc(sessionDoc(uid), {
+        endedAt: serverTimestamp(),
+        endedBy: uid,
+        lastAt: serverTimestamp(),
+        ...overrides,
+      })
+
+    describe('allowed', () => {
+      it("creates a session with a player's paid draw", async () => {
+        await assertSucceeds(draw('ayla'))
+        expect(await readAsAdmin('draws/d-new')).toMatchObject({ sessionId: 's-new' })
+        expect(await readAsAdmin('drawSessions/s-new')).toMatchObject({
+          kind: 'random',
+          uid: 'ayla',
+          by: 'ayla',
+          draws: [{ drawId: 'd-new', cardId: POOL, backSet: null }],
+          turned: [],
+          endedBy: null,
+        })
+      })
+
+      it("creates a session with the DM's filtered draw, keeping the set's back", async () => {
+        await assertSucceeds(draw('dana', { uid: 'ayla', draw: { filters: FILTERS } }))
+        expect(await readAsAdmin('drawSessions/s-new')).toMatchObject({
+          by: 'dana',
+          uid: 'ayla',
+          draws: [{ drawId: 'd-new', backSet: 'Kesqer' }],
+        })
+      })
+
+      it("creates a Cursed session with the DM's Cursed draw", async () => {
+        await assertSucceeds(draw('dana', { uid: 'bora', card: CURSED_CARD }))
+        expect(await readAsAdmin('drawSessions/s-new')).toMatchObject({ kind: 'cursed' })
+      })
+
+      it("joins a player's draw to their open session", async () => {
+        await seedSession()
+        await assertSucceeds(draw('ayla', { session: 'join' }))
+        expect(await readAsAdmin('drawSessions/s-new')).toMatchObject({
+          draws: [...SEEDED_DRAWS, { drawId: 'd-new', cardId: POOL, backSet: null }],
+        })
+      })
+
+      it("joins the DM's draw to the DM's session for a player", async () => {
+        await seedSession({ by: 'dana' })
+        await assertSucceeds(draw('dana', { uid: 'ayla', session: 'join' }))
+      })
+
+      it("lets the hand's owner and the DM turn cards, also while a pack is open", async () => {
+        await seedSession({ by: 'dana' })
+        await assertSucceeds(turn('ayla', 1))
+        await testEnv.withSecurityRulesDisabled(async (admin) => {
+          await setDoc(doc(firestoreOf(admin), 'table/main'), { openPackId: 'p-open' })
+        })
+        await assertSucceeds(turn('dana', 0))
+        expect(await readAsAdmin('drawSessions/s-new')).toMatchObject({ turned: [1, 0] })
+      })
+
+      it("lets the hand's owner end a session, also while a pack is open", async () => {
+        await seedSession()
+        await testEnv.withSecurityRulesDisabled(async (admin) => {
+          await setDoc(doc(firestoreOf(admin), 'table/main'), { openPackId: 'p-open' })
+        })
+        await assertSucceeds(end('ayla'))
+        expect(await readAsAdmin('drawSessions/s-new')).toMatchObject({ endedBy: 'ayla' })
+      })
+
+      it("lets the DM end a player's session", async () => {
+        await seedSession()
+        await assertSucceeds(end('dana'))
+      })
+
+      it('lets every signed-in user read the recent sessions', async () => {
+        await seedSession()
+        await assertSucceeds(getDoc(sessionDoc('bora')))
+        await assertSucceeds(getDocs(collection(asUser('bora'), 'drawSessions')))
+      })
+    })
+
+    describe('denied', () => {
+      it('denies signed-out reads', async () => {
+        await seedSession()
+        const db = firestoreOf(testEnv.unauthenticatedContext())
+        await assertFails(getDoc(doc(db, 'drawSessions/s-new')))
+        await assertFails(getDocs(collection(db, 'drawSessions')))
+      })
+
+      it('denies a draw without its session, or whose session does not take it', async () => {
+        await assertFails(draw('ayla', { session: null }))
+        await assertFails(draw('ayla', { session: null, draw: { sessionId: null } }))
+        await seedSession()
+        await assertFails(draw('ayla', { session: null }))
+        expect(await readAsAdmin('draws/d-new')).toBeUndefined()
+      })
+
+      it('denies a session without its draw', async () => {
+        await assertFails(
+          setDoc(sessionDoc('ayla'), newSession('ayla', 'ayla', 'random', 'd-none', POOL)),
+        )
+        await assertFails(
+          setDoc(sessionDoc('dana'), newSession('dana', 'ayla', 'random', 'd-none', POOL)),
+        )
+      })
+
+      it("denies another drawer's draw into a session", async () => {
+        await seedSession()
+        await assertFails(draw('dana', { uid: 'ayla', session: 'join' }))
+        await seedSession({ by: 'dana' })
+        await assertFails(draw('ayla', { session: 'join' }))
+      })
+
+      it('denies a draw into an ended session', async () => {
+        await seedSession({ endedAt: Timestamp.fromMillis(3000), endedBy: 'ayla' })
+        await assertFails(draw('ayla', { session: 'join' }))
+      })
+
+      it('denies a session of another kind, hand or drawer than its draw', async () => {
+        await assertFails(draw('ayla', { sessionFields: { kind: 'cursed' } }))
+        await assertFails(draw('dana', { uid: 'ayla', sessionFields: { uid: 'bora' } }))
+        await assertFails(draw('dana', { uid: 'ayla', sessionFields: { by: 'ayla' } }))
+      })
+
+      it('denies a session entry with another card or a back its filters do not give', async () => {
+        await assertFails(draw('ayla', { sessionEntry: { cardId: OTHER_CARD.cardId } }))
+        await assertFails(
+          draw('dana', {
+            uid: 'ayla',
+            draw: { filters: FILTERS },
+            sessionEntry: { backSet: null },
+          }),
+        )
+        await assertFails(draw('dana', { uid: 'ayla', sessionEntry: { backSet: 'Kesqer' } }))
+        await assertFails(
+          draw('dana', { uid: 'bora', card: CURSED_CARD, sessionEntry: { backSet: 'Kesqer' } }),
+        )
+      })
+
+      it('denies a new session that is ended, turned, or timed other than now', async () => {
+        await assertFails(draw('ayla', { sessionFields: { turned: [0] } }))
+        await assertFails(
+          draw('ayla', { sessionFields: { endedAt: serverTimestamp(), endedBy: 'ayla' } }),
+        )
+        await assertFails(draw('ayla', { sessionFields: { startedAt: Timestamp.fromMillis(5) } }))
+        await assertFails(draw('ayla', { sessionFields: { extra: true } }))
+      })
+
+      it('denies changing earlier cards, or adding two at once', async () => {
+        await seedSession()
+        const changed = [{ ...SEEDED_DRAWS[0], cardId: POOL }, SEEDED_DRAWS[1]]
+        await assertFails(
+          draw('ayla', {
+            session: 'join',
+            sessionFields: {
+              draws: [...changed, { drawId: 'd-new', cardId: POOL, backSet: null }],
+            },
+          }),
+        )
+        await assertFails(
+          draw('ayla', {
+            session: 'join',
+            sessionFields: {
+              draws: [
+                ...SEEDED_DRAWS,
+                { drawId: 'd-extra', cardId: POOL, backSet: null },
+                { drawId: 'd-new', cardId: POOL, backSet: null },
+              ],
+            },
+          }),
+        )
+      })
+
+      it('denies turns by another player, of a missing card, twice, or after the end', async () => {
+        await seedSession({ turned: [0] })
+        await assertFails(turn('bora', 1))
+        await assertFails(turn('ayla', 2))
+        await assertFails(
+          updateDoc(sessionDoc('ayla'), { turned: [0, 0], lastAt: serverTimestamp() }),
+        )
+        await assertFails(updateDoc(sessionDoc('ayla'), { turned: [0, 1] }))
+        await assertFails(
+          updateDoc(sessionDoc('ayla'), { turned: [0, 1], lastAt: Timestamp.fromMillis(5) }),
+        )
+        await assertFails(
+          updateDoc(sessionDoc('ayla'), { turned: [1, 0], lastAt: serverTimestamp() }),
+        )
+        await seedSession({ endedAt: Timestamp.fromMillis(3000), endedBy: 'ayla' })
+        await assertFails(turn('ayla', 1))
+        await assertFails(turn('dana', 1))
+      })
+
+      it('denies ends by another player, for someone else, twice, or with other changes', async () => {
+        await seedSession()
+        await assertFails(end('bora'))
+        await assertFails(end('ayla', { endedBy: 'dana' }))
+        await assertFails(end('ayla', { endedAt: Timestamp.fromMillis(5) }))
+        await assertFails(end('ayla', { turned: [0] }))
+        await assertSucceeds(end('ayla'))
+        await assertFails(end('dana'))
+      })
+
+      it('denies deleting a session, even by the DM', async () => {
+        await seedSession()
+        await assertFails(deleteDoc(sessionDoc('dana')))
+        await assertFails(deleteDoc(sessionDoc('ayla')))
+      })
     })
   })
 })
@@ -3587,7 +3899,12 @@ describe('packs (draws/{drawId} with kind pack, table/main, and their holdings a
           paidWith: 'lp',
           cost: 1,
           entryId: 'e-drawn',
+          sessionId: 's-wait',
         })
+        batch.set(
+          doc(db, 'drawSessions/s-wait'),
+          newSession('ayla', 'ayla', 'random', 'd-wait', POOL_CHOICE.cardId),
+        )
         batch.set(
           doc(db, 'userCards/h-drawn'),
           newHolding({ ...POOL_CHOICE, givenBy: 'ayla', givenVia: 'draw', drawId: 'd-wait' }),
@@ -3618,7 +3935,12 @@ describe('packs (draws/{drawId} with kind pack, table/main, and their holdings a
           paidWith: 'none',
           cost: 0,
           entryId: null,
+          sessionId: 's-wait',
         })
+        batch.set(
+          doc(db, 'drawSessions/s-wait'),
+          newSession('dana', 'ayla', 'cursed', 'd-wait', CURSED_CARD.cardId),
+        )
         batch.set(
           doc(db, 'userCards/h-drawn'),
           newHolding({ ...CURSED_CARD, cardKind: 'cursed', givenVia: 'draw', drawId: 'd-wait' }),

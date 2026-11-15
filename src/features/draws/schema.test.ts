@@ -1,7 +1,14 @@
 import { Timestamp } from 'firebase/firestore'
 import { describe, expect, it } from 'vitest'
 
-import { DRAW_LIMITS, drawSchema, isCardDraw, isPackOpening } from './schema'
+import {
+  DRAW_LIMITS,
+  DRAW_SESSION_MAX,
+  drawSchema,
+  drawSessionSchema,
+  isCardDraw,
+  isPackOpening,
+} from './schema'
 
 const paid = {
   kind: 'random',
@@ -86,6 +93,15 @@ describe('drawSchema', () => {
     ['a missing holding', { ...paid, holdingId: undefined }],
   ])('rejects %s', (_case, draw) => {
     expect(accepts(draw)).toBe(false)
+  })
+
+  it('reads a record without a session as having none', () => {
+    expect(drawSchema.parse(paid)).toMatchObject({ sessionId: null })
+    expect(drawSchema.parse({ ...paid, sessionId: 's1' })).toMatchObject({ sessionId: 's1' })
+  })
+
+  it('rejects an empty session id', () => {
+    expect(accepts({ ...paid, sessionId: '' })).toBe(false)
   })
 
   it('reads a missing set code as no set', () => {
@@ -239,5 +255,65 @@ describe('drawSchema: pack openings', () => {
     expect(isPackOpening({ ...pack, id: 'p1' })).toBe(true)
     expect(isCardDraw({ ...draw, id: 'd1' })).toBe(true)
     expect(isCardDraw({ ...pack, id: 'p1' })).toBe(false)
+  })
+})
+
+const sessionDraw = (index: number, backSet: string | null = null) => ({
+  drawId: `d${index}`,
+  cardId: `legend-${index}`,
+  backSet,
+})
+
+const openSession = {
+  kind: 'random',
+  uid: 'ayla',
+  by: 'ayla',
+  startedAt: Timestamp.fromMillis(1000),
+  lastAt: Timestamp.fromMillis(2000),
+  draws: [sessionDraw(0), sessionDraw(1), sessionDraw(2)],
+  turned: [1],
+  endedAt: null,
+  endedBy: null,
+}
+
+const endedSession = { ...openSession, endedAt: Timestamp.fromMillis(3000), endedBy: 'ayla' }
+
+const acceptsSession = (session: object) => drawSessionSchema.safeParse(session).success
+
+describe('drawSessionSchema', () => {
+  it.each([
+    ['an open session', openSession],
+    ['an ended session', endedSession],
+    [
+      "the DM's session with a set back",
+      { ...openSession, by: 'dana', draws: [sessionDraw(0, 'Kesqer')], turned: [] },
+    ],
+    ['a Cursed session', { ...openSession, kind: 'cursed' }],
+    ['pending server times', { ...openSession, startedAt: null, lastAt: null }],
+    ['an end whose time is still pending', { ...endedSession, endedAt: null }],
+  ])('accepts %s', (_case, session) => {
+    expect(acceptsSession(session)).toBe(true)
+  })
+
+  it.each([
+    ['no draws', { ...openSession, draws: [] }],
+    ['a turned index outside the draws', { ...openSession, turned: [3] }],
+    ['a card turned twice', { ...openSession, turned: [1, 1] }],
+    ['a negative index', { ...openSession, turned: [-1] }],
+    ['an end without who ended it', { ...endedSession, endedBy: null }],
+    [
+      'a Cursed session with a set back',
+      { ...openSession, kind: 'cursed', draws: [sessionDraw(0, 'Kesqer')], turned: [] },
+    ],
+    ['an unknown kind', { ...openSession, kind: 'pack' }],
+    [
+      'more draws than a session keeps',
+      {
+        ...openSession,
+        draws: Array.from({ length: DRAW_SESSION_MAX + 1 }, (_, i) => sessionDraw(i)),
+      },
+    ],
+  ])('rejects %s', (_case, session) => {
+    expect(acceptsSession(session)).toBe(false)
   })
 })

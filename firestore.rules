@@ -42,6 +42,10 @@ service cloud.firestore {
       return /databases/$(database)/documents/draws/$(drawId);
     }
 
+    function drawSessionPath(sessionId) {
+      return /databases/$(database)/documents/drawSessions/$(sessionId);
+    }
+
     function tablePath() {
       return /databases/$(database)/documents/table/main;
     }
@@ -1074,6 +1078,7 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if (validDraw()
           && opensItsHolding()
+          && joinsSession()
           && tableFree()
           && (paidByPlayer() || cursedForSelf() || (isFree() && isDm())))
         || (validPackOpening() && takesTable() && (packPaidByPlayer() || packByDm()))
@@ -1121,7 +1126,7 @@ service cloud.firestore {
       function validDraw() {
         let data = request.resource.data;
         let fields = ['kind', 'uid', 'by', 'at', 'cardId', 'cardName', 'cardKind', 'holdingId', 'filters',
-          'paidWith', 'cost', 'entryId'];
+          'paidWith', 'cost', 'entryId', 'sessionId'];
         return isSignedIn()
           && data.keys().hasOnly(fields)
           && data.keys().hasAll(fields)
@@ -1131,6 +1136,7 @@ service cloud.firestore {
           && data.cardId is string
           && data.cardName is string
           && data.holdingId is string
+          && data.sessionId is string
           && ((data.kind == 'random' && data.cardKind in ['normal', 'blessed'])
             || (data.kind == 'cursed' && data.cardKind == 'cursed' && data.filters == null))
           && validFilters(data.filters);
@@ -1141,6 +1147,25 @@ service cloud.firestore {
       function opensItsHolding() {
         let holding = holdingPath(request.resource.data.holdingId);
         return createdNow(holding) && getAfter(holding).data.drawId == drawId;
+      }
+
+      // The draw session named by this draw takes it in this same request (spec: live-draws, design D2): the session,
+      // open, of the same kind, hand and drawer, was changed now, and its last card is this draw, its card, and the
+      // back its set filter gives. The session's own rule checks that only this card was added, or that it is new.
+      function joinsSession() {
+        let data = request.resource.data;
+        let path = drawSessionPath(data.sessionId);
+        let session = getAfter(path).data;
+        let entry = session.draws[session.draws.size() - 1];
+        return existsAfter(path)
+          && session.endedBy == null
+          && session.kind == data.kind
+          && session.uid == data.uid
+          && session.by == data.by
+          && session.lastAt == request.time
+          && entry.drawId == drawId
+          && entry.cardId == data.cardId
+          && entry.backSet == (data.filters == null ? null : data.filters.setCode);
       }
 
       function isFree() {
@@ -1455,6 +1480,98 @@ service cloud.firestore {
           && (resource.data.paidWith == 'none'
             ? after.refundEntryId == null
             : paysWith(after.refundEntryId));
+      }
+    }
+
+    // Draw sessions: one opening of the draw dialog that drew at least one card, at `drawSessions/{sessionId}` (spec:
+    // live-draws, design D1-D3). Everyone signed in reads them. A session is created with its first draw, and each
+    // later draw joins it, by the same drawer, in the draw's own request; the draw's rule checks the rest. The hand's
+    // owner and the DM turn its cards and end it, with no need for a free table. An ended session never changes again,
+    // and no session is deleted. Staleness is read on the devices, never written.
+    match /drawSessions/{sessionId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && validNewSession();
+      allow update: if isSignedIn()
+        && resource.data.endedBy == null
+        && (addsDraw()
+          || ((turnsSessionCard() || endsSession())
+            && (request.auth.uid == resource.data.uid || isDm())));
+      allow delete: if false;
+
+      // One card of the session: a draw that this same request creates and that names this session, its card, and
+      // the set whose cardback it had (none in a Cursed session). Keep the limit in step with CARD_LIMITS.setCode.
+      function validSessionDraw(entry, kind) {
+        let fields = ['drawId', 'cardId', 'backSet'];
+        return entry is map
+          && entry.keys().hasOnly(fields)
+          && entry.keys().hasAll(fields)
+          && entry.drawId is string
+          && entry.cardId is string
+          && (entry.backSet == null
+            || (kind == 'random' && entry.backSet is string && entry.backSet.size() >= 1
+              && entry.backSet.size() <= 100))
+          && createdNow(drawPath(entry.drawId))
+          && getAfter(drawPath(entry.drawId)).data.get('sessionId', null) == sessionId;
+      }
+
+      // A new, open session with exactly the stored fields, started now by the signed-in user with one card.
+      function validNewSession() {
+        let data = request.resource.data;
+        let fields = ['kind', 'uid', 'by', 'startedAt', 'lastAt', 'draws', 'turned', 'endedAt', 'endedBy'];
+        return data.keys().hasOnly(fields)
+          && data.keys().hasAll(fields)
+          && data.kind in ['random', 'cursed']
+          && data.uid is string
+          && data.by == request.auth.uid
+          && data.startedAt == request.time
+          && data.lastAt == request.time
+          && data.draws is list
+          && data.draws.size() == 1
+          && validSessionDraw(data.draws[0], data.kind)
+          && data.turned == []
+          && data.endedAt == null
+          && data.endedBy == null;
+      }
+
+      // One more card, at the end, by the session's drawer. Keep the limit in step with DRAW_SESSION_MAX.
+      function addsDraw() {
+        let before = resource.data.draws;
+        let after = request.resource.data.draws;
+        let n = before.size();
+        return onlyChanges(['draws', 'lastAt'])
+          && request.auth.uid == resource.data.by
+          && request.resource.data.lastAt == request.time
+          && after is list
+          && after.size() == n + 1
+          && after.size() <= 500
+          && after[0:n] == before
+          && validSessionDraw(after[n], resource.data.kind);
+      }
+
+      // One more card face up, added at the end, once, and one of the session's cards.
+      function turnsSessionCard() {
+        let before = resource.data.turned;
+        let after = request.resource.data.turned;
+        let n = before.size();
+        return onlyChanges(['turned', 'lastAt'])
+          && request.resource.data.lastAt == request.time
+          && after is list
+          && after.size() == n + 1
+          // An empty slice (`after[0:0]`) is an evaluation error in the rules, so the first turn skips the check.
+          && (n == 0 || after[0:n] == before)
+          && after[n] is int
+          && after[n] >= 0
+          && after[n] < resource.data.draws.size()
+          && !(after[n] in before);
+      }
+
+      // The end, now, by the signed-in user.
+      function endsSession() {
+        let data = request.resource.data;
+        return onlyChanges(['endedAt', 'endedBy', 'lastAt'])
+          && data.endedAt == request.time
+          && data.lastAt == request.time
+          && data.endedBy == request.auth.uid;
       }
     }
 

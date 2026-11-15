@@ -19,7 +19,7 @@ import type { Card } from '@/features/cards/schema'
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 
 import firestoreRules from '../../../firestore.rules?raw'
-import { drawCard, type DrawCardInput } from './api'
+import { drawCard, type DrawCardInput, endDrawSession, turnDrawCard } from './api'
 import { DrawError, toDrawFailure } from './errors'
 import { TableBusyError } from '@/features/table/errors'
 import type { RandomSource } from '@/lib/random'
@@ -72,6 +72,10 @@ async function failureOf(promise: Promise<unknown>): Promise<unknown> {
   throw new Error('Expected the promise to fail')
 }
 
+/** A fresh session ID for each call that does not name one: each draw then starts its own session. */
+let sessionCount = 0
+const nextSession = () => `s-${(sessionCount += 1)}`
+
 /** A random source that picks index `index` of any list longer than it. */
 const always =
   (index: number): RandomSource =>
@@ -88,6 +92,7 @@ const aylaDraws = (candidates: Card[], extra: Partial<DrawCardInput> = {}) =>
     filters: null,
     candidates,
     random: always(0),
+    sessionId: nextSession(),
     ...extra,
   })
 
@@ -190,6 +195,7 @@ describe('drawing under the real rules', () => {
       paid: false,
       filters,
       candidates: [RITE],
+      sessionId: nextSession(),
     })
 
     expect(await stored(`draws/${result.drawId}`)).toMatchObject({
@@ -212,6 +218,7 @@ describe('drawing under the real rules', () => {
       paid: false,
       filters: null,
       candidates: [VISIONS],
+      sessionId: nextSession(),
     })
 
     expect(await stored(`draws/${result.drawId}`)).toMatchObject({
@@ -280,6 +287,93 @@ describe('drawing under the real rules', () => {
   })
 })
 
+describe('draw sessions under the real rules', () => {
+  it('keeps three draws of one dialog in one session, in order', async () => {
+    const sessionId = 's-three'
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await updateDoc(doc(firestoreOf(admin), 'users/ayla'), { lp: 5 })
+    })
+    const first = await aylaDraws([EYES], { sessionId })
+    const second = await aylaDraws([RITE], { sessionId })
+    const third = await aylaDraws([WIND], { sessionId })
+
+    expect(await stored(`draws/${first.drawId}`)).toMatchObject({ sessionId })
+    expect(await stored(`drawSessions/${sessionId}`)).toMatchObject({
+      kind: 'random',
+      uid: 'ayla',
+      by: 'ayla',
+      draws: [
+        { drawId: first.drawId, cardId: EYES.id, backSet: null },
+        { drawId: second.drawId, cardId: RITE.id, backSet: null },
+        { drawId: third.drawId, cardId: WIND.id, backSet: null },
+      ],
+      turned: [],
+      endedAt: null,
+      endedBy: null,
+    })
+    expect(await stored('users/ayla')).toMatchObject({ lp: 2 })
+  })
+
+  it("keeps the DM's set filter as the card's back", async () => {
+    const filters = {
+      setCode: 'Kesqer',
+      cost: null,
+      mechanicPack: null,
+      rarity: null,
+      keyword: null,
+    }
+    const result = await drawCard(as('dana'), {
+      kind: 'random',
+      uid: 'ayla',
+      by: 'dana',
+      paid: false,
+      filters,
+      candidates: [RITE],
+      sessionId: 's-set',
+    })
+    expect(await stored('drawSessions/s-set')).toMatchObject({
+      by: 'dana',
+      draws: [{ drawId: result.drawId, backSet: 'Kesqer' }],
+    })
+  })
+
+  it('leaves one entry when a taken card is replaced', async () => {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await updateDoc(doc(firestoreOf(admin), `cards/${EYES.id}`), {
+        holder: { uid: 'bora', userCardId: 'h-bora' },
+      })
+    })
+    const result = await aylaDraws([EYES, RITE], { sessionId: 's-taken' })
+    expect(await stored('drawSessions/s-taken')).toMatchObject({
+      draws: [{ drawId: result.drawId, cardId: RITE.id }],
+    })
+  })
+
+  it('fails with "session-ended" for an ended session, and charges nothing', async () => {
+    await aylaDraws([EYES], { sessionId: 's-ended' })
+    await endDrawSession(as('ayla'), 's-ended', 'ayla')
+
+    const error = await failureOf(aylaDraws([RITE], { sessionId: 's-ended' }))
+    expect(toDrawFailure(error)).toEqual({ kind: 'session-ended' })
+    expect(await stored('users/ayla')).toMatchObject({ lp: 2 })
+    expect(await all('draws')).toHaveLength(1)
+  })
+
+  it('fails with "session-ended" when the DM ends the session first', async () => {
+    await aylaDraws([EYES], { sessionId: 's-dm' })
+    await endDrawSession(as('dana'), 's-dm', 'dana')
+    const error = await failureOf(aylaDraws([RITE], { sessionId: 's-dm' }))
+    expect(toDrawFailure(error)).toEqual({ kind: 'session-ended' })
+  })
+
+  it('turns a card and ends the session', async () => {
+    await aylaDraws([EYES], { sessionId: 's-turn' })
+    await turnDrawCard(as('dana'), 's-turn', 0)
+    await endDrawSession(as('ayla'), 's-turn', 'ayla')
+    expect(await stored('drawSessions/s-turn')).toMatchObject({ turned: [0], endedBy: 'ayla' })
+  })
+})
+
 describe('the behavior flags in draws under the real rules', () => {
   async function seed(card: Card) {
     await testEnv.withSecurityRulesDisabled(async (admin) => {
@@ -294,6 +388,7 @@ describe('the behavior flags in draws under the real rules', () => {
       paid: false,
       filters: null,
       candidates: [{ ...VISIONS, isRepeatable: false }],
+      sessionId: nextSession(),
     })
 
   it('gives a Cursed card with one copy its holder through a Cursed draw, then has nothing left', async () => {
@@ -329,6 +424,7 @@ describe('the behavior flags in draws under the real rules', () => {
       paid: false,
       filters: null,
       candidates: [shared],
+      sessionId: nextSession(),
     })
     expect(await stored(`cards/${EYES.id}`)).not.toHaveProperty('holder')
     expect(await all('userCards')).toHaveLength(2)

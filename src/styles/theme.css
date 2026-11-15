@@ -241,6 +241,19 @@
   /* The Cardmaker's speech bubble rising into place as it opens (spec: cardmaker-speech, design D5), as in v2.2.8. */
   --animate-bubble-in: bubble-in 220ms ease both;
 
+  /* The live mark of a draw or a pack going on (spec: visual-effects, "The live mark"): a ring of `green` that grows
+     around the dot and fades, again and again. */
+  --animate-live-pulse: live-pulse 1.8s ease-out infinite;
+
+  @keyframes live-pulse {
+    from {
+      box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-green) 55%, transparent);
+    }
+    to {
+      box-shadow: 0 0 0 8px transparent;
+    }
+  }
+
   @keyframes bubble-in {
     from {
       opacity: 0;

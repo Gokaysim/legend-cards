@@ -8,6 +8,7 @@ import type { UserProfile } from '@/features/users/schema'
 import type { CardSet } from '@/features/sets/schema'
 import { testArt, testPicturePath, testPictureUrl } from '@/test/artFixtures'
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
+import { testSession } from '@/test/drawFixtures'
 import { ready, testProfile, testUser } from '@/test/fixtures'
 import { TEST_SETS, TEST_SETS_WITH_PICTURES } from '@/test/setFixtures'
 import { TestArtProvider } from '@/test/TestArtProvider'
@@ -20,6 +21,7 @@ import { TestUsersProvider } from '@/test/TestUsersProvider'
 import type { DrawCardInput, DrawResult } from './api'
 import { DrawDialog } from './DrawDialog'
 import type { DrawActions } from './drawsContext'
+import type { DrawSession } from './schema'
 import { DrawError } from './errors'
 
 afterEach(() => {
@@ -54,6 +56,9 @@ type Setup = {
   drawCard?: DrawActions['drawCard']
   art?: ArtManifest
   sets?: readonly CardSet[]
+  /** More fake draw steps. */
+  actions?: Partial<DrawActions>
+  sessions?: readonly DrawSession[]
 }
 
 function setup({
@@ -64,18 +69,27 @@ function setup({
   drawCard,
   art,
   sets = TEST_SETS,
+  actions = {},
+  sessions = [],
 }: Setup = {}) {
   const user = userEvent.setup()
   const draw = vi.fn<DrawActions['drawCard']>(drawCard ?? drawsInTurn())
   const onClose = vi.fn()
   const setsReady = ready([...sets])
+  const endDrawSession = vi.fn<DrawActions['endDrawSession']>(() => Promise.resolve())
+  const turnDrawCard = vi.fn<DrawActions['turnDrawCard']>(() => Promise.resolve())
+  let sessionCount = 0
+  const newSessionId = vi.fn(() => `s${(sessionCount += 1)}`)
+  const fakes = { drawCard: draw, endDrawSession, turnDrawCard, newSessionId, ...actions }
+  let currentSessions = sessions
+  let currentOwner = owner
   const tree = (current: UserProfile) => (
     <TestArtProvider manifest={art}>
       <TestAuthProvider state={{ status: 'signedIn', user: testUser }}>
         <TestUsersProvider currentProfile={ready(asDm ? dm : me)}>
           <TestSetsProvider sets={setsReady}>
             <TestCardsProvider cards={ready(cards)}>
-              <TestDrawsProvider actions={{ drawCard: draw }}>
+              <TestDrawsProvider actions={fakes} sessions={currentSessions}>
                 <DrawDialog mode={mode} owner={current} onClose={onClose} />
               </TestDrawsProvider>
             </TestCardsProvider>
@@ -85,7 +99,23 @@ function setup({
     </TestArtProvider>
   )
   const view = render(tree(owner))
-  return { user, draw, onClose, setOwner: (next: UserProfile) => view.rerender(tree(next)) }
+  return {
+    user,
+    draw,
+    onClose,
+    endDrawSession,
+    turnDrawCard,
+    newSessionId,
+    unmount: view.unmount,
+    setOwner: (next: UserProfile) => {
+      currentOwner = next
+      view.rerender(tree(next))
+    },
+    setSessions: (next: readonly DrawSession[]) => {
+      currentSessions = next
+      view.rerender(tree(currentOwner))
+    },
+  }
 }
 
 const control = (name: string | RegExp) => screen.getByRole('button', { name })
@@ -93,6 +123,11 @@ const backs = () => screen.queryAllByRole('button', { name: /^Kart \d+: çevir$/
 /** The player's LP pill: "Bakiye: 3 LP" for screen readers, "3 LP" on screen. */
 const balance = () => screen.getByText(/Bakiye:/).parentElement as HTMLElement
 const deckCount = () => screen.getByText(/uygun kart$/)
+/** The chips above the table, as read on screen. */
+const chips = () =>
+  within(screen.getByRole('list', { name: 'Çekiş' }))
+    .getAllByRole('listitem')
+    .map((chip) => chip.textContent)
 const pill = (name: RegExp) => screen.getByRole('button', { name })
 const item = (name: string) => screen.getByRole('menuitemradio', { name })
 const menuNames = () =>
@@ -115,6 +150,7 @@ describe("a player's draw", () => {
       paid: true,
       filters: null,
       candidates: [EYES, RITE, WIND],
+      sessionId: expect.any(String) as string,
     })
     expect(backs().map((back) => back.getAttribute('aria-label'))).toEqual(['Kart 1: çevir'])
     expect(screen.queryByText("Aboleth's Eyes")).not.toBeInTheDocument()
@@ -196,7 +232,7 @@ describe("the DM's draw", () => {
   it('is free, offers the filter pills, and counts the matching cards on the deck', async () => {
     const { user, draw } = setup({ asDm: true, owner: ayla })
 
-    expect(screen.getByText('DM çekilişi ücretsizdir.')).toBeInTheDocument()
+    expect(chips()).toEqual(['🎲 Rastgele', "Ayla'nın eline", 'Ücretsiz'])
     expect(deckCount()).toHaveTextContent('3 uygun kart')
     await user.click(pill(/^Rarity/))
     expect(menuNames()).toEqual(['Tümü', 'Common, 1 kart', 'Rare, 1 kart', 'Blessed, 1 kart'])
@@ -215,6 +251,7 @@ describe("the DM's draw", () => {
       paid: false,
       filters: { setCode: null, cost: null, mechanicPack: null, rarity: 'rare', keyword: null },
       candidates: [RITE],
+      sessionId: expect.any(String) as string,
     })
   })
 
@@ -621,5 +658,108 @@ describe('zooming a drawn card', () => {
     expect(screen.getAllByRole('dialog')).toEqual([draw])
     expect(onClose).not.toHaveBeenCalled()
     expect(within(draw).getByRole('article', { name: "Aboleth's Eyes" })).toBeInTheDocument()
+  })
+})
+
+describe('the live draw (spec: live-draws)', () => {
+  it("shows the chips of a player's table: the kind, the hand, the LP and the price", () => {
+    setup()
+    expect(chips()).toEqual(['🎲 Rastgele', "Ayla'nın eline", 'Bakiye: 3 LP', 'Her kart 1 LP'])
+  })
+
+  it('says under the table that everyone sees the draw live', () => {
+    setup()
+    const line = screen.getByText(/Herkes bu çekişi canlı görür/)
+    expect(line).toHaveTextContent(
+      'Herkes bu çekişi canlı görür; çevirdiğin kartlar onlarda da döner.',
+    )
+    expect(within(line).getByTestId('live-mark')).toBeInTheDocument()
+  })
+
+  it('tints the Cursed table red', () => {
+    setup({ mode: 'cursed' })
+    expect(screen.getByTestId('draw-table')).toHaveAttribute('data-tone', 'cursed')
+    expect(chips()[0]).toBe('☠ Cursed')
+  })
+
+  it('draws every card of one dialog into one session, and turns a card for everyone', async () => {
+    const { user, draw, turnDrawCard, newSessionId } = setup()
+    await user.click(control('🎲 Çek · 1 LP'))
+    await user.click(control('🎲 Çek · 1 LP'))
+
+    expect(newSessionId).toHaveBeenCalledOnce()
+    expect(draw.mock.calls.map(([input]) => input.sessionId)).toEqual(['s1', 's1'])
+    await user.click(control('Kart 2: çevir'))
+    expect(turnDrawCard).toHaveBeenCalledExactlyOnceWith('s1', 1)
+  })
+
+  it('turns a card over when it is turned on another device', async () => {
+    const { user, setSessions } = setup()
+    await user.click(control('🎲 Çek · 1 LP'))
+    expect(backs()).toHaveLength(1)
+
+    setSessions([testSession(me.id, [EYES], Date.now(), { id: 's1', turned: [0] })])
+
+    expect(control('Kart 1: çevir')).toBeDisabled()
+    expect(screen.getByRole('article', { name: "Aboleth's Eyes" })).toBeInTheDocument()
+  })
+
+  it('ends the session once when the dialog closes', async () => {
+    const { user, endDrawSession, unmount } = setup()
+    await user.click(control('🎲 Çek · 1 LP'))
+    unmount()
+    expect(endDrawSession).toHaveBeenCalledExactlyOnceWith('s1', testUser.uid)
+  })
+
+  it('ends nothing when no card was drawn', () => {
+    const { endDrawSession, newSessionId, unmount } = setup()
+    unmount()
+    expect(newSessionId).not.toHaveBeenCalled()
+    expect(endDrawSession).not.toHaveBeenCalled()
+  })
+
+  it('ends the session only after a draw still running has settled', async () => {
+    let finish: (result: DrawResult) => void = () => {}
+    const { user, endDrawSession, unmount } = setup({
+      drawCard: () =>
+        new Promise<DrawResult>((resolve) => {
+          finish = resolve
+        }),
+    })
+    await user.click(control('🎲 Çek · 1 LP'))
+    unmount()
+    expect(endDrawSession).not.toHaveBeenCalled()
+
+    await act(async () => {
+      finish({ drawId: 'd1', holdingId: 'h1', card: EYES })
+      await Promise.resolve()
+    })
+    await vi.waitFor(() => {
+      expect(endDrawSession).toHaveBeenCalledExactlyOnceWith('s1', testUser.uid)
+    })
+  })
+
+  it('starts a new session at the next draw once its session went stale', async () => {
+    const { user, draw, setSessions } = setup()
+    await user.click(control('🎲 Çek · 1 LP'))
+    setSessions([testSession(me.id, [EYES], Date.now() - 11 * 60 * 1000, { id: 's1' })])
+
+    await user.click(control('🎲 Çek · 1 LP'))
+
+    expect(draw.mock.calls.map(([input]) => input.sessionId)).toEqual(['s1', 's2'])
+  })
+
+  it('draws again into a new session when the DM ended it meanwhile', async () => {
+    const draw = vi
+      .fn<DrawActions['drawCard']>()
+      .mockRejectedValueOnce(new DrawError('session-ended'))
+      .mockResolvedValueOnce({ drawId: 'd1', holdingId: 'h1', card: EYES })
+    const { user } = setup({ drawCard: draw })
+
+    await user.click(control('🎲 Çek · 1 LP'))
+
+    expect(draw.mock.calls.map(([input]) => input.sessionId)).toEqual(['s1', 's2'])
+    expect(backs()).toHaveLength(1)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 })

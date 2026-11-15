@@ -11,6 +11,12 @@ import { useCardsById } from '@/features/cards/cardsContext'
 import type { Card } from '@/features/cards/schema'
 import { FaceDownCard } from '@/features/draws/FaceDownCard'
 import { isCursedPackType, type PackOpening } from '@/features/draws/schema'
+import { DrawSpread } from '@/features/draws/table/DrawSpread'
+import { DrawTable } from '@/features/draws/table/DrawTable'
+import { LiveBanner } from '@/features/draws/table/LiveBanner'
+import { TableChip, TableChips } from '@/features/draws/table/TableChip'
+import { CSS_BACK_SHAPE, CSS_BACK_TONES } from '@/features/art/cssBack'
+import { CssBackGlyph } from '@/features/art/NeutralCardBack'
 import { useSetIndex } from '@/features/sets/setsContext'
 import { DmOnly } from '@/features/users/DmOnly'
 import { profileName, useIsDm, useProfiles } from '@/features/users/usersContext'
@@ -21,7 +27,6 @@ import { useReducedMotion } from '@/lib/useReducedMotion'
 
 import { burstArtUrl, packOpeningTitle, spreadBackOf } from './catalog'
 import { type PackFailure, packFailureMessage, toPackFailure } from './errors'
-import { OpenPackBanner } from './OpenPackBanner'
 import { useOpenPack, usePackActions } from './packsContext'
 
 /**
@@ -43,6 +48,7 @@ export function OpenPackView() {
   const [view, setView] = useState<ViewState | null>(null)
   const profiles = useProfiles()
   const { setName } = useSetIndex()
+  const cardsById = useCardsById()
 
   if (pack !== null && pack.status === 'open' && view?.packId !== pack.id) {
     // A pack this device has not seen yet: show it. Adjusting state during render re-renders at once.
@@ -59,9 +65,17 @@ export function OpenPackView() {
   const setExpanded = (isExpanded: boolean) => setView({ packId: pack.id, isExpanded })
 
   if (!view.isExpanded) {
+    const byCard = cardsById.status === 'ready' ? cardsById.data : null
+    const back = spreadBackOf(pack)
     return pack.status === 'open' ? (
-      <OpenPackBanner
-        text={`${nameOf(pack.uid)} bir Pack açıyor: ${packOpeningTitle(pack, setName)}`}
+      <LiveBanner
+        text={`${nameOf(pack.uid)} Pack açıyor · ${packOpeningTitle(pack, setName)}`}
+        cards={pack.offered.map((cardId, index) => ({
+          key: cardId,
+          card: byCard?.get(cardId),
+          isUp: pack.revealed.includes(index),
+          back,
+        }))}
         onShow={() => setExpanded(true)}
       />
     ) : null
@@ -77,9 +91,9 @@ export function OpenPackView() {
   )
 }
 
-/** "−2 LP", "−7.500 GP", or "ücretsiz". */
+/** "−2 LP", "−7.500 GP", or "Ücretsiz", as the draw's payment chip. */
 function paymentText(pack: PackOpening): string {
-  if (pack.paidWith === 'none') return 'ücretsiz'
+  if (pack.paidWith === 'none') return 'Ücretsiz'
   return `−${formatAmount(pack.cost)} ${pack.paidWith === 'lp' ? 'LP' : 'GP'}`
 }
 
@@ -197,19 +211,25 @@ function PackDialog({
   }
 
   const opener = pack.by === pack.uid ? null : nameOf(pack.by)
-  const title = `${ownerName} · ${packOpeningTitle(pack, setName)}`
+  const title = `${ownerName} Pack ${isOpen ? 'açıyor' : 'açtı'}`
 
   return (
     <Dialog
       title={title}
       onClose={onShrink}
       closeLabel={isOpen ? 'Küçült' : '✕ Kapat'}
-      className="sm:max-w-4xl"
+      className="sm:max-w-5xl"
     >
-      <p className="text-sm text-ink-muted">
-        {opener === null ? null : `Açan: ${opener} · `}
-        Ödeme: <span className="text-ink">{paymentText(pack)}</span>
-      </p>
+      <TableChips label="Pack">
+        {isOpen ? <TableChip variant="live">Canlı</TableChip> : null}
+        <TableChip variant={isCursedType ? 'cursed' : 'plain'}>
+          {packOpeningTitle(pack, setName)}
+        </TableChip>
+        <TableChip>{`${genitive(ownerName)} eline`}</TableChip>
+        {opener === null ? null : <TableChip>{`Açan: ${opener}`}</TableChip>}
+        <TableChip>{paymentText(pack)}</TableChip>
+        {isOpen ? <TableChip variant="waiting">Masa bekliyor</TableChip> : null}
+      </TableChips>
 
       <PackResult pack={pack} nameOf={nameOf} ownerName={ownerName} />
 
@@ -256,64 +276,79 @@ function PackDialog({
           </div>
         </>
       ) : (
-        <ul
-          aria-label="Pack kartları"
-          className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6"
+        <DrawTable
+          source={
+            <PackSource
+              src={burstPicture.src}
+              onError={burstPicture.onError}
+              isCursedType={isCursedType}
+              count={pack.offered.length}
+            />
+          }
         >
-          {pack.offered.map((cardId, index) => {
-            const card = cardOf(cardId)
-            const isTurned = pack.revealed.includes(index)
-            const isMandatory = card?.kind === 'cursed'
-            const isChosen =
-              pack.chosen?.cardId === cardId || (pack.cursed?.cardId === cardId && isMandatory)
-            const isPicked = selected === cardId || isChosen
-            // Once every card is face up, a card that can be selected glows gold under the pointer, on the card or on
-            // its "Seç" button (design D4).
-            const canPick = isOpen && canAct && allTurned && !isMandatory
-            return (
-              <li key={cardId} className="group/pick flex flex-col gap-2">
-                {card ? (
-                  <div
-                    data-glow={isPicked ? 'selected' : undefined}
-                    className={cn(
-                      'rounded-xl transition-[filter] duration-200 motion-reduce:transition-none',
-                      isPicked && 'drop-shadow-glow-selected',
-                      canPick && 'group-hover/pick:drop-shadow-glow-selected',
-                    )}
-                  >
-                    <FaceDownCard
-                      card={card}
-                      position={index + 1}
-                      back={back}
-                      isRevealed={isTurned}
-                      onReveal={() => turn(index)}
-                      canTurn={canAct}
-                    />
-                  </div>
-                ) : (
-                  <div className="flex min-h-48 items-center justify-center rounded-xl border border-line bg-pane-raised p-3 text-sm text-ink-muted">
-                    Kart yükleniyor…
-                  </div>
-                )}
-                {isTurned && isMandatory ? (
-                  <span className="self-center rounded-full border border-cursed px-2 py-0.5 text-xs font-medium text-cursed-soft">
-                    Zorunlu
-                  </span>
-                ) : null}
-                {isTurned && !isMandatory && canAct && card ? (
-                  <Button
-                    aria-pressed={selected === cardId}
-                    aria-label={`${card.name}: seç`}
-                    disabled={isBusy}
-                    onClick={() => select(cardId)}
-                  >
-                    {selected === cardId ? '✓ Seçildi' : 'Seç'}
-                  </Button>
-                ) : null}
-              </li>
-            )
-          })}
-        </ul>
+          <h3 className="text-xs font-bold tracking-widest text-ink-muted uppercase">
+            {`Pack kartları · ${new Set(pack.revealed).size}/${pack.offered.length} açık`}
+          </h3>
+          <DrawSpread
+            label="Pack kartları"
+            size="pack"
+            items={pack.offered}
+            itemKey={(cardId) => cardId}
+            renderItem={(cardId, index) => {
+              const card = cardOf(cardId)
+              const isTurned = pack.revealed.includes(index)
+              const isMandatory = card?.kind === 'cursed'
+              const isChosen =
+                pack.chosen?.cardId === cardId || (pack.cursed?.cardId === cardId && isMandatory)
+              const isPicked = selected === cardId || isChosen
+              // Once every card is face up, a card that can be selected glows gold under the pointer, on the card or on
+              // its "Seç" button (design D4).
+              const canPick = isOpen && canAct && allTurned && !isMandatory
+              return (
+                <div className="group/pick flex flex-col gap-2">
+                  {card ? (
+                    <div
+                      data-glow={isPicked ? 'selected' : undefined}
+                      className={cn(
+                        'rounded-xl transition-[filter] duration-200 motion-reduce:transition-none',
+                        isPicked && 'drop-shadow-glow-selected',
+                        canPick && 'group-hover/pick:drop-shadow-glow-selected',
+                      )}
+                    >
+                      <FaceDownCard
+                        card={card}
+                        position={index + 1}
+                        back={back}
+                        isRevealed={isTurned}
+                        onReveal={() => turn(index)}
+                        canTurn={canAct}
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex min-h-48 items-center justify-center rounded-xl border border-line bg-pane-raised p-3 text-sm text-ink-muted">
+                      Kart yükleniyor…
+                    </div>
+                  )}
+                  {isTurned && isMandatory ? (
+                    <span className="self-center rounded-full border border-cursed px-2 py-0.5 text-xs font-medium text-cursed-soft">
+                      Zorunlu
+                    </span>
+                  ) : null}
+                  {isTurned && !isMandatory && canAct && card ? (
+                    <Button
+                      aria-pressed={selected === cardId}
+                      aria-label={`${card.name}: seç`}
+                      disabled={isBusy}
+                      onClick={() => select(cardId)}
+                    >
+                      {selected === cardId ? '✓ Seçildi' : 'Seç'}
+                    </Button>
+                  ) : null}
+                </div>
+              )
+            }}
+          />
+        </DrawTable>
       )}
 
       {isOpen && isCursedType ? (
@@ -397,5 +432,49 @@ function PackResult({
     <p role="status" className="rounded-lg border border-gold bg-pane-raised p-3 text-sm text-ink">
       {text}
     </p>
+  )
+}
+
+/** The opened pack on the table, where a draw's deck stands: its picture with the number of its cards on it. */
+function PackSource({
+  src,
+  onError,
+  isCursedType,
+  count,
+}: {
+  src: string | null
+  onError: () => void
+  isCursedType: boolean
+  count: number
+}) {
+  const tone = isCursedType ? 'cursed' : 'neutral'
+  return (
+    <>
+      <div data-testid="pack-source" className="relative mt-2 mr-2 self-stretch">
+        {src === null ? (
+          <div
+            aria-hidden="true"
+            className={cn(CSS_BACK_SHAPE, CSS_BACK_TONES[tone], 'drop-shadow-lift')}
+          >
+            <CssBackGlyph tone={tone} />
+          </div>
+        ) : (
+          <img
+            src={src}
+            alt=""
+            draggable={false}
+            onError={onError}
+            className="block aspect-[563/788] w-full rounded-xl object-contain opacity-70 drop-shadow-lift"
+          />
+        )}
+        <span
+          aria-hidden="true"
+          className="absolute -top-3 -right-3 flex h-10 min-w-10 items-center justify-center rounded-full bg-gold px-2.5 text-base font-extrabold text-canvas tabular-nums shadow-[0_0_0_3px_var(--color-pane)]"
+        >
+          {count}
+        </span>
+      </div>
+      <p className="text-xs text-ink-muted">{`Pack açıldı · ${count} kart`}</p>
+    </>
   )
 }

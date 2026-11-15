@@ -43,7 +43,7 @@ export type RenderAppOptions = {
   activityLog?: TestActivityLog
   /** The records of the Kart geçmişi and Set istatistikleri pages. Defaults to none. */
   stats?: TestStats
-  /** Fake draws. Defaults to draws that give the first candidate. */
+  /** Fake draws and the draw sessions. Defaults to draws that give the first candidate, and no sessions. */
   draws?: TestDraws
   /** The table's lock. Defaults to a free table. */
   table?: TestTable
@@ -82,7 +82,7 @@ type Data = {
  * sets, cards, open holdings, party purse, table lock, open pack, True Words, notes, log and statistics records and
  * pictures, and fake draws, pack, set, character and True Word steps and note saves. `setUsers`, `setCharacters`,
  * `setSets`, `setCards`, `setHoldings`, `setBalances`, `setTable`, `setPacks`, `setTrueWords`, `setNotes`,
- * `setActivityLog` and `setStats` re-render the same app with other data, as a real-time update would, without
+ * `setActivityLog`, `setStats` and `setDraws` re-render the same app with other data, as a real-time update would, without
  * remounting.
  */
 export function renderApp({
@@ -178,5 +178,6 @@ export function renderApp({
     setPacks: (next: TestPacks) => update({ packs: next }),
     setTrueWords: (next: TestTrueWords) => update({ trueWords: next }),
     setNotes: (next: TestNotes) => update({ notes: next }),
+    setDraws: (next: TestDraws) => update({ draws: next }),
   }
 }

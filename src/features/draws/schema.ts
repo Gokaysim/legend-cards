@@ -114,6 +114,8 @@ export const cardDrawSchema = z
     cost: z.union([z.literal(0), z.literal(DRAW_PRICE)]),
     /** The ledger entry of the payment; `null` when free. */
     entryId: id.nullable(),
+    /** The draw session it belongs to (spec: live-draws). A record from before the sessions has none: `null`. */
+    sessionId: id.nullable().default(null),
   })
   .superRefine((draw, context) => {
     const issue = (path: string, message: string) => {
@@ -275,3 +277,60 @@ export const drawConverter = createConverter(drawSchema, { idField: 'id' })
 
 /** Pack openings only: for reading one pack by its ID. */
 export const packOpeningConverter = createConverter(packOpeningSchema, { idField: 'id' })
+
+/** The most draws one session keeps. Keep in step with `firestore.rules`. */
+export const DRAW_SESSION_MAX = 500
+
+/** One draw of a session: the draw record, its card, and the set whose cardback it had (`null`: no set filter). */
+const sessionDrawSchema = z.object({
+  drawId: id,
+  cardId: id,
+  backSet: z.string().min(1).max(CARD_LIMITS.setCode).nullable(),
+})
+
+/**
+ * One opening of the draw dialog that drew at least one card, at `drawSessions/{sessionId}` (spec: live-draws, design
+ * D1). It is created with its first draw, and each later draw of the dialog joins it in the draw's own step. The hand's
+ * owner and the DM turn its cards and end it. It is never deleted.
+ */
+export const drawSessionSchema = z
+  .object({
+    kind: z.enum(DRAW_KINDS),
+    /** Whose hand the cards go to. */
+    uid: id,
+    /** Who draws: the hand's owner, or the DM. */
+    by: id,
+    startedAt: serverTime,
+    /** The time of the last draw, turn or end: a session idle for 10 minutes counts as ended. */
+    lastAt: serverTime,
+    /** The session's draws, in the order drawn. */
+    draws: z.array(sessionDrawSchema).min(1).max(DRAW_SESSION_MAX),
+    /** The positions in `draws` turned face up, each at most once. */
+    turned: z.array(z.number().int().min(0)),
+    /** When it ended. `null` while open, and in the local snapshot while the server time is pending. */
+    endedAt: serverTime,
+    /** Who ended it. `null` while open. */
+    endedBy: id.nullable(),
+  })
+  .superRefine((session, context) => {
+    const issue = (path: string, message: string) => {
+      context.addIssue({ code: 'custom', path: [path], message })
+    }
+    const isDrawn = (index: number) => index < session.draws.length
+    if (new Set(session.turned).size !== session.turned.length || !session.turned.every(isDrawn)) {
+      issue('turned', 'each turned position is a drawn card, turned once')
+    }
+    if (session.endedAt !== null && session.endedBy === null) {
+      issue('endedBy', 'an ended session names who ended it')
+    }
+    if (session.kind === 'cursed' && session.draws.some((draw) => draw.backSet !== null)) {
+      issue('draws', 'a Cursed draw has no set filter')
+    }
+  })
+
+export type StoredDrawSession = z.infer<typeof drawSessionSchema>
+
+/** A draw session as features see it: the stored fields plus the document ID as `id`. */
+export type DrawSession = StoredDrawSession & { id: string }
+
+export const drawSessionConverter = createConverter(drawSessionSchema, { idField: 'id' })

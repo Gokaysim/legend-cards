@@ -4,7 +4,8 @@ import { firebaseCode } from '@/lib/firestore/errors'
 import { genitive } from '@/lib/turkish'
 
 /** A draw that the current data does not allow, found before anything is written. */
-export type DrawErrorKind = 'nothing-to-draw' | 'insufficient' | 'retries-exhausted'
+export type DrawErrorKind =
+  'nothing-to-draw' | 'insufficient' | 'retries-exhausted' | 'session-ended'
 
 export class DrawError extends Error {
   override readonly name = 'DrawError'
@@ -27,6 +28,8 @@ export type DrawFailure =
   | { kind: 'insufficient'; lp: number }
   /** Every picked card went to another hand meanwhile, five times in a row. */
   | { kind: 'retries-exhausted' }
+  /** The draw's session was ended meanwhile, by the DM or by another tab: the next draw starts a new one. */
+  | { kind: 'session-ended' }
   /** A pack is open: the table waits for it, and nobody draws until it ends. */
   | { kind: 'table-busy' }
   /** No connection: a draw is a transaction, and transactions need the server. */
@@ -61,6 +64,8 @@ export function drawFailureMessage(failure: DrawFailure, name: string): string {
       return `Kart çekmek için 1 LP gerekiyor; ${genitive(name)} ${formatAmount(failure.lp)} LP'si var.`
     case 'retries-exhausted':
       return 'Kart çekilemedi: kartlar o sırada başka ellere geçti. Tekrar dene.'
+    case 'session-ended':
+      return 'Bu çekiş bitirildi. Tekrar çekersen yeni bir çekiş başlar.'
     case 'table-busy':
       return TABLE_BUSY_MESSAGE
     case 'offline':
