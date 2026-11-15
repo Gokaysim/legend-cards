@@ -8,6 +8,7 @@ import { testPicturePath, testPictureUrl } from '@/test/artFixtures'
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 import { TestArtProvider } from '@/test/TestArtProvider'
 import { renderWithSets } from '@/test/renderWithSets'
+import { testTrueWord } from '@/test/trueWordFixtures'
 
 import { CardFace } from './CardFace'
 
@@ -788,5 +789,52 @@ describe('CardFace history control', () => {
     renderInLibrary(<CardFace card={testCard('Night Owl')} />)
 
     expect(within(face('Night Owl')).queryByRole('link')).not.toBeInTheDocument()
+  })
+})
+
+describe('CardFace of a True Word', () => {
+  const ABYSS = testTrueWord('Abyss', { cost: '5', text: '[Deep] Pull them under.' })
+  const AID = testTrueWord('Aid', { picture: testPicturePath('word', 'tw-aid') })
+
+  it('draws a word without a picture in the True Words frame, with its cost, name and text and no set details', () => {
+    renderWithSets(<CardFace card={ABYSS} />)
+
+    const card = face('Abyss')
+    expect(card).toHaveAttribute('data-frame', 'word')
+    expect(card).toHaveClass('border-true-word-line')
+    expect(card).not.toHaveClass('border-common')
+    expect(card).toHaveTextContent('Cost: 5')
+    expect(card).toHaveTextContent('Pull them under.')
+    expect(card).not.toHaveTextContent('LP')
+    expect(within(card).queryByText('Set')).not.toBeInTheDocument()
+    expect(within(card).queryByText('Mechanic Pack')).not.toBeInTheDocument()
+  })
+
+  it('shows a word with a picture as the picture alone, with no note on its symbol', () => {
+    renderWithArt(<CardFace card={AID} />)
+
+    const card = face('Aid')
+    expect(within(card).getByRole('img', { name: 'Aid' })).toHaveAttribute(
+      'src',
+      testPictureUrl(testPicturePath('word', 'tw-aid')),
+    )
+    expect(
+      within(card).queryByRole('button', { name: 'Set, rarity ve mechanic pack' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('marks a word the chosen player knows "Biliyor", without a glow', () => {
+    renderWithSets(<CardFace card={ABYSS} isKnown />)
+
+    const card = face('Abyss')
+    expect(within(card).getByText('Biliyor')).toBeInTheDocument()
+    expect(card.parentElement).not.toHaveAttribute('data-glow')
+  })
+
+  it('has a magnifier and, without a history address, no clock', () => {
+    renderWithSets(<CardFace card={ABYSS} />)
+
+    expect(screen.getByRole('button', { name: 'Abyss: büyüt' })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Abyss: geçmiş' })).not.toBeInTheDocument()
   })
 })

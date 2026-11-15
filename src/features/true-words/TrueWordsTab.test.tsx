@@ -1,4 +1,5 @@
 import { screen, within } from '@testing-library/react'
+import { Timestamp } from 'firebase/firestore'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -39,7 +40,7 @@ function fakeActions() {
 }
 
 function renderScreen({
-  path = '/true-words',
+  path = '/library?tab=true-words',
   viewer = me,
   trueWords = {},
   table,
@@ -64,25 +65,35 @@ const tileNames = () =>
     .getAllByRole('article')
     .map((tile) => tile.getAttribute('aria-label'))
 
-describe('True Words screen', () => {
-  it('lists every active word by name, with its cost and visible text, and marks the known ones', () => {
+describe("the Kütüphane's True Words tab", () => {
+  it('lists every active word by name as a face, with its cost and visible text, and marks the known ones', () => {
     renderScreen({
       trueWords: { knownWords: ready([testLearnedWord('r1', AID, testUser.uid)]) },
     })
 
     expect(tileNames()).toEqual(['Abyss', 'Aid', 'Chaos', 'Dragon', 'Hoard'])
-    const abyss = within(main().getByRole('article', { name: 'Abyss' }))
-    expect(abyss.getByText('5 LP')).toBeInTheDocument()
-    expect(abyss.getByText('A random card is free.')).toBeInTheDocument()
+    const abyss = main().getByRole('article', { name: 'Abyss' })
+    expect(abyss).toHaveAttribute('data-frame', 'word')
+    expect(abyss).toHaveTextContent('Cost: 5')
+    expect(within(abyss).getByText('A random card is free.')).toBeInTheDocument()
+    expect(abyss).not.toHaveTextContent('meta')
     expect(within(main().getByRole('article', { name: 'Aid' })).getByText('Biliyor')).toBeVisible()
-    expect(within(main().getByRole('article', { name: 'Abyss' })).queryByText('Biliyor')).toBeNull()
+    expect(within(abyss).queryByText('Biliyor')).toBeNull()
+    // The draft section says how many words Ayla knows, once: the list's count line does not repeat it.
+    expect(main().getAllByText(/1 True Word biliyor/)).toHaveLength(1)
+    expect(main().getByRole('region', { name: 'Draft' })).toHaveTextContent(
+      'Ayla · 1 True Word biliyor',
+    )
   })
 
-  it('shows an X cost as "X LP"', () => {
-    renderScreen()
+  it('shows an X cost as "X" on the face and in the list (An X cost)', async () => {
+    const { user } = renderScreen()
+    expect(main().getByRole('article', { name: 'Dragon' })).toHaveTextContent('Cost: X')
+
+    await user.click(main().getByRole('button', { name: '☷ Liste' }))
     expect(
-      within(main().getByRole('article', { name: 'Dragon' })).getByText('X LP'),
-    ).toBeInTheDocument()
+      within(main().getByRole('row', { name: /Dragon/ })).getAllByRole('cell')[0],
+    ).toHaveTextContent(/^X$/)
   })
 
   it("lets the DM choose a player, kept in the URL, and marks that player's words", async () => {
@@ -93,11 +104,87 @@ describe('True Words screen', () => {
 
     await user.selectOptions(main().getByLabelText('Kimin için'), 'bora')
 
-    expect(router.state.location.search).toBe('?for=bora')
+    expect(router.state.location.search).toBe('?tab=true-words&for=bora')
     expect(
       within(main().getByRole('article', { name: 'Chaos' })).getByText('Biliyor'),
     ).toBeVisible()
     expect(main().getByText(/Bora · 1 True Word biliyor/)).toBeInTheDocument()
+  })
+
+  it('shows who knows each word as its Durum, and a word kept out of drafts as "DM\'e özel"', async () => {
+    const justice = testTrueWord('Justice', { isInDraws: false })
+    const { user } = renderScreen({
+      trueWords: {
+        words: ready([...WORDS, justice]),
+        knownWords: ready([
+          testLearnedWord('r1', ABYSS, testUser.uid, { learnedAt: Timestamp.fromMillis(1000) }),
+          testLearnedWord('r2', ABYSS, 'bora', { learnedAt: Timestamp.fromMillis(2000) }),
+          testLearnedWord('r3', justice, 'bora'),
+        ]),
+      },
+    })
+
+    await user.click(main().getByRole('button', { name: '☷ Liste' }))
+
+    const durum = (name: string) =>
+      within(main().getByRole('row', { name: new RegExp(name) }))
+        .getAllByRole('cell')
+        .at(-1)
+    expect(durum('Abyss')).toHaveTextContent('Bilenler: Ayla, Bora')
+    expect(durum('Hoard')).toHaveTextContent('—')
+    expect(durum('Justice')).toHaveTextContent("DM'e özel · Bilenler: Bora")
+  })
+
+  it('lists only the chosen player\'s unlearned words with "Yalnızca öğrenilmemişler", live', async () => {
+    const known = [
+      testLearnedWord('r1', ABYSS, testUser.uid),
+      testLearnedWord('r2', AID, testUser.uid),
+    ]
+    const { user, setTrueWords } = renderScreen({
+      trueWords: { knownWords: ready(known) },
+    })
+
+    await user.click(main().getByRole('checkbox', { name: 'Yalnızca öğrenilmemişler' }))
+    expect(tileNames()).toEqual(['Chaos', 'Dragon', 'Hoard'])
+
+    // Ayla learns "Dragon" on another device.
+    setTrueWords({
+      words: ready(WORDS),
+      knownWords: ready([...known, testLearnedWord('r3', DRAGON, testUser.uid)]),
+      actions: {},
+    })
+    expect(tileNames()).toEqual(['Chaos', 'Hoard'])
+  })
+
+  it('lists the words Bora does not know when the DM chooses him and turns on "Yalnızca öğrenilmemişler"', async () => {
+    const { user } = renderScreen({
+      path: '/library?tab=true-words&for=bora',
+      viewer: { ...dm, id: testUser.uid },
+      trueWords: { knownWords: ready([testLearnedWord('r1', CHAOS, 'bora')]) },
+    })
+
+    await user.click(main().getByRole('checkbox', { name: 'Yalnızca öğrenilmemişler' }))
+    expect(tileNames()).toEqual(['Abyss', 'Aid', 'Dragon', 'Hoard'])
+  })
+
+  it("leaves a hidden word out of a player's tab, and lists it for the DM, marked (A hidden word)", () => {
+    const justice = testTrueWord('Justice', { isInLibrary: false })
+    const view = renderScreen({ trueWords: { words: ready([...WORDS, justice]) } })
+    expect(tileNames()).not.toContain('Justice')
+    view.unmount()
+
+    renderScreen({ viewer: dm, trueWords: { words: ready([...WORDS, justice]) } })
+    expect(main().getByRole('article', { name: 'Justice' })).toHaveTextContent('🔒 DM')
+  })
+
+  it('shows the open draft above the list (An open draft on the tab)', () => {
+    renderScreen({
+      trueWords: { openDrafts: ready([testWordDraft('d1', testUser.uid, [CHAOS, DRAGON, HOARD])]) },
+    })
+
+    const panel = main().getByRole('region', { name: "Ayla için açık True Word draft'ı" })
+    const list = main().getByRole('list', { name: 'Kartlar' })
+    expect(panel.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('does not offer a player choice to a player', () => {
@@ -234,7 +321,7 @@ describe('starting a draft', () => {
   })
 })
 
-describe("True Words screen: the DM's definitions", () => {
+describe("the True Words tab: the DM's definitions", () => {
   const ECHO = testTrueWord('Echo', { status: 'draft', cost: null, text: '' })
 
   it('lists only the draft words with "Taslak", each with its "✎ Düzenle" (The DM\'s drafts)', async () => {

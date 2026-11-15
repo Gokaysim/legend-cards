@@ -4,7 +4,6 @@ import { Navigate, type RouteObject } from 'react-router'
 import { ActivityLogPage } from '@/features/activity-log/ActivityLogPage'
 import { RequireAuth, SIGN_IN_PATH } from '@/features/auth/RequireAuth'
 import { SignInPage } from '@/features/auth/SignInPage'
-import { CursedDeckPage } from '@/features/cursed-deck/CursedDeckPage'
 import { CustomDraftPage } from '@/features/custom-draft/CustomDraftPage'
 import { HandsPage, PlayerHandPage } from '@/features/hands/HandsPage'
 import { LibraryPage } from '@/features/library/LibraryPage'
@@ -16,14 +15,15 @@ import { CardHistoryPage } from '@/features/stats/CardHistoryPage'
 import { SetStatsPage } from '@/features/stats/SetStatsPage'
 import { ElixirShopPage } from '@/features/shops/ElixirShopPage'
 import { ShopsPage } from '@/features/shops/ShopsPage'
-import { TrueWordsPage } from '@/features/true-words/TrueWordsPage'
 
+import { FormerCardHistoryAddress, FormerTrueWordsAddress } from './FormerAddresses'
 import { AppShell } from './layout/AppShell'
 import { NotFoundPage } from './NotFoundPage'
 import {
-  CARD_HISTORY_ROUTES,
+  CARD_HISTORY_ROUTE,
   DEFAULT_SCREEN_PATH,
   HAND_ROUTE,
+  libraryPath,
   SCREENS,
   SET_STATS_ROUTE,
   SHOP_SCREENS,
@@ -35,11 +35,9 @@ import {
 const pages: Record<ScreenId, ReactNode> = {
   hands: <HandsPage />,
   shops: <ShopsPage />,
-  'true-words': <TrueWordsPage />,
   'custom-draft': <CustomDraftPage />,
   library: <LibraryPage />,
   sets: <SetsPage />,
-  'cursed-deck': <CursedDeckPage />,
   'activity-log': <ActivityLogPage />,
   rules: <RulesPage />,
   settings: <SettingsPage />,
@@ -50,6 +48,16 @@ const shopPages: Record<ShopScreenId, ReactNode> = {
   'pack-shop': <PackShopPage />,
   'elixir-shop': <ElixirShopPage />,
 }
+
+/**
+ * The former addresses of the screens merged into the Kütüphane (spec: app-shell, "Former addresses of the merged
+ * screens"; design D8 of merge-library-tabs). Each replaces itself in the history with its new address.
+ */
+const FORMER_ADDRESSES: RouteObject[] = [
+  { path: '/cursed-deck', element: <Navigate to={libraryPath('cursed')} replace /> },
+  { path: '/cursed-deck/:cardId', element: <FormerCardHistoryAddress /> },
+  { path: '/true-words', element: <FormerTrueWordsAddress /> },
+]
 
 export const routes: RouteObject[] = [
   { path: SIGN_IN_PATH, element: <SignInPage /> },
@@ -66,9 +74,9 @@ export const routes: RouteObject[] = [
           // One player's hand: a detail route under "Oyuncu elleri", without a menu entry of its own.
           { path: HAND_ROUTE, element: <PlayerHandPage /> },
           // A card's history and a set's statistics: detail routes under their menu entries.
-          { path: CARD_HISTORY_ROUTES.legend, element: <CardHistoryPage deck="legend" /> },
-          { path: CARD_HISTORY_ROUTES.cursed, element: <CardHistoryPage deck="cursed" /> },
+          { path: CARD_HISTORY_ROUTE, element: <CardHistoryPage /> },
           { path: SET_STATS_ROUTE, element: <SetStatsPage /> },
+          ...FORMER_ADDRESSES,
           { path: '*', element: <NotFoundPage /> },
         ],
       },

@@ -10,34 +10,15 @@ export const SCREENS = [
   { id: 'hands', path: '/hands', label: 'Oyuncu elleri', icon: '♠', mascot: null },
   { id: 'shops', path: '/shops', label: 'Shops', icon: '🎁', mascot: 'cardmaker_keep' },
   {
-    id: 'true-words',
-    path: '/true-words',
-    label: 'True Words',
-    icon: '✦',
-    mascot: 'cardmaker_true',
-  },
-  {
     id: 'custom-draft',
     path: '/custom-draft',
     label: 'Custom Card Draft',
     icon: '✧',
     mascot: 'cardmaker_custom',
   },
-  {
-    id: 'library',
-    path: '/library',
-    label: 'Kart kütüphanesi',
-    icon: '▤',
-    mascot: 'cardmaker_lib',
-  },
+  // The Kütüphane shows its open tab's Cardmaker (LIBRARY_TABS); this one is the default tab's.
+  { id: 'library', path: '/library', label: 'Kütüphane', icon: '▤', mascot: 'cardmaker_lib' },
   { id: 'sets', path: '/sets', label: 'Setler', icon: '◈', mascot: null },
-  {
-    id: 'cursed-deck',
-    path: '/cursed-deck',
-    label: 'Cursed Deck',
-    icon: '☠',
-    mascot: 'cardmaker_cursed',
-  },
   { id: 'activity-log', path: '/log', label: 'İşlem Logu', icon: '☷', mascot: 'cardmaker_think' },
   { id: 'rules', path: '/rules', label: 'Kurallar', icon: '📖', mascot: 'cardmaker_wave' },
   { id: 'settings', path: '/settings', label: 'Veri / Yedek', icon: '⚙', mascot: 'cardmaker_peek' },
@@ -67,18 +48,57 @@ export function handPath(uid: string): string {
 }
 
 /**
- * A card's Kart geçmişi (spec: card-stats): below the Kart kütüphanesi's path for a Legend or Blessed card, and below
- * the Cursed Deck's for a Cursed card. Each sits below its menu entry's path, so the menu keeps that screen marked.
+ * The tabs of the Kütüphane (spec: card-library, "The Kütüphane screen and its tabs"), in order, with each tab's value
+ * of `LIBRARY_TAB_PARAM` and its Cardmaker. The Kartlar tab has no value: it is the default, as on the hand screen.
  */
-export const CARD_HISTORY_ROUTES = {
-  legend: `${screenById('library').path}/:cardId`,
-  cursed: `${screenById('cursed-deck').path}/:cardId`,
-} as const
+export const LIBRARY_TABS = [
+  { id: 'cards', value: null, label: '♠ Kartlar', mascot: 'cardmaker_lib' },
+  { id: 'cursed', value: 'cursed', label: '☠ Cursed', mascot: 'cardmaker_cursed' },
+  { id: 'true-words', value: 'true-words', label: '✦ True Words', mascot: 'cardmaker_true' },
+] as const
 
-/** The URL of a card's Kart geçmişi, below the screen of its deck. */
-export function cardHistoryPath(card: Pick<Card, 'id' | 'kind'>): string {
-  const deck = screenById(card.kind === 'cursed' ? 'cursed-deck' : 'library')
-  return `${deck.path}/${encodeURIComponent(card.id)}`
+export type LibraryTabEntry = (typeof LIBRARY_TABS)[number]
+export type LibraryTab = LibraryTabEntry['id']
+
+/** The search parameter of the Kütüphane's open tab. */
+export const LIBRARY_TAB_PARAM = 'tab'
+
+/** The search parameter of the player the DM chose on the True Words tab. */
+export const LIBRARY_FOR_PARAM = 'for'
+
+export function libraryTabById(id: LibraryTab): LibraryTabEntry {
+  const tab = LIBRARY_TABS.find((candidate) => candidate.id === id)
+  if (!tab) throw new Error(`Unknown library tab: ${id}`)
+  return tab
+}
+
+/** The tab a URL value opens: no value, or one no tab has, opens Kartlar. */
+export function libraryTabOf(value: string | null): LibraryTab {
+  return LIBRARY_TABS.find((tab) => tab.value !== null && tab.value === value)?.id ?? 'cards'
+}
+
+/**
+ * The URL of a tab of the Kütüphane. On the True Words tab, `forUid` names the player the DM shows and starts drafts
+ * for (the hand's "✦ True Word Draft" link sets it); a player always sees their own.
+ */
+export function libraryPath(tab: LibraryTab = 'cards', forUid?: string): string {
+  const params = new URLSearchParams()
+  const value = libraryTabById(tab).value
+  if (value !== null) params.set(LIBRARY_TAB_PARAM, value)
+  if (forUid !== undefined) params.set(LIBRARY_FOR_PARAM, forUid)
+  const search = params.toString()
+  return search === '' ? screenById('library').path : `${screenById('library').path}?${search}`
+}
+
+/**
+ * A card's Kart geçmişi (spec: card-stats), below the Kütüphane's path whatever the card's kind, so the menu keeps the
+ * Kütüphane marked.
+ */
+export const CARD_HISTORY_ROUTE = `${screenById('library').path}/:cardId`
+
+/** The URL of a card's Kart geçmişi. */
+export function cardHistoryPath(card: Pick<Card, 'id'>): string {
+  return `${screenById('library').path}/${encodeURIComponent(card.id)}`
 }
 
 /** A set's Set istatistikleri (spec: card-stats), below the Setler screen's path, which the menu keeps marked. */
@@ -131,15 +151,6 @@ export function shopScreenById(id: ShopScreenId): ShopScreen {
  */
 export function packShopPath(forUid?: string): string {
   const path = shopScreenById('pack-shop').path
-  return forUid === undefined ? path : `${path}?for=${encodeURIComponent(forUid)}`
-}
-
-/**
- * The True Words screen's URL. For the DM, `forUid` names the player to show and start drafts for (the hand's
- * "✦ True Word Draft" link sets it); a player always sees their own.
- */
-export function trueWordsPath(forUid?: string): string {
-  const path = screenById('true-words').path
   return forUid === undefined ? path : `${path}?for=${encodeURIComponent(forUid)}`
 }
 

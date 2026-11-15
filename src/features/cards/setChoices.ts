@@ -1,7 +1,7 @@
 import type { SetIndex } from '@/features/sets/index'
 
 import { type SetLookup, setFilterCode } from './pool'
-import type { Card } from './schema'
+import type { Definition } from './schema'
 import { compareLabels } from './sort'
 
 /** The "Blessed" choice of a set filter that lists it. Blessed is not a set: it is never a stored set's code. */
@@ -17,7 +17,7 @@ export type SetChoice = { code: string; label: string }
  * filter's choices").
  */
 export function setChoices(
-  cards: readonly Card[],
+  cards: readonly Pick<Definition, 'kind' | 'setCode'>[],
   sets: SetLookup & Pick<SetIndex, 'setRank'>,
   { withBlessed }: { withBlessed: boolean },
 ): SetChoice[] {

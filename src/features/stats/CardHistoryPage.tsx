@@ -1,9 +1,10 @@
 import { type ReactNode, useId, useMemo, useState } from 'react'
 import { useParams } from 'react-router'
 
+import { libraryPath } from '@/app/screens'
 import { Pill } from '@/components/ui/Pill'
 import { Spinner } from '@/components/ui/Spinner'
-import { type Deck, isInDeck, useCardsById } from '@/features/cards/cardsContext'
+import { useCardsById } from '@/features/cards/cardsContext'
 import { CardFace } from '@/features/cards/CardFace'
 import { NO_VALUE } from '@/features/cards/display'
 import type { Card } from '@/features/cards/schema'
@@ -232,21 +233,23 @@ function isOpenTo(card: Card, isDm: boolean, isHeld: boolean): boolean {
 
 /**
  * A card's Kart geçmişi (spec: card-stats): the card large with its labels and status, eight stat tiles, and the
- * Geçmiş list of what happened to it, grouped by day, newest first. It sits under the address of its deck's screen,
- * and counts live from the card's holdings, draws and pack openings while it is open.
+ * Geçmiş list of what happened to it, grouped by day, newest first. It sits below the Kütüphane's address, whatever the
+ * card's kind, with a link back to the tab of its kind, and counts live from the card's holdings, draws and pack
+ * openings while it is open. A True Word's ID names no card here (design D7 of merge-library-tabs).
  */
-export function CardHistoryPage({ deck }: { deck: Deck }) {
+export function CardHistoryPage() {
   const { cardId = '' } = useParams()
   const isDm = useIsDm()
   const cardsById = useCardsById()
   const holdings = useOpenHoldings()
   const names = useStatsNames()
-  const back = <BackLink screen={deck === 'cursed' ? 'cursed-deck' : 'library'} />
-
   const card = cardsById.status === 'ready' ? cardsById.data.get(cardId) : undefined
+  const back = (
+    <BackLink screen="library" to={libraryPath(card?.kind === 'cursed' ? 'cursed' : 'cards')} />
+  )
   const isHeld =
     holdings.status === 'ready' && holdings.data.some((holding) => holding.cardId === cardId)
-  const isShown = card !== undefined && isInDeck(card, deck) && isOpenTo(card, isDm, isHeld)
+  const isShown = card !== undefined && isOpenTo(card, isDm, isHeld)
   const records = useCardRecords(isShown ? cardId : null)
   // Read once, when the page opens: the page does not tick (design D7).
   const [now] = useState(() => Date.now())

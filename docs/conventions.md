@@ -73,12 +73,14 @@ src/
                         saveCard, setCardStatus, deleteCard and the same for words, each a transaction with its
                         record), errors, DefinitionsProvider, useDefinitionActions, the forms (DefinitionForm,
                         CardFormDialog, WordFormDialog, with their BehaviorSection), the status filter
-                        (StatusFilter, statusFilterOptions) and useCardEditing
+                        (StatusFilter, statusFilterOptions), and the DM's editing on the Kütüphane's tabs
+                        (useCardEditing, useWordEditing, useAddDefinition)
     true-words/         True Words: schema (learned words as a view of their holdings, player state, drafts
                         among the draws), api (startDraft, learnWord, skipDraft, cancelDraft, teachWord,
                         takeBackWord, setWordActive, recordWordUse on the shared holding steps), errors,
-                        TrueWordsProvider, useTrueWords, useKnownWords, useOpenDraft, useTrueWordActions,
-                        the True Words screen, the open draft panel, the word's details (TrueWordDetails, in
+                        TrueWordsProvider, useTrueWords, useKnownWords, useOpenDraft, useTrueWordActions, the
+                        words' Durum in the Kütüphane (wordStatus: who knows each word), the Kütüphane's True
+                        Words tab (TrueWordsTab), the open draft panel, the word's details (TrueWordDetails, in
                         the hand's panel or in TrueWordDialog), the hand's True Words tab, the active words
                         peeking out above the hand (ActiveWordsPeek), and a word shown large (TrueWordZoomDialog)
     characters/         the table's characters (spec: characters): schema (characterConverter, which also checks that a
@@ -94,8 +96,9 @@ src/
                         savePlayerNote, saveDmNote), PlayerNotesProvider, usePlayerNote, useDmNote (only inside
                         <DmOnly>; dmNoteTarget), useNoteActions, and the hand's notes (HandNotes.tsx: PlayerNote,
                         under every tab, and DmNote, the DM notu tab)
-    library/ cursed-deck/
-                        the two card screens, each a <Name>Page.tsx around the shared card browser
+    library/            the Kütüphane (LibraryPage): its three tabs around the shared card browser, Kartlar and
+                        Cursed in the page and True Words from true-words (TrueWordsTab), each tab's count
+                        (useLibraryCounts), and the pool distribution (PoolDistributionDialog)
     activity-log/       the İşlem Logu: the log queries (api), ActivityLogProvider (useLogRecords, useHolding),
                         events derived from holdings, draws and packs, and the ledger (events, eventText),
                         ActivityLogPage
@@ -110,7 +113,8 @@ src/
   components/ui/        shared primitives: Avatar, Button, Dialog (a native modal dialog; one may open inside
                         another, and closing the inner one leaves the outer one open; `closeOnBackdrop` also closes
                         it with a click outside, as the zoom view does), PageHeader, Placeholder, Spinner,
-                        FullScreenSpinner, and the details' pieces: Pill (a label whose border takes a kind's
+                        FullScreenSpinner, TabList and TabPanel (a row of tabs kept in the URL by its screen: the
+                        hand's and the Kütüphane's), and the details' pieces: Pill (a label whose border takes a kind's
                         color), NotePaper (the card note on cream paper), ToolSection (a heading between two
                         lines, as "DM araçları"), EmptyCardSlot (the dashed card place of an empty details panel)
   lib/
@@ -160,7 +164,7 @@ Rules:
 | React component and its file     | PascalCase                  | `AppShell.tsx` exports `AppShell` |
 | Hook                             | `useX`, camelCase file      | `useOnlineStatus.ts`              |
 | Other modules                    | camelCase file              | `authErrors.ts`                   |
-| Feature folder                   | kebab-case                  | `features/cursed-deck/`           |
+| Feature folder                   | kebab-case                  | `features/true-words/`            |
 | Screen component                 | `<Name>Page`                | `LibraryPage.tsx`                 |
 | Boolean                          | `is` / `has` / `can` prefix | `isCursed`, `canOpenPack`         |
 | Constant that is a true constant | UPPER_SNAKE_CASE            | `SET_PACK_ORDER`                  |
@@ -318,10 +322,10 @@ The main screens were added this way. A new one follows the same steps:
 A screen that is not part of the main menu (for example a detail page) gets a route in `routes.tsx` under the `AppShell` children, but no `SCREENS` entry. Its path sits below its menu screen's path, so the menu's `NavLink` keeps that screen marked, and `screens.ts` exports the route pattern and a builder for its URL:
 
 - one player's hand: `HAND_ROUTE` (`/hands/:uid`) and `handPath(uid)`
-- a card's Kart geçmişi: `CARD_HISTORY_ROUTES` (`/library/:cardId` for a Legend or Blessed card, `/cursed-deck/:cardId` for a Cursed card) and `cardHistoryPath(card)`, which picks the screen from the card's kind
+- a card's Kart geçmişi: `CARD_HISTORY_ROUTE` (`/library/:cardId`, whatever the card's kind) and `cardHistoryPath(card)`
 - a set's Set istatistikleri: `SET_STATS_ROUTE` (`/sets/:setId`) and `setStatsPath(set)`
 
-A detail page shows a link back to its menu screen ("← Kart kütüphanesi"), and its own message for an address that names nothing ("Böyle bir oyuncu yok.", "Kart bulunamadı.", "Böyle bir set yok.").
+A detail page shows a link back to its menu screen ("← Kütüphane", to the tab of the card's kind), and its own message for an address that names nothing ("Böyle bir oyuncu yok.", "Kart bulunamadı.", "Böyle bir set yok.").
 
 **Sub-screens of a menu screen** follow the Shops screen:
 
@@ -329,6 +333,8 @@ A detail page shows a link back to its menu screen ("← Kart kütüphanesi"), a
 - **Paths.** Each sub-screen's path sits below the parent's path, for example `/shops/packs` under `/shops`. The menu's `NavLink` then keeps the parent marked while a sub-screen is open, with no extra code.
 - **Back link.** Each sub-screen shows a link back to the parent in its header (`Placeholder` and `PageHeader` take `actions`), because on phones the menu is hidden behind a button.
 - **Tests.** Cover the parent's links, the parent staying marked, and the back link, as in `src/features/shops/ShopsPage.test.tsx`.
+
+**Tabs of a menu screen** follow the hand and the Kütüphane: the screen renders a `TabList` (`src/components/ui/`) and keeps the open tab in a `?tab=` search parameter, with no value for its first tab. Its tabs are listed next to `SCREENS` (for the Kütüphane, `LIBRARY_TABS` with `libraryTabOf` and `libraryPath`). An address that no longer exists after a merge of screens gets a `<Navigate replace>` route in `FORMER_ADDRESSES` in `routes.tsx`.
 
 ## Adding a new data path
 

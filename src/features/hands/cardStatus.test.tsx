@@ -6,6 +6,7 @@ import { ONLY_FROM_DM, testBlessedCard, testCard, testCursedCard } from '@/test/
 import { ready, testProfile } from '@/test/fixtures'
 import { testHolding } from '@/test/holdingFixtures'
 import { renderApp } from '@/test/renderApp'
+import { testTrueWord } from '@/test/trueWordFixtures'
 
 import { isMarkedHeld, statusLabel } from '@/features/cards/status'
 
@@ -121,6 +122,25 @@ describe('cardStatuses', () => {
   })
 })
 
+describe('statusLabel of a True Word', () => {
+  const abyss = testTrueWord('Abyss')
+  const justice = testTrueWord('Justice', { isInDraws: false })
+
+  it('names those who know it, or "—", and never marks it held', () => {
+    const known = { inPool: false, holderNames: ['Ayla', 'Bora'] }
+    expect(statusLabel(abyss, known)).toBe('Bilenler: Ayla, Bora')
+    expect(statusLabel(abyss, { inPool: false, holderNames: [] })).toBe('—')
+    expect(isMarkedHeld(abyss, known)).toBe(false)
+  })
+
+  it('makes a word kept out of drafts "DM\'e özel"', () => {
+    expect(statusLabel(justice, { inPool: false, holderNames: ['Bora'] })).toBe(
+      "DM'e özel · Bilenler: Bora",
+    )
+    expect(statusLabel(justice, { inPool: false, holderNames: [] })).toBe("DM'e özel")
+  })
+})
+
 describe('pool status on the card screens', () => {
   it('shows the library status and counts live as a card returns to the pool', async () => {
     const user = userEvent.setup()
@@ -156,15 +176,16 @@ describe('pool status on the card screens', () => {
     )
   })
 
-  it('shows on the Cursed Deck everyone who holds a Cursed card', () => {
+  it('shows on the Cursed tab everyone who holds a Cursed card, and the copies in hands', () => {
     renderApp({
-      path: '/cursed-deck',
+      path: '/library?tab=cursed',
       users: { profiles: ready(profiles) },
       cards: { cards: ready([visions, hex]) },
       holdings: {
         openHoldings: ready([
           testHolding(visions, 'ayla', 1000),
           testHolding(visions, 'bora', 2000),
+          testHolding(hex, 'bora', 3000),
         ]),
       },
     })
@@ -174,6 +195,7 @@ describe('pool status on the card screens', () => {
         'Elde: Ayla, Bora',
       ),
     ).toBeInTheDocument()
-    expect(screen.getByRole('article', { name: 'Hex' })).not.toHaveTextContent('Elde')
+    expect(screen.getByRole('article', { name: 'Hex' })).toHaveTextContent('Elde: Bora')
+    expect(screen.getByLabelText('Eldeki kopyalar')).toHaveTextContent('Ellerde 3')
   })
 })

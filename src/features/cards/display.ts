@@ -1,4 +1,4 @@
-import type { Card } from './schema'
+import type { Definition } from './schema'
 import { matchesAllTerms, normalize, searchTerms } from './text'
 
 /**
@@ -74,12 +74,21 @@ export function costChange(
   return current < base ? 'lower' : 'higher'
 }
 
-/** The frame a card gets, after the Kurallar table rules: purple Common, gold Rare, white Blessed, red Cursed. */
-export type CardFrame = 'common' | 'rare' | 'blessed' | 'cursed'
+/**
+ * The frame a face gets, after the Kurallar table rules: purple Common, gold Rare, white Blessed, red Cursed, and the
+ * True Words color for a True Word in the Kütüphane (spec: card-library, "Card view").
+ */
+export type CardFrame = 'common' | 'rare' | 'blessed' | 'cursed' | 'word'
 
-export function cardFrame(card: Card): CardFrame {
+export function cardFrame(card: Pick<Definition, 'kind' | 'rarity'>): CardFrame {
+  if (card.kind === 'trueWord') return 'word'
   // A normal draft may have no rarity yet: it gets the Common frame until it does.
   return card.kind === 'normal' ? (card.rarity ?? 'common') : card.kind
+}
+
+/** True when a face shows a set, a rarity and a mechanic pack: not for a Cursed card or a True Word. */
+export function hasSetDetails(card: Pick<Definition, 'kind'>): boolean {
+  return card.kind !== 'cursed' && card.kind !== 'trueWord'
 }
 
 /**
@@ -110,31 +119,35 @@ export function faceGlow(
     return frame === 'cursed' ? 'active-cursed' : frame === 'blessed' ? 'active-blessed' : 'active'
   }
   if (state.isSelected) return 'selected'
-  if (state.isRevealed) return `reveal-${frame}`
+  // A True Word is never drawn or shown in a pack, so it has no reveal glow.
+  if (state.isRevealed && frame !== 'word') return `reveal-${frame}`
   return state.isHeld ? 'held' : null
 }
 
 /** The kind word shown and searched for Blessed and Cursed cards. Normal cards have none. */
-export function kindLabel(card: Pick<Card, 'kind'>): string | null {
+export function kindLabel(card: Pick<Definition, 'kind'>): string | null {
   return card.kind === 'blessed' ? 'Blessed' : card.kind === 'cursed' ? 'Cursed' : null
 }
 
-/** The set as shown: the official name, "Blessed" for Blessed cards, nothing for Cursed cards. */
-export function setLabel(card: Pick<Card, 'kind' | 'setCode'>, setName: SetName): string | null {
+/** The set as shown: the official name, "Blessed" for Blessed cards, nothing for Cursed cards and True Words. */
+export function setLabel(
+  card: Pick<Definition, 'kind' | 'setCode'>,
+  setName: SetName,
+): string | null {
   if (card.kind === 'blessed') return 'Blessed'
   return card.setCode === null ? null : setName(card.setCode)
 }
 
 /** "Common", "Rare", or nothing. */
-export function rarityLabel(card: Pick<Card, 'rarity'>): string | null {
+export function rarityLabel(card: Pick<Definition, 'rarity'>): string | null {
   return card.rarity === 'common' ? 'Common' : card.rarity === 'rare' ? 'Rare' : null
 }
 
 /**
- * Everything a search looks in, normalized once per card: name, set code and official name, cost, rarity,
+ * Everything a search looks in, normalized once per card or True Word: name, set code and official name, cost, rarity,
  * mechanic pack, the raw text with its bracket metadata, and the kind word of Blessed and Cursed cards.
  */
-export function cardHaystack(card: Card, setName: SetName): string {
+export function cardHaystack(card: Definition, setName: SetName): string {
   return normalize(
     [
       card.name,

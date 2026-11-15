@@ -306,12 +306,12 @@ describe.each(HOSTS)('the card details in $name', (current) => {
       expect(screen.getByRole('heading', { level: 1, name: 'Night Owl' })).toBeInTheDocument()
     })
 
-    it("opens a Cursed card's Kart geçmişi under the Cursed Deck's address", async () => {
+    it("opens a Cursed card's Kart geçmişi under the Kütüphane's address", async () => {
       await openDetails({ card: testCursedCard('Night Owl', { cost: '1' }) })
 
       expect(details().getByRole('link', { name: 'Kart geçmişi →' })).toHaveAttribute(
         'href',
-        '/cursed-deck/cursed-nightowl',
+        '/library/cursed-nightowl',
       )
     })
 

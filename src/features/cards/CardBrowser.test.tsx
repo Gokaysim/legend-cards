@@ -13,6 +13,7 @@ import { TestArtProvider } from '@/test/TestArtProvider'
 import { renderWithSets } from '@/test/renderWithSets'
 import { TEST_SETS } from '@/test/setFixtures'
 import { TestSetsProvider } from '@/test/TestSetsProvider'
+import { testTrueWord } from '@/test/trueWordFixtures'
 
 import { CardBrowser } from './CardBrowser'
 import type { Card } from './schema'
@@ -334,7 +335,9 @@ describe('CardBrowser for the Cursed deck', () => {
 
     expect(screen.getByText('2 kart')).toBeInTheDocument()
     expect(shownNames()).toEqual(['Heart Attack', 'Visions of Death'])
-    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: 'Set' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: 'Mechanic Pack' })).not.toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Cost' })).toBeInTheDocument()
   })
 
   it('zooms a Cursed card to its picture, named Cursed with its cost', async () => {
@@ -490,14 +493,50 @@ describe('CardBrowser pool status', () => {
     expect(shownNames()).toEqual(['Let Go'])
   })
 
-  it('offers the pool-only filter only once the status is known, and not on the Cursed Deck', () => {
+  it('offers the pool-only filter only once the status is known, and not on the Cursed tab', () => {
     const { rerender } = renderWithSets(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
     expect(screen.getByRole('checkbox', { name: 'Yalnızca havuzdakiler' })).toBeDisabled()
     expect(screen.queryByLabelText('Havuz durumu')).not.toBeInTheDocument()
 
     rerender(<CardBrowser deck="cursed" cards={ready(CURSED)} status={deckStatus(CURSED, {})} />)
-    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('checkbox', { name: 'Yalnızca havuzdakiler' }),
+    ).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Havuz durumu')).not.toBeInTheDocument()
+  })
+
+  it('lists only the Cursed cards someone holds with "Yalnızca eldekiler", and counts the copies in hands', async () => {
+    const user = userEvent.setup()
+    const { rerender } = renderWithSets(<CardBrowser deck="cursed" cards={ready(CURSED)} />)
+    expect(screen.getByRole('checkbox', { name: 'Yalnızca eldekiler' })).toBeDisabled()
+
+    const held = { 'Visions of Death': { holderNames: ['Ayla', 'Bora'] } }
+    rerender(
+      <CardBrowser
+        deck="cursed"
+        cards={ready(CURSED)}
+        status={deckStatus(CURSED, held, { poolCount: 0, handCount: 2 })}
+      />,
+    )
+    expect(screen.getByLabelText('Eldeki kopyalar')).toHaveTextContent('Ellerde 2')
+
+    await user.click(screen.getByRole('checkbox', { name: 'Yalnızca eldekiler' }))
+    expect(shownNames()).toEqual(['Visions of Death'])
+    expect(screen.getByText('1 kart (toplam 2)')).toBeInTheDocument()
+
+    // Bora draws "Heart Attack" on another device.
+    rerender(
+      <CardBrowser
+        deck="cursed"
+        cards={ready(CURSED)}
+        status={deckStatus(
+          CURSED,
+          { ...held, 'Heart Attack': { holderNames: ['Bora'] } },
+          { poolCount: 0, handCount: 3 },
+        )}
+      />,
+    )
+    expect(shownNames()).toEqual(['Heart Attack', 'Visions of Death'])
   })
 
   it('shows everyone who holds a Cursed card, on its face and in the Durum column', async () => {
@@ -630,5 +669,157 @@ describe('CardBrowser for the DM: the status filter and the edit control', () =>
     renderWithSets(<CardBrowser deck="legend" cards={ready(LEGEND)} />)
     expect(screen.queryByRole('combobox', { name: 'Durum' })).toBeNull()
     expect(screen.queryByRole('button', { name: /düzenle/ })).toBeNull()
+  })
+})
+
+describe('CardBrowser Cost filter', () => {
+  const COSTED: Card[] = [
+    testCard('One', { cost: '1', setCode: 'Kesqer', text: 'Draw a card.' }),
+    testCard('Ten', { cost: '10', setCode: 'Kesqer' }),
+    testCard('Two', { cost: '2', setCode: 'Havenholm', text: 'Draw two.' }),
+    testCard('Zero', { cost: '0', setCode: 'Kesqer' }),
+    testCard('Ex', { cost: 'X', setCode: 'Kesqer' }),
+    testCard('Little Ex', { cost: ' x ', setCode: 'Kesqer' }),
+    testCard('Dice', { cost: 'd6', setCode: 'Kesqer' }),
+    testCard('Free Draw', { cost: '1', setCode: 'Havenholm', text: 'Draw a card.' }),
+    testBlessedCard('Nothing', { cost: null }),
+  ]
+
+  it('offers each cost once, numbers first in numeric order, then the others', () => {
+    renderWithSets(<CardBrowser deck="legend" cards={ready(COSTED)} />)
+    expect(options('Cost')).toEqual(['Tüm cost’lar', '0', '1', '2', '10', 'd6', 'X'])
+  })
+
+  it('keeps the cards of a cost, ignoring case, and combines with the set filter and the search', async () => {
+    const user = userEvent.setup()
+    renderWithSets(<CardBrowser deck="legend" cards={ready(COSTED)} />)
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Cost' }), 'X')
+    expect(shownNames()).toEqual(['Ex', 'Little Ex'])
+    expect(screen.getByText('2 kart (toplam 9)')).toBeInTheDocument()
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Cost' }), '1')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Set' }), 'Kesqerian Nights')
+    await user.type(search(), 'draw')
+    expect(shownNames()).toEqual(['One'])
+  })
+
+  it('filters the Cursed cards by cost', async () => {
+    const user = userEvent.setup()
+    renderWithSets(
+      <CardBrowser
+        deck="cursed"
+        cards={ready([
+          testCursedCard('Hex', { cost: '2' }),
+          testCursedCard('Blight', { cost: '1' }),
+          testCursedCard('Doom', { cost: '2' }),
+        ])}
+      />,
+    )
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Cost' }), '2')
+    expect(shownNames()).toEqual(['Doom', 'Hex'])
+  })
+})
+
+describe('CardBrowser for the True Words', () => {
+  const abyss = testTrueWord('Abyss', { cost: '5', text: '[Deep] Pull them under.' })
+  const aid = testTrueWord('Aid', { cost: '1', text: 'Heal an ally.' })
+  const dragon = testTrueWord('Dragon', { cost: 'X', text: 'Breathe fire.' })
+  const justice = testTrueWord('Justice', { isInDraws: false, text: 'Judge them.' })
+  const WORDS = [abyss, aid, dragon, justice]
+  const wordStatus = {
+    byCard: new Map([
+      [abyss.id, { inPool: false, holderNames: ['Ayla', 'Bora'] }],
+      [aid.id, { inPool: false, holderNames: ['Ayla'] }],
+      [dragon.id, { inPool: false, holderNames: [] }],
+      [justice.id, { inPool: false, holderNames: ['Bora'] }],
+    ]),
+  }
+  const aylaKnows = (word: { id: string }) => word.id === abyss.id || word.id === aid.id
+
+  it('says so when there are no words at all, or none is found', async () => {
+    const user = userEvent.setup()
+    const { rerender } = renderWithSets(<CardBrowser deck="words" cards={ready([])} />)
+    expect(screen.getByText('Henüz True Word yok.')).toBeInTheDocument()
+
+    rerender(<CardBrowser deck="words" cards={ready(WORDS)} />)
+    expect(screen.getByText('4 True Word')).toBeInTheDocument()
+    await user.type(search(), 'no such word')
+    expect(screen.getByText('True Word bulunamadı.')).toBeInTheDocument()
+  })
+
+  it('shows each word as a face in the True Words frame, marked "Biliyor" for the chosen player, without a glow or a clock', () => {
+    renderWithSets(
+      <CardBrowser deck="words" cards={ready(WORDS)} status={wordStatus} isKnown={aylaKnows} />,
+    )
+
+    expect(shownNames()).toEqual(['Abyss', 'Aid', 'Dragon', 'Justice'])
+    const face = screen.getByRole('article', { name: 'Abyss' })
+    expect(face).toHaveAttribute('data-frame', 'word')
+    expect(face).toHaveTextContent('Biliyor')
+    expect(face).not.toHaveTextContent('Bilenler')
+    expect(face.closest('[data-glow]')).toBeNull()
+    expect(screen.getByRole('article', { name: 'Dragon' })).not.toHaveTextContent('Biliyor')
+    expect(screen.queryByRole('link', { name: /geçmiş/ })).not.toBeInTheDocument()
+    // The draft section above says how many words the player knows; the count line does not repeat it.
+    expect(screen.getByText('4 True Word').parentElement).not.toHaveTextContent('biliyor')
+  })
+
+  it('searches the words and filters them by cost', async () => {
+    const user = userEvent.setup()
+    renderWithSets(<CardBrowser deck="words" cards={ready(WORDS)} />)
+
+    expect(screen.queryByRole('combobox', { name: 'Set' })).not.toBeInTheDocument()
+    await user.type(search(), 'deep')
+    expect(shownNames()).toEqual(['Abyss'])
+
+    await user.clear(search())
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Cost' }), 'X')
+    expect(shownNames()).toEqual(['Dragon'])
+  })
+
+  it('lists the words with their Durum, "Biliyor" and plain names in the list view', async () => {
+    const user = userEvent.setup()
+    renderWithSets(
+      <CardBrowser deck="words" cards={ready(WORDS)} status={wordStatus} isKnown={aylaKnows} />,
+    )
+
+    await user.click(screen.getByRole('button', { name: '☷ Liste' }))
+
+    expect(
+      screen
+        .getAllByRole('columnheader')
+        .map((header) => header.textContent?.replace(/[▲▼↕]|\(.*\)/g, '').trim()),
+    ).toEqual(['Kart', 'Cost', 'Metin', 'Durum'])
+    const durum = (name: string) =>
+      within(screen.getByRole('row', { name: new RegExp(name) }))
+        .getAllByRole('cell')
+        .at(-1)
+    expect(durum('Abyss')).toHaveTextContent('Bilenler: Ayla, Bora')
+    expect(durum('Dragon')).toHaveTextContent('—')
+    expect(durum('Justice')).toHaveTextContent("DM'e özel · Bilenler: Bora")
+    expect(screen.getByRole('rowheader', { name: /Aid/ })).toHaveTextContent('Biliyor')
+    expect(screen.queryByRole('link')).not.toBeInTheDocument()
+  })
+
+  it('lists only the words the chosen player does not know with "Yalnızca öğrenilmemişler"', async () => {
+    const user = userEvent.setup()
+    const { rerender } = renderWithSets(<CardBrowser deck="words" cards={ready(WORDS)} />)
+    expect(screen.getByRole('checkbox', { name: 'Yalnızca öğrenilmemişler' })).toBeDisabled()
+
+    rerender(<CardBrowser deck="words" cards={ready(WORDS)} isKnown={aylaKnows} />)
+    await user.click(screen.getByRole('checkbox', { name: 'Yalnızca öğrenilmemişler' }))
+    expect(shownNames()).toEqual(['Dragon', 'Justice'])
+
+    // Ayla learns "Dragon" on another device.
+    rerender(
+      <CardBrowser
+        deck="words"
+        cards={ready(WORDS)}
+        isKnown={(word) => aylaKnows(word) || word.id === dragon.id}
+      />,
+    )
+    expect(shownNames()).toEqual(['Justice'])
   })
 })

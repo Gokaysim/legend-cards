@@ -51,10 +51,10 @@ function renderHistory({
 }
 
 describe('who opens a card page', () => {
-  it('shows a player "Kart bulunamadı." for a draft, with the link back', () => {
+  it('shows a player "Kart bulunamadı." for a draft, with the link back to the Kütüphane', () => {
     renderHistory({ path: `/library/${draft.id}` })
     expect(screen.getByText('Kart bulunamadı.')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: '← Kart kütüphanesi' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '← Kütüphane' })).toHaveAttribute('href', '/library')
   })
 
   it('shows a player a DM-only card someone holds', () => {
@@ -98,7 +98,7 @@ describe('who opens a card page', () => {
     expect(screen.getByText('Taslak')).toBeInTheDocument()
   })
 
-  it('says "Kart bulunamadı." for an unknown card and for the wrong screen of a card', () => {
+  it('says "Kart bulunamadı." for an unknown card', () => {
     renderHistory({ path: '/library/legend-nothing' })
     expect(screen.getByText('Kart bulunamadı.')).toBeInTheDocument()
   })
@@ -115,10 +115,10 @@ describe('who opens a card page', () => {
     expect(screen.getByText("DM'e özel")).toBeInTheDocument()
   })
 
-  it('does not show a Legend card under the Cursed Deck', () => {
-    renderHistory({ path: `/cursed-deck/${ABOLETH.id}` })
-    expect(screen.getByText('Kart bulunamadı.')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: '← Cursed Deck' })).toBeInTheDocument()
+  it("opens a card's former Cursed Deck address under the Kütüphane", () => {
+    const { router } = renderHistory({ path: `/cursed-deck/${curse.id}` })
+    expect(router.state.location.pathname).toBe(`/library/${curse.id}`)
+    expect(screen.getByRole('heading', { level: 1, name: 'Abandon All Hope' })).toBeInTheDocument()
   })
 })
 
@@ -161,10 +161,13 @@ describe('the card on its page', () => {
     expect(document.querySelector('[data-status-pill]')).toHaveTextContent('Elde: Bora')
   })
 
-  it('shows a Cursed card under the Cursed Deck, with "Cursed" and its cost', () => {
-    renderHistory({ path: `/cursed-deck/${curse.id}` })
+  it('shows a Cursed card under the Kütüphane, with "Cursed" and its cost, and leads back to the Cursed tab', () => {
+    renderHistory({ path: `/library/${curse.id}` })
     expect(screen.getByRole('heading', { level: 1, name: 'Abandon All Hope' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: '← Cursed Deck' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '← Kütüphane' })).toHaveAttribute(
+      'href',
+      '/library?tab=cursed',
+    )
     const labels = within(screen.getByRole('list', { name: 'Kart bilgileri' }))
       .getAllByRole('listitem')
       .map((item) => item.textContent)

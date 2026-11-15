@@ -1,7 +1,7 @@
 import { useId, useMemo, useState } from 'react'
 import { Link } from 'react-router'
 
-import { trueWordsPath } from '@/app/screens'
+import { libraryPath } from '@/app/screens'
 import { Button } from '@/components/ui/Button'
 import { Spinner } from '@/components/ui/Spinner'
 import { TABLE_BUSY_NOTE } from '@/features/table/errors'
@@ -29,8 +29,8 @@ export type HandTrueWordsProps = {
 
 /**
  * A hand's True Words tab (v2.2.8's `trueWordsHand`): its heading, the player's open draft, live, their known words in
- * the order learned as their pictures with their active state (design D9), and a link to the draft on the True Words
- * screen. Selecting a word opens its details. The DM also gets "+ True Word öğret".
+ * the order learned as their pictures with their active state (design D9), and a link to the draft on the Kütüphane's
+ * True Words tab. Selecting a word opens its details. The DM also gets "+ True Word öğret".
  */
 export function HandTrueWords({
   profile,
@@ -62,7 +62,7 @@ export function HandTrueWords({
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-sm text-ink-muted">{`${entries.length} True Word · öğrenme sırası`}</p>
           <Link
-            to={trueWordsPath(isDm ? profile.id : undefined)}
+            to={libraryPath('true-words', isDm ? profile.id : undefined)}
             className="rounded-lg border border-control-line bg-control px-3 py-2 text-sm font-medium text-ink hover:bg-pane-raised"
           >
             ✦ True Word Draft

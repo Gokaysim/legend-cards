@@ -1,5 +1,5 @@
 import type { PillTone } from '@/components/ui/Pill'
-import { cardFrame, NO_VALUE, rarityLabel, type SetName, setLabel } from '@/features/cards/display'
+import { NO_VALUE, rarityLabel, type SetName, setLabel } from '@/features/cards/display'
 import type { Card } from '@/features/cards/schema'
 
 /** One label under the face in a card's details. */
@@ -33,7 +33,8 @@ export function holdingInfo(card: Card, handCost: string | null, setName: SetNam
   const rarity = rarityLabel(card)
   return [
     { label: setLabel(card, setName) ?? NO_VALUE },
-    ...(rarity === null ? [] : [{ label: rarity, tone: cardFrame(card) }]),
+    // A rarity's pill takes its frame's color: purple Common, gold Rare.
+    ...(rarity === null || card.rarity === null ? [] : [{ label: rarity, tone: card.rarity }]),
     ...costPill,
     ...mechanicPack,
   ]

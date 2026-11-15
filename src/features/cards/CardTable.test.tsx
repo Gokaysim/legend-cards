@@ -6,11 +6,12 @@ import { describe, expect, it } from 'vitest'
 
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 import { renderWithSets } from '@/test/renderWithSets'
+import { testTrueWord } from '@/test/trueWordFixtures'
 
-import type { Deck } from './cardsContext'
 import { CardTable } from './CardTable'
-import type { Card } from './schema'
+import type { Definition } from './schema'
 import { type CardSort, DEFAULT_SORT, type SortKey, sortCards, type StatusText } from './sort'
+import { LEGEND_COLUMNS, PLAIN_COLUMNS } from './tableColumns'
 
 /** The table with the same sort handling as the card browser. */
 function SortableTable({
@@ -18,8 +19,8 @@ function SortableTable({
   cards,
   statusText,
 }: {
-  deck: Deck
-  cards: Card[]
+  deck: 'legend' | 'plain'
+  cards: Definition[]
   statusText?: StatusText
 }) {
   const [sort, setSort] = useState<CardSort>(DEFAULT_SORT)
@@ -31,7 +32,7 @@ function SortableTable({
     )
   return (
     <CardTable
-      deck={deck}
+      columns={deck === 'legend' ? LEGEND_COLUMNS : PLAIN_COLUMNS}
       cards={sortCards(cards, sort, statusText)}
       sort={sort}
       onSort={onSort}
@@ -51,7 +52,7 @@ describe('CardTable', () => {
   it('marks a hidden card\'s row "🔒 DM" for the DM only', () => {
     const wish = testCard('The Last Wish', { isInLibrary: false })
     const eyes = testCard("Aboleth's Eyes")
-    const props = { deck: 'legend' as const, sort: DEFAULT_SORT, onSort: () => {} }
+    const props = { columns: LEGEND_COLUMNS, sort: DEFAULT_SORT, onSort: () => {} }
     const view = renderWithSets(<CardTable {...props} cards={[eyes, wish]} marksHidden />)
     expect(screen.getByRole('rowheader', { name: /The Last Wish/ })).toHaveTextContent('🔒 DM')
     expect(screen.getByRole('rowheader', { name: /Aboleth's Eyes/ })).not.toHaveTextContent('🔒')
@@ -65,8 +66,34 @@ describe('CardTable', () => {
   })
 
   it('has the Cursed columns Kart, Cost, Metin and Durum', () => {
-    renderWithSets(<SortableTable deck="cursed" cards={[testCursedCard('Hex')]} />)
+    renderWithSets(<SortableTable deck="plain" cards={[testCursedCard('Hex')]} />)
     expect(headers()).toEqual(['Kart', 'Cost', 'Metin', 'Durum'])
+  })
+
+  it("lists True Words with their name, cost, visible text and Durum, and marks the chosen player's", () => {
+    const abyss = testTrueWord('Abyss', { cost: 'X', text: '[Deep] Pull them under.' })
+    const aid = testTrueWord('Aid')
+    renderWithSets(
+      <CardTable
+        columns={PLAIN_COLUMNS}
+        cards={[abyss, aid]}
+        sort={DEFAULT_SORT}
+        onSort={() => {}}
+        statusText={(word) => (word.id === abyss.id ? 'Bilenler: Ayla' : null)}
+        isKnown={(word) => word.id === abyss.id}
+      />,
+    )
+
+    expect(headers()).toEqual(['Kart', 'Cost', 'Metin', 'Durum'])
+    const row = screen.getByRole('row', { name: /Abyss/ })
+    expect(
+      within(row)
+        .getAllByRole('cell')
+        .map((cell) => cell.textContent),
+    ).toEqual(['X', 'Pull them under.', 'Bilenler: Ayla'])
+    expect(screen.getByRole('rowheader', { name: /Abyss/ })).toHaveTextContent('Biliyor')
+    expect(screen.getByRole('rowheader', { name: /Aid/ })).not.toHaveTextContent('Biliyor')
+    expect(screen.queryByRole('link')).not.toBeInTheDocument()
   })
 
   it('shows the official set name, "Blessed", "—" for missing values, and the visible text', () => {
@@ -176,7 +203,7 @@ describe('CardTable history links', () => {
     renderWithSets(
       <MemoryRouter>
         <CardTable
-          deck="legend"
+          columns={LEGEND_COLUMNS}
           cards={[testCard("Aboleth's Eyes"), testCursedCard('Hex')]}
           sort={DEFAULT_SORT}
           onSort={() => {}}
@@ -185,17 +212,14 @@ describe('CardTable history links', () => {
       </MemoryRouter>,
     )
 
-  it("links each name to the card's history, under its deck's screen", () => {
+  it("links each name to the card's history, below the Kütüphane", () => {
     renderTable(true)
 
     expect(screen.getByRole('link', { name: "Aboleth's Eyes" })).toHaveAttribute(
       'href',
       '/library/legend-abolethseyes',
     )
-    expect(screen.getByRole('link', { name: 'Hex' })).toHaveAttribute(
-      'href',
-      '/cursed-deck/cursed-hex',
-    )
+    expect(screen.getByRole('link', { name: 'Hex' })).toHaveAttribute('href', '/library/cursed-hex')
   })
 
   it('leaves the names as text without it', () => {

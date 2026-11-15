@@ -102,9 +102,9 @@ describe('AppShell', () => {
     const drawer = screen.getByRole('dialog', { name: 'Menü' })
     expect(menuButton).toHaveAttribute('aria-expanded', 'true')
 
-    await user.click(within(drawer).getByRole('link', { name: 'Cursed Deck' }))
+    await user.click(within(drawer).getByRole('link', { name: 'Kütüphane' }))
 
-    expect(router.state.location.pathname).toBe('/cursed-deck')
+    expect(router.state.location.pathname).toBe('/library')
     expect(screen.queryByRole('dialog', { name: 'Menü' })).not.toBeInTheDocument()
   })
 

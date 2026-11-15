@@ -13,6 +13,7 @@ import {
 import { DetailsBadges } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { PageHeader } from '@/components/ui/PageHeader'
+import { TabList, TabPanel } from '@/components/ui/TabList'
 import { Spinner } from '@/components/ui/Spinner'
 import { useAuth } from '@/features/auth/authContext'
 import { useCardsById } from '@/features/cards/cardsContext'
@@ -263,34 +264,23 @@ function HandContent({ profile }: { profile: UserProfile }) {
           under them on a phone (design D5). */}
       <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
         <HandSummary entries={entries} words={wordEntries} profile={profile} />
-        <div
-          role="tablist"
-          aria-label="El"
+        <TabList
+          tabs={tabs}
+          selected={tab}
+          onChange={chooseTab}
+          label="El"
+          idPrefix={ids}
           // On a phone, three tabs share one row; the DM's four take two rows of two, so none is cut off at 360 px.
           className={cn(
-            'gap-2 sm:flex sm:w-34 sm:flex-col sm:justify-center',
-            tabs.length > 3 ? 'grid grid-cols-2' : 'flex',
+            'sm:flex sm:w-34 sm:flex-col sm:justify-center',
+            tabs.length > 3 && 'grid grid-cols-2',
           )}
-        >
-          {tabs.map(({ id, label }) => (
-            <Button
-              key={id}
-              role="tab"
-              id={`${ids}-tab-${id}`}
-              aria-selected={tab === id}
-              aria-controls={`${ids}-panel`}
-              variant={tab === id ? 'primary' : 'secondary'}
-              onClick={() => chooseTab(id)}
-              className="min-w-0 flex-1 whitespace-nowrap sm:flex-none"
-            >
-              {label}
-            </Button>
-          ))}
-        </div>
+          tabClassName="min-w-0 flex-1 whitespace-nowrap sm:flex-none"
+        />
       </div>
       <div className={cn('grid gap-4', showsPanel && 'lg:grid-cols-[minmax(0,1fr)_19.5rem]')}>
         <div className="flex min-w-0 flex-col gap-4">
-          <div role="tabpanel" id={`${ids}-panel`} aria-labelledby={`${ids}-tab-${tab}`}>
+          <TabPanel idPrefix={ids} selected={tab}>
             {tab === 'cards' ? (
               <ActiveWordsPeek entries={wordEntries}>
                 <HandView
@@ -324,7 +314,7 @@ function HandContent({ profile }: { profile: UserProfile }) {
                 selectedId={isWide ? (selectedWord?.record.id ?? null) : null}
               />
             )}
-          </div>
+          </TabPanel>
           <PlayerNote profile={profile} />
         </div>
         {showsPanel && tab === 'true-words' ? (

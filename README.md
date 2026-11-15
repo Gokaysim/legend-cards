@@ -97,7 +97,7 @@ npm run import-cards   # then: loads 591 Legend cards (3 of them drafts) and 154
 npm run import-true-words   # then: loads the 53 True Words
 ```
 
-The emulators keep the sets, the cards and the words between runs. An import only adds what is not stored yet: it never changes, reorders, retires or deletes a stored set, card or word, because from then on the DM changes them in the app (Setler, Kart kütüphanesi, Cursed Deck, True Words). A card or word with an empty value is added as a draft, which only the DM sees (see [data/README.md](data/README.md)). Each import that adds something is listed in the İşlem Logu. Running an import again writes nothing new.
+The emulators keep the sets, the cards and the words between runs. An import only adds what is not stored yet: it never changes, reorders, retires or deletes a stored set, card or word, because from then on the DM changes them in the app (Setler, and the Kütüphane's Kartlar, Cursed and True Words tabs). A card or word with an empty value is added as a draft, which only the DM sees (see [data/README.md](data/README.md)). Each import that adds something is listed in the İşlem Logu. Running an import again writes nothing new.
 
 The card import warns about every set code that no stored set has as its code or alias, so run `import-sets` first. Such a card is still imported, and shows its set code as written until the DM adds the set on the Setler screen.
 

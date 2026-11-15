@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 import { testSetName } from '@/test/setFixtures'
+import { testTrueWord } from '@/test/trueWordFixtures'
 
 import { sortCards } from './sort'
 
@@ -108,5 +109,34 @@ describe('sortCards by other columns', () => {
     const cards = [testCard('B'), testCard('A')]
     sortCards(cards, { key: 'name', direction: 'asc' })
     expect(names(cards)).toEqual(['B', 'A'])
+  })
+})
+
+describe('sortCards with True Words', () => {
+  const words = [
+    testTrueWord('Dragon', { cost: 'X' }),
+    testTrueWord('Abyss', { cost: '5' }),
+    testTrueWord('Aid', { cost: '1' }),
+  ]
+
+  it('orders words by cost as cards are ordered, numbers first and "X" after them', () => {
+    expect(names(sortCards(words, { key: 'cost', direction: 'asc' }))).toEqual([
+      'Aid',
+      'Abyss',
+      'Dragon',
+    ])
+  })
+
+  it('orders words by their Durum text', () => {
+    const durum = new Map([
+      ['tw-abyss', 'Bilenler: Bora'],
+      ['tw-aid', 'Bilenler: Ayla'],
+    ])
+    const sorted = sortCards(
+      words,
+      { key: 'status', direction: 'asc' },
+      (word) => durum.get(word.id) ?? null,
+    )
+    expect(names(sorted)).toEqual(['Aid', 'Abyss', 'Dragon'])
   })
 })

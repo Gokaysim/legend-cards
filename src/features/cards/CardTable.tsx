@@ -5,17 +5,17 @@ import { Button } from '@/components/ui/Button'
 import { useSetIndex } from '@/features/sets/setsContext'
 import { cn } from '@/lib/cn'
 
-import type { Deck } from './cardsContext'
 import { NO_VALUE, rarityLabel, type SetName, setLabel } from './display'
-import type { Card } from './schema'
+import type { Definition } from './schema'
 import { DM_ONLY_MARK } from './status'
 import type { CardSort, SortKey, StatusText } from './sort'
+import { PLAIN_COLUMNS } from './tableColumns'
 import { visibleText } from './text'
 
 type Column = {
   key: SortKey
   label: string
-  cell: (card: Card, statusText: StatusText, setName: SetName) => string
+  cell: (card: Definition, statusText: StatusText, setName: SetName) => string
   wide?: boolean
 }
 
@@ -46,43 +46,45 @@ const COLUMNS: Record<SortKey, Column> = {
   },
 }
 
-/** The columns of each deck's table, as in the legacy app. Its İşlem (edit) column shows for the DM only. */
-const DECK_COLUMNS: Record<Deck, readonly SortKey[]> = {
-  legend: ['name', 'set', 'cost', 'rarity', 'mechanicPack', 'text', 'status'],
-  cursed: ['name', 'cost', 'text', 'status'],
-}
+/** A small mark beside a row's name. */
+const ROW_MARK_CLASSES =
+  'ml-2 rounded-full border px-1.5 py-0.5 text-xs font-normal whitespace-nowrap text-ink-muted'
 
 const DIRECTION_LABELS = { asc: 'artan', desc: 'azalan' } as const
 
-export type CardTableProps = {
-  deck: Deck
+export type CardTableProps<T extends Definition> = {
+  /** The columns, in order: `LEGEND_COLUMNS` or `PLAIN_COLUMNS` (see `tableColumns`). */
+  columns: readonly SortKey[]
   /** Already filtered and sorted. */
-  cards: readonly Card[]
+  cards: readonly T[]
   sort: CardSort
   /** Called with the column the user selected. The caller decides the new direction. */
   onSort: (key: SortKey) => void
   /** The Durum text of a card. Without it, the column shows "—". */
   statusText?: StatusText
   /** For the DM: an İşlem column with each card's "✎ Düzenle". */
-  onEdit?: (card: Card) => void
+  onEdit?: (card: T) => void
   /** For the DM: marks "🔒 DM" beside its name the row of a card whose "Listede görünür" is off. */
   marksHidden?: boolean
-  /** In the Kart kütüphanesi and the Cursed Deck: each name links to the card's Kart geçmişi. */
+  /** In the True Words tab: marks "Biliyor" beside its name the row of a word the chosen player knows. */
+  isKnown?: (card: T) => boolean
+  /** In the Kartlar and Cursed tabs: each name links to the card's Kart geçmişi. */
   linksHistory?: boolean
 }
 
 /** The list view: one row per card. Only the table scrolls sideways at narrow widths, never the page. */
-export function CardTable({
-  deck,
+export function CardTable<T extends Definition>({
+  columns: columnKeys,
   cards,
   sort,
   onSort,
   statusText = () => null,
   onEdit,
   marksHidden = false,
+  isKnown,
   linksHistory = false,
-}: CardTableProps) {
-  const columns = DECK_COLUMNS[deck].map((key) => COLUMNS[key])
+}: CardTableProps<T>) {
+  const columns = columnKeys.map((key) => COLUMNS[key])
   const { setName } = useSetIndex()
 
   return (
@@ -92,7 +94,7 @@ export function CardTable({
       <table
         className={cn(
           'w-full border-collapse text-left text-sm',
-          deck === 'legend' ? 'min-w-4xl' : 'min-w-2xl',
+          columns.length > PLAIN_COLUMNS.length ? 'min-w-4xl' : 'min-w-2xl',
         )}
       >
         <thead className="bg-pane-raised text-ink-muted">
@@ -148,8 +150,11 @@ export function CardTable({
                     ) : (
                       column.cell(card, statusText, setName)
                     )}
+                    {isKnown?.(card) ? (
+                      <span className={cn(ROW_MARK_CLASSES, 'border-true-word-line')}>Biliyor</span>
+                    ) : null}
                     {marksHidden && !card.isInLibrary ? (
-                      <span className="ml-2 rounded-full border border-ink-muted px-1.5 py-0.5 text-xs font-normal whitespace-nowrap text-ink-muted">
+                      <span className={cn(ROW_MARK_CLASSES, 'border-ink-muted')}>
                         {DM_ONLY_MARK}
                       </span>
                     ) : null}

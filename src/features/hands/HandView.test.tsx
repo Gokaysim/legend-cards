@@ -202,7 +202,7 @@ describe('hand contents', () => {
 
     expect(handFaces()).toEqual(['Night Owl'])
 
-    await user.click(screen.getByRole('link', { name: 'Kart kütüphanesi' }))
+    await user.click(screen.getByRole('link', { name: 'Kütüphane' }))
     expect(screen.queryByRole('article', { name: 'Night Owl' })).not.toBeInTheDocument()
     expect(screen.getByRole('article', { name: 'Let Go' })).toBeInTheDocument()
   })

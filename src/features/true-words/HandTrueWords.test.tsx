@@ -159,18 +159,18 @@ describe('the True Words tab', () => {
     expect(main().getByText('Henüz True Word öğrenilmedi.')).toBeVisible()
   })
 
-  it('links a player to their own draft, and the DM to the draft for this player', () => {
+  it("links a player to their own draft, and the DM to this player's, on the Kütüphane's True Words tab", () => {
     const { unmount } = renderTab({ path: `/hands/${testUser.uid}?tab=true-words` })
     expect(main().getByRole('link', { name: '✦ True Word Draft' })).toHaveAttribute(
       'href',
-      '/true-words',
+      '/library?tab=true-words',
     )
     unmount()
 
     renderTab({ viewer: dm })
     expect(main().getByRole('link', { name: '✦ True Word Draft' })).toHaveAttribute(
       'href',
-      '/true-words?for=ayla',
+      '/library?tab=true-words&for=ayla',
     )
   })
 

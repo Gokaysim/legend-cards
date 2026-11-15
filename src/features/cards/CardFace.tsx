@@ -24,11 +24,12 @@ import {
   costChange,
   type FaceGlow,
   faceGlow,
+  hasSetDetails,
   NO_VALUE,
   rarityLabel,
   setLabel,
 } from './display'
-import type { Card } from './schema'
+import type { Definition } from './schema'
 import { DM_ONLY_MARK } from './status'
 import { visibleText } from './text'
 import { useCardTilt } from './useCardTilt'
@@ -39,6 +40,7 @@ const FRAME_CLASSES: Record<CardFrame, string> = {
   rare: 'border-gold',
   blessed: 'border-blessed',
   cursed: 'border-cursed',
+  word: 'border-true-word-line',
 }
 
 /**
@@ -104,7 +106,8 @@ function Mark({ className, children }: { className?: string; children: ReactNode
 }
 
 export type CardFaceProps = {
-  card: Card
+  /** A card, or in the Kütüphane's True Words tab a True Word (spec: card-library, "Card view"). */
+  card: Definition
   /**
    * For a card in a hand: its cost there, the cost override or the card's own cost. When both costs are numbers
    * and differ, the cost is marked lower (green) or higher (red).
@@ -123,11 +126,13 @@ export type CardFaceProps = {
   isSelected?: boolean
   /** In the library: the names of the players holding it, for a held normal card or a Cursed card in hands. */
   heldBy?: readonly string[]
+  /** In the Kütüphane's True Words tab: the chosen player knows the word. Marked "Biliyor". */
+  isKnown?: boolean
   /** In a draw or an open pack: the card has been turned face up. It glows in its kind's color. */
   isRevealed?: boolean
   /**
-   * In the card views of the hand, the library and the Cursed Deck: the face tilts toward a mouse pointer, with a
-   * soft light (design D5). Faces inside dialogs stay still.
+   * In the card views of the hand and the Kütüphane: the face tilts toward a mouse pointer, with a soft light (design
+   * D5). Faces inside dialogs stay still.
    */
   isTiltable?: boolean
   /**
@@ -149,7 +154,7 @@ export type CardFaceProps = {
   /** In the DM's library: opens the card's edit form from a "✎" control beside the magnifier. */
   onEdit?: () => void
   /**
-   * In the Kart kütüphanesi and the Cursed Deck: the address of the card's Kart geçmişi, opened from a clock control
+   * In the Kütüphane's Kartlar and Cursed tabs: the address of the card's Kart geçmişi, opened from a clock control
    * left of the edit control or the magnifier (spec: card-library, "History control on library faces").
    */
   historyPath?: string
@@ -169,8 +174,9 @@ export type CardFaceProps = {
  * corner. Nothing is written under the picture: the set, rarity and mechanic pack show in a note while the pointer
  * rests on the picture's set symbol, or after a tap on it. Without a picture, or when it fails to load, the face draws
  * its kind's frame color, the cost, name and visible text, with the set, rarity and mechanic pack below. Cursed cards
- * have none of those three. A card in a hand shows its marks, and its note as an icon in the bottom-left corner; a
- * held card in the library shows who holds it.
+ * and True Words have none of those three. A card in a hand shows its marks, and its note as an icon in the
+ * bottom-left corner; a held card in the library shows who holds it, and a True Word whether the chosen player knows
+ * it.
  *
  * The face glows (design D4): an active card in a hand, the selected card of a hand, a revealed card in a draw or a
  * pack, and a held card in the library, each in its own color.
@@ -189,6 +195,7 @@ export function CardFace({
   isExtraCopy = false,
   isSelected = false,
   heldBy,
+  isKnown = false,
   isRevealed = false,
   isTiltable = false,
   showsMarks = true,
@@ -217,7 +224,12 @@ export function CardFace({
   const text = visibleText(card.text)
   const hasMarks =
     showsMarks &&
-    (isActive || isExtraCopy || heldBy !== undefined || statusMark !== undefined || isHiddenMarked)
+    (isActive ||
+      isExtraCopy ||
+      heldBy !== undefined ||
+      isKnown ||
+      statusMark !== undefined ||
+      isHiddenMarked)
   const look = picture.src !== null ? 'picture' : 'css'
   const glow = faceGlow(frame, {
     isActive,
@@ -293,24 +305,24 @@ export function CardFace({
       {isActive ? <Mark className={FRAME_CLASSES[frame]}>● Aktif</Mark> : null}
       {isExtraCopy ? <Mark>Ek kopya</Mark> : null}
       {heldBy ? <Mark className="border-gold">Elde: {heldBy.join(', ')}</Mark> : null}
+      {isKnown ? <Mark className="border-true-word-line">Biliyor</Mark> : null}
     </div>
   ) : null
-  const details =
-    card.kind === 'cursed' ? null : (
-      // The labels are for screen readers; on the face the values use the full width.
-      <dl className="flex flex-col gap-0.5 text-xs text-ink-muted">
-        <div className="flex flex-wrap gap-x-1">
-          <dt className="sr-only">Set</dt>
-          <dd className="after:ml-1 after:content-['·']">{setLabel(card, setName) ?? NO_VALUE}</dd>
-          <dt className="sr-only">Rarity</dt>
-          <dd>{rarityLabel(card) ?? NO_VALUE}</dd>
-        </div>
-        <div>
-          <dt className="sr-only">Mechanic Pack</dt>
-          <dd className="break-words">{card.mechanicPack ?? NO_VALUE}</dd>
-        </div>
-      </dl>
-    )
+  const details = !hasSetDetails(card) ? null : (
+    // The labels are for screen readers; on the face the values use the full width.
+    <dl className="flex flex-col gap-0.5 text-xs text-ink-muted">
+      <div className="flex flex-wrap gap-x-1">
+        <dt className="sr-only">Set</dt>
+        <dd className="after:ml-1 after:content-['·']">{setLabel(card, setName) ?? NO_VALUE}</dd>
+        <dt className="sr-only">Rarity</dt>
+        <dd>{rarityLabel(card) ?? NO_VALUE}</dd>
+      </div>
+      <div>
+        <dt className="sr-only">Mechanic Pack</dt>
+        <dd className="break-words">{card.mechanicPack ?? NO_VALUE}</dd>
+      </div>
+    </dl>
+  )
   // First in the Tab order. On the CSS face it lies above the content (z-1) and below the set symbol (z-10) and the
   // corner icons (z-20). On a picture face, the picture's box lies above it (z-2) and lets the pointer through, except
   // on its controls: the glow and the tilt make that box a stacking context, which would otherwise sink the controls

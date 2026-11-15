@@ -95,6 +95,11 @@ export function activeWordsSorted(words: readonly TrueWord[]): TrueWord[] {
     .sort((a, b) => compareLabels(a.name, b.name))
 }
 
+/** Every record of a word someone knows now, all players'. Must be used inside `<TrueWordsProvider>`. */
+export function useTrueWordRecords(): Subscription<LearnedWord[]> {
+  return useTrueWordsContext().knownWords
+}
+
 /** One player's known words, in the order learned. Must be used inside `<TrueWordsProvider>`. */
 export function useKnownWords(uid: string): Subscription<LearnedWord[]> {
   const records = useTrueWordsContext().knownWords

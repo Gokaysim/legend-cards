@@ -10,7 +10,7 @@ import {
   type SetLookup,
   setFilterCode,
 } from './pool'
-import type { Card } from './schema'
+import type { Card, Definition } from './schema'
 import { setChoices } from './setChoices'
 import { compareLabels } from './sort'
 import { normalize } from './text'
@@ -68,20 +68,32 @@ export function setFacet(sets: SetLookup & Pick<SetIndex, 'setRank'>): Facet {
   }
 }
 
+/**
+ * The costs the cards or True Words have, each once as first written and trimmed, numbers first in numeric order, then
+ * the others in Turkish alphabetical order. Shared by the dialogs' cost facet and the Kütüphane's Cost filter (design
+ * D6 of merge-library-tabs).
+ */
+export function costChoices(cards: readonly Pick<Definition, 'cost'>[]): string[] {
+  const costs = new Map<string, string>()
+  for (const card of cards) {
+    const key = costKey(card.cost)
+    if (key !== null && card.cost !== null && !costs.has(key)) costs.set(key, card.cost.trim())
+  }
+  return [...costs.values()].sort(compareCosts)
+}
+
+/** True when the card's cost is `cost`, compared trimmed and ignoring case. */
+export function hasCost(card: Pick<Definition, 'cost'>, cost: string): boolean {
+  return costKey(card.cost) === costKey(cost)
+}
+
 /** The cost facet: the written costs, numbers first in numeric order, compared trimmed and ignoring case. */
 export const costFacet: Facet = {
   key: 'cost',
   name: 'Cost',
   cardKey: (card) => costKey(card.cost),
   valueKey: (value) => costKey(value) ?? '',
-  choices: (cards) => {
-    const costs = new Map<string, string>()
-    for (const card of cards) {
-      const key = costKey(card.cost)
-      if (key !== null && card.cost !== null && !costs.has(key)) costs.set(key, card.cost.trim())
-    }
-    return [...costs.values()].sort(compareCosts).map((cost) => ({ value: cost, label: cost }))
-  },
+  choices: (cards) => costChoices(cards).map((cost) => ({ value: cost, label: cost })),
   labelOf: (value) => value,
 }
 

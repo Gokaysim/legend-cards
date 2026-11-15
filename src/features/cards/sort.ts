@@ -1,12 +1,12 @@
 import { AS_WRITTEN, numericCost, rarityLabel, type SetName, setLabel } from './display'
-import type { Card } from './schema'
+import type { Definition } from './schema'
 import { visibleText } from './text'
 
 /** The list columns a user can sort by. */
 export type SortKey = 'name' | 'set' | 'cost' | 'rarity' | 'mechanicPack' | 'text' | 'status'
 
-/** The Durum text of a card, from its pool status; `null` when it is not known (yet). */
-export type StatusText = (card: Card) => string | null
+/** The Durum text of a card or True Word, from its status; `null` when it is not known (yet). */
+export type StatusText = (card: Definition) => string | null
 
 const NO_STATUS: StatusText = () => null
 export type SortDirection = 'asc' | 'desc'
@@ -20,7 +20,7 @@ const collator = new Intl.Collator('tr', { numeric: true, sensitivity: 'base' })
 
 /** The value a column sorts by: what the column shows. `null` when the card has no value there. */
 function sortValue(
-  card: Card,
+  card: Definition,
   key: SortKey,
   statusText: StatusText,
   setName: SetName,
@@ -48,8 +48,8 @@ function sortValue(
  * with the Turkish collator. Cards without a value come last in both directions, and ties go by name.
  */
 export function compareCards(
-  a: Card,
-  b: Card,
+  a: Definition,
+  b: Definition,
   { key, direction }: CardSort,
   statusText: StatusText = NO_STATUS,
   setName: SetName = AS_WRITTEN,
@@ -71,12 +71,12 @@ export function compareCards(
 }
 
 /** A sorted copy. `statusText` gives the Durum column's values, and `setName` the Set column's. */
-export function sortCards(
-  cards: readonly Card[],
+export function sortCards<T extends Definition>(
+  cards: readonly T[],
   sort: CardSort,
   statusText: StatusText = NO_STATUS,
   setName: SetName = AS_WRITTEN,
-): Card[] {
+): T[] {
   return [...cards].sort((a, b) => compareCards(a, b, sort, statusText, setName))
 }
 

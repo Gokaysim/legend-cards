@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react'
+import { act, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -13,11 +13,9 @@ import { SCREENS, SHOP_SCREENS } from './screens'
 const EXPECTED_LABELS = [
   'Oyuncu elleri',
   'Shops',
-  'True Words',
   'Custom Card Draft',
-  'Kart kütüphanesi',
+  'Kütüphane',
   'Setler',
-  'Cursed Deck',
   'İşlem Logu',
   'Kurallar',
   'Veri / Yedek',
@@ -25,7 +23,7 @@ const EXPECTED_LABELS = [
 
 const mainMenu = () => screen.getByRole('navigation', { name: 'Ana menü' })
 
-/** One card of each kind, so each card screen can show that it lists only its own deck. */
+/** One card of each kind, so each tab of the Kütüphane can show that it lists only its own deck. */
 const CARDS = ready([
   testCard("Aboleth's Eyes"),
   testBlessedCard('Dawn of Fortune'),
@@ -51,8 +49,9 @@ const BUILT_SCREENS: Record<string, () => void> = {
     expect(screen.getByRole('link', { name: 'Pack Shop' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Elixir Shop' })).toBeInTheDocument()
   },
-  // The card screens list their own deck only.
+  // The Kütüphane opens on its Kartlar tab, which lists the Legend deck only.
   '/library': () => {
+    expect(screen.getByRole('tab', { name: /^♠ Kartlar/ })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByRole('article', { name: "Aboleth's Eyes" })).toBeInTheDocument()
     expect(screen.getByRole('article', { name: 'Dawn of Fortune' })).toBeInTheDocument()
     expect(screen.queryByRole('article', { name: 'Visions of Death' })).not.toBeInTheDocument()
@@ -61,15 +60,6 @@ const BUILT_SCREENS: Record<string, () => void> = {
   '/sets': () => {
     expect(screen.getByRole('rowheader', { name: /^The End is Nigh/ })).toBeInTheDocument()
     expect(screen.getByRole('rowheader', { name: /^Pandemonium/ })).toBeInTheDocument()
-  },
-  '/cursed-deck': () => {
-    expect(screen.getByRole('article', { name: 'Visions of Death' })).toBeInTheDocument()
-    expect(screen.queryByRole('article', { name: "Aboleth's Eyes" })).not.toBeInTheDocument()
-  },
-  // True Words, before any word was imported: the draft section and the empty list.
-  '/true-words': () => {
-    expect(screen.getByRole('region', { name: 'Draft' })).toBeInTheDocument()
-    expect(screen.getByText('Henüz True Word yok.')).toBeInTheDocument()
   },
   // The log, before anything happened.
   '/log': () => {
@@ -82,7 +72,7 @@ const BUILT_SCREENS: Record<string, () => void> = {
 }
 
 describe('routes and navigation', () => {
-  it('lists the main screens in the legacy v2.2.8 order', () => {
+  it('lists the main screens, with the Kütüphane in place of the three card screens', () => {
     renderApp({ path: '/hands' })
 
     const labels = within(mainMenu())
@@ -152,24 +142,9 @@ describe('routes and navigation', () => {
   )
 
   it.each([
-    [
-      "a Legend card's history",
-      '/library/legend-abolethseyes',
-      "Aboleth's Eyes",
-      'Kart kütüphanesi',
-    ],
-    [
-      "a Blessed card's history",
-      '/library/legend-dawnoffortune',
-      'Dawn of Fortune',
-      'Kart kütüphanesi',
-    ],
-    [
-      "a Cursed card's history",
-      '/cursed-deck/cursed-visionsofdeath',
-      'Visions of Death',
-      'Cursed Deck',
-    ],
+    ["a Legend card's history", '/library/legend-abolethseyes', "Aboleth's Eyes", 'Kütüphane'],
+    ["a Blessed card's history", '/library/legend-dawnoffortune', 'Dawn of Fortune', 'Kütüphane'],
+    ["a Cursed card's history", '/library/cursed-visionsofdeath', 'Visions of Death', 'Kütüphane'],
     ["a set's statistics", '/sets/kesqer', 'Kesqerian Nights', 'Setler'],
   ])(
     'shows %s from its URL, as after a reload, keeping its menu entry marked',
@@ -195,10 +170,62 @@ describe('routes and navigation', () => {
     expect(router.state.location.pathname).toBe('/sets')
   })
 
-  it('shows each screen directly from its URL, as after a reload', () => {
-    renderApp({ path: '/true-words' })
+  it('shows a tab of the Kütüphane directly from its URL, as after a reload', () => {
+    renderApp({ path: '/library?tab=true-words' })
 
-    expect(screen.getByRole('heading', { level: 1, name: 'True Words' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'Kütüphane' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /^✦ True Words/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    expect(screen.getByRole('region', { name: 'Draft' })).toBeInTheDocument()
+    expect(screen.getByText('Henüz True Word yok.')).toBeInTheDocument()
+  })
+
+  it('opens the Kütüphane on its tabs from the former Cursed Deck and True Words addresses', () => {
+    const marked = () =>
+      within(mainMenu())
+        .getAllByRole('link')
+        .filter((link) => link.getAttribute('aria-current') === 'page')
+        .map((link) => link.textContent)
+
+    const cursed = renderApp({ path: '/cursed-deck', cards: { cards: CARDS } })
+    expect(cursed.router.state.location).toMatchObject({
+      pathname: '/library',
+      search: '?tab=cursed',
+    })
+    expect(screen.getByRole('tab', { name: /^☠ Cursed/ })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('article', { name: 'Visions of Death' })).toBeInTheDocument()
+    expect(screen.queryByRole('article', { name: "Aboleth's Eyes" })).not.toBeInTheDocument()
+    expect(marked()).toEqual([expect.stringContaining('Kütüphane')])
+    cursed.unmount()
+
+    const words = renderApp({
+      path: '/true-words?for=bora',
+      users: {
+        currentProfile: ready(testProfile({ role: 'dm', displayName: 'Dana' })),
+        profiles: ready([
+          testProfile({ role: 'dm', displayName: 'Dana' }),
+          testProfile({ id: 'ayla', displayName: 'Ayla' }),
+          testProfile({ id: 'bora', displayName: 'Bora' }),
+        ]),
+      },
+    })
+    expect(words.router.state.location).toMatchObject({
+      pathname: '/library',
+      search: '?tab=true-words&for=bora',
+    })
+    expect(screen.getByLabelText('Kimin için')).toHaveValue('bora')
+  })
+
+  it('replaces a former address in the history, so going back leaves it', async () => {
+    const { router } = renderApp({ path: '/sets', cards: { cards: CARDS } })
+
+    await act(() => router.navigate('/cursed-deck'))
+    expect(router.state.location.pathname).toBe('/library')
+    await act(() => router.navigate(-1))
+
+    expect(router.state.location.pathname).toBe('/sets')
   })
 
   it('shows a not-found page with a link back to the default screen', async () => {
@@ -237,8 +264,8 @@ describe("each screen's Cardmaker", () => {
     ['/shops', 'cardmaker_shop'],
     ['/shops/packs', 'cardmaker_shop'],
     ['/library', 'cardmaker_lib'],
-    ['/cursed-deck', 'cardmaker_cursed'],
-    ['/true-words', 'cardmaker_true'],
+    ['/library?tab=cursed', 'cardmaker_cursed'],
+    ['/library?tab=true-words', 'cardmaker_true'],
     ['/log', 'cardmaker_think'],
     ['/shops/elixirs', 'cardmaker_zaddir'],
     ['/rules', 'cardmaker_wave'],
@@ -255,11 +282,9 @@ describe("each screen's Cardmaker", () => {
     expect(Object.fromEntries(SCREENS.map((s) => [s.id, s.mascot]))).toEqual({
       hands: null,
       shops: 'cardmaker_keep',
-      'true-words': 'cardmaker_true',
       'custom-draft': 'cardmaker_custom',
       library: 'cardmaker_lib',
       sets: null,
-      'cursed-deck': 'cardmaker_cursed',
       'activity-log': 'cardmaker_think',
       rules: 'cardmaker_wave',
       settings: 'cardmaker_peek',
@@ -294,7 +319,8 @@ describe("each screen's Cardmaker", () => {
     it.each([
       ['/shops', 'cardmaker_shop'],
       ['/library', 'cardmaker_lib'],
-      ['/cursed-deck', 'cardmaker_cursed'],
+      ['/library?tab=cursed', 'cardmaker_cursed'],
+      ['/library?tab=true-words', 'cardmaker_true'],
       ['/rules', 'cardmaker_wave'],
       ['/settings', 'cardmaker_peek'],
       ['/shops/elixirs', 'cardmaker_zaddir'],
@@ -306,18 +332,29 @@ describe("each screen's Cardmaker", () => {
       expect(headerMascot()).toBeNull()
     })
 
-    it.each([
-      ['/true-words', 'cardmaker_true'],
-      ['/log', 'cardmaker_think'],
-    ])('keeps the Cardmaker of %s by the title on a wide window with a mouse', (path, stem) => {
-      stubWideHover()
-      renderApp({ path, cards: { cards: CARDS }, art: ART })
+    it.each([['/log', 'cardmaker_think']])(
+      'keeps the Cardmaker of %s by the title on a wide window with a mouse',
+      (path, stem) => {
+        stubWideHover()
+        renderApp({ path, cards: { cards: CARDS }, art: ART })
 
-      expect(headerMascot()).toHaveAttribute('src', `/art/mascots/${stem}.0123456789.webp`)
-      expect(cornerStem()).toBeUndefined()
+        expect(headerMascot()).toHaveAttribute('src', `/art/mascots/${stem}.0123456789.webp`)
+        expect(cornerStem()).toBeUndefined()
+      },
+    )
+
+    it('changes the Cardmaker in the corner with the tab', async () => {
+      stubWideHover()
+      const user = userEvent.setup()
+      renderApp({ path: '/library', cards: { cards: CARDS }, art: ART })
+      expect(cornerStem()).toBe('cardmaker_lib')
+
+      await user.click(screen.getByRole('tab', { name: /^✦ True Words/ }))
+
+      expect(cornerStem()).toBe('cardmaker_true')
     })
 
-    it.each(['/shops', '/library', '/rules', '/true-words', '/settings'])(
+    it.each(['/shops', '/library', '/rules', '/library?tab=true-words', '/settings'])(
       'shows no Cardmaker on %s on a phone',
       (path) => {
         stubPhoneWidth()

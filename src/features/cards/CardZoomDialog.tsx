@@ -8,10 +8,11 @@ import { usePicture } from '@/features/art/usePicture'
 import { CardFace } from './CardFace'
 import { CostBadge } from './CostBadge'
 import { costChange, NO_VALUE } from './display'
-import type { Card } from './schema'
+import type { Definition } from './schema'
 
 export type CardZoomDialogProps = {
-  card: Card
+  /** A card, or a True Word zoomed from the Kütüphane. */
+  card: Definition
   /** Opened from a hand: the card's cost there, the cost override or the card's own cost. */
   handCost?: string | null
   /** Called when the user closes the view: its "✕", Escape, or a click outside the card. The caller unmounts it. */

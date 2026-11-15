@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { testPicturePath, testPictureUrl } from '@/test/artFixtures'
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 import { TestArtProvider } from '@/test/TestArtProvider'
+import { testTrueWord } from '@/test/trueWordFixtures'
 
 import { CardZoomDialog } from './CardZoomDialog'
 
@@ -177,5 +178,27 @@ describe('CardZoomDialog', () => {
 
     press(dialog, 40, 400)
     expect(onClose).toHaveBeenCalledOnce()
+  })
+})
+
+describe('CardZoomDialog of a True Word', () => {
+  it('shows a word with a picture alone, named after the word', () => {
+    const aid = testTrueWord('Aid', { picture: testPicturePath('word', 'tw-aid') })
+    renderWithArt(<CardZoomDialog card={aid} onClose={vi.fn()} />)
+
+    const dialog = zoom('Aid')
+    expect(within(dialog).getByRole('img', { name: 'Aid' })).toBeInTheDocument()
+    expect(dialog).not.toHaveTextContent('Aid text.')
+  })
+
+  it('shows a word without a picture as its face in the True Words frame, without set details', () => {
+    const abyss = testTrueWord('Abyss', { cost: '5', text: 'Pull them under.' })
+    renderWithArt(<CardZoomDialog card={abyss} onClose={vi.fn()} />)
+
+    const face = within(zoom('Abyss')).getByRole('article', { name: 'Abyss' })
+    expect(face).toHaveAttribute('data-frame', 'word')
+    expect(face).toHaveTextContent('Cost: 5')
+    expect(face).toHaveTextContent('Pull them under.')
+    expect(within(face).queryByText('Set')).not.toBeInTheDocument()
   })
 })
