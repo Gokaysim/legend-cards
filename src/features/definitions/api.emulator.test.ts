@@ -21,6 +21,7 @@ import { BEHAVIOR_FLAGS, type BehaviorFlags, startingFlags } from '@/features/de
 import { TableBusyError } from '@/features/table/errors'
 import type { TrueWord } from '@/features/true-words/schema'
 import { ONLY_FROM_DM, testCard, testCursedCard } from '@/test/cardFixtures'
+import { memberContext, seedMembers } from '@/test/members'
 import { testTrueWord } from '@/test/trueWordFixtures'
 
 import firestoreRules from '../../../firestore.rules?raw'
@@ -48,7 +49,7 @@ function firestoreOf(context: RulesTestContext): Firestore {
 }
 
 /** A user's own Firestore under the real rules. Each call is a separate client, like a separate device. */
-const as = (uid: string) => firestoreOf(testEnv.authenticatedContext(uid))
+const as = (uid: string) => firestoreOf(memberContext(testEnv, uid))
 
 /** The test context's Storage is a compat instance; the modular API takes the instance it wraps. */
 function storageOf(context: RulesTestContext): FirebaseStorage {
@@ -57,7 +58,7 @@ function storageOf(context: RulesTestContext): FirebaseStorage {
 
 /** A user's picture files under the real storage rules. */
 const picturesOf = (uid: string): PictureStore =>
-  cloudPictureStore(storageOf(testEnv.authenticatedContext(uid)))
+  cloudPictureStore(storageOf(memberContext(testEnv, uid)))
 
 const EYES = testCard("Aboleth's Eyes", { changeId: 'c-seed' })
 const OLD = testCard('Old Card', { status: 'retired', changeId: 'c-seed' })
@@ -147,6 +148,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await testEnv.clearFirestore()
+  await seedMembers(testEnv)
   await testEnv.clearStorage()
   await testEnv.withSecurityRulesDisabled(async (admin) => {
     const db = firestoreOf(admin)

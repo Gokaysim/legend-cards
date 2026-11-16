@@ -9,11 +9,23 @@ rules_version = '2';
 // content hash, under its definition's, set's or character's ID. The rules do not ask whether a definition or set
 // exists, and allow a photo for a character that does not exist yet: a new one's picture is uploaded before it is
 // created.
+//
+// Writes need an account on the DM's access list, as every Firestore path does (spec: data-access-control, "Accounts
+// not on the list have no access"; design D7 of invite-only-sign-in).
 service firebase.storage {
   match /b/{bucket}/o {
+    // True when the request comes from an account on the access list: a verified email address whose entry exists in
+    // Firestore (cross-service rules). Keep in step with isMember() in firestore.rules.
+    function isMember() {
+      return request.auth != null
+        && request.auth.token.get('email_verified', false) == true
+        && request.auth.token.get('email', null) is string
+        && firestore.exists(/databases/(default)/documents/allowedEmails/$(request.auth.token.email.lower()));
+    }
+
     // The DM's role, read from the profile in Firestore (cross-service rules).
     function isDm() {
-      return request.auth != null
+      return isMember()
         && firestore.exists(/databases/(default)/documents/users/$(request.auth.uid))
         && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == 'dm';
     }
@@ -26,12 +38,12 @@ service firebase.storage {
         && request.resource.size <= 1024 * 1024;
     }
 
-    // Whether the signed-in user may store or delete the photos of a character (design D4 of add-characters): its
-    // owner, the DM, or anyone signed in while the character does not exist yet, because a new character's photo is
+    // Whether the signed-in member may store or delete the photos of a character (design D4 of add-characters): its
+    // owner, the DM, or any member while the character does not exist yet, because a new character's photo is
     // uploaded before it. The Firestore rule then accepts only a photo of that very character.
     function mayEditCharacter(characterId) {
       let path = /databases/(default)/documents/characters/$(characterId);
-      return request.auth != null
+      return isMember()
         && (!firestore.exists(path)
           || firestore.get(path).data.uid == request.auth.uid
           || isDm());

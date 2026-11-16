@@ -17,6 +17,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import type { Card } from '@/features/cards/schema'
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
+import { memberContext, seedMembers } from '@/test/members'
 
 import firestoreRules from '../../../firestore.rules?raw'
 import { drawCard, type DrawCardInput, endDrawSession, turnDrawCard } from './api'
@@ -32,7 +33,7 @@ function firestoreOf(context: RulesTestContext): Firestore {
 }
 
 /** A user's own Firestore under the real rules. Each call is a separate client, like a separate device. */
-const as = (uid: string) => firestoreOf(testEnv.authenticatedContext(uid))
+const as = (uid: string) => firestoreOf(memberContext(testEnv, uid))
 
 const EYES = testCard("Aboleth's Eyes")
 const RITE = testCard('Blood Rite', { rarity: 'rare' })
@@ -109,6 +110,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await testEnv.clearFirestore()
+  await seedMembers(testEnv)
   // Profiles with roles and the cards exist only through the admin scripts, so they are seeded. Ayla has 3 LP.
   await testEnv.withSecurityRulesDisabled(async (admin) => {
     const db = firestoreOf(admin)

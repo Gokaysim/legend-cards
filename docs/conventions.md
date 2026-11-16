@@ -362,7 +362,7 @@ Firestore is closed by default (`firestore.rules`). Opening a collection or docu
 
 1. **Schema.** Declare the document shape with zod, next to the feature that owns it.
 2. **Converter.** Build typed refs with `createConverter(schema)` from `src/lib/firestore/`, so every read is validated.
-3. **Rule.** Add an explicit `match` block for the path in `firestore.rules`, above the closed catch-all. Every `allow` combines `isSignedIn()` with the path's own checks. Never loosen the catch-all.
+3. **Rule.** Add an explicit `match` block for the path in `firestore.rules`, above the closed catch-all. Every `allow` combines `isMember()` with the path's own checks. `isMember()` lets in only an account whose verified email address is on the DM's access list (`allowedEmails`, spec: table-access); an account that only signed in to Google gets nothing. Never loosen the catch-all.
 4. **Rules tests.** In `tests/firestore.rules.emulator.test.ts` (or another `*.emulator.test.ts` file in `tests/`), add tests that show:
    - the intended access is allowed (`assertSucceeds`)
    - signed-out requests are denied
@@ -370,24 +370,27 @@ Firestore is closed by default (`firestore.rules`). Opening a collection or docu
 
    Run `npm run test:emulator`.
 
-   Two patterns in `firestore.rules` help here:
+   Sign in with `memberContext()` from `src/test/members.ts`, and seed the access list with `seedMembers()` after clearing Firestore; `outsiderContext()` is an account that is not on the list.
+
+   Three patterns in `firestore.rules` help here:
    - **Roles.** `isDm()` checks the signed-in user's profile. It costs one document read per request, so combine it with the cheap checks first.
+   - **The expression limit.** A request may evaluate at most 1000 expressions, and the largest batches run `isMember()` dozens of times. Put the cheap check that tells a rule's branches apart first, as `lpSetByEntry()` does with the ledger entry's source, so the branches that do not apply stop early.
    - **Writes that span documents.** When one action writes several documents that must agree, such as a card's `holder` and the holding it points at, each document's rule checks the other side's final state with `getAfter()` and `existsAfter()`, and its state before with `get()` and `exists()`. Then no write, not even one crafted outside the app, can leave them disagreeing. Test each allowed combination with a batched write, and each half on its own as denied.
 
 5. **Feature code.** Only now write the feature's `api.ts` and the UI that reads and writes the path.
 
-Cloud Storage is closed the same way (`storage.rules`). A new file path gets its own `match` block there, and tests in `tests/storage.rules.emulator.test.ts` that show the intended access allowed and every other access denied, signed-out requests included. Storage rules cannot call `isDm()` from `firestore.rules`: their own `isDm()` reads the profile through `firestore.get()`, a cross-service read that the emulators support. The card and word pictures are the one path anyone may read without signing in (spec: data-access-control).
+Cloud Storage is closed the same way (`storage.rules`). A new file path gets its own `match` block there, and tests in `tests/storage.rules.emulator.test.ts` that show the intended access allowed and every other access denied, signed-out requests included. Storage rules cannot call `isDm()` or `isMember()` from `firestore.rules`: their own versions read the profile and the access list through `firestore.get()` and `firestore.exists()`, cross-service reads that the emulators support. The card and word pictures are the one path anyone may read without signing in (spec: data-access-control).
 
 ## Scripts
 
-Admin scripts in `scripts/` change data with the Admin SDK, outside the security rules: the roles (`set-role`), the sets and their pictures (`import-sets`), the card definitions (`import-cards`), the True Words (`import-true-words`) and the card and word pictures (`import-pictures`). They work the same way against the emulators and against a real project, so data work is done once. The picture build (`build-art`) lives there too, but never touches Firebase.
+Admin scripts in `scripts/` change data with the Admin SDK, outside the security rules: the access list (`allow-email`), the roles (`set-role`), the sets and their pictures (`import-sets`), the card definitions (`import-cards`), the True Words (`import-true-words`) and the card and word pictures (`import-pictures`). They work the same way against the emulators and against a real project, so data work is done once. The picture build (`build-art`) lives there too, but never touches Firebase.
 
 - **Layout.**
   - One file per command in `scripts/`, for example `set-role.ts`.
   - Shared code lives in `scripts/lib/`:
     - `target.ts`: target choice, confirmation, Admin SDK start, and the Cloud Storage bucket (`--bucket`, else `<project>.firebasestorage.app`)
     - `messages.ts`: the Turkish CLI text
-    - one module per task with the logic, for example `setRole.ts`, `setRows.ts`, `importSets.ts`, `cardRows.ts`, `importCards.ts`, `trueWordRows.ts`, `importTrueWords.ts`, `artFiles.ts`, `artWrite.ts` and `importPictures.ts`
+    - one module per task with the logic, for example `allowEmail.ts`, `setRole.ts`, `setRows.ts`, `importSets.ts`, `cardRows.ts`, `importCards.ts`, `trueWordRows.ts`, `importTrueWords.ts`, `artFiles.ts`, `artWrite.ts` and `importPictures.ts`
     - `archives.ts`: the owner's picture archives, extracted with 7-Zip, shared by `build-art`, `import-sets` and `import-pictures`
     - `csv.ts`: reading a CSV file and comparing header names, shared by the imports
     - `cardCatalog.ts`: the name normalization, and the mechanic packs the card import checks against. The sets are stored data: scripts read them from Firestore.

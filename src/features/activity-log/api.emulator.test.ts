@@ -6,6 +6,8 @@ import {
 import { doc, type Firestore, getDocs, type Query, setDoc, Timestamp } from 'firebase/firestore'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
+import { memberContext, seedMembers } from '@/test/members'
+
 import firestoreRules from '../../../firestore.rules?raw'
 import { logQueries } from './api'
 
@@ -85,6 +87,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await testEnv.clearFirestore()
+  await seedMembers(testEnv)
   await testEnv.withSecurityRulesDisabled(async (admin) => {
     const db = firestoreOf(admin)
     await setDoc(doc(db, 'userCards/a-open'), storedHolding('ayla', 1000))
@@ -102,7 +105,7 @@ beforeEach(async () => {
 
 /** Runs the four card and balance queries as a signed-in player and returns the document IDs of each, in order. */
 async function ids(uid: string | null, n: number) {
-  const db = firestoreOf(testEnv.authenticatedContext('ayla'))
+  const db = firestoreOf(memberContext(testEnv, 'ayla'))
   const queries = logQueries(db, uid, n, false)
   const idsOf = async <T>(query: Query<T>) =>
     (await getDocs(query)).docs.map((document) => document.id)
@@ -349,7 +352,7 @@ describe('the log queries of uses and their payments', () => {
   })
 
   async function useIds(uid: string | null, n: number) {
-    const db = firestoreOf(testEnv.authenticatedContext('ayla'))
+    const db = firestoreOf(memberContext(testEnv, 'ayla'))
     const queries = logQueries(db, uid, n, false)
     const idsOf = async <T>(query: Query<T>) =>
       (await getDocs(query)).docs.map((document) => document.id)
@@ -409,7 +412,7 @@ describe('the definition changes query', () => {
   })
 
   const changeIds = async (viewer: string, isDm: boolean, uid: string | null = null) => {
-    const queries = logQueries(firestoreOf(testEnv.authenticatedContext(viewer)), uid, 50, isDm)
+    const queries = logQueries(firestoreOf(memberContext(testEnv, viewer)), uid, 50, isDm)
     return queries.changes === null
       ? null
       : (await getDocs(queries.changes)).docs.map((document) => document.id)
@@ -443,7 +446,7 @@ describe('the table changes query', () => {
   })
 
   const tableChangeIds = async (viewer: string, uid: string | null = null) => {
-    const queries = logQueries(firestoreOf(testEnv.authenticatedContext(viewer)), uid, 50, false)
+    const queries = logQueries(firestoreOf(memberContext(testEnv, viewer)), uid, 50, false)
     return queries.tableChanges === null
       ? null
       : (await getDocs(queries.tableChanges)).docs.map((document) => document.id)
@@ -478,7 +481,7 @@ describe('the fight records query', () => {
   })
 
   const fightIds = async (viewer: string, uid: string | null = null) => {
-    const queries = logQueries(firestoreOf(testEnv.authenticatedContext(viewer)), uid, 50, false)
+    const queries = logQueries(firestoreOf(memberContext(testEnv, viewer)), uid, 50, false)
     return queries.combatChanges === null
       ? null
       : (await getDocs(queries.combatChanges)).docs.map((document) => document.id)

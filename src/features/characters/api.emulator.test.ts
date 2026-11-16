@@ -16,6 +16,7 @@ import { type FirebaseStorage, getMetadata, ref, uploadBytes } from 'firebase/st
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { cloudPictureStore, type PictureStore } from '@/features/definitions/pictureStore'
+import { memberContext, seedMembers } from '@/test/members'
 
 import firestoreRules from '../../../firestore.rules?raw'
 import storageRules from '../../../storage.rules?raw'
@@ -33,9 +34,9 @@ function storageOf(context: RulesTestContext): FirebaseStorage {
   return (context.storage() as unknown as { _delegate: FirebaseStorage })._delegate
 }
 
-const as = (uid: string) => firestoreOf(testEnv.authenticatedContext(uid))
+const as = (uid: string) => firestoreOf(memberContext(testEnv, uid))
 const picturesOf = (uid: string): PictureStore =>
-  cloudPictureStore(storageOf(testEnv.authenticatedContext(uid)))
+  cloudPictureStore(storageOf(memberContext(testEnv, uid)))
 const online = () => true
 
 const SHEET = 'https://docs.google.com/document/d/abc'
@@ -104,6 +105,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await testEnv.clearFirestore()
+  await seedMembers(testEnv)
   await testEnv.clearStorage()
   await testEnv.withSecurityRulesDisabled(async (admin) => {
     const db = firestoreOf(admin)

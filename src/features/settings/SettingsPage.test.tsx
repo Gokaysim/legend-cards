@@ -1,10 +1,13 @@
 import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { Timestamp } from 'firebase/firestore'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import type { AccessEntry } from '@/features/access/schema'
 import type { PlayerDrawMode } from '@/features/table/playerDraw'
 import type { TableActions } from '@/features/table/tableContext'
 import { ready, testProfile, testUser } from '@/test/fixtures'
+import { TestAccessProvider } from '@/test/TestAccessProvider'
 import { TestAuthProvider } from '@/test/TestAuthProvider'
 import { TestTableProvider } from '@/test/TestTableProvider'
 import { TestUsersProvider } from '@/test/TestUsersProvider'
@@ -17,6 +20,10 @@ afterEach(() => {
 
 const dm = testProfile({ role: 'dm' })
 const player = testProfile()
+const ENTRIES: AccessEntry[] = [
+  { email: 'player@example.com', addedAt: Timestamp.fromMillis(0), uid: testUser.uid },
+  { email: 'bora@example.com', addedAt: Timestamp.fromMillis(0) },
+]
 
 function setup({
   asDm = true,
@@ -32,9 +39,11 @@ function setup({
   render(
     <TestAuthProvider state={{ status: 'signedIn', user: testUser }}>
       <TestUsersProvider currentProfile={ready(asDm ? dm : player)}>
-        <TestTableProvider playerDraw={playerDraw} actions={{ setPlayerDrawMode: change }}>
-          <SettingsPage />
-        </TestTableProvider>
+        <TestAccessProvider entries={ready(ENTRIES)}>
+          <TestTableProvider playerDraw={playerDraw} actions={{ setPlayerDrawMode: change }}>
+            <SettingsPage />
+          </TestTableProvider>
+        </TestAccessProvider>
       </TestUsersProvider>
     </TestAuthProvider>,
   )
@@ -45,6 +54,24 @@ const group = () => screen.getByRole('group', { name: 'Oyuncu kart çekişi' })
 const option = (name: string) => within(group()).getByRole('radio', { name })
 
 describe('the Ayarlar screen', () => {
+  it('shows the DM the table settings, the access list and the data section, in this order', () => {
+    setup()
+
+    expect(
+      screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent),
+    ).toEqual(['Masa ayarları', 'Masaya erişim', 'Veri / Yedek'])
+    expect(screen.getByText('bora@example.com')).toBeInTheDocument()
+  })
+
+  it('shows a player the table settings and the data section, and no address', () => {
+    setup({ asDm: false })
+
+    expect(
+      screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent),
+    ).toEqual(['Masa ayarları', 'Veri / Yedek'])
+    expect(screen.queryByText(/@example\.com/)).not.toBeInTheDocument()
+  })
+
   it('shows the title, the table settings and the data section to come', () => {
     setup()
 

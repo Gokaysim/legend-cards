@@ -392,9 +392,16 @@ export const messages = {
   roleUnchanged: (name: string, role: string) => `${name} zaten "${role}". Hiçbir şey değişmedi.`,
   noSuchUser: (email: string) => `"${email}" e-postasıyla bir kullanıcı yok. Hiçbir şey değişmedi.`,
   noProfile: (email: string) =>
-    `"${email}" hesabının henüz profili yok: kullanıcı önce uygulamaya bir kez giriş yapmalı. Hiçbir şey değişmedi.`,
+    `"${email}" hesabının henüz profili yok: adres erişim listesinde olmalı (npm run allow-email) ve kullanıcı önce uygulamaya bir kez giriş yapmalı. Hiçbir şey değişmedi.`,
   invalidRole: (role: string, valid: readonly string[]) =>
     `"${role}" geçerli bir rol değil. Geçerli roller: ${valid.join(', ')}. Hiçbir şey değişmedi.`,
+  usageAllowEmail:
+    'Kullanım: npm run allow-email -- --email <e-posta> [--project <proje-kimliği>] [--yes]',
+  emailAllowed: (email: string) => `"${email}" erişim listesine eklendi.`,
+  emailAlreadyAllowed: (email: string) =>
+    `"${email}" zaten erişim listesinde. Hiçbir şey değişmedi.`,
+  invalidEmail: (email: string) =>
+    `"${email}" geçerli bir e-posta adresi değil. Hiçbir şey değişmedi.`,
   usageImportCards:
     'Kullanım: npm run import-cards -- [--legend <csv>] [--cursed <csv>] [--dry-run] [--project <proje-kimliği>] [--yes]\n' +
     'Dosya verilmezse data/legend-cards.csv ve data/cursed-cards.csv kullanılır. Yalnızca birini verirsen sadece o deste import edilir.',

@@ -3,19 +3,49 @@ rules_version = '2';
 // Firestore security rules for Legend Card Manager.
 //
 // Access is closed by default. A later change opens a data path by adding an explicit `match` block above
-// the catch-all. Each opened path combines isSignedIn() with its own checks and comes with emulator rules tests
+// the catch-all. Each opened path combines isMember() with its own checks and comes with emulator rules tests
 // (see "Adding a new data path" in docs/conventions.md).
+//
+// Only accounts on the DM's access list are members (spec: table-access; design D2 of invite-only-sign-in). Any
+// Google account can sign in to Firebase Auth, but without an entry on the list it reads and writes nothing except
+// its own entry.
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // True when the request comes from a signed-in user. Every opened path must require it.
-    function isSignedIn() {
-      return request.auth != null;
+    // True when the request comes from a signed-in account with a verified email address. On its own it grants only
+    // reading the account's own access-list entry; every other opened path requires isMember().
+    function hasVerifiedEmail() {
+      return request.auth != null
+        && request.auth.token.get('email_verified', false) == true
+        && request.auth.token.get('email', null) is string;
     }
 
-    // True when the signed-in user is the owner of the document keyed by `uid`.
+    // The signed-in account's email address in lowercase: the ID of its access-list entry. Call it only after
+    // hasVerifiedEmail().
+    function myEmail() {
+      return request.auth.token.email.lower();
+    }
+
+    // True when the request comes from an account on the access list: a verified email address whose entry exists.
+    // Every opened path must require it. It costs one document access per request (rules cache it within a request).
+    //
+    // The largest batches call it dozens of times, and a request may evaluate at most 1000 expressions, so the body is
+    // kept as short as it can be. It skips hasVerifiedEmail()'s null checks on purpose: without a signed-in user, or
+    // without a verified `email` claim, reading the token is an error, and an error denies like false. No rule negates
+    // isMember(), which is what would turn that error into a grant. Keep the path in step with allowedEmailPath().
+    function isMember() {
+      return request.auth.token.email_verified == true
+        && exists(/databases/$(database)/documents/allowedEmails/$(request.auth.token.email.lower()));
+    }
+
+    // True when the signed-in member is the owner of the document keyed by `uid`. The uid comes first, so another
+    // user's document costs no membership check.
     function isSelf(uid) {
-      return isSignedIn() && request.auth.uid == uid;
+      return request.auth.uid == uid && isMember();
+    }
+
+    function allowedEmailPath(email) {
+      return /databases/$(database)/documents/allowedEmails/$(email);
     }
 
     function userPath(uid) {
@@ -151,6 +181,13 @@ service cloud.firestore {
       return value is string && value.size() >= 1 && value.size() <= max;
     }
 
+    // An access-list address (design D3 of invite-only-sign-in): at most 254 characters, no capital letters, spaces
+    // or "/", exactly one "@", and a dot in the part after it. Keep in step with EMAIL_PATTERN in
+    // src/features/access/email.ts and scripts/lib/allowEmail.ts.
+    function validEmailId(email) {
+      return email.size() <= 254 && email.matches('[^@ /A-Z]+@[^@ /A-Z]+[.][^@ /A-Z]+');
+    }
+
     // A definition's picture (design D3 of upload-card-and-word-pictures): no field (it never had one), null (the DM
     // removed it), or the Cloud Storage path of a picture of this very definition, `<folder>/<id>/<hash>.webp`.
     // Keep in step with src/features/definitions/picturePath.ts and storage.rules.
@@ -280,7 +317,7 @@ service cloud.firestore {
 
     // True when the signed-in user's profile says DM. Reads the profile once per request (cached after that).
     function isDm() {
-      return isSignedIn()
+      return isMember()
         && exists(userPath(request.auth.uid))
         && get(userPath(request.auth.uid)).data.role == 'dm';
     }
@@ -321,6 +358,27 @@ service cloud.firestore {
       return value == null || (value is string && value.size() <= 2048);
     }
 
+    // The access list (spec: table-access; design D3 of invite-only-sign-in): one entry per Google email address that
+    // may use the app, keyed by the address in lowercase, with the time it was added and, after the person's first
+    // entry, their uid. Only the DM lists, adds and removes entries, and never removes their own. Any account with a
+    // verified address reads its own entry, whether or not it exists: the "ekli değil" screen follows it. A member
+    // links their own unlinked entry to their own uid, once. Nothing else ever changes an entry, the DM included.
+    match /allowedEmails/{email} {
+      allow get: if (hasVerifiedEmail() && email == myEmail()) || isDm();
+      allow list: if isDm();
+      allow create: if isDm()
+        && validEmailId(email)
+        && request.resource.data.keys().hasOnly(['addedAt'])
+        && request.resource.data.keys().hasAll(['addedAt'])
+        && request.resource.data.addedAt == request.time;
+      allow update: if isMember()
+        && email == myEmail()
+        && resource.data.get('uid', null) == null
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['uid'])
+        && request.resource.data.uid == request.auth.uid;
+      allow delete: if isDm() && email != myEmail();
+    }
+
     // User profiles. Everyone signed in reads every profile. A user creates only their own, only as a player,
     // and later changes only its name, its picture and its dice style. Roles are changed by the admin script (Admin SDK), never here.
     // The other writes are a player's Legend Points, each together with the ledger entry that records it: the DM
@@ -328,7 +386,7 @@ service cloud.firestore {
     // draw, a pack's or a True Word draft's payment or refund moves them, and the player or the DM pays for using the
     // player's card or True Word (a use that closes its holding, `use`, or one that keeps it in the hand, `keptUse`).
     match /users/{uid} {
-      allow read: if isSignedIn();
+      allow read: if isMember();
       allow create: if isSelf(uid)
         && request.resource.data.keys().hasOnly(['displayName', 'photoURL', 'role', 'createdAt'])
         && request.resource.data.keys().hasAll(['displayName', 'photoURL', 'role', 'createdAt'])
@@ -360,15 +418,22 @@ service cloud.firestore {
       // (the DM's, or the player's own lowering), the player's draw payment, whose amount the ledger rules fix at 1, a
       // pack's or a True Word draft's payment or refund, or a use's payment, which the ledger rules tie to its record.
       // A missing `lp` is 0.
+      //
+      // The entry's source comes first: it tells the update rule's branches apart cheaply, so a use's payment, the
+      // last branch, does not evaluate the whole check of every branch before it. A request may evaluate at most 1000
+      // expressions (design of invite-only-sign-in).
       function lpSetByEntry(source) {
         let next = request.resource.data;
-        return isSignedIn()
+        let entryId = next.get('lpEntryId', null);
+        return entryId is string
+          && existsAfter(ledgerPath(entryId))
+          && getAfter(ledgerPath(entryId)).data.source == source
+          && isMember()
           && onlyChanges(['lp', 'lpEntryId'])
           && resource.data.role == 'player'
           && next.get('lp', null) is int
           && next.lp >= 0
-          && setByNewEntry(next.get('lpEntryId', null), 'lp', uid, resource.data.get('lp', 0), next.lp)
-          && getAfter(ledgerPath(next.lpEntryId)).data.source == source;
+          && setByNewEntry(entryId, 'lp', uid, resource.data.get('lp', 0), next.lp);
       }
     }
 
@@ -376,14 +441,14 @@ service cloud.firestore {
     // with the ledger entry that records the change: by hand, or a pack's GP payment or refund. A missing purse holds
     // 0 GP.
     match /party/main {
-      allow read: if isSignedIn();
+      allow read: if isMember();
       allow create: if gpSetByEntry(0);
       allow update: if gpSetByEntry(resource.data.gp);
       allow delete: if false;
 
       function gpSetByEntry(before) {
         let next = request.resource.data;
-        return isSignedIn()
+        return isMember()
           && next.keys().hasOnly(['gp', 'gpEntryId'])
           && next.keys().hasAll(['gp', 'gpEntryId'])
           && next.gp is int
@@ -400,7 +465,7 @@ service cloud.firestore {
     // its holding or keeps the card or word in the hand. Only a pack's own steps may change a balance while the pack
     // is open.
     match /ledger/{entryId} {
-      allow read: if isSignedIn();
+      allow read: if isMember();
       allow create: if validLedgerEntry()
         && (((manualChange() || paysForDraw() || forWordDraft() || forUse() || forKeptUse()) && tableFree())
           || forPack());
@@ -411,7 +476,7 @@ service cloud.firestore {
         let data = request.resource.data;
         let fields = ['currency', 'account', 'delta', 'balanceAfter', 'source', 'reason', 'drawId', 'by',
           'at'];
-        return isSignedIn()
+        return isMember()
           && data.keys().hasOnly(fields)
           && data.keys().hasAll(fields)
           && data.account is string
@@ -622,14 +687,14 @@ service cloud.firestore {
     // below). Otherwise the application changes only the `holder` of a card with one copy, together with the holding
     // that explains it (see userCards below), and never in the same write as the definition.
     match /cards/{cardId} {
-      allow read: if isSignedIn() && (playerVisible(resource.data.status) || isDm());
-      allow create: if isSignedIn() && addedByDm();
-      allow update: if isSignedIn()
+      allow read: if isMember() && (playerVisible(resource.data.status) || isDm());
+      allow create: if isMember() && addedByDm();
+      allow update: if isMember()
         && ((onlyChanges(['holder'])
             && resource.data.isRepeatable == false
             && (takenFromPool() || releasedByClosedHolding() || movedByTransfer()))
           || changedByDm());
-      allow delete: if isSignedIn()
+      allow delete: if isMember()
         && resource.data.status == 'draft'
         && deletionRecorded()
         && tableFree()
@@ -820,9 +885,9 @@ service cloud.firestore {
     // getAfter. A True Word's holding is never used, transferred or discarded as a card, and never by its holder: the
     // DM's take-back closes it as discarded together with the player's `playerWords`.
     match /userCards/{holdingId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && validNewHolding();
-      allow update: if isSignedIn()
+      allow read: if isMember();
+      allow create: if isMember() && validNewHolding();
+      allow update: if isMember()
         && resource.data.returnedAt == null
         && (
           (onlyChanges(['note']) && validNote(request.resource.data.note) && (isDm() || isHolder()))
@@ -1123,7 +1188,7 @@ service cloud.firestore {
     // open, its player or the DM learns one of its words or skips it, and only the DM cancels it, with a refund. A
     // draft never takes the table, but every step waits while a pack is open. An ended draft never changes.
     match /draws/{drawId} {
-      allow read: if isSignedIn();
+      allow read: if isMember();
       allow create: if (validDraw()
           && opensItsHolding()
           && joinsSession()
@@ -1131,7 +1196,7 @@ service cloud.firestore {
           && (paidByPlayer() || cursedForSelf() || (isFree() && isDm())))
         || (validPackOpening() && takesTable() && (packPaidByPlayer() || packByDm()))
         || (validWordDraft() && tableFree() && startsDraft() && (draftPaidByPlayer() || draftByDm()));
-      allow update: if isSignedIn()
+      allow update: if isMember()
         && resource.data.status == 'open'
         && (
           (resource.data.kind == 'pack'
@@ -1175,7 +1240,7 @@ service cloud.firestore {
         let data = request.resource.data;
         let fields = ['kind', 'uid', 'by', 'at', 'cardId', 'cardName', 'cardKind', 'holdingId', 'filters',
           'paidWith', 'cost', 'entryId', 'sessionId'];
-        return isSignedIn()
+        return isMember()
           && data.keys().hasOnly(fields)
           && data.keys().hasAll(fields)
           && data.uid is string
@@ -1310,7 +1375,7 @@ service cloud.firestore {
         let data = request.resource.data;
         let fields = ['kind', 'uid', 'by', 'at', 'packType', 'setCode', 'mechanicPack', 'offered', 'revealed',
           'paidWith', 'cost', 'entryId', 'status', 'closedAt', 'closedBy', 'chosen', 'cursed', 'refundEntryId'];
-        return isSignedIn()
+        return isMember()
           && data.keys().hasOnly(fields)
           && data.keys().hasAll(fields)
           && data.kind == 'pack'
@@ -1451,7 +1516,7 @@ service cloud.firestore {
         let data = request.resource.data;
         let fields = ['kind', 'uid', 'by', 'at', 'offered', 'status', 'paidWith', 'cost', 'entryId', 'closedAt',
           'closedBy', 'learned', 'refundEntryId'];
-        return isSignedIn()
+        return isMember()
           && data.keys().hasOnly(fields)
           && data.keys().hasAll(fields)
           && data.kind == 'wordDraft'
@@ -1550,9 +1615,9 @@ service cloud.firestore {
     // owner and the DM turn its cards and end it, with no need for a free table. An ended session never changes again,
     // and no session is deleted. Staleness is read on the devices, never written.
     match /drawSessions/{sessionId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && validNewSession();
-      allow update: if isSignedIn()
+      allow read: if isMember();
+      allow create: if isMember() && validNewSession();
+      allow update: if isMember()
         && resource.data.endedBy == null
         && (addsDraw()
           || ((turnsSessionCard() || endsSession())
@@ -1646,8 +1711,8 @@ service cloud.firestore {
     //   request creates for it, and nothing else. A mode change does not wait for an open pack: it moves no card and
     //   no balance. Before the first pack, the DM's change creates the table, with no pack open.
     match /table/main {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn()
+      allow read: if isMember();
+      allow create: if isMember()
         && ((request.resource.data.keys().hasOnly(['openPackId'])
             && request.resource.data.keys().hasAll(['openPackId'])
             && takenBy(request.resource.data.openPackId))
@@ -1655,7 +1720,7 @@ service cloud.firestore {
             && request.resource.data.keys().hasAll(tableKeys())
             && request.resource.data.openPackId == null
             && setsPlayerDraw('off')));
-      allow update: if isSignedIn()
+      allow update: if isMember()
         && request.resource.data.keys().hasAll(['openPackId'])
         && ((onlyChanges(['openPackId'])
             && ((resource.data.openPackId == null && takenBy(request.resource.data.openPackId))
@@ -1705,8 +1770,8 @@ service cloud.firestore {
     // records: the table now points at it, with its mode after, and its mode before is the table's before. A record
     // never changes and is never deleted.
     match /tableChanges/{changeId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && validTableChange() && isDm();
+      allow read: if isMember();
+      allow create: if isMember() && validTableChange() && isDm();
       allow update, delete: if false;
 
       function validTableChange() {
@@ -1736,8 +1801,8 @@ service cloud.firestore {
     // Only the DM creates them, each together with the change it records; the import script writes its own with the
     // Admin SDK. A record never changes and is never deleted.
     match /definitionChanges/{changeId} {
-      allow read: if isSignedIn() && (resource.data.public == true || isDm());
-      allow create: if isSignedIn() && validChangeRecord() && isDm();
+      allow read: if isMember() && (resource.data.public == true || isDm());
+      allow create: if isMember() && validChangeRecord() && isDm();
       allow update, delete: if false;
 
       function recordKeys() {
@@ -1792,19 +1857,19 @@ service cloud.firestore {
     // cannot normalize, so they check the shape and keep the code from changing. A change of the pack layout and a
     // delete wait for an open pack. The import writes with the Admin SDK.
     match /sets/{setId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn()
+      allow read: if isMember();
+      allow create: if isMember()
         && setId.matches('[a-z0-9]+')
         && validSet(request.resource.data)
         && setRecorded(request.resource.data.changeId, 'added')
         && isDm();
-      allow update: if isSignedIn()
+      allow update: if isMember()
         && validSet(request.resource.data)
         && request.resource.data.code == resource.data.code
         && request.resource.data.changeId != resource.data.get('changeId', null)
         && (movedNow() || editedNow())
         && isDm();
-      allow delete: if isSignedIn()
+      allow delete: if isMember()
         && deletionRecorded()
         && tableFree()
         && isDm();
@@ -1864,8 +1929,8 @@ service cloud.firestore {
     // The set change records (spec: card-sets, "Set change records"). Everyone signed in reads them; the DM creates
     // one with each set step, and none is ever changed or deleted. The import writes its records with the Admin SDK.
     match /setChanges/{changeId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && validSetChange() && isDm();
+      allow read: if isMember();
+      allow create: if isMember() && validSetChange() && isDm();
       allow update, delete: if false;
 
       function setChangeKeys() {
@@ -1905,8 +1970,8 @@ service cloud.firestore {
     // last changed `known`. Everyone signed in reads it. It checks only that it agrees with the draft or record that
     // this same request changes; those documents decide who may act. Every change waits while a pack is open.
     match /playerWords/{uid} {
-      allow read: if isSignedIn();
-      allow create, update: if isSignedIn()
+      allow read: if isMember();
+      allow create, update: if isMember()
         && validPlayerWords()
         && tableFree()
         && (opensDraft() || endsDraft() || learnsFromDraft() || teaches() || takesBack());
@@ -2016,8 +2081,8 @@ service cloud.firestore {
     // the DM any whole amount. A paid use comes with its ledger entry and the player's new LP in this same request. A
     // use is never changed or deleted.
     match /uses/{useId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn()
+      allow read: if isMember();
+      allow create: if isMember()
         && validUse()
         && tableFree()
         && ((isSelf(request.resource.data.uid) && priceAllows(useCost(), request.resource.data.cost))
@@ -2080,7 +2145,7 @@ service cloud.firestore {
     // stop them.
     function validNoteDoc(uid) {
       let data = request.resource.data;
-      return isSignedIn()
+      return isMember()
         && data.keys().hasOnly(['text', 'updatedBy', 'updatedAt'])
         && data.keys().hasAll(['text', 'updatedBy', 'updatedAt'])
         && data.text is string
@@ -2095,15 +2160,15 @@ service cloud.firestore {
     // change its photo and its sheet link (add-character-sheet-link), archive it and bring it back. Nothing else
     // changes, and a character is never deleted. They are not table actions: an open pack does not stop them.
     match /characters/{characterId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn()
+      allow read: if isMember();
+      allow create: if isMember()
         && (isSelf(request.resource.data.uid) || isDm())
         && validCharacter(request.resource.data)
         && request.resource.data.archived == false
         && request.resource.data.createdAt == request.time
         && request.resource.data.createdBy == request.auth.uid
         && exists(userPath(request.resource.data.uid));
-      allow update: if isSignedIn()
+      allow update: if isMember()
         && (isSelf(resource.data.uid) || isDm())
         && onlyChanges(['name', 'picture', 'archived', 'initiativeModifier', 'sheetUrl'])
         && validCharacter(request.resource.data);
@@ -2141,8 +2206,8 @@ service cloud.firestore {
     // is on; a player writes their own effect on their own character, and the DM one on any character. Effects by hand
     // are not table actions: an open pack does not stop them.
     match /characterEffects/{effectId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn()
+      allow read: if isMember();
+      allow create: if isMember()
         && validEffect(request.resource.data)
         && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.createdAt == request.time
@@ -2156,7 +2221,7 @@ service cloud.firestore {
       allow update: if false;
       // A use's effect: the character's owner, the user who made the use, or the DM. An own effect: the owner or the
       // DM. A DM effect: the DM alone.
-      allow delete: if isSignedIn()
+      allow delete: if isMember()
         && (
           ((resource.data.source == 'card' || resource.data.source == 'word')
             && (isSelf(resource.data.uid) || request.auth.uid == resource.data.createdBy || isDm()))
@@ -2229,7 +2294,7 @@ service cloud.firestore {
 
     // The player note: the whole table reads it; the player writes their own, and the DM anyone's.
     match /playerNotes/{uid} {
-      allow read: if isSignedIn();
+      allow read: if isMember();
       allow create, update: if validNoteDoc(uid) && (isSelf(uid) || isDm());
       allow delete: if false;
     }
@@ -2299,8 +2364,8 @@ service cloud.firestore {
     // own, at the server time, and nobody changes or deletes one. A public roll holds its whole content. A hidden roll
     // is the DM's only: its public record holds who and when, and its content goes to `dmRolls` in the same batch.
     match /diceRolls/{rollId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn()
+      allow read: if isMember();
+      allow create: if isMember()
         && request.resource.data.by == request.auth.uid
         && request.resource.data.at == request.time
         && (publicRoll() || hiddenRoll());
@@ -2328,7 +2393,7 @@ service cloud.firestore {
     // record under the same ID. Nobody changes or deletes one.
     match /dmRolls/{rollId} {
       allow read: if isDm();
-      allow create: if isSignedIn()
+      allow create: if isMember()
         && request.resource.data.keys().hasOnly(rollKeys())
         && request.resource.data.keys().hasAll(rollKeys())
         && request.resource.data.by == request.auth.uid
@@ -2346,9 +2411,9 @@ service cloud.firestore {
     // the turn and the round, and ends it. A player only moves the turn on by one place while the active combatant is
     // their own character. Keep in step with src/features/combat/schema.ts and api.ts.
     match /combat/main {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && validCombat(request.resource.data) && opensCombat(null) && isDm();
-      allow update: if isSignedIn()
+      allow read: if isMember();
+      allow create: if isMember() && validCombat(request.resource.data) && opensCombat(null) && isDm();
+      allow update: if isMember()
         && validCombat(request.resource.data)
         && ((isDm()
             && ((resource.data.phase == 'idle' && opensCombat(resource.data.changeId))
@@ -2457,12 +2522,12 @@ service cloud.firestore {
     // the fight runs only by hand. The roll of a character is written once, while gathering, by its owner or the DM,
     // together with the roll record that shows it. Only the DM marks an NPC as rolled, and clears a roll.
     match /combatants/{combatantId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn()
+      allow read: if isMember();
+      allow create: if isMember()
         && validCombatant(request.resource.data)
         && joinsCombat(request.resource.data)
         && isDm();
-      allow update: if isSignedIn()
+      allow update: if isMember()
         && validCombatant(request.resource.data)
         && onlyChanges(['rolled', 'roll'])
         && get(combatPath()).data.phase == 'gathering'
@@ -2575,8 +2640,8 @@ service cloud.firestore {
     // when a fight starts, with its combatants, and one when it ends, with its round. Everyone signed in reads them.
     // Only the DM creates one, together with the combat change it records. A record never changes and is never deleted.
     match /combatChanges/{changeId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && validCombatChange() && isDm();
+      allow read: if isMember();
+      allow create: if isMember() && validCombatChange() && isDm();
       allow update, delete: if false;
 
       function validCombatChange() {

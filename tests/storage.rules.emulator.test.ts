@@ -10,6 +10,8 @@ import {
 import { doc, type Firestore, setDoc, Timestamp } from 'firebase/firestore'
 import { afterAll, beforeAll, beforeEach, describe, it } from 'vitest'
 
+import { memberContext, memberEmail, outsiderContext, seedMembers } from '../src/test/members.ts'
+
 // The Cloud Storage rules (storage.rules; spec: card-images, "Anyone may open a stored picture", "Stored picture
 // files"; data-access-control). The DM's role comes from the Firestore profile through cross-service rules.
 
@@ -29,7 +31,7 @@ const bytes = (size = 64) => new Uint8Array(size).fill(7)
 /** The test context's Storage is a compat instance. */
 const storageOf = (context: RulesTestContext) => context.storage()
 
-const as = (uid: string) => storageOf(testEnv.authenticatedContext(uid))
+const as = (uid: string) => storageOf(memberContext(testEnv, uid))
 const signedOut = () => storageOf(testEnv.unauthenticatedContext())
 
 function put(
@@ -65,6 +67,7 @@ beforeAll(async () => {
     },
   })
   await testEnv.clearFirestore()
+  await seedMembers(testEnv)
   await testEnv.withSecurityRulesDisabled(async (admin) => {
     const db = admin.firestore() as unknown as Firestore
     const profile = (displayName: string, role: 'dm' | 'player') => ({
@@ -119,6 +122,11 @@ describe('anyone may read a picture', () => {
     await seedFile(CARD_PICTURE)
     await assertSucceeds(as('ayla').ref(CARD_PICTURE).getMetadata())
   })
+
+  it('an account that is not on the access list reads a picture', async () => {
+    await seedFile(CARD_PICTURE)
+    await assertSucceeds(storageOf(outsiderContext(testEnv)).ref(CARD_PICTURE).getMetadata())
+  })
 })
 
 describe('everyone else is denied', () => {
@@ -132,6 +140,20 @@ describe('everyone else is denied', () => {
 
   it('a user without a profile cannot store a picture', async () => {
     await assertFails(put(as('stranger'), CARD_PICTURE))
+  })
+
+  it('the DM cannot store or delete a picture from an address that is not on the list, or not verified', async () => {
+    const offList = storageOf(
+      outsiderContext(testEnv, { uid: 'dana', email: 'old.dm@example.com' }),
+    )
+    const unverified = storageOf(
+      outsiderContext(testEnv, { uid: 'dana', email: memberEmail('dana'), verified: false }),
+    )
+    await assertFails(put(offList, CARD_PICTURE))
+    await assertFails(put(unverified, CARD_PICTURE))
+    await seedFile(CARD_PICTURE)
+    await assertFails(offList.ref(CARD_PICTURE).delete())
+    await assertFails(unverified.ref(CARD_PICTURE).delete())
   })
 
   it.each([CARD_PICTURE, WORD_PICTURE, SET_PICTURE])('a player cannot delete %s', async (path) => {
@@ -247,6 +269,17 @@ describe('character photos', () => {
     await assertFails(put(as('bora'), photoOf(THORIN)))
     await seedFile(photoOf(THORIN))
     await assertFails(as('bora').ref(photoOf(THORIN)).delete())
+  })
+
+  it('denies an account that is not on the access list storing or deleting a photo', async () => {
+    const cem = storageOf(outsiderContext(testEnv))
+    const offListAyla = storageOf(
+      outsiderContext(testEnv, { uid: 'ayla', email: 'ayla.new@example.com' }),
+    )
+    await assertFails(put(cem, photoOf(NEW)))
+    await assertFails(put(offListAyla, photoOf(THORIN)))
+    await seedFile(photoOf(THORIN))
+    await assertFails(offListAyla.ref(photoOf(THORIN)).delete())
   })
 
   it('denies a signed-out upload and delete', async () => {

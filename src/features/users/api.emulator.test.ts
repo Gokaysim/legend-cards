@@ -7,6 +7,7 @@ import { doc, type Firestore, getDoc, setDoc, Timestamp } from 'firebase/firesto
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import type { AuthUser } from '@/features/auth/authContext'
+import { memberContext, seedMembers } from '@/test/members'
 
 import firestoreRules from '../../../firestore.rules?raw'
 import { ensureProfile } from './api'
@@ -26,7 +27,7 @@ const alice: AuthUser = {
 }
 
 /** Alice's Firestore, under the real rules. */
-const aliceDb = () => firestoreOf(testEnv.authenticatedContext(alice.uid))
+const aliceDb = () => firestoreOf(memberContext(testEnv, alice.uid))
 
 async function storedProfile(uid: string): Promise<Record<string, unknown> | undefined> {
   let data: Record<string, unknown> | undefined
@@ -54,6 +55,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await testEnv.clearFirestore()
+  await seedMembers(testEnv)
 })
 
 describe('ensureProfile under the real rules', () => {

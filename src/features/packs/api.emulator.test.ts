@@ -18,6 +18,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { Card } from '@/features/cards/schema'
 import type { RandomSource } from '@/lib/random'
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
+import { memberContext, seedMembers } from '@/test/members'
 
 import firestoreRules from '../../../firestore.rules?raw'
 import { cancelPack, choosePackCard, openPack, type OpenPackInput, turnPackCard } from './api'
@@ -32,7 +33,7 @@ function firestoreOf(context: RulesTestContext): Firestore {
 }
 
 /** A user's own Firestore under the real rules. Each call is a separate client, like a separate device. */
-const as = (uid: string) => firestoreOf(testEnv.authenticatedContext(uid))
+const as = (uid: string) => firestoreOf(memberContext(testEnv, uid))
 
 /** Ten Common and three Rare Kesqer cards in the pool, a Blessed card, and the Cursed Deck. */
 const COMMONS = Array.from({ length: 10 }, (_, index) => testCard(`Kesqer ${index + 1}`))
@@ -111,6 +112,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await testEnv.clearFirestore()
+  await seedMembers(testEnv)
   // Profiles with roles and the cards exist only through the admin scripts, so they are seeded. Ayla has 5 LP,
   // and the party purse holds 12,500 GP.
   await testEnv.withSecurityRulesDisabled(async (admin) => {

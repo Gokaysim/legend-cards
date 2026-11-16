@@ -6,6 +6,8 @@ import {
 import { doc, type Firestore, getDoc, setDoc, Timestamp } from 'firebase/firestore'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
+import { memberContext, seedMembers } from '@/test/members'
+
 import firestoreRules from '../../../firestore.rules?raw'
 import { firebaseCode } from '@/lib/firestore/errors'
 
@@ -20,7 +22,7 @@ function firestoreOf(context: RulesTestContext): Firestore {
 }
 
 /** A user's own Firestore under the real rules. Each call is a separate client, like a separate device. */
-const as = (uid: string) => firestoreOf(testEnv.authenticatedContext(uid))
+const as = (uid: string) => firestoreOf(memberContext(testEnv, uid))
 
 /** The rejection of a promise that must fail. */
 async function failureOf(promise: Promise<unknown>): Promise<unknown> {
@@ -45,6 +47,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await testEnv.clearFirestore()
+  await seedMembers(testEnv)
   // Profiles with roles exist only through the admin script, so they are seeded here.
   await testEnv.withSecurityRulesDisabled(async (admin) => {
     const db = firestoreOf(admin)

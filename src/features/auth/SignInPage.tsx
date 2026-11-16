@@ -3,6 +3,7 @@ import { Navigate, useLocation } from 'react-router'
 
 import { Button } from '@/components/ui/Button'
 import { FullScreenSpinner } from '@/components/ui/FullScreenSpinner'
+import { NoAccessPage } from '@/features/access/NoAccessPage'
 
 import { useAuth } from './authContext'
 import { authErrorMessage } from './authErrors'
@@ -26,7 +27,8 @@ export function SignInPage() {
   const [error, setError] = useState<string | null>(null)
   const [isSigningIn, setIsSigningIn] = useState(false)
 
-  if (auth.status === 'loading') return <FullScreenSpinner />
+  if (auth.status === 'loading' || auth.status === 'checking') return <FullScreenSpinner />
+  if (auth.status === 'noAccess') return <NoAccessPage />
   if (auth.status === 'signedIn') return <Navigate to={returnPath(location.state)} replace />
 
   async function handleSignIn() {

@@ -15,6 +15,7 @@ import {
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { type BehaviorFlags, startingFlags } from '@/features/definitions/flags'
+import { memberContext, seedMembers } from '@/test/members'
 
 import firestoreRules from '../../../firestore.rules?raw'
 import {
@@ -37,7 +38,7 @@ function firestoreOf(context: RulesTestContext): Firestore {
 }
 
 /** A user's own Firestore under the real rules. Each call is a separate client, like a separate device. */
-const as = (uid: string) => firestoreOf(testEnv.authenticatedContext(uid))
+const as = (uid: string) => firestoreOf(memberContext(testEnv, uid))
 
 const POOL = 'legend-abolethseyes'
 const CURSED = 'cursed-visionsofdeath'
@@ -118,6 +119,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await testEnv.clearFirestore()
+  await seedMembers(testEnv)
   // Profiles with roles and the cards exist only through the admin scripts, so they are seeded here.
   await testEnv.withSecurityRulesDisabled(async (admin) => {
     const db = firestoreOf(admin)

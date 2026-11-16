@@ -27,6 +27,7 @@ import {
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { type DefinitionKind, startingFlags } from '../src/features/definitions/flags.ts'
+import { memberContext, memberEmail, outsiderContext, seedMembers } from '../src/test/members.ts'
 import { USE_PRICE_CASES, type UsePriceCase } from '../src/test/usePriceCases.ts'
 
 const PROJECT_ID = 'demo-legend-cards'
@@ -63,6 +64,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await testEnv.clearFirestore()
+  await seedMembers(testEnv)
   // Seed one existing document per path, bypassing the rules, so reads, updates and deletes have a target.
   await testEnv.withSecurityRulesDisabled(async (admin) => {
     for (const path of SAMPLE_PATHS) {
@@ -111,12 +113,12 @@ describe('signed-out users have no access', () => {
 
 describe('signed-in users are denied on paths no rule opens', () => {
   it.each(SAMPLE_PATHS)('cannot read %s', async (path) => {
-    const db = firestoreOf(testEnv.authenticatedContext('alice'))
+    const db = firestoreOf(memberContext(testEnv, 'alice'))
     await assertFails(getDoc(doc(db, path)))
   })
 
   it.each(SAMPLE_PATHS)('cannot create, update or delete %s', async (path) => {
-    const db = firestoreOf(testEnv.authenticatedContext('alice'))
+    const db = firestoreOf(memberContext(testEnv, 'alice'))
     await assertFails(setDoc(doc(db, `${path}-new`), { created: true }))
     await assertFails(updateDoc(doc(db, path), { changed: true }))
     await assertFails(deleteDoc(doc(db, path)))
@@ -124,8 +126,244 @@ describe('signed-in users are denied on paths no rule opens', () => {
   })
 
   it('cannot list a collection', async () => {
-    const db = firestoreOf(testEnv.authenticatedContext('alice'))
+    const db = firestoreOf(memberContext(testEnv, 'alice'))
     await assertFails(getDocs(collection(db, 'players')))
+  })
+})
+
+describe('access list (allowedEmails/{email})', () => {
+  // Dana is the DM and Bob a player, both on the list and linked (seedMembers). Eren is on the list but has not
+  // entered yet, so his entry is unlinked. Cem is not on the list.
+  const EREN = 'allowedEmails/eren@example.com'
+
+  beforeEach(async () => {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const db = firestoreOf(admin)
+      const profile = (role: 'player' | 'dm', displayName: string) => ({
+        displayName,
+        photoURL: null,
+        role,
+        createdAt: Timestamp.fromMillis(0),
+      })
+      await setDoc(doc(db, 'users/bob'), profile('player', 'Bob'))
+      await setDoc(doc(db, 'users/dana'), profile('dm', 'Dana'))
+      await setDoc(doc(db, EREN), { addedAt: Timestamp.fromMillis(0) })
+    })
+  })
+
+  const as = (uid: string) => firestoreOf(memberContext(testEnv, uid))
+  const cem = () => firestoreOf(outsiderContext(testEnv))
+  const entry = (db: Firestore, email: string) => doc(db, 'allowedEmails', email)
+  const added = () => ({ addedAt: serverTimestamp() })
+
+  describe('allowed', () => {
+    it('lets the DM list the entries and read each one', async () => {
+      const snapshot = await assertSucceeds(getDocs(collection(as('dana'), 'allowedEmails')))
+      expect(snapshot.docs.map((d) => d.id)).toEqual(
+        expect.arrayContaining(['bob@example.com', 'dana@example.com', 'eren@example.com']),
+      )
+      await assertSucceeds(getDoc(entry(as('dana'), 'bob@example.com')))
+    })
+
+    it('lets the DM add an address with the server time, before any account has it', async () => {
+      await assertSucceeds(setDoc(entry(as('dana'), 'cem@example.com'), added()))
+      expect(await readAsAdmin('allowedEmails/cem@example.com')).toHaveProperty('addedAt')
+    })
+
+    it('lets the DM add an address of exactly 254 characters', async () => {
+      const email = `${'a'.repeat(242)}@example.com`
+      expect(email).toHaveLength(254)
+      await assertSucceeds(setDoc(entry(as('dana'), email), added()))
+    })
+
+    it("lets the DM remove a player's address", async () => {
+      await assertSucceeds(deleteDoc(entry(as('dana'), 'bob@example.com')))
+      expect(await readAsAdmin('allowedEmails/bob@example.com')).toBeUndefined()
+    })
+
+    it('lets a member read their own entry, and an account that is not on the list read its missing one', async () => {
+      await assertSucceeds(getDoc(entry(as('bob'), 'bob@example.com')))
+      const missing = await assertSucceeds(getDoc(entry(cem(), 'cem@example.com')))
+      expect(missing.exists()).toBe(false)
+    })
+
+    it('lets a member link their own unlinked entry to their own uid, keeping its adding time', async () => {
+      await assertSucceeds(updateDoc(entry(as('eren'), 'eren@example.com'), { uid: 'eren' }))
+      expect(await readAsAdmin(EREN)).toEqual({ addedAt: Timestamp.fromMillis(0), uid: 'eren' })
+    })
+  })
+
+  describe('denied', () => {
+    it('denies a player listing the entries, or reading another person’s entry', async () => {
+      await assertFails(getDocs(collection(as('bob'), 'allowedEmails')))
+      await assertFails(getDoc(entry(as('bob'), 'dana@example.com')))
+      await assertFails(getDoc(entry(cem(), 'bob@example.com')))
+    })
+
+    it('denies a player adding or removing an address', async () => {
+      await assertFails(setDoc(entry(as('bob'), 'cem@example.com'), added()))
+      await assertFails(deleteDoc(entry(as('bob'), 'eren@example.com')))
+      expect(await readAsAdmin(EREN)).toBeDefined()
+    })
+
+    it('denies an account that is not on the list adding its own address', async () => {
+      await assertFails(setDoc(entry(cem(), 'cem@example.com'), added()))
+    })
+
+    it('denies an account whose address is not verified reading its own entry', async () => {
+      const unverified = firestoreOf(
+        outsiderContext(testEnv, { uid: 'bob', email: memberEmail('bob'), verified: false }),
+      )
+      await assertFails(getDoc(entry(unverified, 'bob@example.com')))
+    })
+
+    it('denies adding an address that is already on the list', async () => {
+      await assertFails(setDoc(entry(as('dana'), 'bob@example.com'), added()))
+      expect(await readAsAdmin('allowedEmails/bob@example.com')).toEqual({
+        addedAt: Timestamp.fromMillis(0),
+        uid: 'bob',
+      })
+    })
+
+    it('denies a malformed address', async () => {
+      for (const email of [
+        'Cem@example.com',
+        'cem.example.com',
+        'cem@@example.com',
+        'cem@example',
+        'c em@example.com',
+        `${'a'.repeat(243)}@example.com`,
+      ]) {
+        await assertFails(setDoc(entry(as('dana'), email), added()))
+      }
+    })
+
+    it('denies extra fields, and an adding time other than the server time', async () => {
+      await assertFails(setDoc(entry(as('dana'), 'cem@example.com'), { ...added(), uid: 'cem' }))
+      await assertFails(
+        setDoc(entry(as('dana'), 'cem@example.com'), { addedAt: Timestamp.fromMillis(0) }),
+      )
+    })
+
+    it('denies linking an entry to another uid, or another person’s entry', async () => {
+      await assertFails(updateDoc(entry(as('eren'), 'eren@example.com'), { uid: 'bob' }))
+      await assertFails(updateDoc(entry(as('bob'), 'eren@example.com'), { uid: 'bob' }))
+      await assertFails(updateDoc(entry(as('dana'), 'eren@example.com'), { uid: 'eren' }))
+      expect(await readAsAdmin(EREN)).toEqual({ addedAt: Timestamp.fromMillis(0) })
+    })
+
+    it('denies changing a link or the adding time, by its owner or by the DM', async () => {
+      await assertFails(updateDoc(entry(as('bob'), 'bob@example.com'), { uid: 'bob' }))
+      await assertFails(updateDoc(entry(as('bob'), 'bob@example.com'), { uid: deleteField() }))
+      await assertFails(updateDoc(entry(as('dana'), 'bob@example.com'), { uid: 'dana' }))
+      await assertFails(
+        updateDoc(entry(as('dana'), 'bob@example.com'), { addedAt: serverTimestamp() }),
+      )
+      await assertFails(
+        updateDoc(entry(as('eren'), 'eren@example.com'), { addedAt: serverTimestamp() }),
+      )
+    })
+
+    it('denies the DM removing their own address', async () => {
+      await assertFails(deleteDoc(entry(as('dana'), 'dana@example.com')))
+      expect(await readAsAdmin('allowedEmails/dana@example.com')).toBeDefined()
+    })
+
+    it('denies signed-out requests', async () => {
+      const db = firestoreOf(testEnv.unauthenticatedContext())
+      await assertFails(getDoc(entry(db, 'bob@example.com')))
+      await assertFails(getDocs(collection(db, 'allowedEmails')))
+      await assertFails(setDoc(entry(db, 'cem@example.com'), added()))
+      await assertFails(deleteDoc(entry(db, 'eren@example.com')))
+    })
+  })
+})
+
+describe('membership (only accounts on the access list have access)', () => {
+  // Bob is a player on the list. Cem is not on the list.
+  beforeEach(async () => {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const db = firestoreOf(admin)
+      await setDoc(doc(db, 'users/bob'), {
+        displayName: 'Bob',
+        photoURL: null,
+        role: 'player',
+        createdAt: Timestamp.fromMillis(0),
+      })
+      await setDoc(doc(db, 'cards/legend-abolethseyes'), {
+        name: "Aboleth's Eyes",
+        status: 'active',
+      })
+      await setDoc(doc(db, 'ledger/e-1'), { account: 'bob', delta: 1 })
+    })
+  })
+
+  /** The table data every member reads: the profiles, a card and the ledger. */
+  const reads = (db: Firestore): (() => Promise<unknown>)[] => [
+    () => getDoc(doc(db, 'users/bob')),
+    () => getDocs(collection(db, 'users')),
+    () => getDoc(doc(db, 'cards/legend-abolethseyes')),
+    () => getDocs(collection(db, 'ledger')),
+  ]
+
+  const newProfile = () => ({
+    displayName: 'Cem',
+    photoURL: null,
+    role: 'player',
+    createdAt: serverTimestamp(),
+  })
+
+  it('lets a member read the table data', async () => {
+    for (const read of reads(firestoreOf(memberContext(testEnv, 'bob')))) {
+      await assertSucceeds(read())
+    }
+  })
+
+  it('denies every read to an account whose verified address is not on the list', async () => {
+    for (const read of reads(firestoreOf(outsiderContext(testEnv)))) {
+      await assertFails(read())
+    }
+  })
+
+  it('denies every read to an account whose address is on the list but not verified', async () => {
+    const db = firestoreOf(
+      outsiderContext(testEnv, { uid: 'bob', email: memberEmail('bob'), verified: false }),
+    )
+    for (const read of reads(db)) {
+      await assertFails(read())
+    }
+  })
+
+  it('denies every read to an account without an email address', async () => {
+    for (const read of reads(firestoreOf(testEnv.authenticatedContext('bob')))) {
+      await assertFails(read())
+    }
+  })
+
+  it('denies every read once the address is removed from the list', async () => {
+    await deleteAsAdmin(`allowedEmails/${memberEmail('bob')}`)
+    for (const read of reads(firestoreOf(memberContext(testEnv, 'bob')))) {
+      await assertFails(read())
+    }
+  })
+
+  it('lets in an address that differs from its entry only in letter case', async () => {
+    const db = firestoreOf(outsiderContext(testEnv, { uid: 'bob', email: 'Bob@Example.COM' }))
+    for (const read of reads(db)) {
+      await assertSucceeds(read())
+    }
+  })
+
+  it('denies creating a profile until the address is on the list', async () => {
+    const db = firestoreOf(outsiderContext(testEnv))
+    await assertFails(setDoc(doc(db, 'users/cem'), newProfile()))
+    expect(await readAsAdmin('users/cem')).toBeUndefined()
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(firestoreOf(admin), 'allowedEmails/cem@example.com'), {
+        addedAt: Timestamp.fromMillis(0),
+      })
+    })
+    await assertSucceeds(setDoc(doc(db, 'users/cem'), newProfile()))
   })
 })
 
@@ -154,7 +392,7 @@ describe('user profiles (users/{uid})', () => {
     })
   })
 
-  const as = (uid: string) => firestoreOf(testEnv.authenticatedContext(uid))
+  const as = (uid: string) => firestoreOf(memberContext(testEnv, uid))
 
   describe('reading', () => {
     it('lets a signed-in user read their own profile, other profiles, and the whole list', async () => {
@@ -342,7 +580,7 @@ describe('card definitions (cards/{cardId})', () => {
     })
   })
 
-  const as = (uid: string) => firestoreOf(testEnv.authenticatedContext(uid))
+  const as = (uid: string) => firestoreOf(memberContext(testEnv, uid))
   const visibleToPlayers = (db: Firestore) =>
     query(collection(db, 'cards'), where('status', 'in', ['active', 'retired']))
 
@@ -1307,7 +1545,7 @@ function newHolding(overrides: Record<string, unknown> = {}) {
   return { ...seededHolding({}), givenAt: serverTimestamp(), ...overrides }
 }
 
-const asUser = (uid: string) => firestoreOf(testEnv.authenticatedContext(uid))
+const asUser = (uid: string) => firestoreOf(memberContext(testEnv, uid))
 
 /**
  * The writes of a card use's payment, as the application adds them to the use's batch: the ledger entry `entryId`
@@ -3285,6 +3523,13 @@ describe('draws (draws/{drawId} with its holding, card, ledger entry and LP)', (
       const db = firestoreOf(testEnv.unauthenticatedContext())
       await assertFails(getDoc(doc(db, 'draws/d-new')))
       await assertFails(getDocs(collection(db, 'draws')))
+    })
+
+    it("denies a player's paid draw once the player's address is removed from the access list", async () => {
+      await deleteAsAdmin(`allowedEmails/${memberEmail('ayla')}`)
+      await assertFails(draw('ayla'))
+      expect(await readAsAdmin('draws/d-new')).toBeUndefined()
+      expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 3 })
     })
 
     it("denies a player's draw into another player's hand, random or Cursed", async () => {

@@ -26,16 +26,21 @@ function createRouter(initialPath: string) {
   )
 }
 
-function renderAt(initialPath: string, state: AuthState, signInWithGoogle?: () => Promise<void>) {
+function renderAt(
+  initialPath: string,
+  state: AuthState,
+  signInWithGoogle?: () => Promise<void>,
+  signOut?: () => Promise<void>,
+) {
   const router = createRouter(initialPath)
   const view = render(
-    <TestAuthProvider state={state} signInWithGoogle={signInWithGoogle}>
+    <TestAuthProvider state={state} signInWithGoogle={signInWithGoogle} signOut={signOut}>
       <RouterProvider router={router} />
     </TestAuthProvider>,
   )
   const setAuth = (next: AuthState) =>
     view.rerender(
-      <TestAuthProvider state={next} signInWithGoogle={signInWithGoogle}>
+      <TestAuthProvider state={next} signInWithGoogle={signInWithGoogle} signOut={signOut}>
         <RouterProvider router={router} />
       </TestAuthProvider>,
     )
@@ -101,5 +106,100 @@ describe('sign-in flow', () => {
 
     expect(screen.getByRole('alert')).toHaveTextContent('Bağlantı kurulamadı')
     expect(signInButton()).toBeEnabled()
+  })
+})
+
+describe('accounts that are not on the access list', () => {
+  const noAccess: AuthState = { status: 'noAccess', user: testUser }
+  const otherAccountButton = () => screen.getByRole('button', { name: 'Başka hesapla giriş yap' })
+
+  it('shows only a loading state while the access list is checked', () => {
+    renderAt('/library', { status: 'checking', user: testUser })
+
+    expect(screen.getByRole('status')).toHaveTextContent('Yükleniyor')
+    expect(screen.queryByText(/ekli değil/)).not.toBeInTheDocument()
+    expect(screen.queryByText('Kütüphane ekranı')).not.toBeInTheDocument()
+  })
+
+  it('shows the "ekli değil" screen with the address, instead of the screen asked for', () => {
+    const { router } = renderAt('/library', noAccess)
+
+    expect(screen.getByText(testUser.email ?? '')).toBeInTheDocument()
+    expect(
+      screen.getByText(/bu masaya ekli değil\. DM'den bu adresi eklemesini iste\./),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Kütüphane ekranı')).not.toBeInTheDocument()
+    expect(router.state.location.pathname).toBe('/library')
+  })
+
+  it('shows the screen after a sign-in from the sign-in screen, and enters at the address first asked for once the DM adds the account', async () => {
+    const user = userEvent.setup()
+    const { router, setAuth } = renderAt('/library', { status: 'signedOut' })
+
+    await user.click(signInButton())
+    setAuth(noAccess)
+    expect(otherAccountButton()).toBeInTheDocument()
+    expect(router.state.location.pathname).toBe('/sign-in')
+
+    setAuth({ status: 'signedIn', user: testUser })
+    expect(await screen.findByText('Kütüphane ekranı')).toBeInTheDocument()
+    expect(router.state.location.pathname).toBe('/library')
+  })
+
+  it('enters without a reload when the DM adds the address while the screen is open', async () => {
+    const { setAuth } = renderAt('/library', noAccess)
+
+    setAuth({ status: 'signedIn', user: testUser })
+    expect(await screen.findByText('Kütüphane ekranı')).toBeInTheDocument()
+  })
+
+  it('moves a player whose address is removed to the screen, with no error message', () => {
+    const { setAuth } = renderAt('/library', { status: 'signedIn', user: testUser })
+    expect(screen.getByText('Kütüphane ekranı')).toBeInTheDocument()
+
+    setAuth(noAccess)
+    expect(otherAccountButton()).toBeInTheDocument()
+    expect(screen.queryByText('Kütüphane ekranı')).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('opens the account chooser for another account, which enters when it is on the list', async () => {
+    const user = userEvent.setup()
+    const signIn = vi.fn(() => Promise.resolve())
+    const { setAuth } = renderAt('/library', noAccess, signIn)
+
+    await user.click(otherAccountButton())
+    expect(signIn).toHaveBeenCalledTimes(1)
+    setAuth({ status: 'signedIn', user: { ...testUser, email: 'other@example.com' } })
+    expect(await screen.findByText('Kütüphane ekranı')).toBeInTheDocument()
+  })
+
+  it('shows no error when the Google window is closed, and a Turkish one when it fails', async () => {
+    const user = userEvent.setup()
+    const cancelled = Object.assign(new Error('closed'), { code: 'auth/popup-closed-by-user' })
+    const failure = Object.assign(new Error('offline'), { code: 'auth/network-request-failed' })
+    const signIn = vi
+      .fn<() => Promise<void>>()
+      .mockRejectedValueOnce(cancelled)
+      .mockRejectedValueOnce(failure)
+    renderAt('/library', noAccess, signIn)
+
+    await user.click(otherAccountButton())
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+
+    await user.click(otherAccountButton())
+    expect(screen.getByRole('alert')).toHaveTextContent('Bağlantı kurulamadı')
+    expect(otherAccountButton()).toBeEnabled()
+  })
+
+  it('signs out, which shows the sign-in screen', async () => {
+    const user = userEvent.setup()
+    const signOut = vi.fn(() => Promise.resolve())
+    const { setAuth } = renderAt('/library', noAccess, undefined, signOut)
+
+    await user.click(screen.getByRole('button', { name: 'Çıkış yap' }))
+    expect(signOut).toHaveBeenCalledTimes(1)
+    setAuth({ status: 'signedOut' })
+    expect(signInButton()).toBeInTheDocument()
   })
 })

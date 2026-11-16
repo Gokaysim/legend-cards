@@ -18,6 +18,7 @@ import { cardsRef, playerVisibleCardsQuery } from '@/features/cards/api'
 import { setHoldingCost, setHoldingNote } from '@/features/hands/api'
 import { TableBusyError } from '@/features/table/errors'
 import type { RandomSource } from '@/lib/random'
+import { memberContext, seedMembers } from '@/test/members'
 import { testTrueWord } from '@/test/trueWordFixtures'
 
 import firestoreRules from '../../../firestore.rules?raw'
@@ -44,7 +45,7 @@ function firestoreOf(context: RulesTestContext): Firestore {
 }
 
 /** A user's own Firestore under the real rules. Each call is a separate client, like a separate device. */
-const as = (uid: string) => firestoreOf(testEnv.authenticatedContext(uid))
+const as = (uid: string) => firestoreOf(memberContext(testEnv, uid))
 
 const [ABYSS, AID, CHAOS, DRAGON, HOARD, MIMIC] = [
   'Abyss',
@@ -139,6 +140,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await testEnv.clearFirestore()
+  await seedMembers(testEnv)
   // Profiles with roles and the words exist only through the admin scripts, so they are seeded. Ayla has 5 LP and
   // Bora 4.
   await testEnv.withSecurityRulesDisabled(async (admin) => {

@@ -17,6 +17,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { cloudPictureStore, type PictureStore } from '@/features/definitions/pictureStore'
 import { TableBusyError } from '@/features/table/errors'
+import { memberContext, seedMembers } from '@/test/members'
 import { testSet } from '@/test/setFixtures'
 
 import firestoreRules from '../../../firestore.rules?raw'
@@ -31,14 +32,14 @@ function firestoreOf(context: RulesTestContext): Firestore {
   return context.firestore() as unknown as Firestore
 }
 
-const as = (uid: string) => firestoreOf(testEnv.authenticatedContext(uid))
+const as = (uid: string) => firestoreOf(memberContext(testEnv, uid))
 
 function storageOf(context: RulesTestContext): FirebaseStorage {
   return (context.storage() as unknown as { _delegate: FirebaseStorage })._delegate
 }
 
 const picturesOf = (uid: string): PictureStore =>
-  cloudPictureStore(storageOf(testEnv.authenticatedContext(uid)))
+  cloudPictureStore(storageOf(memberContext(testEnv, uid)))
 
 const KESQER = testSet('Kesqer', 'Kesqerian Nights', 5)
 const HAVENHOLM = testSet('Havenholm', 'Throne of Havenholm', 8)
@@ -128,6 +129,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await testEnv.clearFirestore()
+  await seedMembers(testEnv)
   await testEnv.clearStorage()
   await testEnv.withSecurityRulesDisabled(async (admin) => {
     const db = firestoreOf(admin)

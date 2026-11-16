@@ -14,6 +14,8 @@ import {
 } from 'firebase/firestore'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
+import { memberContext, seedMembers } from '@/test/members'
+
 import firestoreRules from '../../../firestore.rules?raw'
 import { explainDenial, openPackIdOnServer, playerDrawModeOnServer, setPlayerDrawMode } from './api'
 import { TableBusyError } from './errors'
@@ -25,7 +27,7 @@ function firestoreOf(context: RulesTestContext): Firestore {
   return context.firestore() as unknown as Firestore
 }
 
-const as = (uid: string) => firestoreOf(testEnv.authenticatedContext(uid))
+const as = (uid: string) => firestoreOf(memberContext(testEnv, uid))
 
 /** The rejection of a promise that must fail. */
 async function failureOf(promise: Promise<unknown>): Promise<unknown> {
@@ -50,6 +52,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await testEnv.clearFirestore()
+  await seedMembers(testEnv)
   await testEnv.withSecurityRulesDisabled(async (admin) => {
     const profile = {
       displayName: 'Ayla',

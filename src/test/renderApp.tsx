@@ -6,6 +6,7 @@ import type { ArtManifest } from '@/features/art/schema'
 import type { AuthState } from '@/features/auth/authContext'
 
 import { testUser } from './fixtures'
+import { type TestAccess, TestAccessProvider } from './TestAccessProvider'
 import { type TestActivityLog, TestActivityLogProvider } from './TestActivityLogProvider'
 import { TestArtProvider } from './TestArtProvider'
 import { TestAuthProvider } from './TestAuthProvider'
@@ -31,6 +32,8 @@ export type RenderAppOptions = {
   signOut?: () => Promise<void>
   /** Profiles to provide. Defaults to `testUser` as a ready player. */
   users?: TestUsers
+  /** The DM's access list and fake list steps. Defaults to an empty list, and steps that succeed. */
+  access?: TestAccess
   /** The characters and fake character steps. Defaults to none, and steps that succeed. */
   characters?: TestCharacters
   /** The stored sets and fake set steps. Defaults to the 12 sets of `data/sets.csv`, without pictures. */
@@ -67,6 +70,7 @@ export type RenderAppOptions = {
 
 type Data = {
   users: TestUsers
+  access: TestAccess
   characters: TestCharacters
   sets: TestSets
   cards: TestCards
@@ -88,7 +92,8 @@ type Data = {
 /**
  * Renders the real route table at `path`, with a fixed auth state (signed in by default), fixed profiles, characters,
  * sets, cards, open holdings, party purse, table lock, open pack, True Words, notes, log and statistics records and
- * pictures, and fake draws, pack, set, character and True Word steps and note saves. `setUsers`, `setCharacters`,
+ * pictures, the DM's access list, and fake draws, pack, set, character, access-list and True Word steps and note
+ * saves. `setUsers`, `setAccess`, `setCharacters`,
  * `setSets`, `setCards`, `setHoldings`, `setBalances`, `setTable`, `setPacks`, `setTrueWords`, `setNotes`,
  * `setActivityLog`, `setStats`, `setDraws`, `setDice` and `setCombat` re-render the same app with other data, as a real-time update would, without
  * remounting.
@@ -98,6 +103,7 @@ export function renderApp({
   state = { status: 'signedIn', user: testUser },
   signOut,
   users = {},
+  access = {},
   characters = {},
   sets = {},
   cards = {},
@@ -118,6 +124,7 @@ export function renderApp({
   const router = createMemoryRouter(routes, { initialEntries: [path] })
   let current: Data = {
     users,
+    access,
     characters,
     sets,
     cards,
@@ -139,37 +146,39 @@ export function renderApp({
     <TestArtProvider manifest={data.art}>
       <TestAuthProvider state={state} signOut={signOut}>
         <TestUsersProvider {...data.users}>
-          <TestCharactersProvider {...data.characters}>
-            <TestBalancesProvider {...data.balances}>
-              <TestSetsProvider {...data.sets}>
-                <TestCardsProvider {...data.cards}>
-                  <TestHoldingsProvider {...data.holdings}>
-                    <TestTableProvider {...data.table}>
-                      <TestPacksProvider {...data.packs}>
-                        <TestActivityLogProvider {...data.activityLog}>
-                          <TestStatsProvider {...data.stats}>
-                            <TestDrawsProvider {...data.draws}>
-                              <TestTrueWordsProvider {...data.trueWords}>
-                                <TestPlayerNotesProvider {...data.notes}>
-                                  <TestDefinitionsProvider {...data.definitions}>
-                                    <TestDiceProvider {...data.dice}>
-                                      <TestCombatProvider {...data.combat}>
-                                        <RouterProvider router={router} />
-                                      </TestCombatProvider>
-                                    </TestDiceProvider>
-                                  </TestDefinitionsProvider>
-                                </TestPlayerNotesProvider>
-                              </TestTrueWordsProvider>
-                            </TestDrawsProvider>
-                          </TestStatsProvider>
-                        </TestActivityLogProvider>
-                      </TestPacksProvider>
-                    </TestTableProvider>
-                  </TestHoldingsProvider>
-                </TestCardsProvider>
-              </TestSetsProvider>
-            </TestBalancesProvider>
-          </TestCharactersProvider>
+          <TestAccessProvider {...data.access}>
+            <TestCharactersProvider {...data.characters}>
+              <TestBalancesProvider {...data.balances}>
+                <TestSetsProvider {...data.sets}>
+                  <TestCardsProvider {...data.cards}>
+                    <TestHoldingsProvider {...data.holdings}>
+                      <TestTableProvider {...data.table}>
+                        <TestPacksProvider {...data.packs}>
+                          <TestActivityLogProvider {...data.activityLog}>
+                            <TestStatsProvider {...data.stats}>
+                              <TestDrawsProvider {...data.draws}>
+                                <TestTrueWordsProvider {...data.trueWords}>
+                                  <TestPlayerNotesProvider {...data.notes}>
+                                    <TestDefinitionsProvider {...data.definitions}>
+                                      <TestDiceProvider {...data.dice}>
+                                        <TestCombatProvider {...data.combat}>
+                                          <RouterProvider router={router} />
+                                        </TestCombatProvider>
+                                      </TestDiceProvider>
+                                    </TestDefinitionsProvider>
+                                  </TestPlayerNotesProvider>
+                                </TestTrueWordsProvider>
+                              </TestDrawsProvider>
+                            </TestStatsProvider>
+                          </TestActivityLogProvider>
+                        </TestPacksProvider>
+                      </TestTableProvider>
+                    </TestHoldingsProvider>
+                  </TestCardsProvider>
+                </TestSetsProvider>
+              </TestBalancesProvider>
+            </TestCharactersProvider>
+          </TestAccessProvider>
         </TestUsersProvider>
       </TestAuthProvider>
     </TestArtProvider>
@@ -183,6 +192,7 @@ export function renderApp({
     ...view,
     router,
     setUsers: (next: TestUsers) => update({ users: next }),
+    setAccess: (next: TestAccess) => update({ access: next }),
     setCharacters: (next: TestCharacters) => update({ characters: next }),
     setSets: (next: TestSets) => update({ sets: next }),
     setCards: (next: TestCards) => update({ cards: next }),

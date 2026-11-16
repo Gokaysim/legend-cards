@@ -14,6 +14,8 @@ import {
 } from 'firebase/firestore'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
+import { memberContext, seedMembers } from '@/test/members'
+
 import firestoreRules from '../../../firestore.rules?raw'
 import { changeBalance } from './api'
 import { BalanceError, toBalanceFailure } from './errors'
@@ -27,7 +29,7 @@ function firestoreOf(context: RulesTestContext): Firestore {
 }
 
 /** A user's own Firestore under the real rules. Each call is a separate client, like a separate device. */
-const as = (uid: string) => firestoreOf(testEnv.authenticatedContext(uid))
+const as = (uid: string) => firestoreOf(memberContext(testEnv, uid))
 
 async function stored(path: string): Promise<Record<string, unknown> | undefined> {
   let data: Record<string, unknown> | undefined
@@ -73,6 +75,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await testEnv.clearFirestore()
+  await seedMembers(testEnv)
   // Roles exist only through the admin script, so the profiles are seeded. Ayla has 5 LP; Bora's profile
   // predates Legend Points.
   await testEnv.withSecurityRulesDisabled(async (admin) => {

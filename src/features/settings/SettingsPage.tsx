@@ -2,6 +2,7 @@ import { useId } from 'react'
 
 import { screenById } from '@/app/screens'
 import { PageHeader } from '@/components/ui/PageHeader'
+import { AccessSection } from '@/features/access/AccessSection'
 import {
   PLAYER_DRAW_LABELS,
   PLAYER_DRAW_LINES,
@@ -12,9 +13,9 @@ import { useChangePlayerDrawMode } from '@/features/table/useChangePlayerDrawMod
 import { useIsDm } from '@/features/users/usersContext'
 
 /**
- * Ayarlar (spec: table-settings, "The Ayarlar screen"): the table settings that the DM changes for everyone, and the
- * data and backup section that is still to come. The DM changes "Oyuncu kart çekişi" here; a player sees the chosen
- * mode without a control to change it.
+ * Ayarlar (spec: table-settings, "The Ayarlar screen"): the table settings that the DM changes for everyone, the DM's
+ * "Masaya erişim" list (spec: table-access), and the data and backup section that is still to come. The DM changes
+ * "Oyuncu kart çekişi" here; a player sees the chosen mode without a control to change it, and no access list.
  */
 export function SettingsPage() {
   const screen = screenById('settings')
@@ -22,6 +23,7 @@ export function SettingsPage() {
     <section className="flex flex-col gap-6">
       <PageHeader title={screen.label} mascot={screen.mascot} mascotPlacement="corner" />
       <TableSettings />
+      <AccessSection />
       <section
         aria-labelledby="settings-data"
         className="flex flex-col gap-2 rounded-2xl border border-line bg-pane p-4 sm:p-6"

@@ -22,6 +22,8 @@ import {
 } from 'firebase/firestore'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
+import { memberContext, seedMembers } from '../src/test/members.ts'
+
 // The rules of the card sets and their change records (firestore.rules: sets/{setId}, setChanges/{changeId}; spec:
 // card-sets, data-access-control).
 
@@ -33,7 +35,7 @@ function firestoreOf(context: RulesTestContext): Firestore {
   return context.firestore() as unknown as Firestore
 }
 
-const asUser = (uid: string) => firestoreOf(testEnv.authenticatedContext(uid))
+const asUser = (uid: string) => firestoreOf(memberContext(testEnv, uid))
 const signedOut = () => firestoreOf(testEnv.unauthenticatedContext())
 
 /** A stored set as the import or the app writes it. */
@@ -97,6 +99,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await testEnv.clearFirestore()
+  await seedMembers(testEnv)
   await testEnv.withSecurityRulesDisabled(async (admin) => {
     const db = firestoreOf(admin)
     const profile = (displayName: string, role: 'dm' | 'player') => ({

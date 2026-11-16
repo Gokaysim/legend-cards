@@ -6,6 +6,8 @@ import {
 import { doc, type Firestore, getDoc, getDocs, setDoc, Timestamp } from 'firebase/firestore'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
+import { memberContext, seedMembers } from '@/test/members'
+
 import firestoreRules from '../../../firestore.rules?raw'
 import { rollDice, type Thrower } from '@/features/dice/api'
 
@@ -39,7 +41,7 @@ function firestoreOf(context: RulesTestContext): Firestore {
 }
 
 /** A user's own Firestore under the real rules. */
-const as = (uid: string) => firestoreOf(testEnv.authenticatedContext(uid))
+const as = (uid: string) => firestoreOf(memberContext(testEnv, uid))
 
 beforeAll(async () => {
   testEnv = await initializeTestEnvironment({
@@ -54,6 +56,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await testEnv.clearFirestore()
+  await seedMembers(testEnv)
   await testEnv.withSecurityRulesDisabled(async (admin) => {
     const db = firestoreOf(admin)
     const profile = (role: string, displayName: string) => ({

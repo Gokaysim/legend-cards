@@ -1,5 +1,6 @@
 import { createBrowserRouter, RouterProvider } from 'react-router'
 
+import { AccessProvider } from '@/features/access/AccessProvider'
 import { ActivityLogProvider } from '@/features/activity-log/ActivityLogProvider'
 import { ArtProvider } from '@/features/art/ArtProvider'
 import { AuthProvider } from '@/features/auth/AuthProvider'
@@ -24,47 +25,49 @@ import { routes } from './routes'
 const router = createBrowserRouter(routes)
 
 /**
- * Composition root: the built pictures, the auth session, then the user profiles, the characters, the party purse,
- * the sets (with their pictures), the cards, the open holdings, the table's lock, the open pack, the record sources of
- * the log and the statistics, the draws, the True Words, the notes' source, the DM's definition steps and the dice channel, then
- * the router.
+ * Composition root: the built pictures, the auth session (with the access list check), then the user profiles, the
+ * DM's access list, the characters, the party purse, the sets (with their pictures), the cards, the open holdings,
+ * the table's lock, the open pack, the record sources of the log and the statistics, the draws, the True Words, the
+ * notes' source, the DM's definition steps and the dice channel, then the router.
  */
 export function App() {
   return (
     <ArtProvider>
       <AuthProvider>
         <UsersProvider>
-          <CharactersProvider>
-            <BalancesProvider>
-              <SetsProvider>
-                <CardsProvider>
-                  <HoldingsProvider>
-                    <TableProvider>
-                      <PacksProvider>
-                        <ActivityLogProvider>
-                          <StatsProvider>
-                            <DrawsProvider>
-                              <TrueWordsProvider>
-                                <PlayerNotesProvider>
-                                  <DefinitionsProvider>
-                                    <DiceProvider>
-                                      <CombatProvider>
-                                        <RouterProvider router={router} />
-                                      </CombatProvider>
-                                    </DiceProvider>
-                                  </DefinitionsProvider>
-                                </PlayerNotesProvider>
-                              </TrueWordsProvider>
-                            </DrawsProvider>
-                          </StatsProvider>
-                        </ActivityLogProvider>
-                      </PacksProvider>
-                    </TableProvider>
-                  </HoldingsProvider>
-                </CardsProvider>
-              </SetsProvider>
-            </BalancesProvider>
-          </CharactersProvider>
+          <AccessProvider>
+            <CharactersProvider>
+              <BalancesProvider>
+                <SetsProvider>
+                  <CardsProvider>
+                    <HoldingsProvider>
+                      <TableProvider>
+                        <PacksProvider>
+                          <ActivityLogProvider>
+                            <StatsProvider>
+                              <DrawsProvider>
+                                <TrueWordsProvider>
+                                  <PlayerNotesProvider>
+                                    <DefinitionsProvider>
+                                      <DiceProvider>
+                                        <CombatProvider>
+                                          <RouterProvider router={router} />
+                                        </CombatProvider>
+                                      </DiceProvider>
+                                    </DefinitionsProvider>
+                                  </PlayerNotesProvider>
+                                </TrueWordsProvider>
+                              </DrawsProvider>
+                            </StatsProvider>
+                          </ActivityLogProvider>
+                        </PacksProvider>
+                      </TableProvider>
+                    </HoldingsProvider>
+                  </CardsProvider>
+                </SetsProvider>
+              </BalancesProvider>
+            </CharactersProvider>
+          </AccessProvider>
         </UsersProvider>
       </AuthProvider>
     </ArtProvider>

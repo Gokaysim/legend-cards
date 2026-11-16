@@ -48,6 +48,7 @@ npm run dev
 | `npm run test:watch`        | Run the unit tests in watch mode                                                                                                                                               |
 | `npm run test:emulator`     | Start the Firebase emulators, run the emulator-backed tests, then stop them                                                                                                    |
 | `npm run check`             | Type check, lint, format check and unit tests: run this before every commit                                                                                                    |
+| `npm run allow-email`       | Put a Google email address on the access list, so it may sign in; see [Who may sign in](#who-may-sign-in)                                                                      |
 | `npm run set-role`          | Set a user's role (`dm` or `player`); see [Making someone the DM](#making-someone-the-dm)                                                                                      |
 | `npm run import-sets`       | Load the sets from `data/sets.csv` into Firestore, and with `--source` their cardbacks and Cardmakers into Cloud Storage; see [Loading the cards](#loading-the-cards)          |
 | `npm run import-cards`      | Load the card definitions from `data/` into Firestore; see [Loading the cards](#loading-the-cards)                                                                             |
@@ -152,11 +153,26 @@ npm run import-pictures -- --source ~/Downloads             # store the card and
 
 Without the pictures the app still works and draws every card, back, pack and True Word with CSS. `npm run dev` serves the built pictures as soon as they exist; reload the page. The stored pictures stay in the Storage emulator between runs, with the rest of the emulator data.
 
+## Who may sign in
+
+Only the Google accounts whose email address is on the DM's access list may use the app. Anyone else who signs in with Google sees a screen that names their address and asks them to have the DM add it; they read nothing, get no profile and appear nowhere. The DM adds and removes addresses under **Ayarlar → Masaya erişim**. Removing an address only closes access: the player's profile, cards and LP stay, and adding the address again brings them back.
+
+Nobody can add the first address from the app, so the first DM's address is added with the access script:
+
+```sh
+npm run allow-email -- --email someone@example.com                           # the local emulators
+npm run allow-email -- --email someone@example.com --project <project-id>    # a real project, after confirmation
+```
+
+The script stores the address in lowercase, needs no account for it yet, and changes nothing for an address already on the list.
+
+Firebase still keeps an empty Auth record for every Google account that completes the sign-in window, on the list or not. It is visible only in the Firebase console and gives no access.
+
 ## Making someone the DM
 
-Everyone who signs in is a player. Only the role script can make someone the DM (or take the role away); nobody can do it from the app.
+Everyone on the access list is a player. Only the role script can make someone the DM (or take the role away); nobody can do it from the app. For the first DM of a project the order is: `allow-email`, then the person signs in once, then `set-role`.
 
-1. The person signs in to the app once, so their profile exists.
+1. The person's address is on the access list ([Who may sign in](#who-may-sign-in)), and they sign in to the app once, so their profile exists.
 2. Run the script with their Google email address.
 
    Against the local emulators (with `npm run dev` or `npm run emulators` running):
@@ -196,7 +212,8 @@ Not needed for development. When the app is ready to go online:
 
    `storage.rules` read the DM's role from Firestore. On the first deploy, the Firebase CLI asks to give Cloud Storage access to Firestore: accept it, or the DM cannot upload pictures.
 
-8. Load the data, then the pictures: run `npm run import-sets -- --source <folder> --project <project-id>` first, then `import-cards` and `import-true-words` (see [Loading the cards](#loading-the-cards)), then `npm run import-pictures -- --source <folder> --project <project-id>`. Add `--bucket <name>` to `import-sets` and `import-pictures` when the bucket is not `<project-id>.firebasestorage.app`.
+8. Make yourself the DM: `npm run allow-email -- --email <your address> --project <project-id>`, sign in to the app once, then `npm run set-role -- --email <your address> --role dm --project <project-id>` (see [Who may sign in](#who-may-sign-in)). Add everyone else from **Ayarlar → Masaya erişim**.
+9. Load the data, then the pictures: run `npm run import-sets -- --source <folder> --project <project-id>` first, then `import-cards` and `import-true-words` (see [Loading the cards](#loading-the-cards)), then `npm run import-pictures -- --source <folder> --project <project-id>`. Add `--bucket <name>` to `import-sets` and `import-pictures` when the bucket is not `<project-id>.firebasestorage.app`.
 
 `firebase deploy` publishes the app and the security rules to the real project. Only run it on purpose.
 

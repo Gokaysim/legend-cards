@@ -7,6 +7,7 @@ import { doc, type Firestore, getDocs, setDoc, Timestamp } from 'firebase/firest
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { startingFlags } from '@/features/definitions/flags'
+import { memberContext, seedMembers } from '@/test/members'
 
 import firestoreRules from '../../../firestore.rules?raw'
 import { cardsRef, playerVisibleCardsQuery } from './api'
@@ -58,6 +59,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await testEnv.clearFirestore()
+  await seedMembers(testEnv)
   // Seeded with the rules disabled: Bob is a player and Dana the DM, with an active, a retired and a draft card.
   await testEnv.withSecurityRulesDisabled(async (admin) => {
     const db = firestoreOf(admin)
@@ -80,7 +82,7 @@ const ids = (cards: { id: string }[]) => cards.map((card) => card.id).sort()
 describe('reading the cards under the real rules', () => {
   it("gives a player's query the active and retired cards, validated, and never a draft", async () => {
     const snapshot = await getDocs(
-      playerVisibleCardsQuery(firestoreOf(testEnv.authenticatedContext('bob'))),
+      playerVisibleCardsQuery(firestoreOf(memberContext(testEnv, 'bob'))),
     )
 
     expect(snapshot.docs.map((document) => document.data())).toEqual([
@@ -111,7 +113,7 @@ describe('reading the cards under the real rules', () => {
       await setDoc(doc(db, 'cards/tw-abyss'), storedWord)
     })
     const snapshot = await getDocs(
-      playerVisibleCardsQuery(firestoreOf(testEnv.authenticatedContext('bob'))),
+      playerVisibleCardsQuery(firestoreOf(memberContext(testEnv, 'bob'))),
     )
     expect(
       snapshot.docs.map((document) => {
@@ -126,13 +128,11 @@ describe('reading the cards under the real rules', () => {
   })
 
   it('refuses a player the whole collection', async () => {
-    await expect(
-      getDocs(cardsRef(firestoreOf(testEnv.authenticatedContext('bob')))),
-    ).rejects.toThrow()
+    await expect(getDocs(cardsRef(firestoreOf(memberContext(testEnv, 'bob'))))).rejects.toThrow()
   })
 
   it('gives the DM every card, the drafts included', async () => {
-    const snapshot = await getDocs(cardsRef(firestoreOf(testEnv.authenticatedContext('dana'))))
+    const snapshot = await getDocs(cardsRef(firestoreOf(memberContext(testEnv, 'dana'))))
     expect(ids(snapshot.docs.map((document) => document.data()))).toEqual([
       'cursed-hex',
       'cursed-newcurse',

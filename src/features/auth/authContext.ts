@@ -8,8 +8,20 @@ export type AuthUser = {
   photoURL: string | null
 }
 
+/**
+ * The session as the app sees it (spec: user-auth; design D4 of invite-only-sign-in):
+ * - `loading`: Firebase Auth has not answered yet
+ * - `signedOut`: nobody is signed in
+ * - `checking`: signed in to Google, while the app finds out whether the account is on the access list
+ * - `noAccess`: signed in to Google with an account that is not on the access list; the app reads no table data
+ * - `signedIn`: signed in with an account on the access list. Only this state lets the app read table data.
+ */
 export type AuthState =
-  { status: 'loading' } | { status: 'signedOut' } | { status: 'signedIn'; user: AuthUser }
+  | { status: 'loading' }
+  | { status: 'signedOut' }
+  | { status: 'checking'; user: AuthUser }
+  | { status: 'noAccess'; user: AuthUser }
+  | { status: 'signedIn'; user: AuthUser }
 
 export type AuthActions = {
   /** Opens Google's account chooser in a popup. Rejects with the Firebase error if sign-in fails. */
