@@ -129,15 +129,27 @@ A player SHALL be able to use a card in their own hand, and the DM a card in any
 - **THEN** the server denies it
 
 ### Requirement: Discarding a card
-The DM SHALL be able to discard a card from any hand without it being used, after a confirmation. The holding SHALL close with the reason "discarded". Players SHALL NOT be able to discard.
+The holder SHALL be able to discard a card in their own hand, and the DM a card in any hand, without it being used, after a confirmation. The holding SHALL close with the reason "discarded", by the user who discarded it. Cursed and Blessed cards SHALL be discarded like other cards. A discard SHALL pay nothing. Players SHALL NOT be able to discard other players' cards. A holder SHALL NOT discard a True Word: only the DM takes a word back.
 
 #### Scenario: The DM discards
 - **WHEN** the DM discards a normal card from Ayla's hand and confirms
 - **THEN** the card leaves her hand, its holding is closed as discarded, and the card is back in the pool
 
 #### Scenario: A player discards
-- **WHEN** a player closes their own holding with the reason "discarded"
+- **WHEN** Ayla, who has 5 LP, discards "Aboleth's Eyes" from her own hand and confirms
+- **THEN** the card leaves her hand on every device, its holding is closed as discarded by Ayla, the card is back in the pool, and she still has 5 LP
+
+#### Scenario: A player discards a Cursed card
+- **WHEN** Ayla discards a Cursed card from her own hand and confirms
+- **THEN** the card leaves her hand, and its holding is closed as discarded
+
+#### Scenario: A player discards another player's card
+- **WHEN** Ayla closes a holding in Bora's hand with the reason "discarded"
 - **THEN** the server denies it
+
+#### Scenario: A player discards their True Word
+- **WHEN** Ayla closes the holding of her True Word "Abyss" with the reason "discarded"
+- **THEN** the server denies it, and she still knows "Abyss"
 
 ### Requirement: Transferring a card
 The DM SHALL be able to transfer a card from one player's hand to another's, after a confirmation. The old holding SHALL close as "transferred", and a new holding SHALL open for the receiver with the way "transfer", the same note, cost override, and active state, at the end of their hand. The holder of a card with one copy SHALL move with it. Players SHALL NOT be able to transfer. A True Word SHALL never be transferred.
@@ -372,31 +384,35 @@ The card details SHALL say who holds the card, as "<name>'in elinde" with the Tu
 - **THEN** the note paper says "Not yok."
 
 ### Requirement: Actions in the card details
-In the card details, "Kullan" SHALL be the main action, across the details' width. The DM's own controls SHALL be in a separate section headed "DM araçları":
+In the card details, "Kullan" SHALL be the main action, in one row across the details' width, with "At" beside it as a smaller button marked as dangerous. The holder and the DM SHALL see both. The DM's own controls SHALL be in a separate section headed "DM araçları":
 - the cost in this hand, with the card's own cost as "temel: <cost>"
-- "Aktif et" or "Aktifliği kaldır" when the card's "Elde etkili" is on, "Başkasına ver" and "At", as equal buttons
+- "Aktif et" or "Aktifliği kaldır" when the card's "Elde etkili" is on, and "Başkasına ver", as equal buttons
 
 Each confirmation step SHALL open in place of the buttons. A control the user may not use SHALL NOT show.
 
 #### Scenario: The holder
 - **WHEN** Ayla opens the details of a card in her hand
-- **THEN** she sees "Kullan" across the details, and no "DM araçları" section
+- **THEN** she sees "Kullan" with "At" beside it, and no "DM araçları" section
 
 #### Scenario: The DM
 - **WHEN** the DM opens the details of a card in Ayla's hand whose "Elde etkili" is on
-- **THEN** the DM sees "Kullan", and under "DM araçları" the cost field with "temel: 1", "Aktif et", "Başkasına ver" and "At"
+- **THEN** the DM sees "Kullan" with "At" beside it, and under "DM araçları" the cost field with "temel: 1", "Aktif et" and "Başkasına ver"
 
 #### Scenario: The DM and a card without a held effect
 - **WHEN** the DM opens the details of a card in Ayla's hand whose "Elde etkili" is off
-- **THEN** "DM araçları" shows the cost field, "Başkasına ver" and "At", and no "Aktif et"
+- **THEN** "DM araçları" shows the cost field and "Başkasına ver", and no "Aktif et"
 
 #### Scenario: Another player
 - **WHEN** Bora opens the details of a card in Ayla's hand
-- **THEN** he sees neither "Kullan" nor the "DM araçları" section
+- **THEN** he sees neither "Kullan", nor "At", nor the "DM araçları" section
 
 #### Scenario: A confirmation step
-- **WHEN** the DM selects "At" in the details
-- **THEN** the question whether to discard the card opens in place of the buttons, with "Evet, at" and "Vazgeç"
+- **WHEN** Ayla selects "At" in the details of a card in her hand
+- **THEN** the question whether to discard the card opens in place of "Kullan" and "At", with "Evet, at" and "Vazgeç"
+
+#### Scenario: A narrow phone
+- **WHEN** Ayla opens the details of a card in her hand on a phone 360 CSS pixels wide
+- **THEN** "Kullan" and "At" stand in one row, and the page does not scroll horizontally
 
 ### Requirement: Retired cards stay in hands
 A held card that the DM retires SHALL stay in its holder's hand with its last stored definition, until its holding closes. Every signed-in user SHALL still see it in that hand. A retired card SHALL NOT be given, drawn or chosen from a pack. When its holding closes, a retired normal card SHALL NOT return to the pool.
