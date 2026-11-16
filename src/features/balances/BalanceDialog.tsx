@@ -3,6 +3,7 @@ import { useId, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Dialog } from '@/components/ui/Dialog'
 import { useAuth } from '@/features/auth/authContext'
+import { pillClasses } from '@/features/cards/pillClasses'
 import { useOnlineStatus } from '@/lib/useOnlineStatus'
 
 import { type BalanceAccount, isValidAmount } from './api'
@@ -19,8 +20,19 @@ import { BALANCE_LIMITS } from './schema'
 const fieldClasses =
   'w-full rounded-lg border border-control-line bg-control px-3 py-2 text-sm text-ink placeholder:text-ink-muted'
 
+/** The reason the spend dialog's shortcut fills in: the table rule "1 LP harcayarak bir d20 zarında avantaj alınır". */
+export const D20_ADVANTAGE_REASON = 'd20 avantajı'
+
 export type BalanceDialogProps = (
-  | { currency: 'lp'; /** The player. */ uid: string; /** The player's name. */ name: string }
+  | {
+      currency: 'lp'
+      /** The player. */
+      uid: string
+      /** The player's name. */
+      name: string
+      /** The player's own spend ("Legend Point harca"): it only subtracts, from 1 LP by default. */
+      isSpend?: boolean
+    }
   | { currency: 'gp' }
 ) & {
   /** The balance now, live. */
@@ -29,19 +41,22 @@ export type BalanceDialogProps = (
 }
 
 /**
- * The DM's change of a balance: a player's LP or the party purse. The DM enters a whole amount and a reason, then
- * adds or subtracts. Subtracting more than the balance is refused here and by the server. The dialog closes once
- * the change is made; the new balance shows live where the dialog was opened.
+ * A change of a balance by hand. The DM changes a player's LP or the party purse: a whole amount and a reason, then
+ * add or subtract. A player spends their own LP in the spend variant ("Legend Point harca", design D4 of
+ * player-discard-and-spend): the amount starts at 1, a "d20 avantajı" shortcut fills the reason, the LP after the
+ * change shows, and there is only "− Düş". Subtracting more than the balance is refused here and by the server. The
+ * dialog closes once the change is made; the new balance shows live where the dialog was opened.
  */
 export function BalanceDialog(props: BalanceDialogProps) {
   const { balance, onClose } = props
+  const isSpend = props.currency === 'lp' && props.isSpend === true
   const ids = useId()
   const auth = useAuth()
   const uid = auth.status === 'signedIn' ? auth.user.uid : null
   const actions = useBalanceActions()
   const isOnline = useOnlineStatus()
 
-  const [amountText, setAmountText] = useState('')
+  const [amountText, setAmountText] = useState(isSpend ? '1' : '')
   const [reason, setReason] = useState('')
   const [isBusy, setIsBusy] = useState(false)
   const [failure, setFailure] = useState<{ failure: BalanceFailure; amount: number } | null>(null)
@@ -51,10 +66,15 @@ export function BalanceDialog(props: BalanceDialogProps) {
   const owner: BalanceOwner =
     props.currency === 'lp' ? { currency: 'lp', name: props.name } : { currency: 'gp' }
   const unit = props.currency === 'lp' ? 'LP' : 'GP'
-  const title = props.currency === 'lp' ? `Legend Point: ${props.name}` : 'Grup kesesi'
+  const title = isSpend
+    ? 'Legend Point harca'
+    : props.currency === 'lp'
+      ? `Legend Point: ${props.name}`
+      : 'Grup kesesi'
 
   const amount = amountText.trim() === '' ? Number.NaN : Number(amountText)
   const canSubmit = !isBusy && isValidAmount(amount) && reason.trim() !== '' && uid !== null
+  const after = isValidAmount(amount) && amount <= balance ? balance - amount : null
 
   const change = async (sign: 1 | -1) => {
     if (!canSubmit || uid === null) return
@@ -110,12 +130,33 @@ export function BalanceDialog(props: BalanceDialogProps) {
           id={`${ids}-reason`}
           type="text"
           maxLength={BALANCE_LIMITS.reason}
-          placeholder="Örn: Boss'u yendi"
+          placeholder={isSpend ? 'Örn: d20 avantajı' : "Örn: Boss'u yendi"}
           value={reason}
           onChange={(event) => setReason(event.target.value)}
           className={fieldClasses}
         />
+        {isSpend ? (
+          <div className="pt-1">
+            <button
+              type="button"
+              aria-pressed={reason === D20_ADVANTAGE_REASON}
+              onClick={() => {
+                setReason(D20_ADVANTAGE_REASON)
+                setAmountText('1')
+              }}
+              className={pillClasses(reason === D20_ADVANTAGE_REASON)}
+            >
+              {D20_ADVANTAGE_REASON}
+            </button>
+          </div>
+        ) : null}
       </div>
+      {isSpend && after !== null ? (
+        <p className="text-sm text-ink-muted">
+          Sonra:{' '}
+          <span className="font-semibold text-ink tabular-nums">{formatAmount(after)} LP</span>
+        </p>
+      ) : null}
       {failure ? (
         <p
           role="alert"
@@ -125,10 +166,16 @@ export function BalanceDialog(props: BalanceDialogProps) {
         </p>
       ) : null}
       <div className="flex flex-wrap gap-2">
-        <Button variant="primary" disabled={!canSubmit} onClick={() => void change(1)}>
-          + Ekle
-        </Button>
-        <Button disabled={!canSubmit} onClick={() => void change(-1)}>
+        {isSpend ? null : (
+          <Button variant="primary" disabled={!canSubmit} onClick={() => void change(1)}>
+            + Ekle
+          </Button>
+        )}
+        <Button
+          variant={isSpend ? 'primary' : 'secondary'}
+          disabled={!canSubmit}
+          onClick={() => void change(-1)}
+        >
           − Düş
         </Button>
       </div>

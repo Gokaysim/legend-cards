@@ -302,9 +302,9 @@ service cloud.firestore {
     // User profiles. Everyone signed in reads every profile. A user creates only their own, only as a player,
     // and later changes only its name, its picture and its dice style. Roles are changed by the admin script (Admin SDK), never here.
     // The other writes are a player's Legend Points, each together with the ledger entry that records it: the DM
-    // changes them by hand, a player pays 1 LP for their own draw, a pack's or a True Word draft's payment or refund
-    // moves them, and the player or the DM pays for using the player's card or True Word (a use that closes its
-    // holding, `use`, or one that keeps it in the hand, `keptUse`).
+    // changes them by hand, a player lowers their own by hand (never raises them), a player pays 1 LP for their own
+    // draw, a pack's or a True Word draft's payment or refund moves them, and the player or the DM pays for using the
+    // player's card or True Word (a use that closes its holding, `use`, or one that keeps it in the hand, `keptUse`).
     match /users/{uid} {
       allow read: if isSignedIn();
       allow create: if isSelf(uid)
@@ -325,7 +325,8 @@ service cloud.firestore {
           && onlyChanges(['diceStyle'])
           && request.resource.data.diceStyle in diceStyles()
         )
-        || (lpSetByEntry('manual') && isDm())
+        || (lpSetByEntry('manual')
+          && (isDm() || (isSelf(uid) && request.resource.data.lp < resource.data.get('lp', 0))))
         || (isSelf(uid) && lpSetByEntry('draw'))
         || (lpSetByEntry('pack') && (isSelf(uid) || isDm()))
         || (lpSetByEntry('wordDraft') && (isSelf(uid) || isDm()))
@@ -333,9 +334,10 @@ service cloud.firestore {
         || (lpSetByEntry('keptUse') && (isSelf(uid) || isDm()));
       allow delete: if false;
 
-      // A player's LP (a whole number, never below 0) set with a new ledger entry from `source`: the DM's change by
-      // hand, the player's draw payment, whose amount the ledger rules fix at 1, a pack's or a True Word draft's
-      // payment or refund, or a use's payment, which the ledger rules tie to its record. A missing `lp` is 0.
+      // A player's LP (a whole number, never below 0) set with a new ledger entry from `source`: a change by hand
+      // (the DM's, or the player's own lowering), the player's draw payment, whose amount the ledger rules fix at 1, a
+      // pack's or a True Word draft's payment or refund, or a use's payment, which the ledger rules tie to its record.
+      // A missing `lp` is 0.
       function lpSetByEntry(source) {
         let next = request.resource.data;
         return isSignedIn()
@@ -370,14 +372,15 @@ service cloud.firestore {
     }
 
     // The ledger: one entry per balance change, created together with the balance it sets, and never changed or
-    // deleted. Everyone signed in reads it. The DM makes changes by hand; a player pays for their own draw; a pack's
+    // deleted. Everyone signed in reads it. The DM makes changes by hand, and a player lowers their own LP by hand; a
+    // player pays for their own draw; a pack's
     // or a True Word draft's start pays for it and the DM's cancel refunds it; a use pays for it, whether it closes
     // its holding or keeps the card or word in the hand. Only a pack's own steps may change a balance while the pack
     // is open.
     match /ledger/{entryId} {
       allow read: if isSignedIn();
       allow create: if validLedgerEntry()
-        && (((manualByDm() || paysForDraw() || forWordDraft() || forUse() || forKeptUse()) && tableFree())
+        && (((manualChange() || paysForDraw() || forWordDraft() || forUse() || forKeptUse()) && tableFree())
           || forPack());
       allow update, delete: if false;
 
@@ -400,8 +403,9 @@ service cloud.firestore {
           && data.at == request.time;
       }
 
-      // The DM's change by hand, with a reason, of a player's LP or the party's GP.
-      function manualByDm() {
+      // A change by hand, with a reason: the DM's, of a player's LP or the party's GP, or a player's own, which only
+      // lowers their own LP (the owner's trust in players, design D2 of player-discard-and-spend).
+      function manualChange() {
         let data = request.resource.data;
         return data.source == 'manual'
           && data.drawId == null
@@ -409,8 +413,11 @@ service cloud.firestore {
           && data.reason.size() >= 1
           && data.reason.size() <= 200
           && data.reason.trim().size() >= 1
-          && (setsLp() || setsGp())
-          && isDm();
+          && ((isDm() && (setsLp() || setsGp()))
+            || (data.currency == 'lp'
+              && data.account == request.auth.uid
+              && data.delta < 0
+              && setsLp()));
       }
 
       // A player's payment of 1 LP for their own draw, which this same request creates and which names this entry.
@@ -783,11 +790,12 @@ service cloud.firestore {
     // Holdings: one card's or True Word's stay with one player (design D5 of unify-cards-and-true-words). Everyone
     // signed in reads every holding, open or closed. Only the DM gives and transfers cards and teaches words. A player
     // opens a holding only for their own draw, a choice from their own open pack, or a word learned from their own
-    // draft (see draws below). While a pack is open, nothing is given, learned, used, discarded, taken back or
-    // transferred. A use that closes the holding pays its price with its ledger entry and the holder's new LP in the
-    // same request; a card or word kept on use is used through `uses` instead. A holding is closed, never deleted, and
-    // a closed holding never changes again. Every movement keeps the `holder` of a card with one copy in step with its
-    // holdings, checked with getAfter. A True Word's holding is never used, transferred or discarded as a card: the
+    // draft (see draws below). The holder or the DM uses or discards a card; a player never touches another player's
+    // card. While a pack is open, nothing is given, learned, used, discarded, taken back or transferred. A use that
+    // closes the holding pays its price with its ledger entry and the holder's new LP in the same request; a card or
+    // word kept on use is used through `uses` instead. A holding is closed, never deleted, and a closed holding never
+    // changes again. Every movement keeps the `holder` of a card with one copy in step with its holdings, checked with
+    // getAfter. A True Word's holding is never used, transferred or discarded as a card, and never by its holder: the
     // DM's take-back closes it as discarded together with the player's `playerWords`.
     match /userCards/{holdingId} {
       allow read: if isSignedIn();
@@ -801,7 +809,8 @@ service cloud.firestore {
           || (onlyChanges(['costOverride']) && validCost(request.resource.data.costOverride) && isDm())
           || (closesAsUsed() && (isDm() || isHolder()) && releasesCard() && tableFree())
           || (closesAs('discarded') && request.resource.data.usedOn == null
-              && isDm() && releasesCard() && tableFree()
+              && (isDm() || (isHolder() && resource.data.cardKind != 'trueWord'))
+              && releasesCard() && tableFree()
               && (resource.data.cardKind != 'trueWord' || takenBack()))
           || (closesAsTransferred() && resource.data.cardKind != 'trueWord'
               && isDm() && movesCard() && tableFree())

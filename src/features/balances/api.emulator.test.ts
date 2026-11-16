@@ -189,6 +189,41 @@ describe('changing balances under the real rules', () => {
     expect(await stored('users/ayla')).toMatchObject({ lp: 5 })
   })
 
+  it("lowers a player's own LP when that player spends it, recorded as a change by hand", async () => {
+    const id = await changeBalance(as('ayla'), {
+      account: lp('ayla'),
+      delta: -1,
+      reason: 'd20 avantajı',
+      by: 'ayla',
+    })
+
+    expect(await stored(`ledger/${id}`)).toMatchObject({
+      currency: 'lp',
+      account: 'ayla',
+      delta: -1,
+      balanceAfter: 4,
+      source: 'manual',
+      reason: 'd20 avantajı',
+      by: 'ayla',
+    })
+    expect(await stored('users/ayla')).toMatchObject({ lp: 4, lpEntryId: id })
+  })
+
+  it("refuses a player's raise, and a lowering of another player's LP, as permission-denied", async () => {
+    await changeBalance(as('dana'), { account: lp('bora'), delta: 3, reason: 'İlk', by: 'dana' })
+
+    const raise = await failureOf(
+      changeBalance(as('ayla'), { account: lp('ayla'), delta: 1, reason: 'Ben', by: 'ayla' }),
+    )
+    expect(toBalanceFailure(raise)).toEqual({ kind: 'permission-denied' })
+    const other = await failureOf(
+      changeBalance(as('ayla'), { account: lp('bora'), delta: -1, reason: 'Bora', by: 'ayla' }),
+    )
+    expect(toBalanceFailure(other)).toEqual({ kind: 'permission-denied' })
+    expect(await stored('users/ayla')).toMatchObject({ lp: 5 })
+    expect(await stored('users/bora')).toMatchObject({ lp: 3 })
+  })
+
   it('applies two changes from two devices at the same moment, one after the other', async () => {
     // Five races in a row: each time the DM's phone and laptop add 1 LP to Ayla at once.
     for (let round = 1; round <= 5; round += 1) {
@@ -215,6 +250,23 @@ describe('balance changes while a pack is open', () => {
       changeBalance(as('dana'), { account: lp('ayla'), delta: 2, reason: 'Ödül', by: 'dana' }),
     )
     expect(failure).toBeInstanceOf(TableBusyError)
+    expect(toBalanceFailure(failure)).toEqual({ kind: 'table-busy' })
+    expect(await stored('users/ayla')).toMatchObject({ lp: 5, lpEntryId: 'seed' })
+    expect(await ledger()).toEqual([])
+  })
+
+  it("fails a player's own spend as table-busy and changes nothing", async () => {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(firestoreOf(admin), 'table/main'), { openPackId: 'pack-1' })
+    })
+    const failure = await failureOf(
+      changeBalance(as('ayla'), {
+        account: lp('ayla'),
+        delta: -1,
+        reason: 'd20 avantajı',
+        by: 'ayla',
+      }),
+    )
     expect(toBalanceFailure(failure)).toEqual({ kind: 'table-busy' })
     expect(await stored('users/ayla')).toMatchObject({ lp: 5, lpEntryId: 'seed' })
     expect(await ledger()).toEqual([])

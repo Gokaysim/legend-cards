@@ -124,15 +124,17 @@ describe.each(HOSTS)('the card details in $name', (current) => {
   })
 
   describe('HoldingDialog controls', () => {
-    it('shows the holder their note and "Kullan", without the DM controls', async () => {
+    it('shows the holder their note, "Kullan" and "At" in one row, without the DM controls', async () => {
       await openDetails()
 
       expect(details().getByRole('article', { name: 'Night Owl' })).toBeInTheDocument()
       expect(details().getByText("Gökay'ın elinde")).toBeInTheDocument()
       expect(details().getByRole('textbox', { name: 'Kart notu' })).toBeInTheDocument()
       expect(button('Kullan')).toBeInTheDocument()
+      expect(button('At')).toBeInTheDocument()
+      expect(button('At')?.parentElement).toBe(button('Kullan')?.parentElement)
       expect(details().queryByRole('textbox', { name: /Bu eldeki cost/ })).not.toBeInTheDocument()
-      for (const name of ['Aktif et', 'Başkasına ver', 'At']) expect(button(name)).toBeNull()
+      for (const name of ['Aktif et', 'Başkasına ver']) expect(button(name)).toBeNull()
       expect(details().queryByRole('region', { name: 'DM araçları' })).not.toBeInTheDocument()
     })
 
@@ -161,14 +163,24 @@ describe.each(HOSTS)('the card details in $name', (current) => {
 
       expect(details().getByRole('textbox', { name: 'Kart notu' })).toBeInTheDocument()
       expect(button('Kullan')).toBeInTheDocument()
+      expect(button('At')?.parentElement).toBe(button('Kullan')?.parentElement)
       const tools = within(details().getByRole('region', { name: 'DM araçları' }))
       const cost = tools.getByRole('textbox', { name: 'Bu eldeki cost' })
       expect(cost).toHaveAccessibleDescription('temel: 3')
       expect(cost).toHaveAttribute('placeholder', '3')
-      for (const name of ['Aktif et', 'Başkasına ver', 'At']) {
-        expect(tools.getByRole('button', { name })).toBeInTheDocument()
-      }
-      expect(tools.queryByRole('button', { name: 'Kullan' })).not.toBeInTheDocument()
+      expect(tools.getAllByRole('button').map((b) => b.textContent)).toEqual([
+        'Aktif et',
+        'Başkasına ver',
+      ])
+    })
+
+    it('shows the DM only "Başkasına ver" among the tools of a card without a held effect', async () => {
+      await openDetails({ viewer: dm, handOf: ayla, card: { ...owl, hasHeldEffect: false } })
+
+      const tools = within(details().getByRole('region', { name: 'DM araçları' }))
+      expect(tools.getByRole('textbox', { name: 'Bu eldeki cost' })).toBeInTheDocument()
+      expect(tools.getAllByRole('button').map((b) => b.textContent)).toEqual(['Başkasına ver'])
+      expect(button('At')).toBeInTheDocument()
     })
 
     it('marks an extra copy', async () => {
@@ -506,9 +518,11 @@ describe.each(HOSTS)('the card details in $name', (current) => {
       const { user, actions } = await openDetails({ viewer: dm, handOf: ayla })
 
       await user.click(details().getByRole('button', { name: 'At' }))
-      // The question opens in place of the buttons, inside the DM's tools.
+      // The question opens in place of "Kullan" and "At", outside the DM's tools.
       const tools = within(details().getByRole('region', { name: 'DM araçları' }))
-      expect(tools.getByText(/kullanılmadan elden atılsın mı\? Kart havuza döner\./)).toBeVisible()
+      const question = /kullanılmadan elden atılsın mı\? Kart havuza döner\./
+      expect(details().getByText(question)).toBeVisible()
+      expect(tools.queryByText(question)).not.toBeInTheDocument()
       for (const name of ['Kullan', 'Aktif et', 'Başkasına ver', 'At'])
         expect(button(name)).toBeNull()
       await user.click(details().getByRole('button', { name: 'Vazgeç' }))
@@ -522,6 +536,28 @@ describe.each(HOSTS)('the card details in $name', (current) => {
         by: testUser.uid,
         reason: 'discarded',
       })
+    })
+
+    it('lets the holder discard their own card after confirming, and cancel', async () => {
+      const { user, actions } = await openDetails()
+
+      await user.click(details().getByRole('button', { name: 'At' }))
+      expect(details().getByText(/kullanılmadan elden atılsın mı\?/)).toBeVisible()
+      expect(button('Kullan')).toBeNull()
+      expect(button('At')).toBeNull()
+      await user.click(details().getByRole('button', { name: 'Vazgeç' }))
+      expect(actions.closeHolding).not.toHaveBeenCalled()
+      expect(button('Kullan')).toBeInTheDocument()
+
+      await user.click(details().getByRole('button', { name: 'At' }))
+      await user.click(details().getByRole('button', { name: 'Evet, at' }))
+
+      expect(actions.closeHolding).toHaveBeenCalledExactlyOnceWith({
+        holdingId: 'h1',
+        by: testUser.uid,
+        reason: 'discarded',
+      })
+      expect(host.isClosed()).toBe(true)
     })
 
     it('lets the DM give the card to another player after choosing and confirming', async () => {

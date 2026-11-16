@@ -1820,6 +1820,51 @@ describe('card movements (userCards with cards/{cardId}.holder)', () => {
       expect(await readAsAdmin('userCards/h-bora')).toMatchObject({ returnReason: 'discarded' })
     })
 
+    it('lets the holder discard their own card, which returns it to the pool and keeps their LP', async () => {
+      const db = asUser('bora')
+      const batch = writeBatch(db)
+      batch.update(doc(db, 'userCards/h-bora'), closing('bora', 'discarded'))
+      batch.update(doc(db, `cards/${HELD}`), { holder: null })
+      await assertSucceeds(batch.commit())
+      expect(await readAsAdmin('userCards/h-bora')).toMatchObject({
+        returnReason: 'discarded',
+        returnedBy: 'bora',
+      })
+      expect(await readAsAdmin(`cards/${HELD}`)).toMatchObject({ holder: null })
+      expect(await readAsAdmin('users/bora')).toMatchObject({ lp: 5 })
+    })
+
+    it('lets the holder discard an extra copy, a Cursed card and a Blessed card, leaving the cards alone', async () => {
+      await testEnv.withSecurityRulesDisabled(async (admin) => {
+        await setDoc(
+          doc(firestoreOf(admin), 'userCards/h-ayla-blessed'),
+          seededHolding({
+            cardId: HOLDINGS_SEED.BLESSED,
+            cardName: 'Second Wind',
+            cardKind: 'blessed',
+          }),
+        )
+      })
+      const db = asUser('ayla')
+      // Without the release, which only the holder's holding may make.
+      await assertSucceeds(
+        updateDoc(doc(db, 'userCards/h-ayla-extra'), closing('ayla', 'discarded')),
+      )
+      await assertSucceeds(
+        updateDoc(doc(db, 'userCards/h-ayla-cursed'), closing('ayla', 'discarded')),
+      )
+      await assertSucceeds(
+        updateDoc(doc(db, 'userCards/h-ayla-blessed'), closing('ayla', 'discarded')),
+      )
+      expect(await readAsAdmin(`cards/${HELD}`)).toMatchObject({
+        holder: poolHolder('bora', 'h-bora'),
+      })
+      expect(await readAsAdmin('userCards/h-ayla-blessed')).toMatchObject({
+        returnReason: 'discarded',
+        returnedBy: 'ayla',
+      })
+    })
+
     it('lets the DM transfer a card, which moves its holder to the new holding', async () => {
       await assertSucceeds(
         transferBatch('dana', {
@@ -1994,12 +2039,58 @@ describe('card movements (userCards with cards/{cardId}.holder)', () => {
       await assertFails(batch.commit())
     })
 
-    it('denies a player discarding their own card', async () => {
+    it("denies a player discarding another player's card", async () => {
+      const db = asUser('ayla')
+      const batch = writeBatch(db)
+      batch.update(doc(db, 'userCards/h-bora'), closing('ayla', 'discarded'))
+      batch.update(doc(db, `cards/${HELD}`), { holder: null })
+      await assertFails(batch.commit())
+      await assertFails(
+        updateDoc(doc(asUser('ayla'), 'userCards/h-ayla-held'), closing('bora', 'discarded')),
+      )
+    })
+
+    it('denies a holder discarding their True Word, with or without their known words', async () => {
+      await testEnv.withSecurityRulesDisabled(async (admin) => {
+        const db = firestoreOf(admin)
+        await setDoc(doc(db, 'cards/tw-abyss'), seededCardOf('trueWord', 'Abyss'))
+        await setDoc(
+          doc(db, 'userCards/h-word'),
+          seededHolding({ cardId: 'tw-abyss', cardName: 'Abyss', cardKind: 'trueWord' }),
+        )
+        await setDoc(doc(db, 'playerWords/ayla'), {
+          known: { 'tw-abyss': 'h-word' },
+          openDraftId: null,
+          holdingId: 'h-word',
+        })
+      })
+      const db = asUser('ayla')
+      await assertFails(updateDoc(doc(db, 'userCards/h-word'), closing('ayla', 'discarded')))
+      const forget = writeBatch(db)
+      forget.update(doc(db, 'userCards/h-word'), closing('ayla', 'discarded'))
+      forget.set(doc(db, 'playerWords/ayla'), { known: {}, openDraftId: null, holdingId: 'h-word' })
+      await assertFails(forget.commit())
+      expect(await readAsAdmin('userCards/h-word')).toMatchObject({ returnedAt: null })
+    })
+
+    it("denies a holder's discard while a pack is open", async () => {
+      await testEnv.withSecurityRulesDisabled(async (admin) => {
+        await setDoc(doc(firestoreOf(admin), 'table/main'), { openPackId: 'p-open' })
+      })
       const db = asUser('bora')
       const batch = writeBatch(db)
       batch.update(doc(db, 'userCards/h-bora'), closing('bora', 'discarded'))
       batch.update(doc(db, `cards/${HELD}`), { holder: null })
       await assertFails(batch.commit())
+      await assertFails(
+        updateDoc(doc(asUser('ayla'), 'userCards/h-ayla-cursed'), closing('ayla', 'discarded')),
+      )
+    })
+
+    it("denies a holder's discard with a character or another user as the closer", async () => {
+      const ref = doc(asUser('ayla'), 'userCards/h-ayla-cursed')
+      await assertFails(updateDoc(ref, closing('ayla', 'discarded', 'Thorin')))
+      await assertFails(updateDoc(ref, { ...closing('ayla', 'discarded'), returnedBy: 'dana' }))
     })
 
     it('denies a player transferring their own card', async () => {
@@ -2567,6 +2658,21 @@ describe('balances (users/{uid}.lp, party/main, ledger/{entryId})', () => {
     return batch.commit()
   }
 
+  /**
+   * A player's own change by hand of their own LP, as the application writes it: by default Ayla spends 1 LP, 5 → 4,
+   * with the reason "d20 avantajı".
+   */
+  function spendLp(writer = 'ayla', uid = writer, change: Change = {}) {
+    return changeLp(writer, uid, {
+      ...change,
+      balance: change.balance === null ? null : { lp: 4, ...change.balance },
+      entry:
+        change.entry === null
+          ? null
+          : { by: writer, delta: -1, balanceAfter: 4, reason: 'd20 avantajı', ...change.entry },
+    })
+  }
+
   /** One batch with the party's new GP and its entry. Defaults: an empty purse → 7,500 GP. */
   function changeGp(writer: string, change: Change = {}) {
     const db = asUser(writer)
@@ -2637,13 +2743,84 @@ describe('balances (users/{uid}.lp, party/main, ledger/{entryId})', () => {
       )
       expect(await readAsAdmin('party/main')).toEqual({ gp: 12500, gpEntryId: 'g-next' })
     })
+
+    it('lets a player lower their own LP by hand, with a reason', async () => {
+      await assertSucceeds(spendLp())
+      expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 4, lpEntryId: 'e-new' })
+      expect(await readAsAdmin('ledger/e-new')).toMatchObject({
+        account: 'ayla',
+        delta: -1,
+        balanceAfter: 4,
+        source: 'manual',
+        reason: 'd20 avantajı',
+        by: 'ayla',
+      })
+    })
+
+    it('lets a player lower their own LP down to exactly 0', async () => {
+      await assertSucceeds(
+        spendLp('ayla', 'ayla', { balance: { lp: 0 }, entry: { delta: -5, balanceAfter: 0 } }),
+      )
+      expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 0 })
+    })
   })
 
   describe('denied', () => {
-    it('denies a player changing their own LP or the purse', async () => {
+    it('denies a player raising their own LP or changing the purse', async () => {
       await assertFails(changeLp('ayla', 'ayla', { entry: { by: 'ayla' } }))
       await assertFails(changeGp('ayla', { entry: { by: 'ayla' } }))
       expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 5 })
+    })
+
+    describe("a player's own lowering", () => {
+      it("denies lowering another player's LP or the purse", async () => {
+        await updateDocAsAdmin('users/bora', { lp: 3, lpEntryId: 'e-bora' })
+        await assertFails(
+          spendLp('ayla', 'bora', { balance: { lp: 2 }, entry: { delta: -1, balanceAfter: 2 } }),
+        )
+        await changeGp('dana')
+        await assertFails(
+          changeGp('ayla', {
+            entryId: 'g-spend',
+            balance: { gp: 7000 },
+            entry: { by: 'ayla', delta: -500, balanceAfter: 7000, reason: 'd20 avantajı' },
+          }),
+        )
+        expect(await readAsAdmin('users/bora')).toMatchObject({ lp: 3 })
+        expect(await readAsAdmin('party/main')).toMatchObject({ gp: 7500 })
+      })
+
+      it('denies a missing, empty or blank reason', async () => {
+        await assertFails(spendLp('ayla', 'ayla', { entry: { reason: null } }))
+        await assertFails(spendLp('ayla', 'ayla', { entry: { reason: '' } }))
+        await assertFails(spendLp('ayla', 'ayla', { entry: { reason: '   ' } }))
+      })
+
+      it('denies an entry with a draw, or by another user', async () => {
+        await assertFails(spendLp('ayla', 'ayla', { entry: { drawId: 'd1' } }))
+        await assertFails(spendLp('ayla', 'ayla', { entry: { by: 'dana' } }))
+        await assertFails(spendLp('ayla', 'ayla', { entry: { by: 'bora' } }))
+      })
+
+      it('denies going below 0', async () => {
+        await assertFails(
+          spendLp('ayla', 'ayla', { balance: { lp: -1 }, entry: { delta: -6, balanceAfter: -1 } }),
+        )
+      })
+
+      it('denies the entry alone, or the LP alone', async () => {
+        await assertFails(spendLp('ayla', 'ayla', { balance: null }))
+        await assertFails(spendLp('ayla', 'ayla', { entry: null }))
+        expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 5 })
+      })
+
+      it('denies a lowering while a pack is open', async () => {
+        await testEnv.withSecurityRulesDisabled(async (admin) => {
+          await setDoc(doc(firestoreOf(admin), 'table/main'), { openPackId: 'p-open' })
+        })
+        await assertFails(spendLp())
+        expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 5 })
+      })
     })
 
     it("denies LP on the DM's profile", async () => {
@@ -3357,23 +3534,12 @@ describe('draws (draws/{drawId} with its holding, card, ledger entry and LP)', (
       )
     })
 
-    it('denies a player lowering their own LP with an entry by hand', async () => {
-      const db = asUser('ayla')
-      const batch = writeBatch(db)
-      batch.set(doc(db, 'ledger/e-new'), {
-        currency: 'lp',
-        account: 'ayla',
-        delta: -1,
-        balanceAfter: 2,
-        source: 'manual',
-        reason: 'Kart çekme',
-        drawId: null,
-        by: 'ayla',
-        at: serverTimestamp(),
-      })
-      batch.update(doc(db, 'users/ayla'), { lp: 2, lpEntryId: 'e-new' })
-      await assertFails(batch.commit())
+    it('denies a draw paid with an entry by hand', async () => {
+      // A player may lower their own LP by hand (player-discard-and-spend), but such an entry never pays a draw.
       await assertFails(draw('ayla', { entry: { source: 'manual', reason: 'Kart çekme' } }))
+      await assertFails(
+        draw('ayla', { entry: { source: 'manual', reason: 'Kart çekme', drawId: null } }),
+      )
     })
 
     it("denies a player paying for a draw with another player's LP", async () => {

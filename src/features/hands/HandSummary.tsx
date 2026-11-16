@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/Button'
+import { useAuth } from '@/features/auth/authContext'
 import { BalanceDialog } from '@/features/balances/BalanceDialog'
 import { formatAmount } from '@/features/balances/format'
 import { compareLabels } from '@/features/cards/sort'
@@ -114,7 +115,8 @@ function ListTrigger({ id, controls, onOpen, onClose, onToggle }: ListTriggerPro
 }
 
 /**
- * The stats above the hand (v2.2.8's `.stats`): a player's Legend Points (the DM changes them here; the DM has none),
+ * The stats above the hand (v2.2.8's `.stats`): a player's Legend Points (the DM changes them here with "± LP", the
+ * player spends their own with "− LP"; the DM has none),
  * how many cards the hand holds, how many effects are active (cards, True Words, and the stored effects on the player's
  * active characters), from how many sets the cards
  * come, how many are Cursed, and how many True Words the player knows. True Words are not cards.
@@ -138,7 +140,10 @@ export function HandSummary({
   profile: UserProfile
 }) {
   const ids = useId()
-  const [isChangingLp, setIsChangingLp] = useState(false)
+  const auth = useAuth()
+  const isOwnHand = auth.status === 'signedIn' && auth.user.uid === profile.id
+  /** The open LP dialog: the DM's change, or the player's own spend. */
+  const [lpDialog, setLpDialog] = useState<'change' | 'spend' | null>(null)
   const [openList, setOpenList] = useState<ListId | null>(null)
   const isTableBusy = useIsTableBusy()
   const setIndex = useSetIndex()
@@ -220,18 +225,31 @@ export function HandSummary({
             label="Legend Point"
             value={formatAmount(profile.lp)}
             action={
-              <DmOnly>
+              isOwnHand ? (
+                // The player's own spend (spec: balances, "A player lowers their own LP").
                 <Button
                   variant="ghost"
                   className="shrink-0 px-2 py-1"
-                  aria-label={`${genitive(playerName)} LP'sini değiştir`}
-                  disabled={isTableBusy}
+                  disabled={isTableBusy || profile.lp <= 0}
                   title={isTableBusy ? TABLE_BUSY_NOTE : undefined}
-                  onClick={() => setIsChangingLp(true)}
+                  onClick={() => setLpDialog('spend')}
                 >
-                  ± LP
+                  − LP
                 </Button>
-              </DmOnly>
+              ) : (
+                <DmOnly>
+                  <Button
+                    variant="ghost"
+                    className="shrink-0 px-2 py-1"
+                    aria-label={`${genitive(playerName)} LP'sini değiştir`}
+                    disabled={isTableBusy}
+                    title={isTableBusy ? TABLE_BUSY_NOTE : undefined}
+                    onClick={() => setLpDialog('change')}
+                  >
+                    ± LP
+                  </Button>
+                </DmOnly>
+              )
             }
           />
         ) : null}
@@ -331,13 +349,14 @@ export function HandSummary({
           </ul>
         ),
       )}
-      {isChangingLp ? (
+      {lpDialog !== null ? (
         <BalanceDialog
           currency="lp"
           uid={profile.id}
           name={playerName}
+          isSpend={lpDialog === 'spend'}
           balance={profile.lp}
-          onClose={() => setIsChangingLp(false)}
+          onClose={() => setLpDialog(null)}
         />
       ) : null}
     </div>

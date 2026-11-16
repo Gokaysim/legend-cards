@@ -163,3 +163,81 @@ describe('BalanceDialog', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('Bu işlem için yetkin yok.')
   })
 })
+
+describe("BalanceDialog's spend variant", () => {
+  const aylaSpends: BalanceDialogProps = { ...aylaLp, balance: 5, isSpend: true }
+
+  it('opens with the LP now, the amount 1, the LP after, and only a disabled "− Düş"', () => {
+    setup(aylaSpends)
+
+    expect(screen.getByRole('dialog', { name: 'Legend Point harca' })).toBeInTheDocument()
+    expect(screen.getByText('Şu an:', { exact: false })).toHaveTextContent('Şu an: 5 LP')
+    expect(amount()).toHaveValue(1)
+    expect(reason()).toHaveValue('')
+    expect(screen.getByText('Sonra:', { exact: false })).toHaveTextContent('Sonra: 4 LP')
+    expect(subtract()).toBeDisabled()
+    expect(screen.queryByRole('button', { name: '+ Ekle' })).not.toBeInTheDocument()
+  })
+
+  it('fills the reason and resets the amount to 1 with the "d20 avantajı" shortcut', async () => {
+    const { user } = setup(aylaSpends)
+    await fill(user, '3', '')
+    expect(screen.getByText('Sonra:', { exact: false })).toHaveTextContent('Sonra: 2 LP')
+
+    await user.click(screen.getByRole('button', { name: 'd20 avantajı' }))
+
+    expect(reason()).toHaveValue('d20 avantajı')
+    expect(amount()).toHaveValue(1)
+    expect(screen.getByRole('button', { name: 'd20 avantajı' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    expect(subtract()).toBeEnabled()
+  })
+
+  it('hides the LP after while the amount is not a whole number up to the LP', async () => {
+    const { user } = setup(aylaSpends)
+    await fill(user, '6', 'x')
+    expect(screen.queryByText('Sonra:', { exact: false })).not.toBeInTheDocument()
+    await fill(user, '1.5', 'x')
+    expect(screen.queryByText('Sonra:', { exact: false })).not.toBeInTheDocument()
+  })
+
+  it("spends from the player's own LP and closes", async () => {
+    const { user, change, onClose } = setup(aylaSpends)
+
+    await user.click(screen.getByRole('button', { name: 'd20 avantajı' }))
+    await user.click(subtract())
+
+    expect(change).toHaveBeenCalledExactlyOnceWith({
+      account: { currency: 'lp', uid: 'ayla' },
+      delta: -1,
+      reason: 'd20 avantajı',
+      by: testUser.uid,
+    })
+    expect(onClose).toHaveBeenCalledOnce()
+  })
+
+  it('refuses to spend more than the LP, naming the LP', async () => {
+    const { user, change } = setup({ ...aylaSpends, balance: 1 })
+    await fill(user, '2', 'd20 avantajı')
+
+    await user.click(subtract())
+
+    expect(change).not.toHaveBeenCalled()
+    expect(screen.getByRole('alert')).toHaveTextContent("Ayla'nın 1 LP'si var; 2 LP düşülemez.")
+  })
+
+  it('does not try a spend offline', async () => {
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+    const { user, change } = setup(aylaSpends)
+    await user.click(screen.getByRole('button', { name: 'd20 avantajı' }))
+
+    await user.click(subtract())
+
+    expect(change).not.toHaveBeenCalled()
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Bağlantı yok: LP ve GP değişiklikleri için internet bağlantısı gerekiyor.',
+    )
+  })
+})

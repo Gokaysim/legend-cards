@@ -42,7 +42,7 @@ import { HOLDING_LIMITS } from './schema'
 const fieldClasses =
   'w-full rounded-lg border border-control-line bg-control px-3 py-2 text-sm text-ink placeholder:text-ink-muted'
 
-/** The DM's three buttons: an icon over a short label, in equal columns. */
+/** The DM's tool buttons: an icon over a short label, in equal columns. */
 const TOOL_BUTTON_CLASSES = 'min-h-14 flex-col gap-1 px-1 py-2 text-xs'
 
 /** The soft light behind the face, in the color it glows (design D3). A Common card that is not active has none. */
@@ -77,11 +77,11 @@ export type HoldingDetailsProps = {
  * - labels for its set, rarity, cost and mechanic pack; its name and text are on the face, not written again
  * - the "Kart geçmişi →" link to the card's history (spec: card-holdings, "History link in the card details")
  * - who holds it, then its note on cream paper
- * - "Kullan" across the details, then the DM's tools under "DM araçları": the cost in this hand, and the active
- *   switch, giving away and discarding as three equal buttons
+ * - "Kullan" across the details with a smaller "At" beside it, then the DM's tools under "DM araçları": the cost in
+ *   this hand, and the active switch and giving away as equal buttons
  *
- * The holder and the DM edit the note and use the card; only the DM switches it active, sets its cost, discards it,
- * or gives it to another player. A use pays from the holder's LP: the price of the cost in this hand for the
+ * The holder and the DM edit the note, use the card and discard it (spec: card-holdings, "Discarding a card"); only
+ * the DM switches it active, sets its cost, or gives it to another player. A use pays from the holder's LP: the price of the cost in this hand for the
  * holder, the amount the DM enters for the DM, nothing in the DM's own hand (spec: card-holdings, "Using a card"). Controls the user may not use are not shown; the rules decide. Every confirmation is
  * a step in place of the buttons. While a pack is open, the card cannot leave the hand: using, discarding and giving
  * it away wait, and the note, the active switch and the cost stay available.
@@ -350,18 +350,31 @@ export function HoldingDetails({ entry, holderName, onDone, layout }: HoldingDet
           />
 
           {canUse && step === 'idle' ? (
-            <Button
-              variant="primary"
-              disabled={isTableBusy}
-              title={busyTitle}
-              onClick={() => goTo('use')}
-              className="h-11 w-full text-[15px] font-semibold"
-            >
-              <BoltIcon />
-              Kullan
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                variant="primary"
+                disabled={isTableBusy}
+                title={busyTitle}
+                onClick={() => goTo('use')}
+                className="h-11 min-w-0 flex-1 text-[15px] font-semibold"
+              >
+                <BoltIcon />
+                Kullan
+              </Button>
+              <Button
+                variant="danger"
+                disabled={isTableBusy}
+                title={busyTitle}
+                onClick={() => goTo('discard')}
+                className="h-11 w-20 shrink-0"
+              >
+                <BinIcon className="size-4.5" />
+                At
+              </Button>
+            </div>
           ) : null}
           {step === 'use' ? useStep : null}
+          {step === 'discard' ? discardStep : null}
 
           {isDm ? (
             <ToolSection title="DM araçları">
@@ -386,7 +399,7 @@ export function HoldingDetails({ entry, holderName, onDone, layout }: HoldingDet
               </div>
               {step === 'idle' ? (
                 <div
-                  className={cn('grid gap-2', card.hasHeldEffect ? 'grid-cols-3' : 'grid-cols-2')}
+                  className={cn('grid gap-2', card.hasHeldEffect ? 'grid-cols-2' : 'grid-cols-1')}
                 >
                   {/* Only a card with a held effect has the switch (spec: card-holdings, "Active cards"). */}
                   {card.hasHeldEffect ? (
@@ -407,19 +420,8 @@ export function HoldingDetails({ entry, holderName, onDone, layout }: HoldingDet
                     <ArrowIcon className="size-4.5" />
                     Başkasına ver
                   </Button>
-                  <Button
-                    variant="danger"
-                    disabled={isTableBusy}
-                    title={busyTitle}
-                    onClick={() => goTo('discard')}
-                    className={TOOL_BUTTON_CLASSES}
-                  >
-                    <BinIcon className="size-4.5" />
-                    At
-                  </Button>
                 </div>
               ) : null}
-              {step === 'discard' ? discardStep : null}
               {step === 'transfer' ? transferStep : null}
             </ToolSection>
           ) : null}

@@ -149,6 +149,33 @@ describe('ActivityLogPage', () => {
     expect(used).toHaveTextContent('Thorin')
   })
 
+  it("shows a player's own discard and LP spend under the player's name, not marked as DM", () => {
+    const discarded = {
+      ...usedByAyla,
+      id: 'h-discarded',
+      returnReason: 'discarded' as const,
+      usedOn: null,
+    }
+    const spent = testLedgerEntry(0, {
+      id: 'lp-spent',
+      account: 'ayla',
+      by: 'ayla',
+      delta: -1,
+      balanceAfter: 4,
+      reason: 'd20 avantajı',
+      at: on(8, 20),
+    })
+    renderLog({ records: ready(records({ closed: [discarded], entries: [spent] })) })
+    const [lp, discard] = rows()
+
+    expect(within(lp!).getByText('Ayla')).toBeInTheDocument()
+    expect(within(lp!).queryByText('DM')).not.toBeInTheDocument()
+    expect(lp).toHaveTextContent('Ayla: −1 LP (5 → 4) · d20 avantajı')
+    expect(within(discard!).queryByText('DM')).not.toBeInTheDocument()
+    expect(discard).toHaveTextContent("Aboleth's Eyes kartını attı.")
+    expect(discard).not.toHaveTextContent('elinden')
+  })
+
   it('shows a transfer once', () => {
     renderLog({ records: ready(records({ given: [newSide], closed: [oldSide] })) })
 

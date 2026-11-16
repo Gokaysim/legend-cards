@@ -115,10 +115,13 @@ describe('describeEvent', () => {
     )
   })
 
-  it('describes a discarded card', () => {
+  it('describes a discarded card, without the hand when its holder discarded it', () => {
     expect(text(only({ closed: [closed('ayla', 'dana', 'discarded')] }))).toBe(
       "Ayla'nın elinden Aboleth's Eyes kartını attı.",
     )
+    const own = only({ closed: [closed('ayla', 'ayla', 'discarded')] })
+    expect(own.by).toBe('ayla')
+    expect(text(own)).toBe("Aboleth's Eyes kartını attı.")
   })
 
   it('describes a transfer from both sides, or from one side and the holding read for the other', () => {
@@ -137,6 +140,24 @@ describe('describeEvent', () => {
     )
     expect(sentenceText(sentence)).toBe('Ayla: +2 LP (5 → 7)')
     expect(sentence.reason).toBe("Boss'u yendi")
+  })
+
+  it("describes a player's own LP change by hand, made by that player", () => {
+    const event = only({
+      entries: [
+        testLedgerEntry(1000, {
+          account: 'ayla',
+          by: 'ayla',
+          delta: -1,
+          balanceAfter: 4,
+          reason: 'd20 avantajı',
+        }),
+      ],
+    })
+    expect(event.by).toBe('ayla')
+    const sentence = describeEvent(event, NAMES_OF)
+    expect(sentenceText(sentence)).toBe('Ayla: −1 LP (5 → 4)')
+    expect(sentence.reason).toBe('d20 avantajı')
   })
 
   it('describes a GP change with digit grouping, and a subtraction with a minus sign', () => {

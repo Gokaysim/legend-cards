@@ -520,6 +520,30 @@ describe('closing holdings under the real rules', () => {
     expect(await stored(`cards/${POOL}`)).toMatchObject({ holder: null })
   })
 
+  it('discards a card as its holder, which releases it to the pool and pays nothing', async () => {
+    const id = await giveCard(as('dana'), { cardId: POOL, uid: 'ayla', by: 'dana' })
+
+    await closeHolding(as('ayla'), { holdingId: id, by: 'ayla', reason: 'discarded' })
+
+    expect(await stored(`userCards/${id}`)).toMatchObject({
+      returnedBy: 'ayla',
+      returnReason: 'discarded',
+      usedOn: null,
+    })
+    expect(await stored(`cards/${POOL}`)).toMatchObject({ holder: null })
+    expect(await stored('users/ayla')).toMatchObject({ lp: LP.ayla })
+  })
+
+  it("denies a player discarding another player's card", async () => {
+    const id = await giveCard(as('dana'), { cardId: POOL, uid: 'ayla', by: 'dana' })
+
+    const error = await failureOf(
+      closeHolding(as('bora'), { holdingId: id, by: 'bora', reason: 'discarded' }),
+    )
+    expect(toHoldingFailure(error)).toEqual({ kind: 'permission-denied' })
+    expect(await stored(`userCards/${id}`)).toMatchObject({ returnedAt: null })
+  })
+
   it('leaves the holder alone when an extra copy is closed', async () => {
     const original = await giveCard(as('dana'), { cardId: POOL, uid: 'ayla', by: 'dana' })
     const copy = await giveCard(as('dana'), {

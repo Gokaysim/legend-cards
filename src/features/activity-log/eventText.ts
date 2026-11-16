@@ -407,7 +407,8 @@ export function describeEvent(
     case 'discarded':
       return {
         parts: [
-          `${genitive(nameOf(event.holding.uid))} elinden `,
+          // The holder's own discard does not repeat whose hand it was, as a use does not.
+          event.by === event.holding.uid ? '' : `${genitive(nameOf(event.holding.uid))} elinden `,
           card(event.holding.cardName),
           ' kartını attı.',
         ],

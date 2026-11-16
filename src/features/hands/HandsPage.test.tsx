@@ -128,9 +128,65 @@ describe('Legend Points on the hand', () => {
     expect(labels[0]).toBe('Legend Point')
   })
 
-  it('offers players no LP change, not even on their own hand', () => {
-    renderApp({ path: `/hands/${testUser.uid}`, users: { profiles: ready([ayla, me]) } })
+  it('offers a player "− LP" on their own hand, and not the DM\'s "± LP"', () => {
+    renderApp({
+      path: `/hands/${testUser.uid}`,
+      users: { profiles: ready([ayla, { ...me, lp: 5 }]) },
+    })
+    expect(main().getByRole('button', { name: '− LP' })).toBeEnabled()
     expect(main().queryByRole('button', { name: /LP'sini değiştir/ })).not.toBeInTheDocument()
+  })
+
+  it("offers a player no LP control on another player's hand", () => {
+    renderApp({ path: '/hands/ayla', users: { profiles: ready([aylaWithLp, me]) } })
+    expect(main().queryByRole('button', { name: '− LP' })).not.toBeInTheDocument()
+    expect(main().queryByRole('button', { name: /LP'sini değiştir/ })).not.toBeInTheDocument()
+  })
+
+  it('disables "− LP" at 0 LP', () => {
+    const { setUsers } = renderApp({
+      path: `/hands/${testUser.uid}`,
+      users: { profiles: ready([me]) },
+    })
+    expect(main().getByRole('button', { name: '− LP' })).toBeDisabled()
+
+    setUsers({ profiles: ready([{ ...me, lp: 5 }]) })
+    expect(main().getByRole('button', { name: '− LP' })).toBeEnabled()
+  })
+
+  it('disables "− LP" while a pack is open, and says why', () => {
+    renderApp({
+      path: `/hands/${testUser.uid}`,
+      users: { profiles: ready([{ ...me, lp: 5 }]) },
+      table: { openPackId: 'pack-1' },
+    })
+    const spend = main().getByRole('button', { name: '− LP' })
+    expect(spend).toBeDisabled()
+    expect(spend).toHaveAttribute('title', BUSY)
+  })
+
+  it('lets a player spend their own LP from their hand', async () => {
+    const user = userEvent.setup()
+    const changeBalance = vi.fn<BalanceActions['changeBalance']>(() => Promise.resolve('e1'))
+    renderApp({
+      path: `/hands/${testUser.uid}`,
+      users: { profiles: ready([{ ...me, lp: 5 }]) },
+      balances: { actions: { changeBalance } },
+    })
+
+    await user.click(main().getByRole('button', { name: '− LP' }))
+    const dialog = within(screen.getByRole('dialog', { name: 'Legend Point harca' }))
+    expect(dialog.queryByRole('button', { name: '+ Ekle' })).not.toBeInTheDocument()
+    await user.click(dialog.getByRole('button', { name: 'd20 avantajı' }))
+    await user.click(dialog.getByRole('button', { name: '− Düş' }))
+
+    expect(changeBalance).toHaveBeenCalledExactlyOnceWith({
+      account: { currency: 'lp', uid: testUser.uid },
+      delta: -1,
+      reason: 'd20 avantajı',
+      by: testUser.uid,
+    })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
   it("lets the DM change a player's LP from the hand", async () => {
