@@ -104,20 +104,20 @@
   - `git grep` over `git rev-list --all` for a sentence of a known card's text finds nothing
   - `npm run check` passes
   - the data files are on disk and ignored
-- [ ] 5.4 With the owner, create the public GitHub repository (the web UI, or `gh` if the owner installs it), add it as `origin`, push `master` and make it the default branch. Verify:
+- [x] 5.4 With the owner, create the public GitHub repository (the web UI, or `gh` if the owner installs it), add it as `origin`, push `master` and make it the default branch. Verify:
   - the first workflow run is green for `check` and `emulator-tests`
   - `deploy` is skipped, because `FIREBASE_PROJECT_ID` is not set yet
 
 ## 6. Live project and first automated deploy (with the owner)
 
-- [ ] 6.1 Walk the runbook with the owner up to the first local deploy, fixing any step that does not work as written. Verify that `https://<project-id>.web.app` loads the sign-in screen.
+- [x] 6.1 Walk the runbook with the owner up to the first local deploy, fixing any step that does not work as written. Verify that `https://<project-id>.web.app` loads the sign-in screen.
 - [ ] 6.2 Load the data and pictures into the live project with the runbook commands, `--dry-run` first. Then give the first DM access. Verify:
   - the DM signs in on the live site and has the DM role
   - the Kart kütüphanesi shows the owner's cards with pictures
-- [ ] 6.3 Set the GitHub variables, then start a manual run on `master`. If the CLI stops on a missing permission, grant the narrowest role it names and record it in the runbook (design D3). Verify:
+- [x] 6.3 Set the GitHub variables, then start a manual run on `master`. If the CLI stops on a missing permission, grant the narrowest role it names and record it in the runbook (design D3). Verify:
   - the run deploys firestore, storage and hosting in that order
   - the live site serves the new build
-- [ ] 6.4 Check the safety settings. Verify:
+- [x] 6.4 Check the safety settings. Verify:
   - `gcloud firestore databases describe` shows PITR enabled
   - the budget alert exists in Cloud Billing
   - no service account key exists for the deploy account (`gcloud iam service-accounts keys list` shows only Google-managed keys)

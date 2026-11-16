@@ -251,7 +251,7 @@ The one-time steps to put the app online. Every command names the project with `
 
    gcloud iam service-accounts create github-deploy --project="$PROJECT_ID" --display-name="GitHub deploy"
    for role in roles/firebasehosting.admin roles/firebaserules.admin roles/datastore.indexAdmin \
-     roles/serviceusage.serviceUsageConsumer; do
+     roles/firebase.viewer roles/serviceusage.serviceUsageConsumer; do
      gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$SA" --role="$role" \
        --condition=None
    done
@@ -260,7 +260,7 @@ The one-time steps to put the app online. Every command names the project with `
      --member="principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/attribute.repository_id/$REPO_ID"
    ```
 
-   The condition pins the repository by its ID, so a renamed or re-created repository with the same name gets nothing. The account can publish rules, indexes and the site, and nothing else; it has no key.
+   The condition pins the repository by its ID, so a renamed or re-created repository with the same name gets nothing. The account can publish rules, indexes and the site, and nothing else; it has no key. `roles/firebase.viewer` is read-only: the CLI needs it to find the default bucket before it publishes the Storage rules (with only `roles/firebasestorage.viewer`, the lookup answers 404).
 
 6. **The first deploy, from your machine.** `storage.rules` read the DM's role from Firestore. On the first deploy, the Firebase CLI asks to give Cloud Storage access to Firestore: accept it, or the DM cannot upload pictures. CI cannot answer that question, so the first deploy runs here:
 
@@ -271,6 +271,17 @@ The one-time steps to put the app online. Every command names the project with `
    ```
 
    The app is now at `https://<project-id>.web.app`, which Google sign-in already allows.
+
+   The CLI does not always ask the question. Check that the Cloud Storage agent has the role, and grant it when it is missing:
+
+   ```sh
+   PROJECT_NUMBER=$(gcloud projects describe <project-id> --format='value(projectNumber)')
+   gcloud projects get-iam-policy <project-id> --flatten='bindings[].members' \
+     --filter='bindings.members:gcp-sa-firebasestorage' --format='value(bindings.role)'
+   gcloud projects add-iam-policy-binding <project-id> --condition=None \
+     --member="serviceAccount:service-$PROJECT_NUMBER@gcp-sa-firebasestorage.iam.gserviceaccount.com" \
+     --role=roles/firebaserules.firestoreServiceAgent
+   ```
 
 7. **The data and the pictures.** On the machine with the owner's files in `data/` and the archives:
 

@@ -24,7 +24,7 @@ const HAS_OWNER_DATA = hasOwnerData(...Object.values(DATA_FILES))
 const dataFile = (name: (typeof DATA_FILES)[keyof typeof DATA_FILES]) =>
   HAS_OWNER_DATA ? ownerFile(name) : ''
 
-/** The picture file names in the owner's five archives, by archive, as `7zz l` lists them (see data/README.md). */
+/** The picture file names in the owner's archives, by archive, as `7zz l` lists them (see data/README.md). */
 const ART_INVENTORY = HAS_OWNER_DATA
   ? (JSON.parse(dataFile(DATA_FILES.inventory)) as Record<string, readonly string[]>)
   : {}
@@ -56,22 +56,20 @@ describe.skipIf(!HAS_OWNER_DATA)('the inventory of the archives', () => {
   const sets = planArt(FILES, DATA, setAliases.aliases, 'sets')
   const plan = planArt(FILES, DATA, definitionAliases.aliases, 'definitions')
 
-  it('has 866 files, and every alias row names something that exists', () => {
-    expect(FILES).toHaveLength(866)
-    expect(DATA.sets).toHaveLength(12)
+  it('has 929 files, and every alias row names something that exists', () => {
+    expect(FILES).toHaveLength(929)
+    expect(DATA.sets).toHaveLength(13)
     expect(assetAliases.errors).toEqual([])
     expect(setAliases.errors).toEqual([])
     expect(definitionAliases.errors).toEqual([])
-    expect(definitionAliases.aliases).toHaveLength(17)
+    expect(definitionAliases.aliases).toHaveLength(8)
   })
 
-  // The Cartographer, which imports used to skip for its missing set, now comes in as a draft; the archives have no
-  // picture for it.
-  it('gives every card and word a picture, except Scorched Earth and The Cartographer', () => {
+  it('gives every card and word a picture', () => {
     const { normal, blessed, cursed, word } = plan.coverage
-    expect(normal).toEqual({ expected: 572, found: 571, missing: ['The Cartographer'] })
+    expect(normal).toEqual({ expected: 590, found: 590, missing: [] })
     expect(blessed).toEqual({ expected: 19, found: 19, missing: [] })
-    expect(cursed).toEqual({ expected: 154, found: 153, missing: ['Scorched Earth'] })
+    expect(cursed).toEqual({ expected: 155, found: 155, missing: [] })
     expect(word).toEqual({ expected: 53, found: 53, missing: [] })
   })
 
@@ -80,15 +78,16 @@ describe.skipIf(!HAS_OWNER_DATA)('the inventory of the archives', () => {
     expect(assets.coverage.pack).toEqual({ expected: 10, found: 10, missing: [] })
   })
 
-  it('gives each of the 12 sets its cardback and its Cardmaker', () => {
-    expect(sets.coverage.setBack).toEqual({ expected: 12, found: 12, missing: [] })
-    expect(sets.coverage.setMascot).toEqual({ expected: 12, found: 12, missing: [] })
+  // The newest set has a cardback but no Cardmaker in the archives; the DM adds one on the Setler screen.
+  it('gives each of the 13 sets its cardback, and 12 of them their Cardmaker', () => {
+    expect(sets.coverage.setBack).toEqual({ expected: 13, found: 13, missing: [] })
+    expect(sets.coverage.setMascot).toMatchObject({ expected: 13, found: 12 })
     expect(sets.unknown).toEqual([])
   })
 
   it('splits the files between the three scripts', () => {
     expect(assets.assignments.length + assets.skipped.length).toBe(FILES.length)
-    expect(assets.leftTo.sets).toHaveLength(24)
+    expect(assets.leftTo.sets).toHaveLength(25)
     expect(sets.assignments.length + sets.duplicates.length + sets.unknown.length).toBe(
       assets.leftTo.sets.length,
     )
@@ -96,53 +95,33 @@ describe.skipIf(!HAS_OWNER_DATA)('the inventory of the archives', () => {
     expect(plan.leftTo.sets).toEqual(assets.leftTo.sets)
   })
 
-  it("has 12 of the 15 screens' Cardmakers", () => {
-    expect(assets.coverage.mascot).toEqual({
-      expected: 15,
-      found: 12,
-      missing: ['card_info', 'cardmaker_custom', 'cardmaker_keep'],
-    })
+  it("has every screen's Cardmaker", () => {
+    expect(assets.coverage.mascot).toEqual({ expected: 15, found: 15, missing: [] })
   })
 
-  it('uses the aliased Blessed pictures for their renamed cards', () => {
+  it('uses the Blessed pictures by their names, and the aliased pack picture', () => {
     const fileOf = (key: string) =>
       plan.assignments.find(({ target }) => target.key === key)?.file.name
-    expect(fileOf('legend-roguishcharm')).toBe('charmingrogue.png')
-    expect(fileOf('legend-secondwind')).toBe('drivendiehard.png')
-    expect(fileOf('legend-forgewizardconstitution')).toBe('durabledwarf.png')
+    expect(fileOf('legend-charmingrogue')).toBe('charmingrogue.png')
+    expect(fileOf('legend-drivendiehard')).toBe('drivendiehard.png')
+    expect(fileOf('legend-durabledwarf')).toBe('durabledwarf.png')
     expect(
       assets.assignments.find(({ target }) => target.key === "mechanic:Gambler's Gambit")?.file
         .name,
     ).toBe('pack_galmblers.png')
   })
 
-  it('has no duplicates: the misspelled copies without an alias are unknown', () => {
+  // The Custom Card pictures (`<cost><effect>.png`) wait for the Custom Card Draft, which the app does not have yet.
+  it('has no duplicates: the Custom Card pictures and three spare files are unknown', () => {
     expect(plan.duplicates).toEqual([])
     expect(assets.duplicates).toEqual([])
     expect(sets.duplicates).toEqual([])
-    expect(plan.unknown.map(({ name }) => name)).toEqual([
-      '_cursed_endgame.png',
-      'alazizsurpiseattack.png',
-      'alulabbuballad.png',
-      'ashodrasreaping.png',
-      'balefraazbackstab.png',
-      'brannanskinglyuty.png',
-      'chakandiscontribution.png',
-      'eduardshiddenloot.png',
-      'kyasrosyieldingfaith.png',
-      'lordfalaraenssformidability.png',
-      'quetzelkansthunderoustornado.png',
-      'raggarhrashsrapacity.png',
-      'ripsreapingrevenge.png',
-      'samirsassasinationattempt.png',
-      'snikkeriffscharge.png',
-      'sultanambrosiasthleticancestry.png',
+    const unknown = plan.unknown.map(({ name }) => name)
+    expect(unknown.filter((name) => /^[135][a-z]+\.png$/.test(name))).toHaveLength(57)
+    expect(unknown.filter((name) => !/^[135][a-z]+\.png$/.test(name))).toEqual([
       'thecartographersmapkit.png',
-      'thedaggrofshadows.png',
       'vidajalsaqrsunjustblade.png',
-      'viffskrsvengeance.png',
       'zallut_shop.png',
-      'zamansgolfc.png',
     ])
   })
 })

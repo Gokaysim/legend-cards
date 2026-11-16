@@ -9,25 +9,25 @@ The owner's card data, as the DM keeps it in their spreadsheets. The files are c
 
 These files are the **seed data**. An import only adds the cards and words that are not stored yet: it never changes, retires or deletes a stored one. From the first import on, the stored definitions are the truth, and the DM changes them in the app (Kart kütüphanesi, Cursed Deck, True Words). So a fix made in a file after its first import does not reach the app; make it in the app instead. A file is still useful to add a whole new set at once.
 
-| File                 | Holds                                          | Columns                                                       | Used by                                                               |
-| -------------------- | ---------------------------------------------- | ------------------------------------------------------------- | --------------------------------------------------------------------- |
-| `legend-cards.csv`   | the Legend cards: normal and Blessed           | Name, Set, Cost, Rarity, Drawn?, Text, Mechanic Pack, Shuffle | `npm run import-cards`                                                |
-| `cursed-cards.csv`   | the Cursed cards                               | Name, Set, Cost, Text                                         | `npm run import-cards`                                                |
-| `true-words.csv`     | the True Words                                 | Name, Cost, Text                                              | `npm run import-true-words`                                           |
-| `sets.csv`           | the sets, in shop order                        | Code, Name, Aliases, Packs                                    | `npm run import-sets`                                                 |
-| `image-aliases.csv`  | picture files whose names differ from the data | File, Kind, Name                                              | `npm run build-art`, `npm run import-sets`, `npm run import-pictures` |
-| `art-inventory.json` | the picture file names in the five archives    | `{ "<archive>": ["<file>.png", …] }`                          | `scripts/lib/artInventory.test.ts`                                    |
+| File                 | Holds                                          | Columns                                      | Used by                                                               |
+| -------------------- | ---------------------------------------------- | -------------------------------------------- | --------------------------------------------------------------------- |
+| `legend-cards.csv`   | the Legend cards: normal and Blessed           | Name, Set, Cost, Rarity, Text, Mechanic Pack | `npm run import-cards`                                                |
+| `cursed-cards.csv`   | the Cursed cards                               | Name, Set, Cost, Text                        | `npm run import-cards`                                                |
+| `true-words.csv`     | the True Words                                 | Name, Cost, Text                             | `npm run import-true-words`                                           |
+| `sets.csv`           | the sets, in shop order                        | Code, Name, Aliases, Packs                   | `npm run import-sets`                                                 |
+| `image-aliases.csv`  | picture files whose names differ from the data | File, Kind, Name                             | `npm run build-art`, `npm run import-sets`, `npm run import-pictures` |
+| `art-inventory.json` | the picture file names in the archives         | `{ "<archive>": ["<file>.png", …] }`         | `scripts/lib/artInventory.test.ts`                                    |
 
 Unlike the CSV exports, `sets.csv` and `image-aliases.csv` are written by hand: edit them on the owner's machine. See [How the import reads the set file](#how-the-import-reads-the-set-file) and [Pictures](#pictures).
 
 ## How the import reads the card files
 
-- A row whose Set is `Blessed` is a Blessed card. Its Rarity and Cost are `—`.
+- A row whose Set is `Blessed` is a Blessed card. Its Cost is `—`, and its Rarity is `—`, `Blessed` (as the final export writes it) or empty: the card has no rarity. Any other Rarity on a Blessed row stops the import.
 - **An empty cell and `—` differ.** `—` means "deliberately none", and an empty cell means "not filled in yet". In the Cost column, `—` is a card without a cost. In the other columns, `—` counts as empty.
-- **A card is added as a draft** when a column its kind uses is empty: Set, Cost, Rarity, Mechanic Pack and Text for a normal card; Cost, Mechanic Pack and Text for a Blessed card; Cost and Text for a Cursed card. Only the DM sees a draft, and publishes it in the app once it is complete. Every other card is added as active. In the owner's files, "Hrolf's Hornswaggle" and "The Grand Finale" (empty Cost) and "The Cartographer" (empty Set, Rarity and Mechanic Pack) come in as drafts.
+- **A card is added as a draft** when a column its kind uses is empty: Set, Cost, Rarity, Mechanic Pack and Text for a normal card; Cost, Mechanic Pack and Text for a Blessed card; Cost and Text for a Cursed card. Only the DM sees a draft, and publishes it in the app once it is complete. Every other card is added as active. In the final export of 2026-11-16, 11 Legend cards come in as drafts, most of them with an empty Rarity and Mechanic Pack.
 - An invalid value, such as the Rarity "Epic", stops the import. An empty value never does.
 - The Set column of `cursed-cards.csv` is ignored: every row is a Cursed card.
-- `Drawn?` and `Shuffle` are the owner's own bookkeeping. The import ignores them.
+- Older exports also had the columns `Drawn?` and `Shuffle`, the owner's own bookkeeping. The import ignores them.
 - Text in `[square brackets]` is hidden metadata. The app does not show it, but search finds it.
 
 ## How the import reads the True Words file
@@ -55,15 +55,16 @@ See [docs/domain.md](../docs/domain.md) for what these words mean, and the "Scri
 
 ## Pictures
 
-The pictures are not here. They are the owner's five `.7z` archives, about 560 MB of PNG, kept outside the repository:
+The pictures are not here. They are the owner's `.7z` archives, about 610 MB of PNG, kept outside the repository. The scripts read every archive in the folder they are given, whatever its name. The folder used for the live import of 2026-11-16 held:
 
-| Archive                 | Holds                                                             |
-| ----------------------- | ----------------------------------------------------------------- |
-| `legend point cards.7z` | the normal cards                                                  |
-| `blessed.7z`            | the Blessed cards                                                 |
-| `cursed cards.7z`       | the Cursed cards                                                  |
-| `true words.7z`         | the True Words                                                    |
-| `otherassets.7z`        | the cardbacks, the pack pictures, the Cardmaker, and a few extras |
+| Archive           | Holds                                                                                  |
+| ----------------- | -------------------------------------------------------------------------------------- |
+| `cards.7z`        | the normal cards                                                                       |
+| `blessed.7z`      | the Blessed cards                                                                      |
+| `cursed cards.7z` | the Cursed cards                                                                       |
+| `true words.7z`   | the True Words (from the earlier archives: the final export has no True Word pictures) |
+| `assets.7z`       | the cardbacks, the pack pictures, the Cardmakers, and a few extras                     |
+| `custom cards.7z` | the Custom Card pictures, which wait for the Custom Card Draft                         |
 
 Three scripts read the same folder (see the [README](../README.md#building-the-pictures)):
 
@@ -75,23 +76,23 @@ After that, the DM changes pictures in the app, and the imports never replace or
 
 ### The archive inventory
 
-`art-inventory.json` lists the picture file names in the five archives, so `scripts/lib/artInventory.test.ts` can plan them against the data without the archives: a data or alias change that loses a picture fails there. Regenerate it whenever the archives change, from the folder that holds them:
+`art-inventory.json` lists the picture file names in the archives, without their folders, so `scripts/lib/artInventory.test.ts` can plan them against the data without the archives: a data or alias change that loses a picture fails there. Regenerate it whenever the archives change, from the folder that holds them:
 
 ```sh
 cd <folder with the archives>
 node -e "
 const { execFileSync } = require('node:child_process')
-const archives = ['legend point cards.7z', 'blessed.7z', 'cursed cards.7z', 'true words.7z', 'otherassets.7z']
+const archives = require('node:fs').readdirSync('.').filter((name) => name.endsWith('.7z')).sort()
 const inventory = {}
 for (const archive of archives)
   inventory[archive] = execFileSync('7zz', ['l', '-ba', '-slt', archive], { encoding: 'utf8' })
     .split('\\n').filter((line) => line.startsWith('Path = ')).map((line) => line.slice(7))
-    .filter((name) => name.toLowerCase().endsWith('.png'))
+    .filter((name) => name.toLowerCase().endsWith('.png')).map((name) => name.split('/').pop())
 require('node:fs').writeFileSync(process.argv[1], JSON.stringify(inventory, null, 2) + '\\n')
 " <repository>/data/art-inventory.json
 ```
 
-Loose `.png` files next to the archives, such as `cardmaker_keep.png`, are not in the inventory.
+Loose `.png` files next to the archives are not in the inventory.
 
 ### File names
 
@@ -121,6 +122,6 @@ A file of rule 5 that names no stored set is listed by the set import as matchin
 | Kind   | `legend` (a normal or Blessed card), `cursed`, `word` (a True Word), or `asset`                                                      |
 | Name   | the card or word name as the data files write it, or for an asset the stem it stands for, for example `pack_gamblers` or `kesqer_cb` |
 
-A row whose Kind matches nothing stops every script with its row number, before anything is written. An `asset` row whose Name matches no asset stops the build, one whose Name is a set's stem (`<set>_cb`, `cardmaker_<set>`) that names no stored set stops the set import, and a `legend`, `cursed` or `word` row whose Name matches no stored card or word stops the picture import. Three Blessed pictures carry older names, as the owner confirmed: `charmingrogue` is Roguish Charm, `drivendiehard` is Second Wind, and `durabledwarf` is Forgewizard Constitution. For Kyaro's Yielding Faith and Lord Falaraen's Fordmidability, the archive has two misspelled files; the table picks one, and the picture import lists the other as unknown. Swap the File in the table to use the other.
+A row whose Kind matches nothing stops every script with its row number, before anything is written. An `asset` row whose Name matches no asset stops the build, one whose Name is a set's stem (`<set>_cb`, `cardmaker_<set>`) that names no stored set stops the set import, and a `legend`, `cursed` or `word` row whose Name matches no stored card or word stops the picture import. Where the archive has two files for one card, the table or the card's own name picks one, and the picture import lists the other as unknown. Swap the File in the table to use the other.
 
-The archives have no picture for Scorched Earth, `card_info`, `cardmaker_custom` and `cardmaker_keep`. The owner added `cardmaker_keep.png` on 2026-11-11 as a loose file in the source folder, next to the archives, so a build from that folder finds it. `zallut_shop.png` is for the Elixir Shop and waits for that feature.
+With the final export, every card and True Word has a picture, and so has every screen's Cardmaker. The newest set has a cardback but no Cardmaker; the DM adds one on the Setler screen. `zallut_shop.png` is for the Elixir Shop and waits for that feature.

@@ -181,9 +181,15 @@ describe('parseSetFile: errors, each with its row number', () => {
 
 // The owner's real file, only on the owner's machine (spec: developer-workflow, "Checks without the owner's data").
 describe.skipIf(!hasOwnerData(DATA_FILES.sets))("parseSetFile: the owner's data", () => {
-  it('reads data/sets.csv as the same 12 sets as the test file, in the same order', () => {
+  it("reads data/sets.csv as 13 sets: the test file's 12, in the same order, and one more", () => {
     const owner = parseSetFile(ownerFile(DATA_FILES.sets))
+    const fixture = parseSetFile(fixtureFile(DATA_FILES.sets)).sets
+    const fixtureCodes = new Set(fixture.map(({ code }) => code))
     expect(owner.errors).toEqual([])
-    expect(owner.sets).toEqual(parseSetFile(fixtureFile(DATA_FILES.sets)).sets)
+    expect(owner.sets).toHaveLength(13)
+    const withoutRow = ({ row: _row, ...set }: (typeof fixture)[number]) => set
+    expect(owner.sets.filter(({ code }) => fixtureCodes.has(code)).map(withoutRow)).toEqual(
+      fixture.map(withoutRow),
+    )
   })
 })
