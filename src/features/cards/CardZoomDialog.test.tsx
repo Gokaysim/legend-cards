@@ -79,6 +79,23 @@ describe('CardZoomDialog', () => {
     expect(badge).toHaveClass('absolute', 'text-green')
   })
 
+  it('shows a number given to an X card as an unmarked badge on the picture, and none from the library', () => {
+    const lanza = { ...ABOLETH, cost: 'X' }
+    renderWithArt(
+      <>
+        <CardZoomDialog card={lanza} handCost="3" onClose={vi.fn()} />
+        <CardZoomDialog card={lanza} onClose={vi.fn()} />
+      </>,
+    )
+
+    const [fromHand, fromLibrary] = screen.getAllByRole('dialog', { name: "Aboleth's Eyes" })
+    const badge = within(fromHand!).getByText(/^Cost:/).parentElement
+    expect(badge).toHaveTextContent('Cost: 3 (temel cost: X)')
+    expect(badge).not.toHaveAttribute('data-cost-change')
+    expect(badge).toHaveClass('absolute', 'border-line', 'text-ink')
+    expect(within(fromLibrary!).queryByText(/^Cost:/)).not.toBeInTheDocument()
+  })
+
   it('shows no badge from the library, nor for a hand cost equal to the card cost', () => {
     renderWithArt(
       <>

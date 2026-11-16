@@ -417,7 +417,8 @@ export function CardFace({
         >
           <div ref={tiltRef} className={cn('relative rounded-lg', isTiltable && 'card-tilt')}>
             <CardPicture src={picture.src} alt={card.name} onError={picture.onError} />
-            {/* Over the picture's own cost (its top-left d20) only when the hand changes it. */}
+            {/* Over the picture's own cost (its top-left d20) whenever the hand changes it, marked or not: an "X"
+                card given "3" shows it too. */}
             {change ? (
               costBadge(
                 'absolute top-[7.4%] left-[10.7%] -translate-x-1/2 -translate-y-1/2 border-2 shadow-md',

@@ -478,6 +478,35 @@ describe.each(HOSTS)('the card details in $name', (current) => {
       })
     })
 
+    it.each([
+      ['an X card', 'X', '3', 'Kaç LP ödenecek?'],
+      ['a d6 card', 'd6', '4', 'Zar sonucu (1–6)'],
+    ])(
+      'pays the number the DM wrote on %s, asking nothing',
+      async (_case, cost, costOverride, field) => {
+        const { user, actions } = await openDetails({
+          card: { ...owl, cost },
+          holding: { costOverride },
+        })
+
+        await user.click(details().getByRole('button', { name: 'Kullan' }))
+        expect(details().queryByLabelText(field)).not.toBeInTheDocument()
+        expect(details().queryByRole('spinbutton')).not.toBeInTheDocument()
+        await user.click(
+          details().getByRole('button', { name: `Kullanımı onayla (${costOverride} LP)` }),
+        )
+
+        expect(actions.closeHolding).toHaveBeenCalledExactlyOnceWith({
+          holdingId: 'h1',
+          by: testUser.uid,
+          reason: 'used',
+          target: { kind: 'none' },
+          addEffect: false,
+          amount: Number(costOverride),
+        })
+      },
+    )
+
     it('shows a cost the DM changes on another device while the use step is open', async () => {
       const { user, actions, setHoldings, held } = await openDetails()
       await user.click(details().getByRole('button', { name: 'Kullan' }))

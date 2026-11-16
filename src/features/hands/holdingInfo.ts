@@ -1,5 +1,5 @@
 import type { PillTone } from '@/components/ui/Pill'
-import { NO_VALUE, rarityLabel, type SetName, setLabel } from '@/features/cards/display'
+import { costChange, NO_VALUE, rarityLabel, type SetName, setLabel } from '@/features/cards/display'
 import type { Card } from '@/features/cards/schema'
 
 /** One label under the face in a card's details. */
@@ -7,10 +7,12 @@ export type InfoPill = { label: string; tone?: PillTone; isMuted?: boolean }
 
 /**
  * The cost as the details' label says it: "Cost 1", or with a hand cost that differs from the card's own, "Cost 1
- * (temel: 3)", "—" standing in for a missing cost. A card without a cost and without a hand cost has none.
+ * (temel: 3)" or "Cost 3 (temel: X)", "—" standing in for a missing cost. A card without a cost and without a hand
+ * cost has none. It differs as the face's badge does (`costChange`), so the label names "temel" exactly when the
+ * badge shows (design D3 of `show-hand-cost-on-x-and-d6-cards`).
  */
 export function costInfo(card: Pick<Card, 'cost'>, handCost: string | null): string | null {
-  if (handCost !== card.cost)
+  if (costChange(card.cost, handCost) !== null)
     return `Cost ${handCost ?? NO_VALUE} (temel: ${card.cost ?? NO_VALUE})`
   return card.cost === null ? null : `Cost ${card.cost}`
 }

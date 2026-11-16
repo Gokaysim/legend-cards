@@ -45,6 +45,18 @@ describe('holdingInfo', () => {
     expect(holdingInfo({ ...card, cost: null }, '2', testSetName)).toContainEqual({
       label: 'Cost 2 (temel: —)',
     })
+    expect(holdingInfo({ ...card, cost: 'X' }, '3', testSetName)).toContainEqual({
+      label: 'Cost 3 (temel: X)',
+    })
+  })
+
+  it('reads the same cost written another way as no change, as the badge does', () => {
+    const card = testCard('Night Owl', { cost: '3', mechanicPack: null })
+
+    expect(holdingInfo(card, '3,0', testSetName)).toContainEqual({ label: 'Cost 3' })
+    expect(holdingInfo({ ...card, cost: 'd6' }, 'D6', testSetName)).toContainEqual({
+      label: 'Cost d6',
+    })
   })
 
   it('leaves out a cost the card does not have', () => {

@@ -61,17 +61,24 @@ export function priceAllows(price: UsePrice, amount: number): boolean {
 }
 
 /**
- * How a hand's cost compares with the card's own cost: `lower`, `higher`, or `null` when they are equal or
- * either is not a number.
+ * How a hand's cost differs from the card's own cost (spec: card-images, "Hand cost on a picture"; design D1 of
+ * `show-hand-cost-on-x-and-d6-cards`):
+ * - `null`: the same cost. Two numbers compare by value ("3" and "3,0"); other costs as trimmed text in any letter
+ *   case ("d6" and "D6"), a missing cost as the empty text.
+ * - `lower` or `higher`: two numbers that differ.
+ * - `other`: any other difference, such as "X" given "3", "d6" given "4", or "3" given "X". It shows, unmarked.
  */
-export function costChange(
-  cardCost: string | null,
-  handCost: string | null,
-): 'lower' | 'higher' | null {
+export type CostChange = 'lower' | 'higher' | 'other'
+
+export function costChange(cardCost: string | null, handCost: string | null): CostChange | null {
   const base = numericCost(cardCost)
   const current = numericCost(handCost)
-  if (base === null || current === null || base === current) return null
-  return current < base ? 'lower' : 'higher'
+  if (base !== null && current !== null) {
+    if (base === current) return null
+    return current < base ? 'lower' : 'higher'
+  }
+  const asText = (cost: string | null) => cost?.trim().toLowerCase() ?? ''
+  return asText(cardCost) === asText(handCost) ? null : 'other'
 }
 
 /**

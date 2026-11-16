@@ -2303,6 +2303,19 @@ describe('card uses and their payments (userCards with ledger/{entryId} and user
       await assertSucceeds(use('ayla', 'h-priced', 1))
     })
 
+    it.each([
+      ['an X card', 'X', '3', 2, 3],
+      ['a d6 card', 'd6', '4', 3, 4],
+    ])(
+      'pays exactly the number written on %s, not an amount or a die of its own',
+      async (_case, cost, costOverride, denied, allowed) => {
+        await seedPriced(cost, costOverride)
+        await assertFails(use('ayla', 'h-priced', denied))
+        await assertSucceeds(use('ayla', 'h-priced', allowed))
+        expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: LP - allowed })
+      },
+    )
+
     it('uses a Blessed card, which has no cost, without a payment', async () => {
       await testEnv.withSecurityRulesDisabled(async (admin) => {
         await setDoc(

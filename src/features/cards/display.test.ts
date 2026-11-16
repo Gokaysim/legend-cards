@@ -9,6 +9,7 @@ import {
   cardFrame,
   cardHaystack,
   cardMatchesQuery,
+  costChange,
   faceGlow,
   hasSetDetails,
   priceAllows,
@@ -30,6 +31,32 @@ describe('priceOfUse', () => {
   it('denies a fraction and more than one use may take', () => {
     expect(priceAllows({ kind: 'chosen' }, 1.5)).toBe(false)
     expect(priceAllows({ kind: 'chosen' }, 1_000_001)).toBe(false)
+  })
+})
+
+describe('costChange', () => {
+  it.each([
+    ['an X card given a number', 'X', '3'],
+    ['a d6 card given a number', 'd6', '4'],
+    ['a number card given an X', '3', 'X'],
+    ['a card without a cost given a number', null, '2'],
+  ])('reads %s as another cost', (_case, cardCost, handCost) => {
+    expect(costChange(cardCost, handCost)).toBe('other')
+  })
+
+  it.each([
+    ['a number written another way', '3', '3,0'],
+    ['a die in another letter case', 'd6', 'D6'],
+    ['an X in another letter case', 'X', 'x'],
+    ['no cost at all', null, null],
+    ['the same text', 'X+1', 'X+1'],
+  ])('reads %s as the same cost', (_case, cardCost, handCost) => {
+    expect(costChange(cardCost, handCost)).toBeNull()
+  })
+
+  it('marks two numbers lower or higher', () => {
+    expect(costChange('3', '1')).toBe('lower')
+    expect(costChange('1', '2,5')).toBe('higher')
   })
 })
 

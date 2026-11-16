@@ -145,6 +145,15 @@ describe('CardFace in a hand', () => {
     expect(face('Dice')).toHaveTextContent('Cost: d6')
   })
 
+  it("names the card's own cost on an unmarked hand cost, keeping the neutral look", () => {
+    renderWithSets(<CardFace card={testCard('Lanza', { cost: 'X' })} handCost="3" />)
+
+    expect(cost('Lanza')).toHaveTextContent('Cost: 3 (temel cost: X)')
+    expect(cost('Lanza')).toHaveAttribute('title', 'Cost: 3 (temel cost: X)')
+    expect(cost('Lanza')).toHaveClass('border-line', 'text-ink')
+    expect(cost('Lanza')).not.toHaveAttribute('data-cost-change')
+  })
+
   it('marks an active card in its frame color', () => {
     renderWithSets(
       <>
@@ -459,6 +468,35 @@ describe('CardFace with a picture', () => {
 
     const badge = within(face("Aboleth's Eyes")).getByText(/^Cost:/).parentElement
     expect(badge).not.toHaveAttribute('data-cost-change')
+    expect(badge?.closest('.sr-only')).not.toBeNull()
+  })
+
+  it('shows a number given to an X card as an unmarked badge on the picture', () => {
+    renderWithArt(<CardFace card={{ ...ABOLETH, cost: 'X' }} handCost="3" />)
+
+    const badge = within(face("Aboleth's Eyes")).getByText(/^Cost:/).parentElement
+    expect(badge).toHaveTextContent('Cost: 3 (temel cost: X)')
+    expect(badge).not.toHaveAttribute('data-cost-change')
+    expect(badge).toHaveClass('absolute', 'border-line', 'text-ink')
+    expect(badge?.closest('.sr-only')).toBeNull()
+  })
+
+  it.each([
+    ['a number given to a d6 card', 'd6', '4'],
+    ['an X given to a number card', '3', 'X'],
+  ])('shows %s as an unmarked badge on the picture', (_case, cardCost, handCost) => {
+    renderWithArt(<CardFace card={{ ...ABOLETH, cost: cardCost }} handCost={handCost} />)
+
+    const badge = within(face("Aboleth's Eyes")).getByText(/^Cost:/).parentElement
+    expect(badge).toHaveTextContent(`Cost: ${handCost} (temel cost: ${cardCost})`)
+    expect(badge).not.toHaveAttribute('data-cost-change')
+    expect(badge?.closest('.sr-only')).toBeNull()
+  })
+
+  it('shows no badge for the same cost written another way', () => {
+    renderWithArt(<CardFace card={ABOLETH} handCost="3,0" />)
+
+    const badge = within(face("Aboleth's Eyes")).getByText(/^Cost:/).parentElement
     expect(badge?.closest('.sr-only')).not.toBeNull()
   })
 
