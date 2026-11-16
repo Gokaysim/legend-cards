@@ -166,6 +166,29 @@ describe('parseCardFile: Legend rows', () => {
     expect(result.cards[0]?.card.kind).toBe('blessed')
   })
 
+  it('accepts the rarity Blessed on a Blessed card, in any letter case, as no rarity', () => {
+    const result = parseCardFile(
+      legend(
+        'Halo,Blessed,—,Blessed,—,Shine.,Permamancy,',
+        'Glow,Blessed,—,blessed,—,Glow.,Permamancy,',
+      ),
+      'legend',
+    )
+    expect(result.errors).toEqual([])
+    expect(result.cards.map(({ card }) => [card.kind, card.rarity])).toEqual([
+      ['blessed', null],
+      ['blessed', null],
+    ])
+    expect(result.cards.map(({ missing }) => missing)).toEqual([[], []])
+  })
+
+  it('still refuses the rarity Blessed on a normal card', () => {
+    const result = parseCardFile(legend('Odd,Kesqer,1,Blessed,No,T.,Permamancy,0'), 'legend')
+    expect(result.errors).toEqual([
+      { kind: 'invalid-rarity', row: 2, name: 'Odd', rarity: 'Blessed' },
+    ])
+  })
+
   it('refuses a Blessed card with an ordinary rarity', () => {
     const result = parseCardFile(legend('Halo,Blessed,—,Rare,—,Shine.,Permamancy,'), 'legend')
     expect(result.errors).toEqual([
@@ -381,32 +404,24 @@ describe.skipIf(!hasOwnerData(DATA_FILES.legend, DATA_FILES.cursed, DATA_FILES.s
       const cards = parseCardFile(ownerFile(DATA_FILES.legend), 'legend').cards
       const spellings = setSpellings(parseSetFile(ownerFile(DATA_FILES.sets)).sets)
       expect(unknownSetWarnings(cards, spellings)).toEqual([])
-      expect(unknownSetWarnings(cards, [])).toHaveLength(12)
+      expect(unknownSetWarnings(cards, [])).toHaveLength(13)
     })
 
-    it('reads data/legend-cards.csv as 572 normal and 19 Blessed cards, 3 of them missing values', () => {
+    it('reads data/legend-cards.csv as 590 normal and 19 Blessed cards, 11 of them missing values', () => {
       const result = parseCardFile(ownerFile(DATA_FILES.legend), 'legend')
       expect(result.errors).toEqual([])
       expect(result.warnings).toEqual([])
-      expect(result.cards).toHaveLength(591)
-      expect(result.cards.filter(({ card }) => card.kind === 'normal')).toHaveLength(572)
+      expect(result.cards).toHaveLength(609)
+      expect(result.cards.filter(({ card }) => card.kind === 'normal')).toHaveLength(590)
       expect(result.cards.filter(({ card }) => card.kind === 'blessed')).toHaveLength(19)
-      expect(
-        result.cards
-          .filter(({ missing }) => missing.length > 0)
-          .map(({ card, missing }) => [card.name, missing]),
-      ).toEqual([
-        ["Hrolf's Hornswaggle", ['cost']],
-        ['The Cartographer', ['set', 'rarity', 'mechanic pack']],
-        ['The Grand Finale', ['cost']],
-      ])
+      expect(result.cards.filter(({ missing }) => missing.length > 0)).toHaveLength(11)
     })
 
-    it('reads data/cursed-cards.csv as 154 Cursed cards', () => {
+    it('reads data/cursed-cards.csv as 155 Cursed cards', () => {
       const result = parseCardFile(ownerFile(DATA_FILES.cursed), 'cursed')
       expect(result.errors).toEqual([])
       expect(result.warnings).toEqual([])
-      expect(result.cards).toHaveLength(154)
+      expect(result.cards).toHaveLength(155)
       expect(result.cards.every(({ card }) => card.kind === 'cursed')).toBe(true)
     })
   },

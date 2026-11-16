@@ -169,7 +169,8 @@ export function parseCardFile(text: string, deck: Deck): ParsedCardFile {
 
       let rarity: Rarity | null = null
       if (isBlessed) {
-        if (!isBlank(rarityCell)) {
+        // The owner's export writes "Blessed" in a Blessed row's Rarity, which says what the Set column already says.
+        if (!isBlank(rarityCell) && normalize(rarityCell) !== 'blessed') {
           rowErrors.push({ kind: 'blessed-with-rarity', row, name, rarity: rarityCell })
         }
       } else if (isBlank(rarityCell)) {

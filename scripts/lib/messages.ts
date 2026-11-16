@@ -94,7 +94,7 @@ function cardFileError(file: string, error: CardFileError): string {
     case 'invalid-rarity':
       return `${file}, satır ${error.row} (${error.name}): rarity ${error.rarity ? `"${error.rarity}"` : 'boş'}; Common veya Rare olmalı.`
     case 'blessed-with-rarity':
-      return `${file}, satır ${error.row} (${error.name}): Blessed kartın rarity'si "—" ya da boş olmalı, "${error.rarity}" yazıyor.`
+      return `${file}, satır ${error.row} (${error.name}): Blessed kartın rarity'si "—", "Blessed" ya da boş olmalı, "${error.rarity}" yazıyor.`
     case 'duplicate':
       return `${file}, satır ${error.rows[0]} ve ${error.rows[1]}: "${error.name}" adı iki kez var.`
   }
