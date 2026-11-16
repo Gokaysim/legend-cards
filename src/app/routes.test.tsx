@@ -363,6 +363,7 @@ describe("each screen's Cardmaker", () => {
       ['/library', 'cardmaker_lib'],
       ['/library?tab=cursed', 'cardmaker_cursed'],
       ['/library?tab=true-words', 'cardmaker_true'],
+      ['/log', 'cardmaker_think'],
       ['/rules', 'cardmaker_wave'],
       ['/settings', 'cardmaker_peek'],
       ['/shops/elixirs', 'cardmaker_zaddir'],
@@ -373,17 +374,6 @@ describe("each screen's Cardmaker", () => {
       expect(cornerStem()).toBe(stem)
       expect(headerMascot()).toBeNull()
     })
-
-    it.each([['/log', 'cardmaker_think']])(
-      'keeps the Cardmaker of %s by the title on a wide window with a mouse',
-      (path, stem) => {
-        stubWideHover()
-        renderApp({ path, cards: { cards: CARDS }, art: ART })
-
-        expect(headerMascot()).toHaveAttribute('src', `/art/mascots/${stem}.0123456789.webp`)
-        expect(cornerStem()).toBeUndefined()
-      },
-    )
 
     it('changes the Cardmaker in the corner with the tab', async () => {
       stubWideHover()

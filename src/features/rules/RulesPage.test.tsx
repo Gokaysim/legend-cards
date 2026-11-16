@@ -1,10 +1,12 @@
-import { screen, within } from '@testing-library/react'
+import { fireEvent, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { testArt } from '@/test/artFixtures'
 import { ready, testProfile } from '@/test/fixtures'
 import { stubPhoneWidth, stubWideHover } from '@/test/media'
 import { renderApp } from '@/test/renderApp'
+
+import { CARD_INFO_ALT } from './RulesPicture'
 
 /** The four sections, in order, each with its topics in order. */
 const SECTIONS = [
@@ -211,5 +213,89 @@ describe('where the Kurallar Cardmaker stands', () => {
     renderApp({ path: '/rules', art: ART })
 
     expect(document.querySelector('img[data-mascot]')).toBeNull()
+  })
+})
+
+describe('the card_info picture', () => {
+  const CARD_INFO_URL = '/art/mascots/card_info.0123456789.webp'
+  const ART = testArt({
+    mascots: {
+      card_info: CARD_INFO_URL,
+      cardmaker_wave: '/art/mascots/cardmaker_wave.0123456789.webp',
+    },
+  })
+  const picture = () => screen.getByRole('img', { name: CARD_INFO_ALT })
+  const headerMascot = () =>
+    screen
+      .getByRole('heading', { level: 1, name: 'Kurallar' })
+      .closest('header')
+      ?.querySelector('img[data-mascot]')
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('shows the picture with its Turkish description at the top of the first section, inside the text', () => {
+    renderApp({ path: '/rules', art: ART })
+
+    const img = picture()
+    expect(img).toHaveAttribute('src', CARD_INFO_URL)
+    expect(img).toHaveAttribute('data-rules-picture')
+    expect(img).not.toHaveAttribute('data-mascot')
+    expect(img).toHaveClass('pointer-events-none', 'sm:float-right', 'sm:w-1/2', 'w-full')
+    expect(img.closest('[data-rules-text]')).not.toBeNull()
+
+    const first = section('Legend Point Kart Sistemi')
+    expect(first).toContainElement(img)
+    const title = within(first).getByRole('heading', { level: 2 })
+    const firstParagraph = first.querySelector('p')
+    expect(title.nextElementSibling).toBe(img)
+    expect(img.nextElementSibling).toBe(firstParagraph)
+    expect(document.querySelectorAll('[data-rules-picture]')).toHaveLength(1)
+  })
+
+  it('shows it with the Cardmaker by the title on a tablet', () => {
+    renderApp({ path: '/rules', art: ART })
+
+    expect(headerMascot()).toHaveAttribute('data-mascot', 'cardmaker_wave')
+    expect(picture()).toBeInTheDocument()
+  })
+
+  it('shows it with the Cardmaker in the corner on a wide window with a mouse', () => {
+    stubWideHover()
+    renderApp({ path: '/rules', art: ART })
+
+    expect(document.querySelector('[data-corner-cardmaker]')).toHaveAttribute(
+      'data-corner-cardmaker',
+      'cardmaker_wave',
+    )
+    expect(picture()).toBeInTheDocument()
+  })
+
+  it('shows it on a phone, where no Cardmaker shows', () => {
+    stubPhoneWidth()
+    renderApp({ path: '/rules', art: ART })
+
+    expect(picture()).toBeInTheDocument()
+    expect(document.querySelector('img[data-mascot]')).toBeNull()
+  })
+
+  it('shows nothing in its place when it is not built', () => {
+    renderApp({
+      path: '/rules',
+      art: testArt({ mascots: { cardmaker_wave: '/art/mascots/cardmaker_wave.0123456789.webp' } }),
+    })
+
+    expect(document.querySelector('[data-rules-picture]')).toBeNull()
+    expect(sectionTitles()).toEqual(SECTIONS.map((s) => s.title))
+  })
+
+  it('removes it when its file fails to load, leaving the text', () => {
+    renderApp({ path: '/rules', art: ART })
+
+    fireEvent.error(picture())
+
+    expect(document.querySelector('[data-rules-picture]')).toBeNull()
+    expect(section('Legend Point Kart Sistemi').querySelector('p')).toBeInTheDocument()
   })
 })

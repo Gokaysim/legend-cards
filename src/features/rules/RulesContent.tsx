@@ -1,12 +1,17 @@
 import { type ReactNode, useId } from 'react'
 
-/** One section of the rules: a region named by its title, separated from the one before by a line. */
+import { RulesPicture } from './RulesPicture'
+
+/**
+ * One section of the rules: a region named by its title, separated from the one before by a line. Block layout, not
+ * flex, so that its lines wrap around the floated `RulesPicture`.
+ */
 function RulesSection({ title, children }: { title: string; children: ReactNode }) {
   const titleId = useId()
   return (
     <section
       aria-labelledby={titleId}
-      className="flex flex-col gap-3 border-t border-line pt-8 first:border-t-0 first:pt-0"
+      className="space-y-3 border-t border-line pt-8 first:border-t-0 first:pt-0"
     >
       <h2 id={titleId} className="text-2xl font-semibold text-gold">
         {title}
@@ -16,13 +21,13 @@ function RulesSection({ title, children }: { title: string; children: ReactNode 
   )
 }
 
-/** A topic within a section. */
+/** A topic within a section. Its margin collapses with the one above it, so it is the whole space there. */
 function Topic({ children }: { children: ReactNode }) {
-  return <h3 className="mt-3 text-lg font-semibold text-ink">{children}</h3>
+  return <h3 className="mt-6 text-lg font-semibold text-ink">{children}</h3>
 }
 
 function BulletList({ children }: { children: ReactNode }) {
-  return <ul className="flex list-disc flex-col gap-2 pl-6">{children}</ul>
+  return <ul className="list-disc space-y-2 pl-6">{children}</ul>
 }
 
 /** A bold run inside a sentence. */
@@ -38,13 +43,14 @@ function Highlight({ children }: { children: ReactNode }) {
  */
 export function RulesContent() {
   return (
-    // About 70 characters a line, so that on a wide window the corner Cardmaker stands beside the text (spec:
-    // rules-page, "Rules screen layout").
+    // About 70 characters a line, so that on a wide window the corner Cardmaker stands beside the text, and a block
+    // formatting context that holds the floated `card_info` picture (spec: rules-page, "Rules screen layout").
     <div
       data-rules-text
-      className="flex max-w-[70ch] flex-col gap-8 leading-relaxed break-words text-ink"
+      className="flow-root max-w-[70ch] space-y-8 leading-relaxed break-words text-ink"
     >
       <RulesSection title="Legend Point Kart Sistemi">
+        <RulesPicture />
         <p>
           Gel bakalım kuzum, otur şöyle yanıma. Şimdi sana bu güzelim kartların nasıl kullanıldığını
           bir güzel anlatayım. Kulaklarını aç da dinle, sonra gelip de "Cardmaker Teyzeciğim, ben

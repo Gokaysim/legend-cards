@@ -61,6 +61,7 @@ export function ActivityLogPage() {
       <PageHeader
         title={screenById('activity-log').label}
         mascot={screenById('activity-log').mascot}
+        mascotPlacement="corner"
       />
 
       <div className="flex flex-wrap items-center gap-2">
