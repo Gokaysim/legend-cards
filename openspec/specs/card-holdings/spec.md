@@ -440,6 +440,18 @@ A use's price SHALL follow the card's cost in this hand: the DM's cost override 
 - **WHEN** the DM has set the cost of Ayla's 3-cost card to "1", and Ayla uses it
 - **THEN** the price is 1 LP
 
+#### Scenario: An X card with a number in the hand
+- **WHEN** the DM has set the cost of Ayla's "Leon's Lanza", which costs "X", to "3", and Ayla uses it
+- **THEN** she is not asked for an amount, the confirm control reads "Kullanımı onayla (3 LP)", and she pays 3 LP
+
+#### Scenario: A d6 card with a number in the hand
+- **WHEN** the DM has set the cost of Ayla's "Hran's Diligent Defence", which costs "d6", to "4", and Ayla uses it
+- **THEN** she is not asked for the die, and she pays 4 LP
+
+#### Scenario: A forged amount on an X card with a number in the hand
+- **WHEN** the DM has set the cost of Ayla's "X" card to "3", and Ayla closes it as used, paying 2 LP
+- **THEN** the server denies it
+
 #### Scenario: A Blessed card
 - **WHEN** Ayla uses a Blessed card, which has no cost
 - **THEN** the card is used without a payment, and her LP does not change
