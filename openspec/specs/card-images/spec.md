@@ -345,7 +345,7 @@ In the Pack Shop's main view, each set's group tile SHALL show its set's cardbac
 - **THEN** each set's group shows "♜" with its name, and the Golden Packs "✦" with its name
 
 ### Requirement: The Cardmaker in the corner
-On the shop screens (Shops, Pack Shop, Elixir Shop), every tab of the Kütüphane, Kurallar, and the unbuilt screens, on a device with hover whose window is at least 1024 CSS pixels wide, the screen's Cardmaker SHALL stand fixed in the window's bottom-right corner instead of next to the title. She SHALL stay there while the page scrolls and SHALL never catch the pointer. She SHALL fade out while the pointer is over her, or the keyboard focus is on something under her.
+On the shop screens (Shops, Pack Shop, Elixir Shop), every tab of the Kütüphane, İşlem Logu, Kurallar, and the unbuilt screens, on a device with hover whose window is at least 1024 CSS pixels wide, the screen's Cardmaker SHALL stand fixed in the window's bottom-right corner instead of next to the title. She SHALL stay there while the page scrolls and SHALL never catch the pointer. She SHALL fade out while the pointer is over her, or the keyboard focus is on something under her.
 
 #### Scenario: The Pack Shop on a desktop
 - **WHEN** a user opens the Pack Shop on a 1280 CSS pixel wide window with a mouse and scrolls to the Mechanic Packs
@@ -381,6 +381,14 @@ On the shop screens (Shops, Pack Shop, Elixir Shop), every tab of the Kütüphan
 
 #### Scenario: Another screen
 - **WHEN** a user opens İşlem Logu on a 1280 CSS pixel wide window with a mouse
+- **THEN** `cardmaker_think` stands in the bottom-right corner, and no Cardmaker is next to its title
+
+#### Scenario: An event under her
+- **WHEN** the user moves the pointer over a log event that lies under the Cardmaker
+- **THEN** the Cardmaker fades out, and the event stays readable
+
+#### Scenario: The log on a tablet
+- **WHEN** a user opens İşlem Logu on a tablet 800 CSS pixels wide
 - **THEN** `cardmaker_think` is next to its title
 
 ### Requirement: The Shops screen's Cardmaker
