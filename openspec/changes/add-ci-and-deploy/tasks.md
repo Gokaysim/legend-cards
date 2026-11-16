@@ -89,17 +89,17 @@
 
 ## 5. History rewrite and first push (with the owner)
 
-- [ ] 5.1 Confirm the preconditions:
+- [x] 5.1 Confirm the preconditions:
   - `invite-only-sign-in` is archived, and every other change in flight is committed
   - `git status` is clean
   - groups 1–4 are committed, with the owner's go-ahead to commit
   - `npm run check` and `npm run test:emulator` pass
 
   Verify with `git status --porcelain` printing nothing.
-- [ ] 5.2 Make the safety net: `git clone --mirror` of the repository and a copy of the six data files, both outside the repository (design D7). Verify:
+- [x] 5.2 Make the safety net: `git clone --mirror` of the repository and a copy of the six data files, both outside the repository (design D7). Verify:
   - `git -C <mirror> log --oneline | wc -l` equals the local count
   - the copied files match the originals by checksum
-- [ ] 5.3 Ask the owner for an explicit yes. Then run `git filter-repo --force --invert-paths` with the five `data/*.csv` paths and `scripts/lib/artInventory.fixture.ts`. Restore the data files from the copy if any is missing. Verify:
+- [x] 5.3 Ask the owner for an explicit yes. Then run `git filter-repo --force --invert-paths` with the five `data/*.csv` paths and `scripts/lib/artInventory.fixture.ts`. Restore the data files from the copy if any is missing. Verify:
   - `git log --all --name-only --format= | grep -E 'data/.*\.csv|artInventory.fixture'` prints nothing
   - `git grep` over `git rev-list --all` for a sentence of a known card's text finds nothing
   - `npm run check` passes
