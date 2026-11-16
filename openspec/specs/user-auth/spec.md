@@ -7,11 +7,15 @@ Identifies the people using Legend Card Manager through their Google account. Ev
 ## Requirements
 
 ### Requirement: Google sign-in
-The application SHALL let users sign in with a Google account from a dedicated sign-in screen. The sign-in screen SHALL show the application name and one Turkish sign-in action.
+The application SHALL let users sign in with a Google account from a dedicated sign-in screen. The sign-in screen SHALL show the application name and one Turkish sign-in action. After Google sign-in, the application SHALL let the user in only when the account is on the access list (spec: table-access, "Accounts on the list"). Otherwise, it SHALL show the "ekli değil" screen.
 
 #### Scenario: Successful sign-in
-- **WHEN** a signed-out user on the sign-in screen chooses to sign in with Google and completes the Google account selection
+- **WHEN** a signed-out user on the sign-in screen chooses to sign in with Google, completes the Google account selection, and the account is on the list
 - **THEN** the user is signed in and taken to the application
+
+#### Scenario: Sign-in with an account that is not on the list
+- **WHEN** Cem completes Google sign-in with "cem@gmail.com", and that address is not on the list
+- **THEN** the "ekli değil" screen is shown, and no profile is created for Cem
 
 #### Scenario: User cancels sign-in
 - **WHEN** a signed-out user starts Google sign-in and closes the Google window without choosing an account
@@ -22,26 +26,34 @@ The application SHALL let users sign in with a Google account from a dedicated s
 - **THEN** the sign-in screen shows a Turkish error message and lets the user try again
 
 ### Requirement: Protected application screens
-Every application screen except the sign-in screen SHALL require a signed-in user. A signed-out user who opens a protected URL SHALL be sent to the sign-in screen, and after signing in SHALL return to the URL they first asked for.
+Every application screen except the sign-in screen SHALL require a signed-in user whose account is on the access list. A signed-out user who opens a protected URL SHALL be sent to the sign-in screen, and after signing in with an account on the list SHALL return to the URL they first asked for.
 
 #### Scenario: Opening a protected screen while signed out
 - **WHEN** a signed-out user opens the Kart kütüphanesi screen's URL
 - **THEN** the sign-in screen is shown instead of the library
 
 #### Scenario: Returning after sign-in
-- **WHEN** that user then signs in successfully
+- **WHEN** that user then signs in successfully with an account on the list
 - **THEN** the Kart kütüphanesi screen is shown
 
 #### Scenario: Signed-in user opens the sign-in screen
-- **WHEN** a signed-in user opens the sign-in screen's URL
+- **WHEN** a signed-in user whose account is on the list opens the sign-in screen's URL
 - **THEN** they are taken to the default application screen
 
+#### Scenario: Unlisted user opens a protected screen
+- **WHEN** a signed-in user whose account is not on the list opens the Kart kütüphanesi screen's URL
+- **THEN** the "ekli değil" screen is shown instead of the library
+
 ### Requirement: Auth state loading
-While the application is still finding out whether the user is signed in, it SHALL show a neutral loading state. It SHALL NOT briefly show the sign-in screen or protected content.
+While the application is still finding out whether the user is signed in, and whether a signed-in account is on the access list, it SHALL show a neutral loading state. It SHALL NOT briefly show the sign-in screen, the "ekli değil" screen or protected content.
 
 #### Scenario: Reopening the app while already signed in
 - **WHEN** a previously signed-in user reopens the application
 - **THEN** a loading state is shown until the session is restored, and then the requested screen appears, without the sign-in screen ever appearing in between
+
+#### Scenario: Checking the list after sign-in
+- **WHEN** a user completes Google sign-in and the application is still checking whether the account is on the list
+- **THEN** the loading state is shown, and neither the application nor the "ekli değil" screen appears until the check is done
 
 ### Requirement: Persistent session
 A successful sign-in SHALL stay valid across page reloads and browser restarts on the same device until the user signs out.
@@ -67,3 +79,36 @@ A signed-in user SHALL be able to sign out from the shell. Signing out SHALL end
 #### Scenario: Protected screens after sign-out
 - **WHEN** a user who has signed out uses the browser's back button to return to a protected screen
 - **THEN** the sign-in screen is shown instead of that screen
+
+### Requirement: The "ekli değil" screen
+A signed-in user whose account is not on the access list SHALL see a screen with the application name, the account's email address, and a Turkish line saying that this address is not on the table and that they should ask the DM to add it. The screen SHALL offer "Başka hesapla giriş yap", which opens Google's account chooser, and "Çıkış yap". The application SHALL read no table data for this user.
+
+#### Scenario: Seeing the screen
+- **WHEN** Cem is signed in with "cem@gmail.com", which is not on the list
+- **THEN** the screen shows "cem@gmail.com", says that it is not on the table, and asks Cem to have the DM add it
+
+#### Scenario: Another account
+- **WHEN** Cem chooses "Başka hesapla giriş yap" and picks an account that is on the list
+- **THEN** Cem enters the application with that account
+
+#### Scenario: Signing out
+- **WHEN** Cem chooses "Çıkış yap"
+- **THEN** the session ends and the sign-in screen is shown
+
+#### Scenario: Reopening the app
+- **WHEN** Cem reopens the application without having signed out, and the address is still not on the list
+- **THEN** the "ekli değil" screen is shown again
+
+### Requirement: Entering when the address is added
+While the "ekli değil" screen is shown, the application SHALL follow the account's own list entry. When the DM adds the address, the user SHALL enter the application without a reload, at the screen they asked for, and their profile SHALL be created then.
+
+#### Scenario: The DM adds the address while Cem waits
+- **WHEN** Cem has the "ekli değil" screen open, and the DM adds "cem@gmail.com"
+- **THEN** Cem enters the application without a reload, and Cem appears in every open "Oyuncular" list
+
+### Requirement: Leaving when the address is removed
+When the address of a signed-in user is removed from the access list while the application is open, the application SHALL show the "ekli değil" screen at once, and it SHALL stop reading table data. It SHALL NOT show error messages for the reads it stops.
+
+#### Scenario: Removed while playing
+- **WHEN** Ayla has the "Oyuncu elleri" screen open, and the DM removes "ayla@gmail.com"
+- **THEN** Ayla's application shows the "ekli değil" screen without a reload, and no error message appears
