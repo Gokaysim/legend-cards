@@ -38,6 +38,9 @@ const picturesOf = (uid: string): PictureStore =>
   cloudPictureStore(storageOf(testEnv.authenticatedContext(uid)))
 const online = () => true
 
+const SHEET = 'https://docs.google.com/document/d/abc'
+const OTHER_SHEET = 'https://www.myth-weavers.com/sheet.html#id=1'
+
 const photoOf = (hash: string) => ({
   kind: 'new' as const,
   blob: new Blob([new TextEncoder().encode(hash)], { type: 'image/webp' }),
@@ -151,6 +154,24 @@ describe('addCharacter', () => {
     expect(await readAsAdmin(`characters/${id}`)).toMatchObject({ uid: 'bora', createdBy: 'dana' })
   })
 
+  it('adds a character with a sheet link', async () => {
+    const id = await addCharacter(as('ayla'), {
+      uid: 'ayla',
+      name: 'Kuzgun',
+      by: 'ayla',
+      sheetUrl: SHEET,
+    })
+    expect(await readAsAdmin(`characters/${id}`)).toMatchObject({ sheetUrl: SHEET })
+  })
+
+  it.each([
+    ['null', null],
+    ['missing', undefined],
+  ])('stores no sheet link field for a %s link', async (_case, sheetUrl) => {
+    const id = await addCharacter(as('ayla'), { uid: 'ayla', name: 'Kuzgun', by: 'ayla', sheetUrl })
+    expect(await readAsAdmin(`characters/${id}`)).not.toHaveProperty('sheetUrl')
+  })
+
   it('deletes its upload when the write is denied', async () => {
     const pictures = picturesOf('ayla')
     const remove = vi.spyOn(pictures, 'remove')
@@ -234,6 +255,81 @@ describe('saveCharacter', () => {
   it('writes nothing when nothing changed', async () => {
     await saveCharacter(as('bora'), { character: THORIN, name: ' Thorin ' })
     expect(await readAsAdmin(`characters/${THORIN_ID}`)).toMatchObject({ name: 'Thorin' })
+  })
+
+  describe('the sheet link', () => {
+    /** Ayla's "Thorin" with a stored sheet link. */
+    const LINKED: Character = { ...THORIN, sheetUrl: SHEET }
+
+    async function storeLink(): Promise<void> {
+      await testEnv.withSecurityRulesDisabled(async (admin) => {
+        await setDoc(
+          doc(firestoreOf(admin), `characters/${THORIN_ID}`),
+          { sheetUrl: SHEET },
+          { merge: true },
+        )
+      })
+    }
+
+    it('adds a link', async () => {
+      await saveCharacter(as('ayla'), { character: THORIN, name: 'Thorin', sheetUrl: SHEET })
+      expect(await readAsAdmin(`characters/${THORIN_ID}`)).toMatchObject({ sheetUrl: SHEET })
+    })
+
+    it("lets the DM change a player's link", async () => {
+      await storeLink()
+      await saveCharacter(as('dana'), { character: LINKED, name: 'Thorin', sheetUrl: OTHER_SHEET })
+      expect(await readAsAdmin(`characters/${THORIN_ID}`)).toMatchObject({ sheetUrl: OTHER_SHEET })
+    })
+
+    it('removes a link, leaving no field', async () => {
+      await storeLink()
+      await saveCharacter(as('ayla'), { character: LINKED, name: 'Thorin', sheetUrl: null })
+      expect(await readAsAdmin(`characters/${THORIN_ID}`)).not.toHaveProperty('sheetUrl')
+    })
+
+    it('keeps the link on a rename', async () => {
+      await storeLink()
+      await saveCharacter(as('ayla'), { character: LINKED, name: 'Thorin Oakenshield' })
+      expect(await readAsAdmin(`characters/${THORIN_ID}`)).toMatchObject({
+        name: 'Thorin Oakenshield',
+        sheetUrl: SHEET,
+      })
+    })
+
+    it('changes the name, the photo and the link in one save', async () => {
+      await saveCharacter(
+        as('ayla'),
+        { character: THORIN, name: 'Thorin II', picture: { kind: 'remove' }, sheetUrl: SHEET },
+        picturesOf('ayla'),
+      )
+      expect(await readAsAdmin(`characters/${THORIN_ID}`)).toMatchObject({
+        name: 'Thorin II',
+        picture: null,
+        sheetUrl: SHEET,
+      })
+    })
+
+    it('writes nothing for the same link, or for no link on a character without one', async () => {
+      await storeLink()
+      // Bora may write nothing on Ayla's character, so any write would fail.
+      await saveCharacter(as('bora'), { character: LINKED, name: 'Thorin', sheetUrl: SHEET })
+      await saveCharacter(as('bora'), { character: THORIN, name: 'Thorin', sheetUrl: null })
+    })
+
+    it("denies another player's link", async () => {
+      await storeLink()
+      const error = await failureOf(
+        saveCharacter(as('bora'), { character: LINKED, name: 'Thorin', sheetUrl: OTHER_SHEET }),
+      )
+      expect(error).toMatchObject({ code: 'permission-denied' })
+      expect(
+        await failureOf(
+          saveCharacter(as('bora'), { character: LINKED, name: 'Thorin', sheetUrl: null }),
+        ),
+      ).toMatchObject({ code: 'permission-denied' })
+      expect(await readAsAdmin(`characters/${THORIN_ID}`)).toMatchObject({ sheetUrl: SHEET })
+    })
   })
 })
 

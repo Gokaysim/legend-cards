@@ -2092,8 +2092,8 @@ service cloud.firestore {
 
     // Characters (design D3 of add-characters): a user's player characters and the DM's NPCs. Everyone signed in reads
     // them. A player adds their own, and the DM one for anyone with a profile. The owner and the DM rename one,
-    // change its photo, archive it and bring it back. Nothing else changes, and a character is never deleted. They
-    // are not table actions: an open pack does not stop them.
+    // change its photo and its sheet link (add-character-sheet-link), archive it and bring it back. Nothing else
+    // changes, and a character is never deleted. They are not table actions: an open pack does not stop them.
     match /characters/{characterId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn()
@@ -2105,24 +2105,33 @@ service cloud.firestore {
         && exists(userPath(request.resource.data.uid));
       allow update: if isSignedIn()
         && (isSelf(resource.data.uid) || isDm())
-        && onlyChanges(['name', 'picture', 'archived', 'initiativeModifier'])
+        && onlyChanges(['name', 'picture', 'archived', 'initiativeModifier', 'sheetUrl'])
         && validCharacter(request.resource.data);
       allow delete: if false;
 
-      // Exactly the stored fields, a name of 1 to 40 characters, no photo or one of this very character's, and
+      // Exactly the stored fields, a name of 1 to 40 characters, no photo or one of this very character's,
       // optionally the initiative modifier it last rolled with, a whole number from -10 to +30 (spec: characters,
-      // "Valid character records"). Keep in step with src/features/characters/schema.ts.
+      // "Valid character records"), and optionally the link to its sheet (spec: characters, "Character sheet links").
+      // Keep in step with src/features/characters/schema.ts.
       function validCharacter(data) {
         let fields = ['uid', 'name', 'picture', 'archived', 'createdAt', 'createdBy'];
-        return data.keys().hasOnly(fields.concat(['initiativeModifier']))
+        return data.keys().hasOnly(fields.concat(['initiativeModifier', 'sheetUrl']))
           && data.keys().hasAll(fields)
           && (!('initiativeModifier' in data) || validInitiativeModifier(data.initiativeModifier))
+          && (!('sheetUrl' in data) || validSheetUrl(data.sheetUrl))
           && data.uid is string
           && textOfSize(data.name, 40)
           && data.archived is bool
           && (data.picture == null
             || (data.picture is string
               && data.picture.matches('characters/' + characterId + '/[0-9a-f]{10}[.]webp')));
+      }
+
+      // A sheet link: an http(s) address of at most 2048 characters (design D2 of add-character-sheet-link). RE2's
+      // `.` takes anything but a line break. Keep in step with `sheetUrl` and CHARACTER_LIMITS in
+      // src/features/characters/schema.ts.
+      function validSheetUrl(value) {
+        return value is string && value.size() <= 2048 && value.matches('https?://.+');
       }
     }
 

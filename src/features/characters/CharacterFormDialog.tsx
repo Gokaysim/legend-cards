@@ -12,6 +12,7 @@ import { useOnlineStatus } from '@/lib/useOnlineStatus'
 import { useCharacterActions } from './charactersContext'
 import { type CharacterFailure, characterFailureMessage, toCharacterFailure } from './errors'
 import { type Character, CHARACTER_LIMITS } from './schema'
+import { readSheetUrl } from './sheetUrl'
 
 export type CharacterFormDialogProps = {
   /** The owner of a new character: the hand's user. */
@@ -25,10 +26,19 @@ export type CharacterFormDialogProps = {
   onLateFailure: (failure: CharacterFailure) => void
 }
 
+/** Why a typed sheet link is refused (design D4 of add-character-sheet-link). */
+type SheetUrlProblem = 'wrong-start' | 'invalid'
+
+const SHEET_URL_MESSAGES: Record<SheetUrlProblem, string> = {
+  'wrong-start': 'Link http:// ya da https:// ile başlamalı.',
+  invalid: 'Bu geçerli bir link değil.',
+}
+
 /**
- * The character form (spec: characters, "Adding a character from the tab", "Editing in the details"): the name and an
- * optional photo, cropped to 3:4. A save with a new photo waits for the upload and the server, and keeps the form with
- * a Turkish message when it fails, offline included. Any other save is queued like a note: the form closes at once.
+ * The character form (spec: characters, "Adding a character from the tab", "Editing in the details", "The sheet link
+ * in the form"): the name, an optional photo, cropped to 3:4, and an optional sheet link. A save with a new photo waits
+ * for the upload and the server, and keeps the form with a Turkish message when it fails, offline included. Any other
+ * save is queued like a note: the form closes at once.
  */
 export function CharacterFormDialog({
   uid,
@@ -44,23 +54,27 @@ export function CharacterFormDialog({
   const isOnline = useOnlineStatus()
   const [name, setName] = useState(character?.name ?? '')
   const [photo, setPhoto] = useState<PictureDraft>(KEEP_DRAFT)
+  const [sheetText, setSheetText] = useState(character?.sheetUrl ?? '')
   const [isWorking, setIsWorking] = useState(false)
   const [isNameMissing, setIsNameMissing] = useState(false)
+  const [sheetUrlProblem, setSheetUrlProblem] = useState<SheetUrlProblem | null>(null)
   const [failure, setFailure] = useState<CharacterFailure | null>(null)
 
-  const step = () =>
+  const step = (sheetUrl: string | null) =>
     character === null
-      ? actions.addCharacter({ uid, name, by, picture: choiceOf(photo) })
-      : actions.saveCharacter({ character, name, picture: choiceOf(photo) })
+      ? actions.addCharacter({ uid, name, by, picture: choiceOf(photo), sheetUrl })
+      : actions.saveCharacter({ character, name, picture: choiceOf(photo), sheetUrl })
 
   const save = async () => {
     setFailure(null)
-    if (name.trim() === '') {
-      setIsNameMissing(true)
-      return
-    }
+    const sheet = readSheetUrl(sheetText)
+    const isNameBlank = name.trim() === ''
+    setIsNameMissing(isNameBlank)
+    setSheetUrlProblem(sheet.kind === 'wrong-start' || sheet.kind === 'invalid' ? sheet.kind : null)
+    if (isNameBlank || sheet.kind === 'wrong-start' || sheet.kind === 'invalid') return
+    const sheetUrl = sheet.kind === 'link' ? sheet.url : null
     if (photo.kind !== 'new') {
-      step().catch((error: unknown) => onLateFailure(toCharacterFailure(error)))
+      step(sheetUrl).catch((error: unknown) => onLateFailure(toCharacterFailure(error)))
       if (character === null) onSaved?.()
       onClose()
       return
@@ -71,7 +85,7 @@ export function CharacterFormDialog({
     }
     setIsWorking(true)
     try {
-      await step()
+      await step(sheetUrl)
       if (character === null) onSaved?.()
       onClose()
     } catch (error) {
@@ -84,6 +98,7 @@ export function CharacterFormDialog({
   return (
     <Dialog title={title} onClose={onClose} className="max-w-lg">
       <form
+        noValidate
         className="flex flex-col gap-4"
         onSubmit={(event) => {
           event.preventDefault()
@@ -120,6 +135,40 @@ export function CharacterFormDialog({
           name={name.trim() || 'Karakter'}
           disabled={isWorking}
         />
+
+        <FormField label="Karakter kağıdı linki" htmlFor={`${ids}-sheet`}>
+          <input
+            id={`${ids}-sheet`}
+            type="url"
+            inputMode="url"
+            autoComplete="url"
+            spellCheck={false}
+            autoCapitalize="none"
+            value={sheetText}
+            maxLength={CHARACTER_LIMITS.sheetUrl}
+            placeholder="https://…"
+            disabled={isWorking}
+            aria-invalid={sheetUrlProblem !== null || undefined}
+            aria-describedby={
+              sheetUrlProblem !== null
+                ? `${ids}-sheet-problem ${ids}-sheet-hint`
+                : `${ids}-sheet-hint`
+            }
+            onChange={(event) => {
+              setSheetText(event.target.value)
+              setSheetUrlProblem(null)
+            }}
+            className={FIELD_CLASSES}
+          />
+          <span id={`${ids}-sheet-hint`} className="text-xs text-ink-muted">
+            İsteğe bağlı. Örneğin Google Docs ya da Myth-Weavers linki.
+          </span>
+          {sheetUrlProblem !== null ? (
+            <span id={`${ids}-sheet-problem`} className="text-sm text-danger-ink">
+              {SHEET_URL_MESSAGES[sheetUrlProblem]}
+            </span>
+          ) : null}
+        </FormField>
 
         {failure ? (
           <p role="alert" className="text-sm text-danger-ink">

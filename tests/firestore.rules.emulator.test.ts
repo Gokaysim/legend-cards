@@ -11,6 +11,7 @@ import {
   arrayUnion,
   collection,
   deleteDoc,
+  deleteField,
   doc,
   type Firestore,
   getDoc,
@@ -6461,6 +6462,111 @@ describe('characters (characters/{characterId})', () => {
       await assertFails(deleteDoc(doc(asUser('dana'), `characters/${THORIN}`)))
       await assertFails(deleteDoc(doc(asUser('ayla'), `characters/${THORIN}`)))
       expect(await readAsAdmin(`characters/${THORIN}`)).toMatchObject(STORED)
+    })
+  })
+
+  describe('sheet links', () => {
+    const SHEET = 'https://docs.google.com/document/d/abc'
+    const OTHER_SHEET = 'http://www.myth-weavers.com/sheet.html#id=1'
+    /** The DM's own "Goblin şefi". */
+    const GOBLIN = 'GoblinDana0123456789'
+
+    beforeEach(async () => {
+      await testEnv.withSecurityRulesDisabled(async (admin) => {
+        await setDoc(doc(firestoreOf(admin), `characters/${GOBLIN}`), {
+          ...STORED,
+          uid: 'dana',
+          name: 'Goblin şefi',
+          picture: null,
+          createdBy: 'dana',
+        })
+      })
+    })
+
+    const editOf = (by: string, id: string, change: Record<string, unknown>) =>
+      updateDoc(doc(asUser(by), `characters/${id}`), change)
+
+    it('lets a player add a character with a sheet link', async () => {
+      await assertSucceeds(add('ayla', { sheetUrl: SHEET }))
+      expect(await readAsAdmin(`characters/${NEW}`)).toMatchObject({ sheetUrl: SHEET })
+    })
+
+    it("lets the DM add a player's character with a sheet link", async () => {
+      await assertSucceeds(add('dana', { uid: 'bora', name: 'Elara', sheetUrl: SHEET }))
+    })
+
+    it.each([
+      ['ayla', THORIN],
+      ['dana', THORIN],
+      ['dana', GOBLIN],
+    ])('lets %s add, change and remove the link of %s', async (by, id) => {
+      await assertSucceeds(editOf(by, id, { sheetUrl: SHEET }))
+      await assertSucceeds(editOf(by, id, { sheetUrl: OTHER_SHEET }))
+      expect(await readAsAdmin(`characters/${id}`)).toMatchObject({ sheetUrl: OTHER_SHEET })
+      await assertSucceeds(editOf(by, id, { sheetUrl: deleteField() }))
+      expect(await readAsAdmin(`characters/${id}`)).not.toHaveProperty('sheetUrl')
+    })
+
+    it.each(['ayla', 'dana'])('lets %s change the link of an archived character', async (by) => {
+      await testEnv.withSecurityRulesDisabled(async (admin) => {
+        await updateDoc(doc(firestoreOf(admin), `characters/${THORIN}`), {
+          archived: true,
+          sheetUrl: SHEET,
+        })
+      })
+      await assertSucceeds(edit(by, { sheetUrl: OTHER_SHEET }))
+      await assertSucceeds(edit(by, { sheetUrl: deleteField() }))
+    })
+
+    it('lets the link change together with the name and the photo', async () => {
+      await assertSucceeds(
+        edit('ayla', { name: 'Thorin Oakenshield', picture: null, sheetUrl: SHEET }),
+      )
+    })
+
+    it('keeps updating a character without a link', async () => {
+      await assertSucceeds(edit('ayla', { name: 'Thorin Oakenshield' }))
+      await assertSucceeds(edit('ayla', { archived: true }))
+      expect(await readAsAdmin(`characters/${THORIN}`)).not.toHaveProperty('sheetUrl')
+    })
+
+    it('keeps updating a character with a link', async () => {
+      await assertSucceeds(edit('ayla', { sheetUrl: SHEET }))
+      await assertSucceeds(edit('ayla', { archived: true }))
+      await assertSucceeds(edit('ayla', { initiativeModifier: 2 }))
+    })
+
+    it("denies another player adding, changing or removing a link of Ayla's", async () => {
+      await assertFails(editOf('bora', THORIN, { sheetUrl: SHEET }))
+      await testEnv.withSecurityRulesDisabled(async (admin) => {
+        await updateDoc(doc(firestoreOf(admin), `characters/${THORIN}`), { sheetUrl: SHEET })
+      })
+      await assertFails(editOf('bora', THORIN, { sheetUrl: OTHER_SHEET }))
+      await assertFails(editOf('bora', THORIN, { sheetUrl: deleteField() }))
+      await assertFails(add('bora', { uid: 'ayla', sheetUrl: SHEET }))
+      expect(await readAsAdmin(`characters/${THORIN}`)).toMatchObject({ sheetUrl: SHEET })
+    })
+
+    it.each([
+      ['a script', 'javascript:alert(1)'],
+      ['another scheme', 'ftp://x'],
+      ['a broken start', 'https:/x'],
+      ['an upper-case start', 'HTTPS://x'],
+      ['a start alone', 'https://'],
+      ['a line break', 'https://example.com/\nx'],
+      ['2049 characters', `https://example.com/${'x'.repeat(2049 - 20)}`],
+      ['null', null],
+      ['a number', 7],
+    ])('denies a link with %s, on create and on update', async (_case, sheetUrl) => {
+      await assertFails(add('ayla', { sheetUrl }))
+      await assertFails(edit('ayla', { sheetUrl }))
+      await assertFails(edit('dana', { sheetUrl }))
+    })
+
+    it('allows a link of 2048 characters', async () => {
+      await assertSucceeds(
+        edit('ayla', { sheetUrl: `https://example.com/${'x'.repeat(2048 - 20)}` }),
+      )
     })
   })
 })

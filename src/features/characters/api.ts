@@ -2,6 +2,7 @@ import {
   collection,
   type CollectionReference,
   deleteDoc,
+  deleteField,
   doc,
   type Firestore,
   serverTimestamp,
@@ -103,6 +104,8 @@ export type AddCharacterInput = {
   /** The signed-in user: the owner or the DM. */
   by: string
   picture?: PictureChoice
+  /** The sheet link as `readSheetUrl` gives it, or `null` or missing for none. */
+  sheetUrl?: string | null
 }
 
 /**
@@ -125,6 +128,7 @@ export async function addCharacter(
       archived: false,
       createdAt: serverTimestamp(),
       createdBy: input.by,
+      ...(input.sheetUrl ? { sheetUrl: input.sheetUrl } : {}),
     }),
   )
   return ref.id
@@ -135,11 +139,18 @@ export type SaveCharacterInput = {
   character: Character
   name: string
   picture?: PictureChoice
+  /**
+   * The sheet link as `readSheetUrl` gives it, `null` to remove it, or missing to keep it (spec: characters, "Who
+   * changes a sheet link").
+   */
+  sheetUrl?: string | null
 }
 
 /**
- * Saves a character's name and photo (spec: characters, "Who edits a character"). A save that changes nothing writes
- * nothing. Throws `PhotoNeedsConnectionError` offline when a new photo was chosen.
+ * Saves a character's name, photo and sheet link in one write (spec: characters, "Who edits a character", "Who
+ * changes a sheet link"). A save that changes nothing writes nothing. A removed link deletes the field, so a character
+ * never stores `null` as its link (design D1 of add-character-sheet-link). Throws `PhotoNeedsConnectionError` offline
+ * when a new photo was chosen.
  */
 export async function saveCharacter(
   db: Firestore,
@@ -160,6 +171,9 @@ export async function saveCharacter(
       const update: Record<string, unknown> = {}
       if (name !== character.name) update.name = name
       if (picture !== character.picture) update.picture = picture
+      const sheetUrl =
+        input.sheetUrl === undefined ? character.sheetUrl : (input.sheetUrl ?? undefined)
+      if (sheetUrl !== character.sheetUrl) update.sheetUrl = sheetUrl ?? deleteField()
       if (Object.keys(update).length > 0) await updateDoc(ref, update)
     },
   )

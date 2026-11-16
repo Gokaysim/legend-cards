@@ -63,6 +63,29 @@ describe('characterSchema', () => {
   it('accepts a name of 40 characters', () => {
     expect(characterSchema.safeParse({ ...stored, name: 'x'.repeat(40) }).success).toBe(true)
   })
+
+  it.each([
+    ['an https', 'https://docs.google.com/document/d/abc'],
+    ['an http', 'http://example.com/sheet'],
+    ['a 2048-character', `https://example.com/${'x'.repeat(2048 - 20)}`],
+  ])('reads %s sheet link', (_case, sheetUrl) => {
+    expect(characterSchema.parse({ ...stored, sheetUrl }).sheetUrl).toBe(sheetUrl)
+  })
+
+  it('reads a character without a sheet link', () => {
+    expect(characterSchema.parse(stored).sheetUrl).toBeUndefined()
+  })
+
+  it.each([
+    ['a script', 'javascript:alert(1)'],
+    ['an upper-case start', 'HTTPS://x'],
+    ['a line break', 'https://example.com/\nx'],
+    ['2049 characters', `https://example.com/${'x'.repeat(2049 - 20)}`],
+    ['a start alone', 'https://'],
+    ['null', null],
+  ])('rejects a sheet link with %s', (_case, sheetUrl) => {
+    expect(characterSchema.safeParse({ ...stored, sheetUrl }).success).toBe(false)
+  })
 })
 
 describe('characterConverter', () => {

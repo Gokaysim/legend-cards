@@ -11,6 +11,8 @@ export const CHARACTER_LIMITS = {
   /** The initiative modifier's range (spec: characters, "Valid character records"). */
   initiativeModifierMin: -10,
   initiativeModifierMax: 30,
+  /** The longest sheet link (spec: characters, "Character sheet links"), as `PHOTO_URL_MAX`. */
+  sheetUrl: 2048,
 } as const
 
 export const CHARACTERS_COLLECTION = 'characters'
@@ -39,6 +41,16 @@ export const characterSchema = z.object({
     .int()
     .min(CHARACTER_LIMITS.initiativeModifierMin)
     .max(CHARACTER_LIMITS.initiativeModifierMax)
+    .optional(),
+  /**
+   * The link to its character sheet (spec: characters, "Character sheet links"; design D1, D2 of
+   * add-character-sheet-link): an `http(s)` address, or missing for none. Keep in step with `validCharacter` in
+   * `firestore.rules`, whose `.+` rejects only a line break, as `[^\n]+` does here.
+   */
+  sheetUrl: z
+    .string()
+    .max(CHARACTER_LIMITS.sheetUrl)
+    .regex(/^https?:\/\/[^\n]+$/)
     .optional(),
 })
 

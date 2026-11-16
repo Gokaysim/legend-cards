@@ -266,6 +266,44 @@ describe("the selected character's view", () => {
     expect(tab('Thorin')).toHaveAttribute('aria-selected', 'true')
     expect(view('Thorin').getByRole('heading', { name: 'Thorin' })).toBeInTheDocument()
   })
+
+  describe('the sheet link', () => {
+    const SHEET = 'https://docs.google.com/document/d/abc'
+    const sheetLink = (name: string) =>
+      view(name).queryByRole('link', { name: '📄 Karakter kağıdı (yeni sekmede açılır)' })
+
+    it("shows another player's sheet link, opening in a new tab, with its site", () => {
+      setup({ hand: 'bora', characters: [{ ...elara, sheetUrl: SHEET }] })
+
+      const link = sheetLink('Elara')
+      expect(link).toHaveAttribute('href', SHEET)
+      expect(link).toHaveAttribute('target', '_blank')
+      expect(link?.getAttribute('rel')?.split(' ')).toEqual(
+        expect.arrayContaining(['noopener', 'noreferrer']),
+      )
+      expect(view('Elara').getByText('· docs.google.com', { exact: false })).toBeInTheDocument()
+      expect(view('Elara').queryByRole('button', { name: '✎ Düzenle' })).not.toBeInTheDocument()
+    })
+
+    it('shows no sheet link for a character without one', async () => {
+      const user = userEvent.setup()
+      setup({ characters: [{ ...thorin, sheetUrl: SHEET }, kuzgun] })
+
+      await user.click(tab('Kuzgun'))
+
+      expect(sheetLink('Kuzgun')).not.toBeInTheDocument()
+      expect(view('Kuzgun').queryByText(/Karakter kağıdı/)).not.toBeInTheDocument()
+    })
+
+    it('shows a link added on another device without a reload', () => {
+      const { setList } = setup({ characters: [thorin, kuzgun] })
+      expect(sheetLink('Thorin')).not.toBeInTheDocument()
+
+      setList([{ ...thorin, sheetUrl: SHEET }, kuzgun])
+
+      expect(sheetLink('Thorin')).toHaveAttribute('href', SHEET)
+    })
+  })
 })
 
 describe('the character form', () => {
@@ -304,6 +342,7 @@ describe('the character form', () => {
       name: 'Lyra',
       by: testUser.uid,
       picture: { kind: 'new', blob: PREPARED.blob, hash: PREPARED.hash },
+      sheetUrl: null,
     })
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
@@ -322,6 +361,7 @@ describe('the character form', () => {
       character: thorin,
       name: 'Thorin Oakenshield',
       picture: { kind: 'remove' },
+      sheetUrl: null,
     })
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
@@ -406,5 +446,95 @@ describe('the character form', () => {
     expect(addCharacter).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'Lyra', picture: { kind: 'keep' } }),
     )
+  })
+
+  describe('the sheet link', () => {
+    const SHEET = 'https://docs.google.com/document/d/abc'
+    const sheetField = () => dialog().getByLabelText('Karakter kağıdı linki')
+    const linkedThorin = { ...thorin, sheetUrl: SHEET }
+
+    it('adds a character with a link typed without its start', async () => {
+      const user = userEvent.setup()
+      const { fakes } = setup()
+
+      await user.click(main().getByRole('button', { name: 'Karakter ekle' }))
+      await user.type(dialog().getByLabelText('Ad'), 'Lyra')
+      expect(sheetField()).toHaveValue('')
+      expect(sheetField()).toHaveAccessibleDescription(
+        'İsteğe bağlı. Örneğin Google Docs ya da Myth-Weavers linki.',
+      )
+      await user.type(sheetField(), 'docs.google.com/document/d/abc')
+      await user.click(dialog().getByRole('button', { name: 'Kaydet' }))
+
+      expect(fakes.addCharacter).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'Lyra', sheetUrl: SHEET }),
+      )
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+
+    it('shows the stored link, and removes it when emptied', async () => {
+      const user = userEvent.setup()
+      const { fakes } = setup({ characters: [linkedThorin, kuzgun] })
+
+      await user.click(view('Thorin').getByRole('button', { name: '✎ Düzenle' }))
+      expect(sheetField()).toHaveValue(SHEET)
+      await user.clear(sheetField())
+      await user.click(dialog().getByRole('button', { name: 'Kaydet' }))
+
+      expect(fakes.saveCharacter).toHaveBeenCalledWith({
+        character: linkedThorin,
+        name: 'Thorin',
+        picture: { kind: 'keep' },
+        sheetUrl: null,
+      })
+    })
+
+    it.each([
+      ['javascript:alert(1)', 'Link http:// ya da https:// ile başlamalı.'],
+      ['https://', 'Bu geçerli bir link değil.'],
+    ])('refuses %j with a message, keeping the text', async (text, message) => {
+      const user = userEvent.setup()
+      const { fakes } = setup()
+
+      await user.click(view('Thorin').getByRole('button', { name: '✎ Düzenle' }))
+      await user.type(sheetField(), text)
+      await user.click(dialog().getByRole('button', { name: 'Kaydet' }))
+
+      expect(sheetField()).toHaveValue(text)
+      expect(sheetField()).toHaveAttribute('aria-invalid', 'true')
+      expect(sheetField()).toHaveAccessibleDescription(expect.stringContaining(message))
+      expect(fakes.saveCharacter).not.toHaveBeenCalled()
+
+      await user.type(sheetField(), 'x')
+      expect(dialog().queryByText(message)).not.toBeInTheDocument()
+      expect(sheetField()).not.toHaveAttribute('aria-invalid')
+    })
+
+    it('checks the name and the link in one save', async () => {
+      const user = userEvent.setup()
+      const { fakes } = setup()
+
+      await user.click(main().getByRole('button', { name: 'Karakter ekle' }))
+      await user.type(sheetField(), 'mailto:a@b.c')
+      await user.click(dialog().getByRole('button', { name: 'Kaydet' }))
+
+      expect(dialog().getByText('Karakterin bir adı olmalı.')).toBeInTheDocument()
+      expect(dialog().getByText('Link http:// ya da https:// ile başlamalı.')).toBeInTheDocument()
+      expect(fakes.addCharacter).not.toHaveBeenCalled()
+    })
+
+    it('saves a link offline at once, without waiting', async () => {
+      const user = userEvent.setup()
+      const saveCharacter = vi.fn(() => new Promise<void>(() => undefined))
+      setup({ actions: { saveCharacter } })
+      vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+
+      await user.click(view('Thorin').getByRole('button', { name: '✎ Düzenle' }))
+      await user.type(sheetField(), SHEET)
+      await user.click(dialog().getByRole('button', { name: 'Kaydet' }))
+
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      expect(saveCharacter).toHaveBeenCalledWith(expect.objectContaining({ sheetUrl: SHEET }))
+    })
   })
 })
