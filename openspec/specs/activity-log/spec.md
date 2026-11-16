@@ -7,7 +7,7 @@ Shows what happened in the game on the İşlem Logu screen: the card movements a
 ## Requirements
 
 ### Requirement: One list of what happened
-The İşlem Logu screen SHALL list, newest first and live, every card given, drawn, used, discarded, and transferred, every pack opened, every True Word draft, every word the DM teaches or takes back, every use of a card or True Word that stays in the hand, every LP and GP change, every definition change, every set change, and every change of the player draw mode. It SHALL be read from the holdings (the learned True Words among them), the draws, packs and True Word drafts, the use records, the ledger, the change records, the set change records and the table change records, so it never disagrees with them. Switching a card or a word active, notes, and cost overrides SHALL NOT be listed.
+The İşlem Logu screen SHALL list, newest first and live, every card given, drawn, used, discarded, and transferred, every pack opened, every True Word draft, every word the DM teaches or takes back, every use of a card or True Word that stays in the hand, every LP and GP change, every definition change, every set change, every change of the player draw mode, and every start and end of a fight. It SHALL be read from the holdings (the learned True Words among them), the draws, packs and True Word drafts, the use records, the ledger, the change records, the set change records, the table change records and the combat change records, so it never disagrees with them. Switching a card or a word active, notes, and cost overrides SHALL NOT be listed.
 
 #### Scenario: Events from both sources
 - **WHEN** the DM gives Ayla a card and then adds 2 LP to Bora
@@ -40,6 +40,10 @@ The İşlem Logu screen SHALL list, newest first and live, every card given, dra
 #### Scenario: A mode change among the events
 - **WHEN** the DM adds 2 LP to Bora, and then sets the player draw mode to "Filtreli çekiş"
 - **THEN** the log shows the mode change first and the LP change below it
+
+#### Scenario: A fight among the events
+- **WHEN** the DM adds 2 LP to Bora, and then starts a fight
+- **THEN** the log shows the start of the fight first and the LP change below it
 
 #### Scenario: Live update
 - **WHEN** Ayla uses a card while Bora has the log open
@@ -132,7 +136,7 @@ The log SHALL first show the 50 most recent events. When there are older events,
 - **THEN** no "Daha fazla" control is shown
 
 ### Requirement: Player filter
-The log SHALL offer a filter for one user. With a user chosen, it SHALL list only the cards that user received, including the cards drawn into their hand and the packs opened for them, the cards that left their hand, their True Word drafts, the True Words the DM taught them or took back from them, the uses of their True Words, and the changes of their LP. Party purse changes, definition changes and player draw mode changes SHALL be listed only without a filter.
+The log SHALL offer a filter for one user. With a user chosen, it SHALL list only the cards that user received, including the cards drawn into their hand and the packs opened for them, the cards that left their hand, their True Word drafts, the True Words the DM taught them or took back from them, the uses of their True Words, and the changes of their LP. Party purse changes, definition changes, player draw mode changes and fights SHALL be listed only without a filter.
 
 #### Scenario: Filtering by a player
 - **WHEN** a user chooses Ayla in the filter
@@ -165,6 +169,10 @@ The log SHALL offer a filter for one user. With a user chosen, it SHALL list onl
 #### Scenario: Mode changes in the filter
 - **WHEN** a user chooses Ayla in the filter after the DM set the player draw mode to "Filtreli çekiş"
 - **THEN** the mode change is not listed
+
+#### Scenario: Fights in the filter
+- **WHEN** a user chooses Ayla in the filter after a fight in which Ayla's "Thorn" took part
+- **THEN** the fight's start and end are not listed
 
 ### Requirement: Log states
 While the log is loading, the screen SHALL show a loading indicator. If it cannot be loaded, it SHALL show a Turkish error message. When there are no events, it SHALL say so in Turkish.
@@ -382,3 +390,25 @@ Each change of the table's "Oyuncu kart çekişi" (spec: table-settings) SHALL a
 #### Scenario: Closing it from the banner
 - **WHEN** the DM selects "Kapat" on the banner while the mode is "Kart seçme"
 - **THEN** the log shows one event naming the DM and "Kapalı"
+
+### Requirement: Fights are events
+Starting a fight with "Başlat" and ending a started fight SHALL each appear as one event, visible to every signed-in user, naming the DM. The start SHALL read "savaşı başlattı: <n> katılımcı." and the end "savaşı bitirdi: <n> tur." after the DM's name. Ending a combat before its fight started SHALL NOT be listed, and neither SHALL rolls, turns, reordering, adding or removing.
+
+#### Scenario: A fight's two events
+- **WHEN** the DM starts a fight with 6 combatants and ends it in round 5
+- **THEN** the log shows "savaşı başlattı: 6 katılımcı." and, above it, "savaşı bitirdi: 5 tur.", both naming the DM
+
+#### Scenario: A combat given up before the fight
+- **WHEN** the DM asks for initiative and then selects "Vazgeç"
+- **THEN** the log shows no event for it
+
+### Requirement: Combat change records
+Each start and end of a fight SHALL be stored as one record, with the DM, the server time, the step, and the number of combatants or rounds. Every signed-in user SHALL read them. Only the DM SHALL create one, together with the combat change it records. Records SHALL NOT be changed or deleted.
+
+#### Scenario: A player writes a record
+- **WHEN** Ayla tries to create a combat change record
+- **THEN** the server denies it
+
+#### Scenario: Changing a record
+- **WHEN** the DM tries to change the round count of an earlier fight's end
+- **THEN** the server denies it
