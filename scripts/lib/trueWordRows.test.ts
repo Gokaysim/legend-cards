@@ -1,12 +1,8 @@
 // @vitest-environment node
-import { readFileSync } from 'node:fs'
-
 import { describe, expect, it } from 'vitest'
 
+import { DATA_FILES, fixtureFile, hasOwnerData, ownerFile } from './testData.ts'
 import { parseTrueWordFile } from './trueWordRows.ts'
-
-const dataFile = (name: string) =>
-  readFileSync(new URL(`../../data/${name}`, import.meta.url), 'utf8')
 
 const HEADER = 'Name,Cost,Text'
 const words = (...rows: string[]) => [HEADER, ...rows].join('\n')
@@ -103,9 +99,23 @@ describe('parseTrueWordFile: rows', () => {
   })
 })
 
-describe('parseTrueWordFile: the repository file', () => {
+describe('parseTrueWordFile: the test file', () => {
+  it('reads its 4 words without errors, an X cost as written', () => {
+    const result = parseTrueWordFile(fixtureFile(DATA_FILES.trueWords))
+    expect(result.errors).toEqual([])
+    expect(result.words.map(({ word }) => [word.name, word.cost])).toEqual([
+      ['Abyss', '5'],
+      ['Aid', '1'],
+      ['Dragon', 'X'],
+      ['Justice', '3'],
+    ])
+  })
+})
+
+// The owner's real file, only on the owner's machine (spec: developer-workflow, "Checks without the owner's data").
+describe.skipIf(!hasOwnerData(DATA_FILES.trueWords))("parseTrueWordFile: the owner's data", () => {
   it('reads all 53 words without errors, none of them missing a value', () => {
-    const result = parseTrueWordFile(dataFile('true-words.csv'))
+    const result = parseTrueWordFile(ownerFile(DATA_FILES.trueWords))
     expect(result.errors).toEqual([])
     expect(result.words).toHaveLength(53)
     expect(result.words.filter(({ missing }) => missing.length > 0)).toEqual([])

@@ -29,12 +29,14 @@ npm run check          # type check, lint, format check, unit tests
 npm run test:emulator  # access-rule and real-time tests against the Firebase emulators
 ```
 
-Both must pass before a task counts as done.
+Both must pass before a task counts as done. GitHub Actions runs the same checks on every push to `master` and deploys to the live project when they pass (see "CI and deployment" in the README).
 
 ## Rules
 
 - Code, comments, docs, and commit messages are in English. All interface text is in Turkish. The project owner writes in Turkish, so reply in Turkish in chat.
-- Development runs against the local emulators on the demo project `demo-legend-cards`. Never connect to or deploy to a real Firebase project unless the user asks.
+- Development runs against the local emulators on the demo project `demo-legend-cards`. Never connect to or deploy to a real Firebase project unless the user asks. The live project is reached only through the CI workflow and the README's "Going live" runbook.
+- A push to `master` deploys to the live project. Push only when the user asks.
+- The owner's data files in `data/` stay out of git: never commit them or copy their content into tracked files. Tests read `tests/fixtures/data/` (see `docs/conventions.md`).
 - Firestore access is closed by default. A new data path needs explicit rules and emulator rules tests (see the checklist in `docs/conventions.md`).
 - `reference/legacy/Legend_Card_Manager_v2.2.8.html` is the design and behavior reference. `Legend_Card_Manager_v2.1.15.html` next to it is kept as the earlier version. Do not edit either file, and do not port their code.
 - Legacy rules that look odd are deliberate decisions by the DM and the owner (see `docs/domain.md`). Do not "fix" them unless asked.

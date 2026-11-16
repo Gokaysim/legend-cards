@@ -2,8 +2,6 @@
 // Scripts do not import app code, so the mechanic packs, the name normalization and the starting flags exist twice: here
 // in `cardCatalog.ts`, and in `src/features/`. This test fails when the two copies disagree. The sets are stored data,
 // read by both from Firestore.
-import { readFileSync } from 'node:fs'
-
 import { describe, expect, it } from 'vitest'
 
 import { MECHANIC_PACKS as APP_MECHANIC_PACKS } from '../../src/features/cards/mechanicPacks.ts'
@@ -14,20 +12,33 @@ import {
 } from '../../src/features/definitions/flags.ts'
 import { MECHANIC_PACKS, normalize, startingFlags } from './cardCatalog.ts'
 import { parseCardFile } from './cardRows.ts'
+import { DATA_FILES, fixtureFile, hasOwnerData, ownerFile } from './testData.ts'
+import { parseTrueWordFile } from './trueWordRows.ts'
 
-const dataFile = (name: string) =>
-  readFileSync(new URL(`../../data/${name}`, import.meta.url), 'utf8')
+/** The cards and True Words of a set of files: the test files, or the owner's real ones. */
+const definitionsIn = (read: (name: (typeof DATA_FILES)[keyof typeof DATA_FILES]) => string) => [
+  ...parseCardFile(read(DATA_FILES.legend), 'legend').cards.map(({ card }) => card),
+  ...parseCardFile(read(DATA_FILES.cursed), 'cursed').cards.map(({ card }) => card),
+  ...parseTrueWordFile(read(DATA_FILES.trueWords)).words.map(({ word }) => ({
+    ...word,
+    kind: 'trueWord' as const,
+  })),
+]
+const HAS_OWNER_DATA = hasOwnerData(DATA_FILES.legend, DATA_FILES.cursed, DATA_FILES.trueWords)
 
 describe('the script catalog and the app agree', () => {
   it('on the eight mechanic packs', () => {
     expect(MECHANIC_PACKS).toEqual(APP_MECHANIC_PACKS)
   })
 
-  it('on the normalization of every name in both card files', () => {
-    const names = [
-      ...parseCardFile(dataFile('legend-cards.csv'), 'legend').cards,
-      ...parseCardFile(dataFile('cursed-cards.csv'), 'cursed').cards,
-    ].map(({ card }) => card.name)
+  it('on the normalization of every name in the test files', () => {
+    const names = definitionsIn(fixtureFile).map(({ name }) => name)
+    expect(names).toEqual(expect.arrayContaining(["Zoë's Bargain", 'Doppelgänger Infiltration']))
+    for (const name of names) expect(appNormalize(name), name).toBe(normalize(name))
+  })
+
+  it.skipIf(!HAS_OWNER_DATA)("on the normalization of every name in the owner's files", () => {
+    const names = definitionsIn(ownerFile).map(({ name }) => name)
     expect(names.length).toBeGreaterThan(700)
     for (const name of names) expect(appNormalize(name), name).toBe(normalize(name))
   })
@@ -54,14 +65,18 @@ describe('the starting flags of the script and the app agree', () => {
       expect(startingFlags(kind, text), text).toEqual(appStartingFlags(kind, text))
   })
 
-  it('on every text of the card and True Word files', () => {
-    const cards = [
-      ...parseCardFile(dataFile('legend-cards.csv'), 'legend').cards,
-      ...parseCardFile(dataFile('cursed-cards.csv'), 'cursed').cards,
-    ].map(({ card }) => card)
-    for (const card of cards) {
-      expect(startingFlags(card.kind, card.text), card.name).toEqual(
-        appStartingFlags(card.kind, card.text),
+  it('on every text of the test files', () => {
+    for (const definition of definitionsIn(fixtureFile)) {
+      expect(startingFlags(definition.kind, definition.text), definition.name).toEqual(
+        appStartingFlags(definition.kind, definition.text),
+      )
+    }
+  })
+
+  it.skipIf(!HAS_OWNER_DATA)("on every text of the owner's files", () => {
+    for (const definition of definitionsIn(ownerFile)) {
+      expect(startingFlags(definition.kind, definition.text), definition.name).toEqual(
+        appStartingFlags(definition.kind, definition.text),
       )
     }
   })

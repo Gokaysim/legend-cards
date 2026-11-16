@@ -1,19 +1,15 @@
 // @vitest-environment node
-import { readFileSync } from 'node:fs'
-
 import { describe, expect, it } from 'vitest'
 
 import { parseSetFile } from './setRows.ts'
-
-const dataFile = (name: string) =>
-  readFileSync(new URL(`../../data/${name}`, import.meta.url), 'utf8')
+import { DATA_FILES, fixtureFile, hasOwnerData, ownerFile } from './testData.ts'
 
 const HEADER = 'Code,Name,Aliases,Packs'
 const file = (...rows: string[]) => [HEADER, ...rows].join('\n')
 
-describe('parseSetFile: the repository data', () => {
-  it('reads data/sets.csv as the 12 sets in shop order, with Pandemonium last and alone in its layout', () => {
-    const result = parseSetFile(dataFile('sets.csv'))
+describe('parseSetFile: the 12 sets', () => {
+  it('reads the set file as the 12 sets in shop order, with Pandemonium last and alone in its layout', () => {
+    const result = parseSetFile(fixtureFile(DATA_FILES.sets))
     expect(result.errors).toEqual([])
     expect(result.sets.map(({ code, name, packLayout }) => [code, name, packLayout])).toEqual([
       ['The End is Nigh', 'The End is Nigh', 'standard'],
@@ -32,7 +28,7 @@ describe('parseSetFile: the repository data', () => {
   })
 
   it('reads the aliases from one quoted cell, trimmed', () => {
-    const { sets } = parseSetFile(dataFile('sets.csv'))
+    const { sets } = parseSetFile(fixtureFile(DATA_FILES.sets))
     expect(sets.find(({ code }) => code === 'The End is Nigh')?.aliases).toEqual(['endisnigh'])
     expect(sets.find(({ code }) => code === 'Nordhallr')?.aliases).toEqual(['ragnarok', 'ragnarök'])
     expect(sets.find(({ code }) => code === 'Kesqer')?.aliases).toEqual([])
@@ -180,5 +176,14 @@ describe('parseSetFile: errors, each with its row number', () => {
       { kind: 'blessed-code', row: 3 },
       { kind: 'unknown-packs', row: 3, value: 'cursed' },
     ])
+  })
+})
+
+// The owner's real file, only on the owner's machine (spec: developer-workflow, "Checks without the owner's data").
+describe.skipIf(!hasOwnerData(DATA_FILES.sets))("parseSetFile: the owner's data", () => {
+  it('reads data/sets.csv as the same 12 sets as the test file, in the same order', () => {
+    const owner = parseSetFile(ownerFile(DATA_FILES.sets))
+    expect(owner.errors).toEqual([])
+    expect(owner.sets).toEqual(parseSetFile(fixtureFile(DATA_FILES.sets)).sets)
   })
 })

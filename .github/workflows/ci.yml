@@ -1,0 +1,96 @@
+# Checks every push and pull request, and deploys master to the live Firebase project when every check passes
+# (spec: deployment; design D1-D3 of add-ci-and-deploy). The deploy job stays off until the repository variable
+# FIREBASE_PROJECT_ID is set (see "Going live" in README.md).
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Type check, lint, format, unit tests, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      # Proves the app compiles and bundles. It uses no live settings: the deploy job builds again with them.
+      - run: npm run build
+
+  emulator-tests:
+    name: Emulator tests (access rules, real-time, imports)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - id: firebase-tools
+        run: echo "version=$(node -p "require('./package-lock.json').packages['node_modules/firebase-tools'].version")" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/firebase/emulators
+          key: firebase-emulators-${{ runner.os }}-${{ steps.firebase-tools.outputs.version }}
+      - run: npm ci
+      - run: npm run test:emulator
+
+  deploy:
+    name: Deploy to the live project
+    needs: [check, emulator-tests]
+    if: >-
+      github.ref == 'refs/heads/master' && github.event_name != 'pull_request' &&
+      vars.FIREBASE_PROJECT_ID != ''
+    runs-on: ubuntu-latest
+    environment: production
+    # One deploy at a time. A newer run waits, and replaces any run still waiting, so the newest commit ends up live.
+    concurrency:
+      group: production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      # Short-lived credentials through Workload Identity Federation: no service account key exists (design D3).
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+      - run: npm ci
+      - name: Build for the live project
+        run: npm run build
+        env:
+          VITE_FIREBASE_API_KEY: ${{ vars.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ vars.VITE_FIREBASE_STORAGE_BUCKET }}
+          VITE_USE_FIREBASE_EMULATORS: 'false'
+      # Rules and indexes first, so a new data path is open before the site that uses it (design D2).
+      - name: Deploy Firestore rules and indexes
+        run: npx firebase deploy --only firestore --project "$FIREBASE_PROJECT_ID" --non-interactive
+      - name: Deploy Storage rules
+        run: npx firebase deploy --only storage --project "$FIREBASE_PROJECT_ID" --non-interactive
+      - name: Deploy the site
+        run: npx firebase deploy --only hosting --project "$FIREBASE_PROJECT_ID" --non-interactive

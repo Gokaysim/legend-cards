@@ -21,11 +21,12 @@ import {
 } from './lib/archives.ts'
 import { type ArtAlias, NO_DEFINITIONS, planArt, readAliases } from './lib/artFiles.ts'
 import { writeArt } from './lib/artWrite.ts'
+import { DATA_FILES, dataPath, missingDefaultFile } from './lib/dataFiles.ts'
 import { messages } from './lib/messages.ts'
 
 /** The repository's files, found from this script's location so the working directory does not matter. */
 const repoFile = (path: string) => fileURLToPath(new URL(`../${path}`, import.meta.url))
-const ALIASES_FILE = repoFile('data/image-aliases.csv')
+const ALIASES_FILE = dataPath(DATA_FILES.aliases)
 const OUT_DIR = repoFile('public/art')
 
 type Values = { source?: string; 'dry-run'?: boolean }
@@ -53,7 +54,12 @@ async function main(): Promise<number> {
   const dryRun = values['dry-run'] === true
   const source = sourceFolder(values.source)
 
-  // 1. 7-Zip and the alias table, before anything is extracted or written.
+  // 1. The alias table (only the owner's machine has it), 7-Zip, and the table's rows, before anything is extracted.
+  const missing = missingDefaultFile([{ path: ALIASES_FILE, options: null }])
+  if (missing) {
+    console.error(messages.dataFileMissing(shownPath(missing.path), missing.options))
+    return 1
+  }
   if (!(await hasSevenZip())) {
     console.error(messages.sevenZipMissing)
     return 1

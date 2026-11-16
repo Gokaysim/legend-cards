@@ -1,10 +1,9 @@
 // @vitest-environment node
-// Plans the file names of the owner's archives against the repository's data and alias table, so a change to
-// either shows here before a build or an import (design D3, the expected coverage). The build plans the assets; the set
-// import plans the sets' pictures, here against the sets `data/sets.csv` would store; the picture import plans the
-// cards and words, here against the definitions the repository's files would store.
-import { readFileSync } from 'node:fs'
-
+// Plans the file names of the owner's archives against the owner's data and alias table, so a change to either shows
+// here before a build or an import (design D3, the expected coverage). The build plans the assets; the set import plans
+// the sets' pictures, here against the sets `data/sets.csv` would store; the picture import plans the cards and words,
+// here against the definitions the owner's files would store. All of these files stay on the owner's machine (design D5
+// of add-ci-and-deploy), so the whole test runs only where they are, and is skipped elsewhere.
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -14,22 +13,29 @@ import {
   planArt,
   readAliases,
 } from './artFiles.ts'
-import { ART_INVENTORY } from './artInventory.fixture.ts'
 import { parseCardFile } from './cardRows.ts'
 import { setIdOf } from './importSets.ts'
 import { parseSetFile } from './setRows.ts'
+import { DATA_FILES, hasOwnerData, ownerFile } from './testData.ts'
 import { parseTrueWordFile } from './trueWordRows.ts'
 
-const dataFile = (name: string) =>
-  readFileSync(new URL(`../../data/${name}`, import.meta.url), 'utf8')
+const HAS_OWNER_DATA = hasOwnerData(...Object.values(DATA_FILES))
+/** An owner's file, or nothing where the owner's data is absent and the test is skipped. */
+const dataFile = (name: (typeof DATA_FILES)[keyof typeof DATA_FILES]) =>
+  HAS_OWNER_DATA ? ownerFile(name) : ''
+
+/** The picture file names in the owner's five archives, by archive, as `7zz l` lists them (see data/README.md). */
+const ART_INVENTORY = HAS_OWNER_DATA
+  ? (JSON.parse(dataFile(DATA_FILES.inventory)) as Record<string, readonly string[]>)
+  : {}
 
 const DATA: ArtData = {
   ...definitionsOfRows(
-    parseCardFile(dataFile('legend-cards.csv'), 'legend').cards.map(({ card }) => card),
-    parseCardFile(dataFile('cursed-cards.csv'), 'cursed').cards.map(({ card }) => card),
-    parseTrueWordFile(dataFile('true-words.csv')).words.map(({ word }) => word),
+    parseCardFile(dataFile(DATA_FILES.legend), 'legend').cards.map(({ card }) => card),
+    parseCardFile(dataFile(DATA_FILES.cursed), 'cursed').cards.map(({ card }) => card),
+    parseTrueWordFile(dataFile(DATA_FILES.trueWords)).words.map(({ word }) => word),
   ),
-  sets: parseSetFile(dataFile('sets.csv')).sets.map(({ code, name, aliases }) => ({
+  sets: parseSetFile(dataFile(DATA_FILES.sets)).sets.map(({ code, name, aliases }) => ({
     setId: setIdOf(code),
     code,
     name,
@@ -41,8 +47,8 @@ const FILES = Object.entries(ART_INVENTORY).flatMap(([archive, names]) =>
   names.map((name) => ({ name, archive })),
 )
 
-describe('the inventory of the archives', () => {
-  const ALIASES = dataFile('image-aliases.csv')
+describe.skipIf(!HAS_OWNER_DATA)('the inventory of the archives', () => {
+  const ALIASES = dataFile(DATA_FILES.aliases)
   const assetAliases = readAliases(ALIASES, NO_DEFINITIONS, 'assets')
   const setAliases = readAliases(ALIASES, DATA, 'sets')
   const definitionAliases = readAliases(ALIASES, DATA, 'definitions')

@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "cardbacks": {
+    "blessed": "/art/backs/blessed.7b7319e86f.webp",
+    "cursed": "/art/backs/cursed.28a3234b03.webp"
+  },
+  "packs": {
+    "cursedGolden": "/art/packs/cursedgolden.264c5b9f19.webp",
+    "golden": "/art/packs/golden.d2f14f06fa.webp",
+    "mechanic:Arcanus Divine": "/art/packs/mechanic-arcanus-divine.43f2cda881.webp",
+    "mechanic:Blood & Battle": "/art/packs/mechanic-blood-battle.fd5b96136d.webp",
+    "mechanic:Dungeoneer's Kit": "/art/packs/mechanic-dungeoneer-s-kit.89017e93e2.webp",
+    "mechanic:Gambler's Gambit": "/art/packs/mechanic-gambler-s-gambit.ab7058d51c.webp",
+    "mechanic:Horn of Plenty": "/art/packs/mechanic-horn-of-plenty.ad68d39b4a.webp",
+    "mechanic:Legends of Old": "/art/packs/mechanic-legends-of-old.886b81cc54.webp",
+    "mechanic:Permamancy": "/art/packs/mechanic-permamancy.acedaf78e1.webp",
+    "mechanic:Risk & Reward": "/art/packs/mechanic-risk-reward.e3375d3389.webp"
+  },
+  "mascots": {
+    "card_info": "/art/mascots/card_info.3620757cf8.webp",
+    "cardmaker_base": "/art/mascots/cardmaker_base.bb6a83c0cd.webp",
+    "cardmaker_cursed": "/art/mascots/cardmaker_cursed.aa46cb0e34.webp",
+    "cardmaker_custom": "/art/mascots/cardmaker_custom.ae244e5b70.webp",
+    "cardmaker_gold": "/art/mascots/cardmaker_gold.62d5743c81.webp",
+    "cardmaker_keep": "/art/mascots/cardmaker_keep.1a2ad673dc.webp",
+    "cardmaker_lib": "/art/mascots/cardmaker_lib.3b78f470f1.webp",
+    "cardmaker_peek": "/art/mascots/cardmaker_peek.d7cefa876e.webp",
+    "cardmaker_shockl": "/art/mascots/cardmaker_shockl.71a695127a.webp",
+    "cardmaker_shockr": "/art/mascots/cardmaker_shockr.1ce18e60c2.webp",
+    "cardmaker_shop": "/art/mascots/cardmaker_shop.d6fd5a709f.webp",
+    "cardmaker_think": "/art/mascots/cardmaker_think.bda50ca9f6.webp",
+    "cardmaker_true": "/art/mascots/cardmaker_true.80be029d75.webp",
+    "cardmaker_wave": "/art/mascots/cardmaker_wave.c85fbba7eb.webp",
+    "cardmaker_zaddir": "/art/mascots/cardmaker_zaddir.ff07fcee42.webp"
+  }
+}

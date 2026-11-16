@@ -7,7 +7,6 @@
 // `npm run import-sets` first.
 import { readFile } from 'node:fs/promises'
 import { relative } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 
 import {
@@ -18,13 +17,14 @@ import {
 } from './lib/cardRows.ts'
 import { type CardRow, runImport } from './lib/importCards.ts'
 import { readSetSpellings } from './lib/importSets.ts'
+import { DATA_FILES, dataPath, missingDefaultFile } from './lib/dataFiles.ts'
 import { messages } from './lib/messages.ts'
 import { connect, TARGET_OPTIONS } from './lib/target.ts'
 
-/** The repository's card files, found from this script's location so the working directory does not matter. */
+/** The owner's card files in data/, which only the owner's machine has (design D4 of add-ci-and-deploy). */
 const DEFAULT_FILES: Readonly<Record<Deck, string>> = {
-  legend: fileURLToPath(new URL('../data/legend-cards.csv', import.meta.url)),
-  cursed: fileURLToPath(new URL('../data/cursed-cards.csv', import.meta.url)),
+  legend: dataPath(DATA_FILES.legend),
+  cursed: dataPath(DATA_FILES.cursed),
 }
 
 type Values = {
@@ -65,6 +65,17 @@ async function main(): Promise<number> {
     return 1
   }
   const dryRun = values['dry-run'] === true
+
+  // 0. The default files exist only on the owner's machine: name a missing one before reading anything.
+  if (!values.legend && !values.cursed) {
+    const missing = missingDefaultFile(
+      Object.values(DEFAULT_FILES).map((path) => ({ path, options: '--legend ve --cursed' })),
+    )
+    if (missing) {
+      console.error(messages.dataFileMissing(shownPath(missing.path), missing.options))
+      return 1
+    }
+  }
 
   // 1. Read and check every file before connecting, so a bad file never asks for confirmation.
   const parsed: { deck: Deck; file: string; result: ParsedCardFile }[] = []

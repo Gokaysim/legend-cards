@@ -6,16 +6,16 @@
 // anything is written.
 import { readFile } from 'node:fs/promises'
 import { relative } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 
 import { runWordImport } from './lib/importTrueWords.ts'
+import { DATA_FILES, dataPath, missingDefaultFile } from './lib/dataFiles.ts'
 import { messages } from './lib/messages.ts'
 import { connect, TARGET_OPTIONS } from './lib/target.ts'
 import { parseTrueWordFile } from './lib/trueWordRows.ts'
 
-/** The repository's True Words file, found from this script's location so the working directory does not matter. */
-const DEFAULT_FILE = fileURLToPath(new URL('../data/true-words.csv', import.meta.url))
+/** The owner's True Words file in data/, which only the owner's machine has (design D4 of add-ci-and-deploy). */
+const DEFAULT_FILE = dataPath(DATA_FILES.trueWords)
 
 type Values = {
   file?: string
@@ -45,6 +45,13 @@ async function main(): Promise<number> {
   }
   const dryRun = values['dry-run'] === true
   const file = values.file ?? DEFAULT_FILE
+  if (values.file === undefined) {
+    const missing = missingDefaultFile([{ path: DEFAULT_FILE, options: '--file' }])
+    if (missing) {
+      console.error(messages.dataFileMissing(shownPath(missing.path), missing.options))
+      return 1
+    }
+  }
 
   // 1. Read and check the file before connecting, so a bad file never asks for confirmation.
   let text: string

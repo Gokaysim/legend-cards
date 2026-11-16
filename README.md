@@ -89,7 +89,7 @@ The settings are `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIR
 
 ## Loading the cards
 
-The owner's card data lives in `data/` as CSV files (see [data/README.md](data/README.md)). A fresh emulator has no sets and no cards, so load them once, the sets first:
+The owner's card data lives in `data/` as CSV files (see [data/README.md](data/README.md)). The files are not in the repository: they come from the owner, who keeps them on their own machine, and a clone without them gets a Turkish message from each import. A fresh emulator has no sets and no cards, so load them once, the sets first:
 
 ```sh
 npm run dev            # in one terminal: the emulators and the app
@@ -110,7 +110,7 @@ Cards and words stored before definitions had a status get one on the next impor
 - `--legend <csv>` or `--cursed <csv>` imports only that deck.
 - `npm run import-true-words -- --file <csv>` imports the True Words from another file.
 
-Against a real project (see below), look first, then import:
+Against a real project (see [Going live](#going-live)), look first, then import:
 
 ```sh
 npm run import-sets -- --source <folder> --dry-run --project <project-id>
@@ -125,7 +125,7 @@ npm run import-true-words -- --project <project-id>
 
 The pictures come from the owner's five `.7z` archives (about 560 MB of PNG). They stay outside the repository. Three scripts read them from a folder and convert them to WebP:
 
-- **The Blessed and Cursed cardbacks, the pack pictures and the screens' Cardmaker** are static files. `build-art` writes them with a manifest to `public/art/`, which is not committed.
+- **The Blessed and Cursed cardbacks, the pack pictures and the screens' Cardmaker** are static files. `build-art` writes them with a manifest to `public/art/`, which is committed, so a clone or the CI builds the app with them and without the archives.
 - **The sets' cardbacks and Cardmakers** live in Cloud Storage, and each set holds where its pictures are. `import-sets --source` stores them once, matched against the stored sets by code, official name or alias (see [Loading the cards](#loading-the-cards)). After that the DM changes them in the set form on the Setler screen.
 - **Card and True Word pictures** live in Cloud Storage, and each card or word holds where its picture is. `import-pictures` stores them once, matched against the stored cards and words. After that the DM uploads, replaces, downloads and removes pictures in the card and True Word forms.
 
@@ -147,7 +147,7 @@ npm run import-pictures -- --source ~/Downloads             # store the card and
   - The set import counts the cardbacks and Cardmakers it stores, names the sets still without one, and lists the files that match no set.
   - The picture import counts, per kind, the pictures it adds, the cards and words that already have one, and those whose picture the DM removed. It also names every card and word left without a picture, and lists the duplicate and unknown files.
   - A row of the alias table that names nothing stops the run before anything is written.
-- Run the build again after the archives or the alias table change. It replaces the earlier pictures. A changed picture gets a new address, so browsers never show an old one.
+- Run the build again after the archives or the alias table change. It replaces the earlier pictures. A changed picture gets a new address, so browsers never show an old one. Commit the changed `public/art/` like any other change.
 - The set import and the picture import only add. They never replace a picture, and never bring back one the DM removed, so running them again adds only the pictures of new sets and cards. A run that stops halfway is completed by running it again. Each run that adds pictures is listed in the İşlem Logu.
 - Builds from before the sets were stored data put the sets' cardbacks and Cardmakers into `public/art/`. The app no longer reads them there, and the next build drops them.
 
@@ -181,7 +181,7 @@ Everyone on the access list is a player. Only the role script can make someone t
    npm run set-role -- --email someone@example.com --role dm
    ```
 
-   Against a real project (see below), add `--project` with the project ID. The script names the project and asks you to type its ID before changing anything:
+   Against a real project (see [Going live](#going-live)), add `--project` with the project ID. The script names the project and asks you to type its ID before changing anything:
 
    ```sh
    gcloud auth application-default login   # once, so the script can act as you
@@ -190,34 +190,135 @@ Everyone on the access list is a player. Only the role script can make someone t
 
 Use `--role player` to take the DM role away. The change shows up in the open app at once, without a reload.
 
-## Connecting a real Firebase project (later)
+## CI and deployment
 
-Not needed for development. When the app is ready to go online:
+GitHub Actions runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml) on every push to `master`, on every pull request, and on demand (**Actions → CI → Run workflow**). It has three jobs:
 
-1. Create a project in the [Firebase console](https://console.firebase.google.com/). Pick a Firestore location in Europe, close to the group.
-2. Under **Authentication → Sign-in method**, enable the **Google** provider.
-3. Under **Project settings → Your apps**, add a **Web app** and copy its config values.
-4. Cloud Storage needs the **Blaze** (pay as you go) plan. Since February 2026, a project on the free Spark plan cannot use it. Under **Usage and billing**, switch to Blaze and set a budget alert. The pictures are about 50 MB, well inside Blaze's no-cost usage.
-5. Under **Storage**, create the default bucket, in the same region as Firestore. Its name, usually `<project-id>.firebasestorage.app`, goes into the settings.
-6. Create `.env.production.local` with the web app's values, `VITE_FIREBASE_STORAGE_BUCKET=<the bucket>` and `VITE_USE_FIREBASE_EMULATORS=false`.
-7. Link the project and deploy:
+| Job              | What it does                                                                                                     |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `check`          | `npm ci`, `npm run check`, and `npm run build` without live settings                                             |
+| `emulator-tests` | `npm run test:emulator` on Java 21, with the emulators' downloads cached                                         |
+| `deploy`         | only on `master`, after both jobs pass: builds with the live settings and deploys Firestore, Storage and Hosting |
+
+- **A push to `master` goes live.** When `check` and `emulator-tests` pass, `deploy` publishes in this order: the Firestore rules and indexes, then the Storage rules, then the site. A failing check deploys nothing, and a failing step stops the ones after it. Deploys never change data, stored pictures or accounts.
+- **One deploy at a time.** A newer run waits for the running deploy, so the newest commit ends up live.
+- **No key.** `deploy` signs in to Google Cloud through Workload Identity Federation, which only this repository's `master` branch can use. No service account key exists.
+- **Settings are variables.** The project ID and the web app's settings are repository variables (see [Going live](#going-live)), not secrets: they end up in the browser bundle anyway. `.firebaserc` names only the demo project, so a Firebase command without `--project` never reaches the live project.
+- **The owner's data is not needed.** The runner has none of the files in `data/`; the tests that need them are skipped there.
+- **New indexes build slowly.** After a deploy that adds a Firestore index, a screen that needs it can fail for a few minutes until the index is built.
+- `deploy` stays off until the `FIREBASE_PROJECT_ID` variable is set.
+
+To roll back, push a revert commit, or use the release history under **Hosting** and the rules history under **Firestore → Rules** in the Firebase console.
+
+## Going live
+
+The one-time steps to put the app online. Every command names the project with `--project` or `<project-id>`; nothing here uses the demo project.
+
+1. **The project.** Create a project in the [Firebase console](https://console.firebase.google.com/).
+   - Cloud Storage needs the **Blaze** (pay as you go) plan: since February 2026 a project on the free Spark plan cannot use it. Under **Usage and billing**, switch to Blaze.
+   - Set a budget alert under **Google Cloud console → Billing → Budgets & alerts**, for example 5 USD a month with alerts at 50% and 100%. The pictures are about 50 MB, well inside Blaze's no-cost usage.
+2. **Sign-in, data and pictures.**
+   - Under **Authentication → Sign-in method**, enable the **Google** provider.
+   - Create the **Firestore** database in a European location close to the group.
+   - Under **Storage**, create the default bucket in the same region. Its name is usually `<project-id>.firebasestorage.app`.
+   - Turn on Point-in-time Recovery, which keeps the last 7 days readable:
+
+     ```sh
+     gcloud auth login
+     gcloud firestore databases update --database='(default)' --enable-pitr --project=<project-id>
+     ```
+
+3. **The web app.** Under **Project settings → Your apps**, add a **Web app** and copy its config. Put it into `.env.production.local` (see [Environment files](#environment-files)), with `VITE_FIREBASE_STORAGE_BUCKET=<the bucket>` and `VITE_USE_FIREBASE_EMULATORS=false`.
+4. **The repository.** Create a public GitHub repository and push `master` to it. Under **Settings → General**, make `master` the default branch.
+   - Under **Settings → Environments**, create `production` and limit its deployment branches to `master`.
+   - Note the repository's numeric ID, from `https://api.github.com/repos/<owner>/<repository>` (`"id"`).
+5. **The deploy identity (Workload Identity Federation).** Run these once:
+
+   ```sh
+   PROJECT_ID=<project-id>
+   PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
+   REPO_ID=<the repository's numeric ID>
+   SA="github-deploy@$PROJECT_ID.iam.gserviceaccount.com"
+
+   gcloud services enable iamcredentials.googleapis.com sts.googleapis.com --project="$PROJECT_ID"
+   gcloud iam workload-identity-pools create github --project="$PROJECT_ID" --location=global \
+     --display-name="GitHub Actions"
+   gcloud iam workload-identity-pools providers create-oidc legend-cards --project="$PROJECT_ID" \
+     --location=global --workload-identity-pool=github --display-name="legend-cards master" \
+     --issuer-uri="https://token.actions.githubusercontent.com" \
+     --attribute-mapping="google.subject=assertion.sub,attribute.repository_id=assertion.repository_id,attribute.ref=assertion.ref" \
+     --attribute-condition="assertion.repository_id == '$REPO_ID' && assertion.ref == 'refs/heads/master'"
+
+   gcloud iam service-accounts create github-deploy --project="$PROJECT_ID" --display-name="GitHub deploy"
+   for role in roles/firebasehosting.admin roles/firebaserules.admin roles/datastore.indexAdmin \
+     roles/serviceusage.serviceUsageConsumer; do
+     gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$SA" --role="$role" \
+       --condition=None
+   done
+   gcloud iam service-accounts add-iam-policy-binding "$SA" --project="$PROJECT_ID" \
+     --role=roles/iam.workloadIdentityUser \
+     --member="principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/attribute.repository_id/$REPO_ID"
+   ```
+
+   The condition pins the repository by its ID, so a renamed or re-created repository with the same name gets nothing. The account can publish rules, indexes and the site, and nothing else; it has no key.
+
+6. **The first deploy, from your machine.** `storage.rules` read the DM's role from Firestore. On the first deploy, the Firebase CLI asks to give Cloud Storage access to Firestore: accept it, or the DM cannot upload pictures. CI cannot answer that question, so the first deploy runs here:
 
    ```sh
    npx firebase login
-   npx firebase use --add          # choose the new project, give it an alias such as "prod"
-   npm run build-art -- --source <folder with the archives>
-   npm run build
-   npx firebase deploy --only hosting,firestore,storage
+   npm run build          # reads .env.production.local
+   npx firebase deploy --only firestore,storage,hosting --project <project-id>
    ```
 
-   `storage.rules` read the DM's role from Firestore. On the first deploy, the Firebase CLI asks to give Cloud Storage access to Firestore: accept it, or the DM cannot upload pictures.
+   The app is now at `https://<project-id>.web.app`, which Google sign-in already allows.
 
-8. Make yourself the DM: `npm run allow-email -- --email <your address> --project <project-id>`, sign in to the app once, then `npm run set-role -- --email <your address> --role dm --project <project-id>` (see [Who may sign in](#who-may-sign-in)). Add everyone else from **Ayarlar → Masaya erişim**.
-9. Load the data, then the pictures: run `npm run import-sets -- --source <folder> --project <project-id>` first, then `import-cards` and `import-true-words` (see [Loading the cards](#loading-the-cards)), then `npm run import-pictures -- --source <folder> --project <project-id>`. Add `--bucket <name>` to `import-sets` and `import-pictures` when the bucket is not `<project-id>.firebasestorage.app`.
+7. **The data and the pictures.** On the machine with the owner's files in `data/` and the archives:
 
-`firebase deploy` publishes the app and the security rules to the real project. Only run it on purpose.
+   ```sh
+   gcloud auth application-default login   # once, so the scripts can act as you
+   npm run import-sets -- --source <folder> --dry-run --project <project-id>
+   npm run import-sets -- --source <folder> --project <project-id>
+   npm run import-cards -- --project <project-id>
+   npm run import-true-words -- --project <project-id>
+   npm run import-pictures -- --source <folder> --project <project-id>
+   ```
 
-Deploy only from a machine that has built the pictures: `npm run build` copies `public/art/` into `dist/`, and a deploy without it publishes the app without its cardbacks, packs and Cardmaker. Anyone who knows a picture's address can open it without signing in, on Hosting and in Cloud Storage; the owner accepted this.
+   Use `--dry-run` first on each (see [Loading the cards](#loading-the-cards)). Add `--bucket <name>` to `import-sets` and `import-pictures` when the bucket is not `<project-id>.firebasestorage.app`.
+
+8. **The first DM.** `npm run allow-email -- --email <address> --project <project-id>`, then the person signs in once, then `npm run set-role -- --email <address> --role dm --project <project-id>` (see [Who may sign in](#who-may-sign-in)). The DM adds everyone else from **Ayarlar → Masaya erişim**.
+9. **Turn on the automatic deploy.** Under **Settings → Secrets and variables → Actions → Variables**, add these repository variables, `FIREBASE_PROJECT_ID` last, because it turns `deploy` on:
+
+   | Variable                         | Value                                                                                            |
+   | -------------------------------- | ------------------------------------------------------------------------------------------------ |
+   | `GCP_WORKLOAD_IDENTITY_PROVIDER` | `projects/<project-number>/locations/global/workloadIdentityPools/github/providers/legend-cards` |
+   | `GCP_DEPLOY_SERVICE_ACCOUNT`     | `github-deploy@<project-id>.iam.gserviceaccount.com`                                             |
+   | `VITE_FIREBASE_API_KEY`          | from the web app's config                                                                        |
+   | `VITE_FIREBASE_AUTH_DOMAIN`      | from the web app's config                                                                        |
+   | `VITE_FIREBASE_APP_ID`           | from the web app's config                                                                        |
+   | `VITE_FIREBASE_STORAGE_BUCKET`   | the bucket                                                                                       |
+   | `FIREBASE_PROJECT_ID`            | `<project-id>`                                                                                   |
+
+   Then start **Actions → CI → Run workflow** on `master` and check that `deploy` passes. If the Firebase CLI stops on a missing permission, grant `github-deploy` the narrowest role it names, and add that role to step 5 here.
+
+### Recovering earlier data
+
+Point-in-time Recovery keeps the database readable as it was at any minute of the last 7 days. When the DM finds a mistake, for example a player's LP changed wrongly on Monday evening:
+
+1. Copy the database as it was before the mistake into a new database (check the flags with `gcloud firestore databases clone --help`):
+
+   ```sh
+   gcloud firestore databases clone --project=<project-id> \
+     --source-database='projects/<project-id>/databases/(default)' \
+     --snapshot-time='<YYYY-MM-DDTHH:MM:00Z, before the mistake>' --destination-database=recovery
+   ```
+
+2. Open the `recovery` database in the Firebase console, and read the document as it was.
+3. Fix the live data by hand: the DM in the app, or you in the console.
+4. Delete the copy: `gcloud firestore databases delete --database=recovery --project=<project-id>`.
+
+### Live project notes
+
+Anyone who knows a picture's address can open it without signing in, on Hosting and in Cloud Storage; the owner accepted this.
 
 **If "İndir" opens the picture instead of saving it**, the bucket does not send the `Content-Disposition` header the pictures are stored with. The fallback is to let the app fetch the file: allow the app's address in a CORS file (`[{"origin": ["https://<project-id>.web.app"], "method": ["GET"], "maxAgeSeconds": 3600}]`), apply it with `gcloud storage buckets update gs://<bucket> --cors-file=cors.json`, and change "İndir" to fetch the file and save it under the card's name (design D8 of `upload-card-and-word-pictures`).
 

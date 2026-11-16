@@ -405,6 +405,12 @@ export const messages = {
   usageImportCards:
     'Kullanım: npm run import-cards -- [--legend <csv>] [--cursed <csv>] [--dry-run] [--project <proje-kimliği>] [--yes]\n' +
     'Dosya verilmezse data/legend-cards.csv ve data/cursed-cards.csv kullanılır. Yalnızca birini verirsen sadece o deste import edilir.',
+  dataFileMissing: (file: string, options: string | null) =>
+    `"${file}" bulunamadı. Bu dosya repoda tutulmuyor, yalnızca sahibin makinesinde durur (bkz. data/README.md). ` +
+    (options === null
+      ? 'Dosyayı data/ klasörüne koyup tekrar çalıştır.'
+      : `Dosyayı data/ klasörüne koy ya da başka bir dosyayı ${options} ile ver.`) +
+    ' Hiçbir şey değişmedi.',
   fileUnreadable: (file: string, detail: string) =>
     `"${file}" okunamadı: ${detail}. Hiçbir kart değişmedi.`,
   cardFileError,

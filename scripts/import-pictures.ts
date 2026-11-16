@@ -9,7 +9,6 @@
 // Cardmakers to `npm run import-sets` (design D10 of add-set-management).
 import { readFile } from 'node:fs/promises'
 import { relative } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 
 import {
@@ -26,10 +25,11 @@ import {
   readPictureDefinitions,
   runPictureImport,
 } from './lib/importPictures.ts'
+import { DATA_FILES, dataPath, missingDefaultFile } from './lib/dataFiles.ts'
 import { messages } from './lib/messages.ts'
 import { connect, TARGET_OPTIONS } from './lib/target.ts'
 
-const ALIASES_FILE = fileURLToPath(new URL('../data/image-aliases.csv', import.meta.url))
+const ALIASES_FILE = dataPath(DATA_FILES.aliases)
 
 type Values = {
   source?: string
@@ -66,7 +66,13 @@ async function main(): Promise<number> {
   const dryRun = values['dry-run'] === true
   const source = sourceFolder(values.source)
 
-  // 1. 7-Zip and the source folder, before connecting, so a missing tool never asks for confirmation.
+  // 1. The alias table (only the owner's machine has it), 7-Zip and the source folder, before connecting, so a
+  // missing file or tool never asks for confirmation.
+  const missing = missingDefaultFile([{ path: ALIASES_FILE, options: null }])
+  if (missing) {
+    console.error(messages.dataFileMissing(shownPath(missing.path), missing.options))
+    return 1
+  }
   if (!(await hasSevenZip())) {
     console.error(messages.sevenZipMissing)
     return 1

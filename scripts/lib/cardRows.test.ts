@@ -1,14 +1,10 @@
 // @vitest-environment node
-import { readFileSync } from 'node:fs'
-
 import { describe, expect, it } from 'vitest'
 
 import { parseCardFile, unknownSetWarnings } from './cardRows.ts'
 import { setSpellings } from './importSets.ts'
 import { parseSetFile } from './setRows.ts'
-
-const dataFile = (name: string) =>
-  readFileSync(new URL(`../../data/${name}`, import.meta.url), 'utf8')
+import { DATA_FILES, fixtureFile, hasOwnerData, ownerFile } from './testData.ts'
 
 const LEGEND_HEADER = 'Name,Set,Cost,Rarity,Drawn?,Text,Mechanic Pack,Shuffle'
 const legend = (...rows: string[]) => [LEGEND_HEADER, ...rows].join('\n')
@@ -286,8 +282,8 @@ describe('parseCardFile: names and limits', () => {
   })
 })
 
-/** The spellings of the sets `data/sets.csv` would store: their codes and aliases. */
-const REPOSITORY_SPELLINGS = setSpellings(parseSetFile(dataFile('sets.csv')).sets)
+/** The spellings of the 12 sets the set import would store: their codes and aliases. */
+const REPOSITORY_SPELLINGS = setSpellings(parseSetFile(fixtureFile(DATA_FILES.sets)).sets)
 
 describe('unknownSetWarnings', () => {
   const cards = parseCardFile(
@@ -322,10 +318,10 @@ describe('unknownSetWarnings', () => {
     expect(unknownSetWarnings(cards, [...REPOSITORY_SPELLINGS, 'kesqeria'])).toEqual([])
   })
 
-  it("finds every set code of the repository's cards among the repository's sets", () => {
-    const repository = parseCardFile(dataFile('legend-cards.csv'), 'legend').cards
-    expect(unknownSetWarnings(repository, REPOSITORY_SPELLINGS)).toEqual([])
-    expect(unknownSetWarnings(repository, [])).toHaveLength(12)
+  it('finds every set code of the test cards among the sets, by code or alias', () => {
+    const cards = parseCardFile(fixtureFile(DATA_FILES.legend), 'legend').cards
+    expect(unknownSetWarnings(cards, REPOSITORY_SPELLINGS)).toEqual([])
+    expect(unknownSetWarnings(cards, [])).toHaveLength(5)
   })
 })
 
@@ -345,14 +341,13 @@ describe('parseCardFile: warnings', () => {
   })
 })
 
-describe('parseCardFile: the repository data', () => {
-  it('reads data/legend-cards.csv as 572 normal and 19 Blessed cards, 3 of them missing values', () => {
-    const result = parseCardFile(dataFile('legend-cards.csv'), 'legend')
+describe('parseCardFile: the test files', () => {
+  it('reads the Legend file as 9 normal and 2 Blessed cards, 3 of them missing values', () => {
+    const result = parseCardFile(fixtureFile(DATA_FILES.legend), 'legend')
     expect(result.errors).toEqual([])
     expect(result.warnings).toEqual([])
-    expect(result.cards).toHaveLength(591)
-    expect(result.cards.filter(({ card }) => card.kind === 'normal')).toHaveLength(572)
-    expect(result.cards.filter(({ card }) => card.kind === 'blessed')).toHaveLength(19)
+    expect(result.cards.filter(({ card }) => card.kind === 'normal')).toHaveLength(9)
+    expect(result.cards.filter(({ card }) => card.kind === 'blessed')).toHaveLength(2)
     expect(
       result.cards
         .filter(({ missing }) => missing.length > 0)
@@ -364,18 +359,55 @@ describe('parseCardFile: the repository data', () => {
     ])
   })
 
-  it('reads data/cursed-cards.csv as 154 Cursed cards', () => {
-    const result = parseCardFile(dataFile('cursed-cards.csv'), 'cursed')
+  it('reads the Cursed file as 3 Cursed cards', () => {
+    const result = parseCardFile(fixtureFile(DATA_FILES.cursed), 'cursed')
     expect(result.errors).toEqual([])
-    expect(result.warnings).toEqual([])
-    expect(result.cards).toHaveLength(154)
-    expect(result.cards.every(({ card }) => card.kind === 'cursed')).toBe(true)
+    expect(result.cards.map(({ card }) => card.kind)).toEqual(['cursed', 'cursed', 'cursed'])
   })
 
-  it('refuses data/true-words.csv as a Legend card file', () => {
-    const result = parseCardFile(dataFile('true-words.csv'), 'legend')
+  it('refuses the True Words file as a Legend card file', () => {
+    const result = parseCardFile(fixtureFile(DATA_FILES.trueWords), 'legend')
     expect(result.errors).toEqual([
       { kind: 'missing-columns', columns: ['set', 'rarity', 'mechanic pack'] },
     ])
   })
 })
+
+// The owner's real files, only on the owner's machine (spec: developer-workflow, "Checks without the owner's data").
+describe.skipIf(!hasOwnerData(DATA_FILES.legend, DATA_FILES.cursed, DATA_FILES.sets))(
+  "parseCardFile: the owner's data",
+  () => {
+    it("finds every set code of the owner's cards among the owner's sets", () => {
+      const cards = parseCardFile(ownerFile(DATA_FILES.legend), 'legend').cards
+      const spellings = setSpellings(parseSetFile(ownerFile(DATA_FILES.sets)).sets)
+      expect(unknownSetWarnings(cards, spellings)).toEqual([])
+      expect(unknownSetWarnings(cards, [])).toHaveLength(12)
+    })
+
+    it('reads data/legend-cards.csv as 572 normal and 19 Blessed cards, 3 of them missing values', () => {
+      const result = parseCardFile(ownerFile(DATA_FILES.legend), 'legend')
+      expect(result.errors).toEqual([])
+      expect(result.warnings).toEqual([])
+      expect(result.cards).toHaveLength(591)
+      expect(result.cards.filter(({ card }) => card.kind === 'normal')).toHaveLength(572)
+      expect(result.cards.filter(({ card }) => card.kind === 'blessed')).toHaveLength(19)
+      expect(
+        result.cards
+          .filter(({ missing }) => missing.length > 0)
+          .map(({ card, missing }) => [card.name, missing]),
+      ).toEqual([
+        ["Hrolf's Hornswaggle", ['cost']],
+        ['The Cartographer', ['set', 'rarity', 'mechanic pack']],
+        ['The Grand Finale', ['cost']],
+      ])
+    })
+
+    it('reads data/cursed-cards.csv as 154 Cursed cards', () => {
+      const result = parseCardFile(ownerFile(DATA_FILES.cursed), 'cursed')
+      expect(result.errors).toEqual([])
+      expect(result.warnings).toEqual([])
+      expect(result.cards).toHaveLength(154)
+      expect(result.cards.every(({ card }) => card.kind === 'cursed')).toBe(true)
+    })
+  },
+)

@@ -8,3 +8,4 @@ openspec/
 .firebase-emulator-data/
 firebase-export-*/
 package-lock.json
+public/art/

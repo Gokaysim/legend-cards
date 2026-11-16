@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs'
-
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { startingFlags } from '../scripts/lib/cardCatalog.ts'
@@ -19,6 +17,7 @@ import {
   SETS_COLLECTION,
 } from '../scripts/lib/importSets.ts'
 import { parseSetFile } from '../scripts/lib/setRows.ts'
+import { DATA_FILES, fixtureFile } from '../scripts/lib/testData.ts'
 import type { PictureFileStore } from '../scripts/lib/importPictures.ts'
 import {
   type AdminHandle,
@@ -53,20 +52,19 @@ beforeEach(async () => {
   }
 })
 
-/** The rows of a repository data file, parsed and checked as the command does. */
+/** The rows of a test data file (tests/fixtures/data), parsed and checked as the command does. */
 function repositoryDeck(deck: Deck): CardRow[] {
-  const file = deck === 'legend' ? 'legend-cards.csv' : 'cursed-cards.csv'
   const result = parseCardFile(
-    readFileSync(new URL(`../data/${file}`, import.meta.url), 'utf8'),
+    fixtureFile(deck === 'legend' ? DATA_FILES.legend : DATA_FILES.cursed),
     deck,
   )
   expect(result.errors).toEqual([])
   return result.cards
 }
 
-/** Stores the repository's sets, as `npm run import-sets` does without pictures. */
+/** Stores the 12 sets, as `npm run import-sets` does without pictures. */
 async function importRepositorySets() {
-  const parsed = parseSetFile(readFileSync(new URL('../data/sets.csv', import.meta.url), 'utf8'))
+  const parsed = parseSetFile(fixtureFile(DATA_FILES.sets))
   expect(parsed.errors).toEqual([])
   const noFiles: PictureFileStore = {
     save: () => Promise.reject(new Error('No picture is stored without --source')),
@@ -98,21 +96,21 @@ async function records(): Promise<Record<string, unknown>[]> {
 }
 
 describe('card import against the emulators', () => {
-  it('imports the repository data: 572 normal (3 of them drafts), 19 Blessed and 154 Cursed cards', async () => {
+  it('imports the test data: 9 normal (3 of them drafts), 2 Blessed and 3 Cursed cards', async () => {
     const { plan, written } = await importDecks({
       legend: repositoryDeck('legend'),
       cursed: repositoryDeck('cursed'),
     })
 
-    expect(written).toBe(745)
+    expect(written).toBe(14)
     expect(counts(plan)).toEqual({
-      legend: { 'added-active': 588, 'added-draft': 3, existing: 0 },
-      cursed: { 'added-active': 154, 'added-draft': 0, existing: 0 },
+      legend: { 'added-active': 8, 'added-draft': 3, existing: 0 },
+      cursed: { 'added-active': 3, 'added-draft': 0, existing: 0 },
     })
-    expect(await storedCount({ field: 'kind', value: 'normal' })).toBe(572)
-    expect(await storedCount({ field: 'kind', value: 'blessed' })).toBe(19)
-    expect(await storedCount({ field: 'kind', value: 'cursed' })).toBe(154)
-    expect(await storedCount({ field: 'status', value: 'active' })).toBe(742)
+    expect(await storedCount({ field: 'kind', value: 'normal' })).toBe(9)
+    expect(await storedCount({ field: 'kind', value: 'blessed' })).toBe(2)
+    expect(await storedCount({ field: 'kind', value: 'cursed' })).toBe(3)
+    expect(await storedCount({ field: 'status', value: 'active' })).toBe(11)
     const drafts = await admin.db.collection(CARDS_COLLECTION).where('status', '==', 'draft').get()
     expect(drafts.docs.map((document) => document.get('name') as string).sort()).toEqual([
       "Hrolf's Hornswaggle",
@@ -129,7 +127,7 @@ describe('card import against the emulators', () => {
     const publicRecord = written.find((record) => record.public === true)
     const draftRecord = written.find((record) => record.public === false)
     expect(publicRecord).toMatchObject({ target: 'card', step: 'imported', by: null })
-    expect(publicRecord?.items).toHaveLength(742)
+    expect(publicRecord?.items).toHaveLength(11)
     expect(draftRecord?.items).toHaveLength(3)
     expect(draftRecord?.items).toContainEqual({
       id: 'legend-thecartographer',
@@ -209,8 +207,8 @@ describe('card import against the emulators', () => {
 
     expect(written).toBe(0)
     expect(counts(plan)).toEqual({
-      legend: { 'added-active': 0, 'added-draft': 0, existing: 591 },
-      cursed: { 'added-active': 0, 'added-draft': 0, existing: 154 },
+      legend: { 'added-active': 0, 'added-draft': 0, existing: 11 },
+      cursed: { 'added-active': 0, 'added-draft': 0, existing: 3 },
     })
     expect(await records()).toHaveLength(2)
   })
@@ -240,7 +238,7 @@ describe('card import against the emulators', () => {
     await importDecks({ cursed: without })
 
     expect(await card('cursed-visionsofdeath')).toMatchObject({ status: 'active' })
-    expect(await storedCount()).toBe(154)
+    expect(await storedCount()).toBe(3)
   })
 
   it('leaves a DM-only card DM-only, and never writes the flag on a card it adds', async () => {
@@ -265,7 +263,7 @@ describe('card import against the emulators', () => {
     const { written } = await importDecks({ cursed })
 
     expect(written).toBe(0)
-    expect(await storedCount()).toBe(154)
+    expect(await storedCount()).toBe(3)
   })
 
   it('gives cards stored before statuses a status, from their old retired flag', async () => {
@@ -316,7 +314,7 @@ describe('card import against the emulators', () => {
     expect(await storedCount({ field: 'kind', value: 'normal' })).toBe(0)
   })
 
-  it("warns about no set code of the repository's cards after the set import", async () => {
+  it('warns about no set code of the test cards after the set import', async () => {
     await importRepositorySets()
     const spellings = await readSetSpellings(admin.db)
 
@@ -325,11 +323,11 @@ describe('card import against the emulators', () => {
 
   it('warns about a set code no stored set has, and about every one before the set import', async () => {
     const legend = repositoryDeck('legend')
-    expect(unknownSetWarnings(legend, await readSetSpellings(admin.db))).toHaveLength(12)
+    expect(unknownSetWarnings(legend, await readSetSpellings(admin.db))).toHaveLength(5)
 
     await importRepositorySets()
     const [first] = legend
-    if (!first) throw new Error('The repository has Legend cards')
+    if (!first) throw new Error('The test file has Legend cards')
     const withNewSet = [
       ...legend,
       { ...first, card: { ...first.card, name: 'New', nameKey: 'new', setCode: 'Zaddir' } },
@@ -345,7 +343,7 @@ describe('card import against the emulators', () => {
     const { plan, written } = await importDecks(decks, true)
 
     expect(written).toBe(0)
-    expect(plan.map((deck) => deck.counts['added-active'])).toEqual([588, 154])
+    expect(plan.map((deck) => deck.counts['added-active'])).toEqual([8, 3])
     expect(await storedCount()).toBe(0)
     expect(await records()).toEqual([])
   })

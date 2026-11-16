@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs'
-
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { startingFlags } from '../scripts/lib/cardCatalog.ts'
@@ -16,6 +14,7 @@ import {
   DEMO_PROJECT_ID,
   openAdmin,
 } from '../scripts/lib/target.ts'
+import { DATA_FILES, fixtureFile } from '../scripts/lib/testData.ts'
 import { parseTrueWordFile } from '../scripts/lib/trueWordRows.ts'
 
 // `firebase emulators:exec` sets FIRESTORE_EMULATOR_HOST and FIREBASE_AUTH_EMULATOR_HOST for this run.
@@ -39,11 +38,9 @@ beforeEach(async () => {
   await admin.db.recursiveDelete(admin.db.collection(CHANGES_COLLECTION))
 })
 
-/** The rows of the repository file, parsed and checked as the command does. */
+/** The rows of the test file (tests/fixtures/data), parsed and checked as the command does. */
 function repositoryWords(): WordRow[] {
-  const result = parseTrueWordFile(
-    readFileSync(new URL('../data/true-words.csv', import.meta.url), 'utf8'),
-  )
+  const result = parseTrueWordFile(fixtureFile(DATA_FILES.trueWords))
   expect(result.errors).toEqual([])
   return result.words
 }
@@ -69,15 +66,15 @@ async function records(): Promise<Record<string, unknown>[]> {
 }
 
 describe('True Words import against the emulators', () => {
-  it('imports the 53 words of the repository file as active, with one public record', async () => {
+  it('imports the 4 words of the test file as active, with one public record', async () => {
     const { plan, written } = await importWords(repositoryWords())
 
-    expect(written).toBe(53)
-    expect(plan.counts).toEqual({ 'added-active': 53, 'added-draft': 0, existing: 0 })
-    expect(await storedCount({ field: 'status', value: 'active' })).toBe(53)
+    expect(written).toBe(4)
+    expect(plan.counts).toEqual({ 'added-active': 4, 'added-draft': 0, existing: 0 })
+    expect(await storedCount({ field: 'status', value: 'active' })).toBe(4)
     const [record] = await records()
     expect(record).toMatchObject({ target: 'word', step: 'imported', public: true, by: null })
-    expect(record?.items).toHaveLength(53)
+    expect(record?.items).toHaveLength(4)
     const abyss = repositoryWords().find(({ word }) => word.name === 'Abyss')?.word
     expect(await stored(trueWordId('abyss'))).toEqual({
       kind: 'trueWord',
@@ -114,7 +111,7 @@ describe('True Words import against the emulators', () => {
       nameKey: 'abyss',
     })
     const { plan } = await importWords(repositoryWords(), true)
-    expect(plan.counts).toEqual({ 'added-active': 53, 'added-draft': 0, existing: 0 })
+    expect(plan.counts).toEqual({ 'added-active': 4, 'added-draft': 0, existing: 0 })
   })
 
   it('adds a word with an empty text as a draft, with a DM-only record', async () => {
@@ -139,7 +136,7 @@ describe('True Words import against the emulators', () => {
     const { plan, written } = await importWords(repositoryWords())
 
     expect(written).toBe(0)
-    expect(plan.counts.existing).toBe(53)
+    expect(plan.counts.existing).toBe(4)
     expect(await records()).toHaveLength(1)
   })
 
@@ -158,7 +155,7 @@ describe('True Words import against the emulators', () => {
 
     expect(await stored(trueWordId('abyss'))).toMatchObject({ status: 'active' })
     expect(await stored(trueWordId('aid'))).not.toMatchObject({ cost: '9' })
-    expect(await storedCount()).toBe(53)
+    expect(await storedCount()).toBe(4)
   })
 
   it('gives words stored before statuses a status, from their old retired flag', async () => {
@@ -188,7 +185,7 @@ describe('True Words import against the emulators', () => {
     const { plan, written } = await importWords(repositoryWords(), true)
 
     expect(written).toBe(0)
-    expect(plan.counts['added-active']).toBe(53)
+    expect(plan.counts['added-active']).toBe(4)
     expect(await storedCount()).toBe(0)
     expect(await records()).toEqual([])
   })

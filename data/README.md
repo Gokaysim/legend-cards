@@ -1,24 +1,30 @@
 # Initial data
 
-The owner's card data, as the DM keeps it in their spreadsheets. The files are copied unchanged from the owner's exports. **Do not edit them by hand in this repository:** replace a file with a new export from the owner instead, then run the import again.
+The owner's card data, as the DM keeps it in their spreadsheets. The files are copied unchanged from the owner's exports. **Do not edit them by hand:** replace a file with a new export from the owner instead, then run the import again.
+
+**The files live only on the owner's machine.** Git ignores every file in this folder except this README, and no commit in the repository's history holds one, so the public repository never shows a card's text, a True Word or the archive listing (spec: developer-workflow, "The owner's data stays out of the repository"). A fresh clone has only this README:
+
+- A script that needs one of the files stops with a Turkish message that names it. Copy the files into this folder from the owner, or give another file with the script's option (`--legend`, `--cursed`, `--file`).
+- The tests read small invented files in the same formats from [`tests/fixtures/data/`](../tests/fixtures/data/README.md). The tests of the owner's real files run only when the files are here, and are reported as skipped otherwise.
 
 These files are the **seed data**. An import only adds the cards and words that are not stored yet: it never changes, retires or deletes a stored one. From the first import on, the stored definitions are the truth, and the DM changes them in the app (Kart kütüphanesi, Cursed Deck, True Words). So a fix made in a file after its first import does not reach the app; make it in the app instead. A file is still useful to add a whole new set at once.
 
-| File                | Holds                                          | Columns                                                       | Used by                                                               |
-| ------------------- | ---------------------------------------------- | ------------------------------------------------------------- | --------------------------------------------------------------------- |
-| `legend-cards.csv`  | the Legend cards: normal and Blessed           | Name, Set, Cost, Rarity, Drawn?, Text, Mechanic Pack, Shuffle | `npm run import-cards`                                                |
-| `cursed-cards.csv`  | the Cursed cards                               | Name, Set, Cost, Text                                         | `npm run import-cards`                                                |
-| `true-words.csv`    | the True Words                                 | Name, Cost, Text                                              | `npm run import-true-words`                                           |
-| `sets.csv`          | the sets, in shop order                        | Code, Name, Aliases, Packs                                    | `npm run import-sets`                                                 |
-| `image-aliases.csv` | picture files whose names differ from the data | File, Kind, Name                                              | `npm run build-art`, `npm run import-sets`, `npm run import-pictures` |
+| File                 | Holds                                          | Columns                                                       | Used by                                                               |
+| -------------------- | ---------------------------------------------- | ------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `legend-cards.csv`   | the Legend cards: normal and Blessed           | Name, Set, Cost, Rarity, Drawn?, Text, Mechanic Pack, Shuffle | `npm run import-cards`                                                |
+| `cursed-cards.csv`   | the Cursed cards                               | Name, Set, Cost, Text                                         | `npm run import-cards`                                                |
+| `true-words.csv`     | the True Words                                 | Name, Cost, Text                                              | `npm run import-true-words`                                           |
+| `sets.csv`           | the sets, in shop order                        | Code, Name, Aliases, Packs                                    | `npm run import-sets`                                                 |
+| `image-aliases.csv`  | picture files whose names differ from the data | File, Kind, Name                                              | `npm run build-art`, `npm run import-sets`, `npm run import-pictures` |
+| `art-inventory.json` | the picture file names in the five archives    | `{ "<archive>": ["<file>.png", …] }`                          | `scripts/lib/artInventory.test.ts`                                    |
 
-Unlike the CSV exports, `sets.csv` and `image-aliases.csv` belong to this repository: edit them by hand. See [How the import reads the set file](#how-the-import-reads-the-set-file) and [Pictures](#pictures).
+Unlike the CSV exports, `sets.csv` and `image-aliases.csv` are written by hand: edit them on the owner's machine. See [How the import reads the set file](#how-the-import-reads-the-set-file) and [Pictures](#pictures).
 
 ## How the import reads the card files
 
 - A row whose Set is `Blessed` is a Blessed card. Its Rarity and Cost are `—`.
 - **An empty cell and `—` differ.** `—` means "deliberately none", and an empty cell means "not filled in yet". In the Cost column, `—` is a card without a cost. In the other columns, `—` counts as empty.
-- **A card is added as a draft** when a column its kind uses is empty: Set, Cost, Rarity, Mechanic Pack and Text for a normal card; Cost, Mechanic Pack and Text for a Blessed card; Cost and Text for a Cursed card. Only the DM sees a draft, and publishes it in the app once it is complete. Every other card is added as active. In the repository's files, "Hrolf's Hornswaggle" and "The Grand Finale" (empty Cost) and "The Cartographer" (empty Set, Rarity and Mechanic Pack) come in as drafts.
+- **A card is added as a draft** when a column its kind uses is empty: Set, Cost, Rarity, Mechanic Pack and Text for a normal card; Cost, Mechanic Pack and Text for a Blessed card; Cost and Text for a Cursed card. Only the DM sees a draft, and publishes it in the app once it is complete. Every other card is added as active. In the owner's files, "Hrolf's Hornswaggle" and "The Grand Finale" (empty Cost) and "The Cartographer" (empty Set, Rarity and Mechanic Pack) come in as drafts.
 - An invalid value, such as the Rarity "Epic", stops the import. An empty value never does.
 - The Set column of `cursed-cards.csv` is ignored: every row is a Cursed card.
 - `Drawn?` and `Shuffle` are the owner's own bookkeeping. The import ignores them.
@@ -61,11 +67,31 @@ The pictures are not here. They are the owner's five `.7z` archives, about 560 M
 
 Three scripts read the same folder (see the [README](../README.md#building-the-pictures)):
 
-- `npm run build-art -- --source <folder>` builds the Blessed and Cursed cardbacks, the pack pictures and the screens' Cardmaker into `public/art/`.
+- `npm run build-art -- --source <folder>` builds the Blessed and Cursed cardbacks, the pack pictures and the screens' Cardmaker into `public/art/`, which is committed.
 - `npm run import-sets -- --source <folder>` stores the sets' cardbacks and Cardmakers in Cloud Storage, for the stored sets that never had one.
 - `npm run import-pictures -- --source <folder>` stores the card and True Word pictures in Cloud Storage, for the stored cards and words that never had a picture.
 
 After that, the DM changes pictures in the app, and the imports never replace or bring back a picture.
+
+### The archive inventory
+
+`art-inventory.json` lists the picture file names in the five archives, so `scripts/lib/artInventory.test.ts` can plan them against the data without the archives: a data or alias change that loses a picture fails there. Regenerate it whenever the archives change, from the folder that holds them:
+
+```sh
+cd <folder with the archives>
+node -e "
+const { execFileSync } = require('node:child_process')
+const archives = ['legend point cards.7z', 'blessed.7z', 'cursed cards.7z', 'true words.7z', 'otherassets.7z']
+const inventory = {}
+for (const archive of archives)
+  inventory[archive] = execFileSync('7zz', ['l', '-ba', '-slt', archive], { encoding: 'utf8' })
+    .split('\\n').filter((line) => line.startsWith('Path = ')).map((line) => line.slice(7))
+    .filter((name) => name.toLowerCase().endsWith('.png'))
+require('node:fs').writeFileSync(process.argv[1], JSON.stringify(inventory, null, 2) + '\\n')
+" <repository>/data/art-inventory.json
+```
+
+Loose `.png` files next to the archives, such as `cardmaker_keep.png`, are not in the inventory.
 
 ### File names
 

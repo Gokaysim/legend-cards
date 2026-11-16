@@ -8,7 +8,6 @@
 // anything is written.
 import { readFile } from 'node:fs/promises'
 import { relative } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 
 import {
@@ -22,14 +21,14 @@ import {
 import { type ArtAlias, readAliases } from './lib/artFiles.ts'
 import { bucketPictureStore } from './lib/importPictures.ts'
 import { planSets, readStoredSets, runSetImport, setArtData } from './lib/importSets.ts'
+import { DATA_FILES, dataPath, type DefaultFile, missingDefaultFile } from './lib/dataFiles.ts'
 import { messages } from './lib/messages.ts'
 import { parseSetFile } from './lib/setRows.ts'
 import { connect, TARGET_OPTIONS } from './lib/target.ts'
 
-/** The repository's files, found from this script's location so the working directory does not matter. */
-const repoFile = (path: string) => fileURLToPath(new URL(`../${path}`, import.meta.url))
-const DEFAULT_FILE = repoFile('data/sets.csv')
-const ALIASES_FILE = repoFile('data/image-aliases.csv')
+/** The owner's files in data/, which only the owner's machine has (design D4 of add-ci-and-deploy). */
+const DEFAULT_FILE = dataPath(DATA_FILES.sets)
+const ALIASES_FILE = dataPath(DATA_FILES.aliases)
 
 type Values = {
   file?: string
@@ -62,6 +61,17 @@ async function main(): Promise<number> {
     return 1
   }
   const dryRun = values['dry-run'] === true
+
+  // 0. The default files exist only on the owner's machine: name a missing one before reading anything.
+  const defaults: DefaultFile[] = [
+    ...(values.file === undefined ? [{ path: DEFAULT_FILE, options: '--file' }] : []),
+    ...(values.source !== undefined ? [{ path: ALIASES_FILE, options: null }] : []),
+  ]
+  const missing = missingDefaultFile(defaults)
+  if (missing) {
+    console.error(messages.dataFileMissing(shownPath(missing.path), missing.options))
+    return 1
+  }
 
   // 1. Read and check the set file before connecting, so a bad file never asks for confirmation.
   const file = values.file ?? DEFAULT_FILE

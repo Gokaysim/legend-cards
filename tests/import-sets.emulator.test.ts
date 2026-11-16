@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -18,6 +17,7 @@ import {
   SETS_COLLECTION,
 } from '../scripts/lib/importSets.ts'
 import { parseSetFile, type SetRow } from '../scripts/lib/setRows.ts'
+import { DATA_FILES, fixtureFile } from '../scripts/lib/testData.ts'
 import {
   type AdminHandle,
   defaultBucket,
@@ -59,9 +59,9 @@ afterEach(async () => {
   await rm(folder, { recursive: true, force: true })
 })
 
-/** The rows of the repository's set file, parsed and checked as the command does. */
+/** The rows of the test set file (tests/fixtures/data: the 12 sets), parsed and checked as the command does. */
 function repositorySets(): SetRow[] {
-  const result = parseSetFile(readFileSync(new URL('../data/sets.csv', import.meta.url), 'utf8'))
+  const result = parseSetFile(fixtureFile(DATA_FILES.sets))
   expect(result.errors).toEqual([])
   return result.sets
 }

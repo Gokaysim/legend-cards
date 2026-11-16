@@ -24,5 +24,11 @@ firebase-export-*/
 # Claude Code local settings
 .claude/settings.local.json
 
-# Pictures built by `npm run build-art` from the owner's archives
-public/art/
+
+# The owner's data: card, word and set CSV files, the picture alias table and the archive listing.
+# They stay on the owner's machine and are never committed (design D4 of add-ci-and-deploy).
+data/*
+!data/README.md
+
+# The owner's personal to-do list
+TODOS.md
