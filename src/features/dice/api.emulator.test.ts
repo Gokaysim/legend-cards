@@ -168,6 +168,69 @@ describe('rolling under the real rules', () => {
   })
 })
 
+describe('writing other records with a roll', () => {
+  it("writes a public roll and the caller's writes in one batch, with the roll's ID and faces", async () => {
+    const db = as('ayla')
+    let seen: { rollId: string; values: readonly number[] } | null = null
+    const { roll, written } = await rollDice(
+      db,
+      input(),
+      fixed(17, 4, 2),
+      (batch, rollId, values) => {
+        seen = { rollId, values }
+        batch.set(doc(db, 'diceRolls', 'ignored'), {})
+      },
+    )
+    expect(seen).toEqual({ rollId: roll.id, values: [17, 4, 2] })
+    // The extra write is invalid, so the whole batch is refused: the roll is not written either.
+    await expect(written).rejects.toThrow()
+    expect((await getDoc(doc(diceRollsRef(as('ayla')), roll.id))).exists()).toBe(false)
+  })
+
+  it('writes a public roll together with a valid extra write', async () => {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(firestoreOf(admin), 'characters/thorn'), {
+        uid: 'ayla',
+        name: 'Thorn',
+        picture: null,
+        archived: false,
+        createdAt: Timestamp.fromMillis(1),
+        createdBy: 'ayla',
+      })
+    })
+    const db = as('ayla')
+    const { roll, written } = await rollDice(db, input(), fixed(17, 4, 2), (batch) => {
+      batch.update(doc(db, 'characters/thorn'), { initiativeModifier: 3 })
+    })
+    await written
+    expect(
+      (await getDoc(doc(diceRollsRef(as('ayla')), roll.id))).data()?.content?.dice,
+    ).toHaveLength(3)
+    const character = await getDoc(doc(as('ayla'), 'characters/thorn'))
+    expect(character.get('initiativeModifier')).toBe(3)
+  })
+
+  it("adds the extra writes to a hidden roll's batch", async () => {
+    const db = as('dana')
+    const { roll, written } = await rollDice(
+      db,
+      input({ by: 'dana', hidden: true, counts: { ...emptyCounts(), d20: 2 } }),
+      fixed(14, 7),
+      (batch, rollId, values) => {
+        batch.set(doc(db, 'dmCombatants', 'c1'), {
+          combatId: 'combat-1',
+          rollId,
+          die: values[0],
+          modifier: 1,
+        })
+      },
+    )
+    await written
+    const record = await getDoc(doc(as('dana'), 'dmCombatants/c1'))
+    expect(record.data()).toEqual({ combatId: 'combat-1', rollId: roll.id, die: 14, modifier: 1 })
+  })
+})
+
 describe('the dice style', () => {
   it("saves the user's own style", async () => {
     await setDiceStyle(as('ayla'), 'ayla', 'iron')

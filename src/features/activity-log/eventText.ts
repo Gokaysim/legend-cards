@@ -498,5 +498,15 @@ export function describeEvent(
         parts: [`oyuncu kart çekişini “${PLAYER_DRAW_LABELS[event.change.after]}” yaptı.`],
         reason: null,
       }
+    case 'fight':
+      // spec: activity-log, "Fights are events".
+      return {
+        parts: [
+          event.change.step === 'start'
+            ? `savaşı başlattı: ${String(event.change.count)} katılımcı.`
+            : `savaşı bitirdi: ${String(event.change.count)} tur.`,
+        ],
+        reason: null,
+      }
   }
 }

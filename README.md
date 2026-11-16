@@ -1,6 +1,6 @@
 # Legend Cards
 
-Legend Card Manager is a real-time web app for tracking the side card system that our DM runs in a D&D 5e group. Players earn **Legend Points (LP)** and spend them on cards from packs, and the app keeps track of who holds what. It is a tracker, not a game engine. The DM and players make decisions at the table, and the app records them.
+Legend Card Manager is a real-time web app for tracking the side card system that our DM runs in a D&D 3.5 group. Players earn **Legend Points (LP)** and spend them on cards from packs, and the app keeps track of who holds what. It is a tracker, not a game engine. The DM and players make decisions at the table, and the app records them.
 
 The app is being rebuilt as an online, multi-device app with React, TypeScript, and Firebase. The original offline single-file version is kept in [`reference/legacy/`](reference/legacy/README.md) as a design and behavior reference.
 

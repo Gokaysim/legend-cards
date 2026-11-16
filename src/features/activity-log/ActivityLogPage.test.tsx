@@ -114,6 +114,18 @@ describe('ActivityLogPage', () => {
     expect(second).toHaveTextContent('Ayla: +2 LP (5 → 7)')
   })
 
+  it("lists a fight's start and end among the other events, newest first, naming the DM", () => {
+    const start = { id: 'f-1', by: 'dana', at: on(8, 50), step: 'start' as const, count: 6 }
+    const end = { id: 'f-2', by: 'dana', at: on(9, 30), step: 'end' as const, count: 5 }
+    renderLog({ records: ready(records({ entries: [lpForAyla], combatChanges: [start, end] })) })
+
+    const [first, second, third] = rows()
+    expect(first).toHaveTextContent('savaşı bitirdi: 5 tur.')
+    expect(first).toHaveTextContent('Dana')
+    expect(second).toHaveTextContent('savaşı başlattı: 6 katılımcı.')
+    expect(third).toHaveTextContent('Ayla: +2 LP (5 → 7)')
+  })
+
   it('shows a new event at the top without a reload', () => {
     const { setActivityLog } = renderLog({ records: ready(records({ given: [givenToAyla] })) })
 

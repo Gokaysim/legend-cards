@@ -457,3 +457,38 @@ describe('the table changes query', () => {
     expect(await tableChangeIds('ayla', 'ayla')).toBeNull()
   })
 })
+
+describe('the fight records query', () => {
+  beforeEach(async () => {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const db = firestoreOf(admin)
+      await setDoc(doc(db, 'combatChanges/f-1'), {
+        by: 'dana',
+        at: at(1000),
+        step: 'start',
+        count: 6,
+      })
+      await setDoc(doc(db, 'combatChanges/f-2'), {
+        by: 'dana',
+        at: at(2000),
+        step: 'end',
+        count: 5,
+      })
+    })
+  })
+
+  const fightIds = async (viewer: string, uid: string | null = null) => {
+    const queries = logQueries(firestoreOf(testEnv.authenticatedContext(viewer)), uid, 50, false)
+    return queries.combatChanges === null
+      ? null
+      : (await getDocs(queries.combatChanges)).docs.map((document) => document.id)
+  }
+
+  it('gives a player every start and end, newest first', async () => {
+    expect(await fightIds('ayla')).toEqual(['f-2', 'f-1'])
+  })
+
+  it('leaves them out with a user filter', async () => {
+    expect(await fightIds('ayla', 'ayla')).toBeNull()
+  })
+})

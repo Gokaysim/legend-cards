@@ -4,7 +4,7 @@ Guidance for AI coding agents working in this repository.
 
 ## What this is
 
-Legend Card Manager is a real-time tracker (not a game engine) for the side card system a DM runs in a D&D 5e group. It is a React + TypeScript single-page app on Firebase (Google sign-in, Firestore with real-time listeners, Hosting).
+Legend Card Manager is a real-time tracker (not a game engine) for the side card system a DM runs in a D&D 3.5 group. It is a React + TypeScript single-page app on Firebase (Google sign-in, Firestore with real-time listeners, Hosting).
 
 Read these before changing code:
 

@@ -12,6 +12,7 @@ import { TestAuthProvider } from './TestAuthProvider'
 import { type TestBalances, TestBalancesProvider } from './TestBalancesProvider'
 import { type TestCards, TestCardsProvider } from './TestCardsProvider'
 import { type TestCharacters, TestCharactersProvider } from './TestCharactersProvider'
+import { type TestCombat, TestCombatProvider } from './TestCombatProvider'
 import { type TestDefinitions, TestDefinitionsProvider } from './TestDefinitionsProvider'
 import { type TestDice, TestDiceProvider } from './TestDiceProvider'
 import { type TestDraws, TestDrawsProvider } from './TestDrawsProvider'
@@ -58,6 +59,8 @@ export type RenderAppOptions = {
   definitions?: TestDefinitions
   /** The dice channel, the roll to play and fake dice steps. Defaults to no rolls, and steps that succeed. */
   dice?: TestDice
+  /** The combat, the NPCs' rolls (a DM's device only) and fake combat steps. Defaults to none, and steps that succeed. */
+  combat?: TestCombat
   /** The built pictures. Defaults to `EMPTY_ART`: every card, back, pack and word keeps its look without pictures. */
   art?: ArtManifest
 }
@@ -78,6 +81,7 @@ type Data = {
   notes: TestNotes
   definitions: TestDefinitions
   dice: TestDice
+  combat: TestCombat
   art: ArtManifest | undefined
 }
 
@@ -86,7 +90,7 @@ type Data = {
  * sets, cards, open holdings, party purse, table lock, open pack, True Words, notes, log and statistics records and
  * pictures, and fake draws, pack, set, character and True Word steps and note saves. `setUsers`, `setCharacters`,
  * `setSets`, `setCards`, `setHoldings`, `setBalances`, `setTable`, `setPacks`, `setTrueWords`, `setNotes`,
- * `setActivityLog`, `setStats`, `setDraws` and `setDice` re-render the same app with other data, as a real-time update would, without
+ * `setActivityLog`, `setStats`, `setDraws`, `setDice` and `setCombat` re-render the same app with other data, as a real-time update would, without
  * remounting.
  */
 export function renderApp({
@@ -108,6 +112,7 @@ export function renderApp({
   notes = {},
   definitions = {},
   dice = {},
+  combat = {},
   art,
 }: RenderAppOptions = {}) {
   const router = createMemoryRouter(routes, { initialEntries: [path] })
@@ -127,6 +132,7 @@ export function renderApp({
     notes,
     definitions,
     dice,
+    combat,
     art,
   }
   const tree = (data: Data) => (
@@ -147,7 +153,9 @@ export function renderApp({
                                 <TestPlayerNotesProvider {...data.notes}>
                                   <TestDefinitionsProvider {...data.definitions}>
                                     <TestDiceProvider {...data.dice}>
-                                      <RouterProvider router={router} />
+                                      <TestCombatProvider {...data.combat}>
+                                        <RouterProvider router={router} />
+                                      </TestCombatProvider>
                                     </TestDiceProvider>
                                   </TestDefinitionsProvider>
                                 </TestPlayerNotesProvider>
@@ -188,5 +196,6 @@ export function renderApp({
     setNotes: (next: TestNotes) => update({ notes: next }),
     setDraws: (next: TestDraws) => update({ draws: next }),
     setDice: (next: TestDice) => update({ dice: next }),
+    setCombat: (next: TestCombat) => update({ combat: next }),
   }
 }

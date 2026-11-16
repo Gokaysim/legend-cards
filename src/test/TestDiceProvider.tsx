@@ -52,6 +52,11 @@ export function TestDiceProvider({
         setRolled({ roll, after: fresh })
         return Promise.resolve(roll)
       },
+      rollWith: (request) => {
+        const roll = fakeRoll(request, uid)
+        setRolled({ roll, after: fresh })
+        return Promise.resolve({ roll, written: Promise.resolve() })
+      },
       setDiceStyle: () => Promise.resolve(),
       loadOlder: () => undefined,
     }

@@ -44,6 +44,22 @@ describe('characterSchema', () => {
     expect(characterSchema.safeParse({ ...stored, ...change }).success).toBe(false)
   })
 
+  it('reads an initiative modifier', () => {
+    expect(characterSchema.parse({ ...stored, initiativeModifier: 3 }).initiativeModifier).toBe(3)
+  })
+
+  it('reads a character that never rolled initiative', () => {
+    expect(characterSchema.parse(stored).initiativeModifier).toBeUndefined()
+  })
+
+  it.each([
+    ['31', 31],
+    ['−11', -11],
+    ['2.5', 2.5],
+  ])('rejects the initiative modifier %s', (_case, initiativeModifier) => {
+    expect(characterSchema.safeParse({ ...stored, initiativeModifier }).success).toBe(false)
+  })
+
   it('accepts a name of 40 characters', () => {
     expect(characterSchema.safeParse({ ...stored, name: 'x'.repeat(40) }).success).toBe(true)
   })

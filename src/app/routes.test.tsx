@@ -62,13 +62,14 @@ const BUILT_SCREENS: Record<string, () => void> = {
     expect(screen.getByRole('rowheader', { name: /^The End is Nigh/ })).toBeInTheDocument()
     expect(screen.getByRole('rowheader', { name: /^Pandemonium/ })).toBeInTheDocument()
   },
-  // The Zarlar screen: the strip, the channel, the roll form and the side column.
+  // The Zarlar screen: the strip with "Zar stili", the roll form, and the Kanal and İnisiyatif tabs.
   '/dice': () => {
     expect(screen.getByTestId('dice-strip')).toHaveTextContent('Henüz zar atılmadı.')
+    expect(screen.getByRole('button', { name: 'Zar stili' })).toBeInTheDocument()
     expect(screen.getByRole('list', { name: 'Atışlar' })).toBeInTheDocument()
     expect(screen.getByRole('form', { name: 'Zar at' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { level: 2, name: 'Zar stilin' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { level: 2, name: 'Bu cihazda' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Kanal' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: 'İnisiyatif' })).toBeInTheDocument()
   },
   // The log, before anything happened.
   '/log': () => {

@@ -1,5 +1,6 @@
 import { Outlet } from 'react-router'
 
+import { CombatNotice } from '@/features/combat/CombatNotice'
 import { DiceNotice } from '@/features/dice/DiceNotice'
 import { LiveDrawView } from '@/features/draws/LiveDrawView'
 import { OpenPackView } from '@/features/packs/OpenPackView'
@@ -28,6 +29,7 @@ export function AppShell() {
         <OpenPackView />
         <LiveDrawView />
         <DiceNotice />
+        <CombatNotice />
         <Outlet />
       </main>
     </div>

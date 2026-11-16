@@ -10,6 +10,7 @@ import {
   serverTimestamp,
   setDoc,
   updateDoc,
+  type WriteBatch,
   writeBatch,
 } from 'firebase/firestore'
 
@@ -122,6 +123,12 @@ function clampModifier(modifier: number): number {
   return Math.min(MODIFIER_MAX, Math.max(MODIFIER_MIN, modifier))
 }
 
+/**
+ * Other writes that go in the same batch as a roll (design D3 of add-initiative-tracker), given the roll's ID and the
+ * face of each physical die in throw order.
+ */
+export type AlsoWrite = (batch: WriteBatch, rollId: string, values: readonly number[]) => void
+
 /** A roll just made: its record as this device shows it at once, and the write that sends it. */
 export type RollResult = {
   roll: DiceRoll
@@ -131,13 +138,15 @@ export type RollResult = {
 
 /**
  * Rolls the dice (design D2, D4): throws them on this device, then writes the record, or for a hidden roll the
- * public record and the DM's record in one batch. Returns at once with the roll for the local playback; the write
- * is queued offline and sent when the connection returns.
+ * public record and the DM's record in one batch. With `alsoWrite`, the caller's writes join that batch, so the roll
+ * and they are written together or not at all. Returns at once with the roll for the local playback; the write is
+ * queued offline and sent when the connection returns.
  */
 export async function rollDice(
   db: Firestore,
   input: RollInput,
   thrower: Thrower = throwWithPhysics,
+  alsoWrite?: AlsoWrite,
 ): Promise<RollResult> {
   const mode: RollMode = isSingleD20(input.counts) ? input.mode : 'normal'
   const types = physicalDice(input.counts, mode)
@@ -165,6 +174,12 @@ export async function rollDice(
       hidden: true,
       ...content,
     })
+    alsoWrite?.(batch, ref.id, values)
+    written = batch.commit()
+  } else if (alsoWrite) {
+    const batch = writeBatch(db)
+    batch.set(ref, { by: input.by, at: serverTimestamp(), hidden: false, ...content })
+    alsoWrite(batch, ref.id, values)
     written = batch.commit()
   } else {
     written = setDoc(ref, { by: input.by, at: serverTimestamp(), hidden: false, ...content })

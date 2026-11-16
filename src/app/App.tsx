@@ -6,6 +6,7 @@ import { AuthProvider } from '@/features/auth/AuthProvider'
 import { BalancesProvider } from '@/features/balances/BalancesProvider'
 import { CardsProvider } from '@/features/cards/CardsProvider'
 import { CharactersProvider } from '@/features/characters/CharactersProvider'
+import { CombatProvider } from '@/features/combat/CombatProvider'
 import { DefinitionsProvider } from '@/features/definitions/DefinitionsProvider'
 import { DiceProvider } from '@/features/dice/DiceProvider'
 import { DrawsProvider } from '@/features/draws/DrawsProvider'
@@ -47,7 +48,9 @@ export function App() {
                                 <PlayerNotesProvider>
                                   <DefinitionsProvider>
                                     <DiceProvider>
-                                      <RouterProvider router={router} />
+                                      <CombatProvider>
+                                        <RouterProvider router={router} />
+                                      </CombatProvider>
                                     </DiceProvider>
                                   </DefinitionsProvider>
                                 </PlayerNotesProvider>

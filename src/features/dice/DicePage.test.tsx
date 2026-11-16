@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react'
+import { act, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Timestamp } from 'firebase/firestore'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -33,7 +33,7 @@ beforeEach(() => {
 })
 
 describe('the Zarlar screen', () => {
-  it('shows the strip, the channel with the newest roll at the bottom, the form and the side column', () => {
+  it('shows the strip with "Zar stili", the form below it, and the Kanal tab with the newest roll at the bottom', () => {
     renderDice({
       dice: {
         rolls: [
@@ -49,9 +49,43 @@ describe('the Zarlar screen', () => {
       'Bora atışı',
     ])
     expect(strip()).toHaveTextContent('Son atış: Bora')
+    expect(within(strip()).getByRole('button', { name: 'Zar stili' })).toBeInTheDocument()
     expect(form()).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Zar stilin' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Bu cihazda' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Kanal' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: 'İnisiyatif' })).toHaveAttribute(
+      'aria-selected',
+      'false',
+    )
+  })
+
+  it('keeps the dice settings off the screen until "Zar stili" is selected', () => {
+    renderDice()
+    expect(screen.queryByRole('heading', { name: 'Zar stilin' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Bu cihazda' })).not.toBeInTheDocument()
+  })
+
+  it('stacks the strip, the form and the tabs in that order, and puts the tabs first on a wide window', () => {
+    renderDice()
+    const tray = screen.getByRole('region', { name: 'Zar tablası' })
+    const tabs = screen.getByRole('region', { name: 'Kanal ve inisiyatif' })
+    expect(tray.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(tray.contains(strip())).toBe(true)
+    expect(strip().compareDocumentPosition(form()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(tabs).toHaveClass('lg:order-first')
+  })
+
+  it('opens the İnisiyatif tab, keeps it in the URL, and opens it again from the URL', async () => {
+    const user = userEvent.setup()
+    const { router, unmount } = renderDice()
+    await user.click(screen.getByRole('tab', { name: 'İnisiyatif' }))
+    expect(router.state.location.search).toBe('?tab=inisiyatif')
+    expect(screen.queryByRole('list', { name: 'Atışlar' })).not.toBeInTheDocument()
+    unmount()
+
+    renderApp({ path: '/dice?tab=inisiyatif', users: { profiles: PROFILES } })
+    expect(screen.getByRole('tab', { name: 'İnisiyatif' })).toHaveAttribute('aria-selected', 'true')
+    await user.click(screen.getByRole('tab', { name: 'Kanal' }))
+    expect(screen.getByRole('list', { name: 'Atışlar' })).toBeInTheDocument()
   })
 })
 
@@ -306,34 +340,52 @@ describe('the strip', () => {
   })
 })
 
-describe('the side column', () => {
-  it("marks the user's style and saves a new one", async () => {
+describe('the dice settings dialog', () => {
+  const openSettings = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(within(strip()).getByRole('button', { name: 'Zar stili' }))
+    return screen.getByRole('dialog', { name: 'Zar ayarları' })
+  }
+
+  it("marks the user's style, saves a new one and closes", async () => {
     const user = userEvent.setup()
     const setDiceStyle = vi.fn<DiceActions['setDiceStyle']>(() => Promise.resolve())
     renderDice({
       users: { currentProfile: ready(testProfile({ diceStyle: 'iron' })), profiles: PROFILES },
       dice: { actions: { setDiceStyle } },
     })
-    const styles = screen.getByRole('complementary', { name: 'Zar ayarları' })
-    expect(within(styles).getByRole('button', { name: 'Iron' })).toHaveAttribute(
+    const dialog = await openSettings(user)
+    const styles = within(dialog).getAllByRole('button', { pressed: false })
+    expect(styles).toHaveLength(7)
+    expect(within(dialog).getByRole('button', { name: 'Iron' })).toHaveAttribute(
       'aria-pressed',
       'true',
     )
-    expect(within(styles).getAllByRole('button')).toHaveLength(8)
 
-    await user.click(within(styles).getByRole('button', { name: 'Walnut' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Walnut' }))
     expect(setDiceStyle).toHaveBeenCalledWith('walnut')
+    expect(screen.queryByRole('dialog', { name: 'Zar ayarları' })).not.toBeInTheDocument()
   })
 
-  it('shows rolls and stays silent by default, and keeps the choices on the device', async () => {
+  it('shows rolls and stays silent by default, keeps a change on the device, and closes with "Kapat"', async () => {
     const user = userEvent.setup()
     renderDice()
-    const show = screen.getByRole('checkbox', { name: 'Atışları göster' })
-    const sound = screen.getByRole('checkbox', { name: 'Zar sesi' })
+    const dialog = await openSettings(user)
+    const show = within(dialog).getByRole('checkbox', { name: 'Atışları göster' })
+    const sound = within(dialog).getByRole('checkbox', { name: 'Zar sesi' })
     expect(show).toBeChecked()
     expect(sound).not.toBeChecked()
 
     await user.click(show)
     expect(window.localStorage.getItem('lcm.dice.show')).toBe('0')
+    await user.click(within(dialog).getByRole('button', { name: /Kapat/ }))
+    expect(screen.queryByRole('dialog', { name: 'Zar ayarları' })).not.toBeInTheDocument()
+  })
+
+  it('closes with Escape', async () => {
+    const user = userEvent.setup()
+    renderDice()
+    const dialog = (await openSettings(user)) as HTMLDialogElement
+    act(() => dialog.close())
+    expect(screen.queryByRole('dialog', { name: 'Zar ayarları' })).not.toBeInTheDocument()
   })
 })

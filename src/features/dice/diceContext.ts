@@ -1,6 +1,6 @@
 import { createContext, useContext } from 'react'
 
-import type { RollInput } from './api'
+import type { AlsoWrite, RollInput } from './api'
 import type { DiceRoll, DiceStyle } from './schema'
 
 /** A roll as the form asks for it; the provider adds the roller and their dice style. */
@@ -13,6 +13,14 @@ export type RollRequest = Omit<RollInput, 'by' | 'style'>
 export type DiceActions = {
   /** Throws and writes a roll, and resolves with it at once for the local playback, before the server has it. */
   roll: (request: RollRequest) => Promise<DiceRoll>
+  /**
+   * Like `roll`, with other writes in the same batch (design D3 of add-initiative-tracker). Resolves at once with the
+   * roll and `written`, which settles when the server took or refused the batch.
+   */
+  rollWith: (
+    request: RollRequest,
+    alsoWrite: AlsoWrite,
+  ) => Promise<{ roll: DiceRoll; written: Promise<void> }>
   /** Saves the user's own dice style. */
   setDiceStyle: (style: DiceStyle) => Promise<void>
   /** Asks for 50 older rolls. */

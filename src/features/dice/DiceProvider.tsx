@@ -6,8 +6,14 @@ import { db } from '@/lib/firebase/firestore'
 import { useCollection } from '@/lib/firestore/useCollection'
 import { useNow } from '@/lib/useNow'
 
-import { recentDmRollsQuery, recentRollsQuery, rollDice, setDiceStyle } from './api'
-import { type DiceActions, DiceContext, type DiceContextValue, type DiceRolls } from './diceContext'
+import { type AlsoWrite, recentDmRollsQuery, recentRollsQuery, rollDice, setDiceStyle } from './api'
+import {
+  type DiceActions,
+  DiceContext,
+  type DiceContextValue,
+  type DiceRolls,
+  type RollRequest,
+} from './diceContext'
 import { arrive, type Freshness, NO_FRESHNESS } from './freshness'
 import { DEFAULT_DICE_STYLE, type DiceRoll } from './schema'
 
@@ -85,24 +91,26 @@ export function DiceProvider({ children }: { children: ReactNode }) {
     return publicRolls.status === 'error' ? { status: 'error' } : { status: 'loading' }
   }, [shown, count, publicRolls.status])
 
-  const actions = useMemo<DiceActions>(
-    () => ({
-      roll: async (request) => {
-        if (uid === null) throw new Error('Signed out')
-        const { roll } = await rollDice(db, { ...request, by: uid, style })
-        setRolledHere((current) => new Set([...current, roll.id]))
-        setTracking((current) => ({
-          ...current,
-          freshness: { ...current.freshness, fresh: roll },
-        }))
-        return roll
-      },
+  const actions = useMemo<DiceActions>(() => {
+    const rollHere = async (request: RollRequest, alsoWrite?: AlsoWrite) => {
+      if (uid === null) throw new Error('Signed out')
+      const result = await rollDice(db, { ...request, by: uid, style }, undefined, alsoWrite)
+      const { roll } = result
+      setRolledHere((current) => new Set([...current, roll.id]))
+      setTracking((current) => ({
+        ...current,
+        freshness: { ...current.freshness, fresh: roll },
+      }))
+      return result
+    }
+    return {
+      roll: async (request) => (await rollHere(request)).roll,
+      rollWith: rollHere,
       setDiceStyle: (next) =>
         uid === null ? Promise.reject(new Error('Signed out')) : setDiceStyle(db, uid, next),
       loadOlder: () => setCount((current) => current + ROLLS_PAGE),
-    }),
-    [uid, style],
-  )
+    }
+  }, [uid, style])
 
   const fresh = tracking.freshness.fresh
   const value = useMemo<DiceContextValue>(

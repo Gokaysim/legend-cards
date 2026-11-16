@@ -1,19 +1,24 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router'
 
 import { Button } from '@/components/ui/Button'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Spinner } from '@/components/ui/Spinner'
+import { TabList, TabPanel } from '@/components/ui/TabList'
 import { useAuth } from '@/features/auth/authContext'
+import { combatToSwitchFor, markSwitchedFor } from '@/features/combat/asking'
+import { useCombat } from '@/features/combat/combatContext'
+import { InitiativeTab } from '@/features/combat/InitiativeTab'
 import { profileName, useCurrentProfile, useProfiles } from '@/features/users/usersContext'
-import { cn } from '@/lib/cn'
 
 import { useDiceDeviceSettings, useLastSeen } from './deviceSettings'
 import { useDiceActions, useDiceRolls, useFreshRoll } from './diceContext'
+import { DiceSettingsDialog } from './DiceSettingsDialog'
+import { DICE_TAB_PARAM, DICE_TABS, type DiceTab, diceTabOf, diceTabValue } from './diceTabs'
 import { DiceView } from './DiceView'
 import { RollEntry } from './RollEntry'
 import { RollForm } from './RollForm'
-import { DEFAULT_DICE_STYLE, DICE_STYLE_LABELS, DICE_STYLES, type DiceRoll } from './schema'
-import { previewUrl } from './stage/previews'
+import { DEFAULT_DICE_STYLE, type DiceRoll } from './schema'
 
 /** What the strip shows: a roll, playing or at rest, and a key that restarts its playback. */
 type StripState = { roll: DiceRoll; playing: boolean; key: number }
@@ -31,9 +36,10 @@ function LiveMark() {
 }
 
 /**
- * The Zarlar screen in the V2 · Sohbet layout (design D10 of dice-channel): the strip where the newest roll tumbles,
- * the channel below it like a chat, the roll form, and a side column with the user's dice style and this device's
- * settings. Opening it clears the menu's count of unseen rolls.
+ * The Zarlar screen (spec: dice-rolls, "The Zarlar screen"; design D8 of add-initiative-tracker): the wide strip where
+ * the newest roll tumbles, with the roll form below it, and a column with the "Kanal" and "İnisiyatif" tabs, kept in
+ * the URL. The dice style and this device's settings open in a dialog. Opening it clears the menu's count of unseen
+ * rolls. On a phone the strip, the form and the tabs are stacked in that order.
  */
 export function DicePage() {
   const auth = useAuth()
@@ -45,6 +51,35 @@ export function DicePage() {
   const profile = useCurrentProfile()
   const settings = useDiceDeviceSettings()
   const { markSeen } = useLastSeen(uid)
+  const combat = useCombat()
+  const ids = useId()
+  const [params, setParams] = useSearchParams()
+  const tab = diceTabOf(params.get(DICE_TAB_PARAM))
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const chooseTab = (next: DiceTab) => {
+    const search = new URLSearchParams(params)
+    const value = diceTabValue(next)
+    if (value === null) search.delete(DICE_TAB_PARAM)
+    else search.set(DICE_TAB_PARAM, value)
+    setParams(search)
+  }
+  const isCombatOpen = combat.status === 'ready' && combat.combat.phase !== 'idle'
+
+  // When the DM asks for initiative and one of the user's characters must roll, the screen opens the İnisiyatif tab,
+  // once per combat (design D8 of add-initiative-tracker).
+  const switchFor = combatToSwitchFor(combat, uid)
+  useEffect(() => {
+    if (switchFor === null) return
+    markSwitchedFor(switchFor)
+    setParams(
+      (current) => {
+        const search = new URLSearchParams(current)
+        search.set(DICE_TAB_PARAM, diceTabValue('initiative') ?? '')
+        return search
+      },
+      { replace: true },
+    )
+  }, [switchFor, setParams])
   const style =
     profile.status === 'ready' && profile.data ? profile.data.diceStyle : DEFAULT_DICE_STYLE
 
@@ -73,20 +108,53 @@ export function DicePage() {
   useLayoutEffect(() => {
     const box = channel.current
     if (box && isAtEnd.current) box.scrollTop = box.scrollHeight
-  }, [list.length])
+  }, [list.length, tab])
 
   const profileOf = (id: string) =>
     profiles.status === 'ready' ? profiles.data.find((candidate) => candidate.id === id) : undefined
   const stripName = shown ? profileOf(shown.roll.by) : undefined
 
+  const channelView = (
+    <div
+      ref={channel}
+      onScroll={(event) => {
+        const box = event.currentTarget
+        isAtEnd.current = box.scrollHeight - box.scrollTop - box.clientHeight < BOTTOM_SLACK
+      }}
+      className="max-h-120 overflow-y-auto lg:max-h-[calc(100dvh-13rem)]"
+    >
+      {rolls.status === 'loading' ? <Spinner /> : null}
+      {rolls.status === 'error' ? (
+        <p role="alert" className="text-sm text-danger-ink">
+          Atışlar yüklenemedi.
+        </p>
+      ) : null}
+      {rolls.status === 'ready' && rolls.hasOlder ? (
+        <div className="flex justify-center py-2">
+          <Button variant="ghost" onClick={actions.loadOlder}>
+            Daha eski atışlar
+          </Button>
+        </div>
+      ) : null}
+      {rolls.status === 'ready' && list.length === 0 ? (
+        <p className="py-4 text-center text-sm text-ink-muted">Kanal boş. İlk zarı sen at.</p>
+      ) : null}
+      <ol aria-label="Atışlar" className="flex flex-col gap-0.5">
+        {list.map((roll) => (
+          <RollEntry key={roll.id} roll={roll} roller={profileOf(roll.by)} onReplay={replay} />
+        ))}
+      </ol>
+    </div>
+  )
+
   return (
     <div className="flex flex-col gap-4">
       <PageHeader title="Zarlar" actions={<LiveMark />} />
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_17rem]">
-        <section aria-label="Kanal" className="flex min-w-0 flex-col gap-3">
+      <div className="grid gap-6 lg:grid-cols-[22rem_minmax(0,1fr)]">
+        <section aria-label="Zar tablası" className="flex min-w-0 flex-col gap-3">
           <div
             data-testid="dice-strip"
-            className="relative h-44 overflow-hidden rounded-2xl border border-line bg-pane"
+            className="relative h-56 overflow-hidden rounded-2xl border border-line bg-pane sm:h-72 lg:h-96"
           >
             {shown ? (
               <>
@@ -111,108 +179,52 @@ export function DicePage() {
                 Henüz zar atılmadı.
               </p>
             )}
+            <Button
+              variant="secondary"
+              onClick={() => setIsSettingsOpen(true)}
+              className="absolute top-3 right-3"
+            >
+              <span aria-hidden="true">🎲</span> Zar stili
+            </Button>
           </div>
-
-          <div
-            ref={channel}
-            onScroll={(event) => {
-              const box = event.currentTarget
-              isAtEnd.current = box.scrollHeight - box.scrollTop - box.clientHeight < BOTTOM_SLACK
-            }}
-            className="max-h-120 overflow-y-auto"
-          >
-            {rolls.status === 'loading' ? <Spinner /> : null}
-            {rolls.status === 'error' ? (
-              <p role="alert" className="text-sm text-danger-ink">
-                Atışlar yüklenemedi.
-              </p>
-            ) : null}
-            {rolls.status === 'ready' && rolls.hasOlder ? (
-              <div className="flex justify-center py-2">
-                <Button variant="ghost" onClick={actions.loadOlder}>
-                  Daha eski atışlar
-                </Button>
-              </div>
-            ) : null}
-            {rolls.status === 'ready' && list.length === 0 ? (
-              <p className="py-4 text-center text-sm text-ink-muted">Kanal boş. İlk zarı sen at.</p>
-            ) : null}
-            <ol aria-label="Atışlar" className="flex flex-col gap-0.5">
-              {list.map((roll) => (
-                <RollEntry
-                  key={roll.id}
-                  roll={roll}
-                  roller={profileOf(roll.by)}
-                  onReplay={replay}
-                />
-              ))}
-            </ol>
-          </div>
-
           <RollForm style={style} />
         </section>
 
-        <aside
-          aria-label="Zar ayarları"
-          className="flex flex-col gap-6 rounded-2xl border border-line bg-sidebar p-5"
+        <section
+          aria-label="Kanal ve inisiyatif"
+          className="flex min-w-0 flex-col gap-3 lg:order-first"
         >
-          <section aria-labelledby="dice-style-heading">
-            <h2 id="dice-style-heading" className="mb-3 text-sm font-semibold text-ink">
-              Zar stilin
-            </h2>
-            <div className="grid grid-cols-4 gap-2">
-              {DICE_STYLES.map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  aria-pressed={option === style}
-                  onClick={() => {
-                    actions.setDiceStyle(option).catch(() => undefined)
-                  }}
-                  className={cn(
-                    'flex flex-col items-center gap-0.5 rounded-lg border-2 border-transparent bg-pane px-0.5 py-1.5 text-xs text-ink-muted',
-                    option === style && 'border-gold bg-pane-raised text-ink',
-                  )}
-                >
-                  <img src={previewUrl(option, 'd20')} alt="" className="size-9.5" />
-                  {DICE_STYLE_LABELS[option]}
-                </button>
-              ))}
-            </div>
-          </section>
-          <section aria-labelledby="dice-device-heading" className="flex flex-col gap-3 text-sm">
-            <h2 id="dice-device-heading" className="text-sm font-semibold text-ink">
-              Bu cihazda
-            </h2>
-            <label className="flex items-center gap-2 text-ink-muted">
-              <input
-                type="checkbox"
-                checked={settings.showRolls}
-                onChange={(event) => settings.setShowRolls(event.target.checked)}
-                className="size-4.5 accent-gold"
-              />
-              Atışları göster
-            </label>
-            <label className="flex items-center gap-2 text-ink-muted">
-              <input
-                type="checkbox"
-                checked={settings.sound}
-                onChange={(event) => {
-                  settings.setSound(event.target.checked)
-                  // The switch's own click may wake the audio: browsers start it only after a gesture.
-                  if (event.target.checked) {
-                    import('./stage/audio')
-                      .then((audio) => audio.prepareSounds())
-                      .catch(() => undefined)
-                  }
-                }}
-                className="size-4.5 accent-gold"
-              />
-              Zar sesi
-            </label>
-          </section>
-        </aside>
+          <TabList
+            tabs={DICE_TABS.map(({ id, label }) => ({
+              id,
+              label:
+                id === 'initiative' && isCombatOpen ? (
+                  <>
+                    {label}
+                    <span
+                      aria-label="savaş açık"
+                      role="img"
+                      className="ml-1.5 inline-block size-2 rounded-full bg-cursed"
+                    />
+                  </>
+                ) : (
+                  label
+                ),
+            }))}
+            selected={tab}
+            onChange={chooseTab}
+            label="Zar ekranı"
+            idPrefix={ids}
+            tabClassName="flex-1"
+          />
+          <TabPanel idPrefix={ids} selected={tab}>
+            {tab === 'channel' ? channelView : <InitiativeTab />}
+          </TabPanel>
+        </section>
       </div>
+      {isSettingsOpen ? (
+        <DiceSettingsDialog style={style} onClose={() => setIsSettingsOpen(false)} />
+      ) : null}
     </div>
   )
 }

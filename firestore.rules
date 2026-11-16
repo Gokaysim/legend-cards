@@ -86,6 +86,22 @@ service cloud.firestore {
       return /databases/$(database)/documents/dmRolls/$(rollId);
     }
 
+    function combatPath() {
+      return /databases/$(database)/documents/combat/main;
+    }
+
+    function combatantPath(combatantId) {
+      return /databases/$(database)/documents/combatants/$(combatantId);
+    }
+
+    function dmCombatantPath(combatantId) {
+      return /databases/$(database)/documents/dmCombatants/$(combatantId);
+    }
+
+    function combatChangePath(changeId) {
+      return /databases/$(database)/documents/combatChanges/$(changeId);
+    }
+
     // Definition statuses (spec: definition-editing). A player reads only active and retired definitions; a draft
     // reaches the DM only. Keep in step with src/features/definitions/status.ts.
     function playerVisible(status) {
@@ -254,6 +270,12 @@ service cloud.firestore {
           : value.matches('[0-9]+') ? amount == int(value)
           : value.lower() == 'd6' ? amount >= 1 && amount <= 6
           : true);
+    }
+
+    // An initiative modifier: a whole number from -10 to +30 (spec: initiative-tracker, "The initiative modifier").
+    // Keep in step with CHARACTER_LIMITS and COMBAT_LIMITS.
+    function validInitiativeModifier(value) {
+      return value is int && value >= -10 && value <= 30;
     }
 
     // True when the signed-in user's profile says DM. Reads the profile once per request (cached after that).
@@ -2083,16 +2105,18 @@ service cloud.firestore {
         && exists(userPath(request.resource.data.uid));
       allow update: if isSignedIn()
         && (isSelf(resource.data.uid) || isDm())
-        && onlyChanges(['name', 'picture', 'archived'])
+        && onlyChanges(['name', 'picture', 'archived', 'initiativeModifier'])
         && validCharacter(request.resource.data);
       allow delete: if false;
 
-      // Exactly the stored fields, a name of 1 to 40 characters, and no photo or one of this very character's.
-      // Keep in step with src/features/characters/schema.ts.
+      // Exactly the stored fields, a name of 1 to 40 characters, no photo or one of this very character's, and
+      // optionally the initiative modifier it last rolled with, a whole number from -10 to +30 (spec: characters,
+      // "Valid character records"). Keep in step with src/features/characters/schema.ts.
       function validCharacter(data) {
         let fields = ['uid', 'name', 'picture', 'archived', 'createdAt', 'createdBy'];
-        return data.keys().hasOnly(fields)
+        return data.keys().hasOnly(fields.concat(['initiativeModifier']))
           && data.keys().hasAll(fields)
+          && (!('initiativeModifier' in data) || validInitiativeModifier(data.initiativeModifier))
           && data.uid is string
           && textOfSize(data.name, 40)
           && data.archived is bool
@@ -2306,6 +2330,266 @@ service cloud.firestore {
         && createdNow(diceRollPath(rollId))
         && getAfter(diceRollPath(rollId)).data.hidden == true;
       allow update, delete: if false;
+    }
+
+    // The one combat (spec: initiative-tracker; design D1, D5-D7 of add-initiative-tracker). Everyone signed in reads
+    // it. Only the DM opens it (only from idle, so there is one combat at a time), starts the fight, changes the order,
+    // the turn and the round, and ends it. A player only moves the turn on by one place while the active combatant is
+    // their own character. Keep in step with src/features/combat/schema.ts and api.ts.
+    match /combat/main {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && validCombat(request.resource.data) && opensCombat(null) && isDm();
+      allow update: if isSignedIn()
+        && validCombat(request.resource.data)
+        && ((isDm()
+            && ((resource.data.phase == 'idle' && opensCombat(resource.data.changeId))
+              || startsFight()
+              || changesFight()
+              || endsCombat()))
+          || endsOwnTurn());
+      allow delete: if false;
+
+      function combatKeys() {
+        return ['phase', 'combatId', 'order', 'turn', 'round', 'askedAt', 'turnAt', 'changeId'];
+      }
+
+      function validCombat(data) {
+        return data.keys().hasOnly(combatKeys())
+          && data.keys().hasAll(combatKeys())
+          && data.phase in ['idle', 'gathering', 'running']
+          && (data.combatId == null || (data.combatId is string && data.combatId.size() > 0))
+          && data.order is list
+          && data.order.size() <= 50
+          && data.turn is int
+          && data.turn >= 0
+          && data.round is int
+          && data.round >= 0
+          && (data.askedAt == null || data.askedAt is timestamp)
+          && (data.turnAt == null || data.turnAt is timestamp)
+          && (data.changeId == null || data.changeId is string);
+      }
+
+      // "Modifier iste": a new combat, waiting for rolls, with its last change record kept.
+      function opensCombat(changeIdBefore) {
+        let next = request.resource.data;
+        return next.phase == 'gathering'
+          && next.combatId is string
+          && next.order.size() == 0
+          && next.turn == 0
+          && next.round == 0
+          && next.askedAt == request.time
+          && next.turnAt == null
+          && next.changeId == changeIdBefore;
+      }
+
+      // "Başlat": from gathering to round 1 with a fixed order, together with its start record.
+      function startsFight() {
+        let next = request.resource.data;
+        return resource.data.phase == 'gathering'
+          && next.phase == 'running'
+          && next.combatId == resource.data.combatId
+          && next.order.size() >= 1
+          && next.turn == 0
+          && next.round == 1
+          && next.askedAt == resource.data.askedAt
+          && next.turnAt == request.time
+          && next.changeId is string
+          && createdNow(combatChangePath(next.changeId))
+          && getAfter(combatChangePath(next.changeId)).data.step == 'start';
+      }
+
+      // The DM's steps while the fight runs: the order, the turn and the round. The time changes with the turn.
+      function changesFight() {
+        let next = request.resource.data;
+        return resource.data.phase == 'running'
+          && next.phase == 'running'
+          && onlyChanges(['order', 'turn', 'round', 'turnAt'])
+          && next.round >= 1
+          && (next.order.size() == 0 ? next.turn == 0 : next.turn < next.order.size())
+          && (next.turnAt == resource.data.turnAt || next.turnAt == request.time);
+      }
+
+      // "Bitir" or "Vazgeç": back to idle; a started fight gets its end record.
+      function endsCombat() {
+        let next = request.resource.data;
+        return resource.data.phase in ['gathering', 'running']
+          && next.phase == 'idle'
+          && next.combatId == null
+          && next.order.size() == 0
+          && next.turn == 0
+          && next.round == 0
+          && next.askedAt == null
+          && next.turnAt == null
+          && (resource.data.phase == 'gathering'
+            ? next.changeId == resource.data.changeId
+            : (next.changeId is string
+              && createdNow(combatChangePath(next.changeId))
+              && getAfter(combatChangePath(next.changeId)).data.step == 'end'));
+      }
+
+      // "Turumu bitirdim": exactly one place on, wrapping into the next round, by the active character's owner.
+      function endsOwnTurn() {
+        let next = request.resource.data;
+        let before = resource.data;
+        return before.phase == 'running'
+          && onlyChanges(['turn', 'round', 'turnAt'])
+          && next.turnAt == request.time
+          && before.order.size() > 0
+          && before.turn < before.order.size()
+          && get(combatantPath(before.order[before.turn])).data.kind == 'character'
+          && get(combatantPath(before.order[before.turn])).data.uid == request.auth.uid
+          && ((next.turn == before.turn + 1 && next.turn < before.order.size() && next.round == before.round)
+            || (before.turn == before.order.size() - 1 && next.turn == 0 && next.round == before.round + 1));
+      }
+    }
+
+    // The combatants of the open combat (design D1, D3 of add-initiative-tracker). Everyone signed in reads them.
+    // Only the DM adds and removes them: while gathering without a roll (an NPC may come with its DM record), and while
+    // the fight runs only by hand. The roll of a character is written once, while gathering, by its owner or the DM,
+    // together with the roll record that shows it. Only the DM marks an NPC as rolled, and clears a roll.
+    match /combatants/{combatantId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && validCombatant(request.resource.data)
+        && joinsCombat(request.resource.data)
+        && isDm();
+      allow update: if isSignedIn()
+        && validCombatant(request.resource.data)
+        && onlyChanges(['rolled', 'roll'])
+        && get(combatPath()).data.phase == 'gathering'
+        && get(combatPath()).data.combatId == resource.data.combatId
+        && (rollsCharacter() || (isDm() && (marksNpcRolled() || clearsRoll())));
+      allow delete: if isDm();
+
+      function combatantKeys() {
+        return ['combatId', 'kind', 'characterId', 'uid', 'name', 'seq', 'manual', 'rolled', 'roll'];
+      }
+
+      function validCombatant(data) {
+        return data.keys().hasOnly(combatantKeys())
+          && data.keys().hasAll(combatantKeys())
+          && data.combatId is string
+          && data.uid is string
+          && data.seq is int
+          && data.seq >= 0
+          && data.manual is bool
+          && data.rolled is bool
+          && ((data.kind == 'character'
+              && data.characterId is string
+              && data.name == null
+              && (data.roll == null || validCombatantRoll(data.roll)))
+            || (data.kind == 'npc'
+              && data.characterId == null
+              && textOfSize(data.name, 44)
+              && data.roll == null));
+      }
+
+      function validCombatantRoll(roll) {
+        return roll is map
+          && roll.keys().hasOnly(['rollId', 'die', 'modifier'])
+          && roll.keys().hasAll(['rollId', 'die', 'modifier'])
+          && roll.rollId is string
+          && roll.die is int
+          && roll.die >= 1
+          && roll.die <= 20
+          && validInitiativeModifier(roll.modifier);
+      }
+
+      // A new combatant of this combat: a stored character of its owner, or the DM's NPC. While gathering it has no
+      // roll, and an NPC may come rolled with its DM record; while the fight runs it is added by hand.
+      function joinsCombat(data) {
+        let combat = getAfter(combatPath()).data;
+        return data.combatId == combat.combatId
+          && (data.kind == 'npc'
+            ? data.uid == request.auth.uid
+            : (exists(characterPath(data.characterId))
+              && get(characterPath(data.characterId)).data.uid == data.uid))
+          && data.roll == null
+          && ((combat.phase == 'gathering'
+              && data.manual == false
+              && (data.rolled == false
+                || (data.kind == 'npc' && existsAfter(dmCombatantPath(combatantId)))))
+            || (combat.phase == 'running' && data.manual == true && data.rolled == false));
+      }
+
+      // A character's roll (design D3): its owner or the DM, once, matching the roll record of this same request.
+      function rollsCharacter() {
+        return resource.data.kind == 'character'
+          && resource.data.roll == null
+          && (resource.data.uid == request.auth.uid || isDm())
+          && request.resource.data.rolled == true
+          && request.resource.data.roll != null
+          && shownBy(request.resource.data.roll);
+      }
+
+      function shownBy(roll) {
+        let record = getAfter(diceRollPath(roll.rollId)).data;
+        return createdNow(diceRollPath(roll.rollId))
+          && record.by == request.auth.uid
+          && record.hidden == false
+          && record.mode == 'normal'
+          && record.dice.size() == 1
+          && record.dice[0].t == 'd20'
+          && record.dice[0].v == roll.die
+          && record.modifier == roll.modifier;
+      }
+
+      function marksNpcRolled() {
+        return resource.data.kind == 'npc'
+          && resource.data.rolled == false
+          && request.resource.data.rolled == true;
+      }
+
+      // "Yeniden attır".
+      function clearsRoll() {
+        return resource.data.rolled == true
+          && request.resource.data.rolled == false
+          && request.resource.data.roll == null;
+      }
+    }
+
+    // An NPC's roll and modifier (design D1, D4 of add-initiative-tracker): only the DM reads or writes them.
+    match /dmCombatants/{combatantId} {
+      allow read, delete: if isDm();
+      allow create, update: if isDm()
+        && request.resource.data.keys().hasOnly(['combatId', 'rollId', 'die', 'modifier'])
+        && request.resource.data.keys().hasAll(['combatId', 'rollId', 'die', 'modifier'])
+        && request.resource.data.combatId is string
+        && request.resource.data.rollId is string
+        && request.resource.data.die is int
+        && request.resource.data.die >= 1
+        && request.resource.data.die <= 20
+        && validInitiativeModifier(request.resource.data.modifier);
+    }
+
+    // Fight records for the log (spec: activity-log, "Combat change records"; design D7 of add-initiative-tracker): one
+    // when a fight starts, with its combatants, and one when it ends, with its round. Everyone signed in reads them.
+    // Only the DM creates one, together with the combat change it records. A record never changes and is never deleted.
+    match /combatChanges/{changeId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && validCombatChange() && isDm();
+      allow update, delete: if false;
+
+      function validCombatChange() {
+        let data = request.resource.data;
+        let before = get(combatPath()).data;
+        let after = getAfter(combatPath()).data;
+        return data.keys().hasOnly(['by', 'at', 'step', 'count'])
+          && data.keys().hasAll(['by', 'at', 'step', 'count'])
+          && data.by == request.auth.uid
+          && data.at == request.time
+          && data.count is int
+          && exists(combatPath())
+          && after.changeId == changeId
+          && ((data.step == 'start'
+              && before.phase == 'gathering'
+              && after.phase == 'running'
+              && data.count == after.order.size())
+            || (data.step == 'end'
+              && before.phase == 'running'
+              && after.phase == 'idle'
+              && data.count == before.round));
+      }
     }
 
     // Closed catch-all: anything no rule grants is denied, for signed-in and signed-out users alike.

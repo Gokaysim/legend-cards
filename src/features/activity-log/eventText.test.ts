@@ -600,6 +600,17 @@ describe('describing player draw mode changes', () => {
   })
 })
 
+describe('describing fights', () => {
+  it.each([
+    ['start', 6, 'savaşı başlattı: 6 katılımcı.'],
+    ['end', 5, 'savaşı bitirdi: 5 tur.'],
+  ] as const)('describes the %s', (step, count, text) => {
+    const change = { id: `f-${step}`, by: 'dm-1', at: Timestamp.fromMillis(1000), step, count }
+    const event = describeEvent(only({ combatChanges: [change] }), NAMES_OF)
+    expect(sentenceText(event)).toBe(text)
+  })
+})
+
 describe('describing set changes', () => {
   const setEvent = (change: Parameters<typeof testSetChange>[1]) =>
     describeEvent(only({ setChanges: [testSetChange(1000, change)] }), NAMES_OF)

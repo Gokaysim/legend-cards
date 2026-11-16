@@ -2,7 +2,7 @@ schema: spec-driven
 
 # Project context: constraints that guide OpenSpec artifacts and workflows.
 context: |
-  Legend Card Manager is a real-time tracker (not a game engine) for a DM's side card system in a D&D 5e group.
+  Legend Card Manager is a real-time tracker (not a game engine) for a DM's side card system in a D&D 3.5 group.
   Stack: React + strict TypeScript single-page app on Vite, Tailwind CSS v4, Firebase Auth (Google sign-in),
   Firestore with real-time listeners, Firebase Hosting.
   Write all artifacts, code, comments and docs in English. All user-facing interface text is Turkish;

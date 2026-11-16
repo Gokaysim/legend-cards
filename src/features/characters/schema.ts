@@ -8,6 +8,9 @@ import { InvalidDataError } from '@/lib/firestore/errors'
 /** A character's limits (spec: characters, "Character records"). Keep in step with `validCharacter` in `firestore.rules`. */
 export const CHARACTER_LIMITS = {
   name: 40,
+  /** The initiative modifier's range (spec: characters, "Valid character records"). */
+  initiativeModifierMin: -10,
+  initiativeModifierMax: 30,
 } as const
 
 export const CHARACTERS_COLLECTION = 'characters'
@@ -30,6 +33,13 @@ export const characterSchema = z.object({
   createdAt: serverTime,
   /** The user who added it: the owner or the DM. */
   createdBy: id,
+  /** The initiative modifier it last rolled with (spec: initiative-tracker); missing until its first roll. */
+  initiativeModifier: z
+    .number()
+    .int()
+    .min(CHARACTER_LIMITS.initiativeModifierMin)
+    .max(CHARACTER_LIMITS.initiativeModifierMax)
+    .optional(),
 })
 
 export type StoredCharacter = z.infer<typeof characterSchema>
