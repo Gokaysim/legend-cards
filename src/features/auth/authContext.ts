@@ -14,6 +14,8 @@ export type AuthUser = {
  * - `signedOut`: nobody is signed in
  * - `checking`: signed in to Google, while the app finds out whether the account is on the access list
  * - `noAccess`: signed in to Google with an account that is not on the access list; the app reads no table data
+ * - `checkFailed`: every try to check the access list failed (design D4 of retry-own-access-check); the app reads no
+ *   table data
  * - `signedIn`: signed in with an account on the access list. Only this state lets the app read table data.
  */
 export type AuthState =
@@ -21,12 +23,15 @@ export type AuthState =
   | { status: 'signedOut' }
   | { status: 'checking'; user: AuthUser }
   | { status: 'noAccess'; user: AuthUser }
+  | { status: 'checkFailed'; user: AuthUser }
   | { status: 'signedIn'; user: AuthUser }
 
 export type AuthActions = {
   /** Opens Google's account chooser in a popup. Rejects with the Firebase error if sign-in fails. */
   signInWithGoogle: () => Promise<void>
   signOut: () => Promise<void>
+  /** Checks the access list again at once, after every try failed (`checkFailed`). */
+  retryAccessCheck: () => void
 }
 
 export type AuthContextValue = AuthState & AuthActions

@@ -10,7 +10,7 @@ import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import { accessStatusOf, needsLink } from '@/features/access/accessStatus'
 import { linkOwnEntry } from '@/features/access/api'
 import { normalizeEmail } from '@/features/access/email'
-import { useOwnAccessEntry } from '@/features/access/useOwnAccessEntry'
+import { useOwnAccessCheck } from '@/features/access/useOwnAccessCheck'
 import { auth } from '@/lib/firebase/auth'
 import { db } from '@/lib/firebase/firestore'
 
@@ -36,9 +36,14 @@ async function signOut(): Promise<void> {
   await firebaseSignOut(auth)
 }
 
-/** The Firebase Auth session alone, before the access list is asked. */
+/**
+ * The Firebase Auth session alone, before the access list is asked. `emailVerified` stays out of `AuthUser`: only the
+ * access check needs it (design D3 of retry-own-access-check).
+ */
 type Session =
-  { status: 'loading' } | { status: 'signedOut' } | { status: 'signedIn'; user: AuthUser }
+  | { status: 'loading' }
+  | { status: 'signedOut' }
+  | { status: 'signedIn'; user: AuthUser; emailVerified: boolean }
 
 /**
  * Tracks the Firebase Auth session and the account's own access-list entry, and provides the result through
@@ -52,17 +57,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(
     () =>
       onAuthStateChanged(auth, (user) => {
-        setSession(user ? { status: 'signedIn', user: toAuthUser(user) } : { status: 'signedOut' })
+        setSession(
+          user
+            ? { status: 'signedIn', user: toAuthUser(user), emailVerified: user.emailVerified }
+            : { status: 'signedOut' },
+        )
       }),
     [],
   )
 
+  // Without a verified address the rules deny reading the own entry every time, so the app does not ask: the account
+  // is not on the list (design D3 of retry-own-access-check).
   const user = session.status === 'signedIn' ? session.user : null
-  const email = user?.email ? normalizeEmail(user.email) : null
-  const entry = useOwnAccessEntry(email)
+  const verified = session.status === 'signedIn' && session.emailVerified
+  const email = user?.email && verified ? normalizeEmail(user.email) : null
+  const { entry, failed, retry } = useOwnAccessCheck(email)
 
   // The state changes only when the access status does, not on every snapshot of the entry.
-  const access = email ? accessStatusOf(entry) : 'noAccess'
+  const access = email ? (failed ? 'checkFailed' : accessStatusOf(entry)) : 'noAccess'
   const state = useMemo<AuthState>(() => {
     if (session.status !== 'signedIn') return session
     switch (access) {
@@ -70,6 +82,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { status: 'checking', user: session.user }
       case 'noAccess':
         return { status: 'noAccess', user: session.user }
+      case 'checkFailed':
+        return { status: 'checkFailed', user: session.user }
       case 'member':
         return { status: 'signedIn', user: session.user }
     }
@@ -86,7 +100,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })
   }, [shouldLink, uid, email])
 
-  const value = useMemo<AuthContextValue>(() => ({ ...state, signInWithGoogle, signOut }), [state])
+  const value = useMemo<AuthContextValue>(
+    () => ({ ...state, signInWithGoogle, signOut, retryAccessCheck: retry }),
+    [state, retry],
+  )
 
   return <AuthContext value={value}>{children}</AuthContext>
 }

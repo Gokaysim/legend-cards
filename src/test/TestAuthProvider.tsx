@@ -6,6 +6,7 @@ export type TestAuthProviderProps = {
   state: AuthState
   signInWithGoogle?: () => Promise<void>
   signOut?: () => Promise<void>
+  retryAccessCheck?: () => void
   children: ReactNode
 }
 
@@ -14,7 +15,12 @@ export function TestAuthProvider({
   state,
   signInWithGoogle = () => Promise.resolve(),
   signOut = () => Promise.resolve(),
+  retryAccessCheck = () => {},
   children,
 }: TestAuthProviderProps) {
-  return <AuthContext value={{ ...state, signInWithGoogle, signOut }}>{children}</AuthContext>
+  return (
+    <AuthContext value={{ ...state, signInWithGoogle, signOut, retryAccessCheck }}>
+      {children}
+    </AuthContext>
+  )
 }

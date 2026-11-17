@@ -31,14 +31,17 @@ describe('accessStatusOf', () => {
     expect(accessStatusOf(ready(null, { fromCache: true }))).toBe('checking')
   })
 
-  it('has no access when the server says there is no entry, or the read fails', () => {
+  it('has no access when the server says there is no entry', () => {
     expect(accessStatusOf(ready(null))).toBe('noAccess')
+  })
+
+  it('is still checking when the read fails, which is never an answer (retry-own-access-check)', () => {
     expect(
       accessStatusOf({
         status: 'error',
         error: { kind: 'permission-denied', message: 'denied', path: 'allowedEmails/x' },
       }),
-    ).toBe('noAccess')
+    ).toBe('checking')
   })
 })
 

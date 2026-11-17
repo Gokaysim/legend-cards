@@ -31,19 +31,21 @@ function renderAt(
   state: AuthState,
   signInWithGoogle?: () => Promise<void>,
   signOut?: () => Promise<void>,
+  retryAccessCheck?: () => void,
 ) {
   const router = createRouter(initialPath)
-  const view = render(
-    <TestAuthProvider state={state} signInWithGoogle={signInWithGoogle} signOut={signOut}>
+  const provide = (current: AuthState) => (
+    <TestAuthProvider
+      state={current}
+      signInWithGoogle={signInWithGoogle}
+      signOut={signOut}
+      retryAccessCheck={retryAccessCheck}
+    >
       <RouterProvider router={router} />
-    </TestAuthProvider>,
+    </TestAuthProvider>
   )
-  const setAuth = (next: AuthState) =>
-    view.rerender(
-      <TestAuthProvider state={next} signInWithGoogle={signInWithGoogle} signOut={signOut}>
-        <RouterProvider router={router} />
-      </TestAuthProvider>,
-    )
+  const view = render(provide(state))
+  const setAuth = (next: AuthState) => view.rerender(provide(next))
   return { router, setAuth }
 }
 
@@ -196,6 +198,58 @@ describe('accounts that are not on the access list', () => {
     const user = userEvent.setup()
     const signOut = vi.fn(() => Promise.resolve())
     const { setAuth } = renderAt('/library', noAccess, undefined, signOut)
+
+    await user.click(screen.getByRole('button', { name: 'Çıkış yap' }))
+    expect(signOut).toHaveBeenCalledTimes(1)
+    setAuth({ status: 'signedOut' })
+    expect(signInButton()).toBeInTheDocument()
+  })
+})
+
+// Spec: user-auth, "Access check failure screen" and "The 'ekli değil' screen" (retry-own-access-check).
+describe('a failed access check', () => {
+  const checkFailed: AuthState = { status: 'checkFailed', user: testUser }
+  const retryButton = () => screen.getByRole('button', { name: 'Tekrar dene' })
+
+  it('shows the address and says access could not be checked, never "ekli değil"', () => {
+    const { router } = renderAt('/library', checkFailed)
+
+    expect(screen.getByText(testUser.email ?? '')).toBeInTheDocument()
+    expect(screen.getByText(/için masaya erişim şu an kontrol edilemedi\./)).toBeInTheDocument()
+    expect(retryButton()).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Çıkış yap' })).toBeInTheDocument()
+    expect(screen.queryByText(/ekli değil/)).not.toBeInTheDocument()
+    expect(screen.queryByText('Kütüphane ekranı')).not.toBeInTheDocument()
+    expect(router.state.location.pathname).toBe('/library')
+  })
+
+  it('shows the screen after a sign-in from the sign-in screen too', () => {
+    renderAt('/sign-in', checkFailed)
+
+    expect(retryButton()).toBeInTheDocument()
+    expect(screen.queryByText(/ekli değil/)).not.toBeInTheDocument()
+  })
+
+  it('checks again on "Tekrar dene", shows the loading state, and enters at the screen asked for', async () => {
+    const user = userEvent.setup()
+    const retry = vi.fn()
+    const { router, setAuth } = renderAt('/library', checkFailed, undefined, undefined, retry)
+
+    await user.click(retryButton())
+    expect(retry).toHaveBeenCalledTimes(1)
+
+    setAuth({ status: 'checking', user: testUser })
+    expect(screen.getByRole('status')).toHaveTextContent('Yükleniyor')
+
+    setAuth({ status: 'signedIn', user: testUser })
+    expect(await screen.findByText('Kütüphane ekranı')).toBeInTheDocument()
+    expect(router.state.location.pathname).toBe('/library')
+  })
+
+  it('signs out, which shows the sign-in screen', async () => {
+    const user = userEvent.setup()
+    const signOut = vi.fn(() => Promise.resolve())
+    const { setAuth } = renderAt('/library', checkFailed, undefined, signOut)
 
     await user.click(screen.getByRole('button', { name: 'Çıkış yap' }))
     expect(signOut).toHaveBeenCalledTimes(1)

@@ -33,6 +33,9 @@ const access = vi.hoisted(() => {
       }
     },
     emails: [] as (string | null)[],
+    /** What the hook reports as `failed`. */
+    failed: false,
+    retry: vi.fn(),
     linkOwnEntry: vi.fn((_db: unknown, _user: { uid: string; email: string }) =>
       Promise.resolve('linked' as const),
     ),
@@ -53,20 +56,30 @@ vi.mock('firebase/auth', () => ({
   signOut: firebaseAuth.signOut,
 }))
 vi.mock('@/features/access/api', () => ({ linkOwnEntry: access.linkOwnEntry }))
-vi.mock('@/features/access/useOwnAccessEntry', async () => {
+vi.mock('@/features/access/useOwnAccessCheck', async () => {
   const { useSyncExternalStore } = await import('react')
   return {
-    useOwnAccessEntry: (email: string | null) => {
+    useOwnAccessCheck: (email: string | null) => {
       access.emails.push(email)
       const entry = useSyncExternalStore(access.subscribe, access.get)
       return email
-        ? entry
-        : { status: 'ready', data: null, fromCache: false, hasPendingWrites: false }
+        ? { entry, failed: access.failed, retry: access.retry }
+        : {
+            entry: { status: 'ready', data: null, fromCache: false, hasPendingWrites: false },
+            failed: false,
+            retry: access.retry,
+          }
     },
   }
 })
 
-const GOKAY = { uid: 'u1', displayName: 'Gökay', email: 'Gokay@Example.com', photoURL: null }
+const GOKAY = {
+  uid: 'u1',
+  displayName: 'Gökay',
+  email: 'Gokay@Example.com',
+  emailVerified: true,
+  photoURL: null,
+}
 
 function emitUser(user: Partial<User> | null) {
   act(() => {
@@ -116,6 +129,7 @@ beforeEach(() => {
   firebaseAuth.listener = null
   access.set({ status: 'loading' })
   access.emails.length = 0
+  access.failed = false
   vi.clearAllMocks()
 })
 
@@ -161,6 +175,32 @@ describe('AuthProvider', () => {
     expect(screen.getByText('noAccess:Gökay')).toBeInTheDocument()
   })
 
+  it('does not follow the entry of an account without a verified address, and has no access', () => {
+    renderProbe()
+    emitUser({ ...GOKAY, emailVerified: false })
+
+    expect(access.emails.at(-1)).toBeNull()
+    expect(screen.getByText('noAccess:Gökay')).toBeInTheDocument()
+  })
+
+  it('reports a failed check as checkFailed, never as noAccess (retry-own-access-check)', () => {
+    access.failed = true
+    renderProbe()
+    emitUser(GOKAY)
+
+    expect(screen.getByText('checkFailed:Gökay')).toBeInTheDocument()
+  })
+
+  it('checks the access list again through retryAccessCheck', () => {
+    const { result } = renderHook(() => useAuth(), { wrapper: AuthProvider })
+
+    act(() => {
+      result.current.retryAccessCheck()
+    })
+
+    expect(access.retry).toHaveBeenCalledTimes(1)
+  })
+
   it('lets the account in when the DM adds the address, and out when the DM removes it', () => {
     renderProbe()
     emitUser(GOKAY)
@@ -195,6 +235,14 @@ describe('AuthProvider', () => {
       emitUser(GOKAY)
       setEntry(fromServer(entry('u1')))
       setEntry(fromServer(null))
+      expect(access.linkOwnEntry).not.toHaveBeenCalled()
+    })
+
+    it('writes nothing while the check has failed', () => {
+      access.failed = true
+      renderProbe()
+      emitUser(GOKAY)
+      setEntry(fromServer(entry()))
       expect(access.linkOwnEntry).not.toHaveBeenCalled()
     })
 
