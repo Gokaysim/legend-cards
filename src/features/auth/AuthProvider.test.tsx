@@ -338,7 +338,7 @@ describe('AuthProvider', () => {
         reason: 'serverMissing',
         entryId: 'gokay@example.com',
         serverRead: 'pending',
-        buildId: 'dev',
+        buildId: __BUILD_ID__,
       })
       await vi.waitFor(() => {
         expect(diagnosisShown()).toMatchObject({ serverRead: 'exists' })
@@ -364,7 +364,7 @@ describe('AuthProvider', () => {
         reason: 'unverified',
         entryId: null,
         serverRead: 'skipped',
-        buildId: 'dev',
+        buildId: __BUILD_ID__,
       })
 
       emitUser({ ...GOKAY, email: null })
