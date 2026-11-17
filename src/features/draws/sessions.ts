@@ -1,4 +1,5 @@
-import { CURSED_BACK, NEUTRAL_BACK, type SpreadBack } from '@/features/art/spreadBack'
+import { cardBack, CURSED_BACK, NEUTRAL_BACK, type SpreadBack } from '@/features/art/spreadBack'
+import type { Card } from '@/features/cards/schema'
 
 import type { StoredDrawSession } from './schema'
 
@@ -25,17 +26,30 @@ export function sessionState(
 }
 
 /**
- * The back of a session's card at `index` (spec: card-draws, "The deck's back"): the Cursed back in a Cursed session,
- * the set's cardback for a draw made with the DM's set filter, and the neutral back otherwise. It never depends on
- * the card.
+ * The back of the deck when the card at `index` was drawn (spec: card-draws, "The deck's back"): the Cursed back in a
+ * Cursed session, the set's cardback for a draw made with a set filter (`backSet`), and the neutral back otherwise. A
+ * watching view's deck shows it for the latest draw.
  */
-export function sessionBack(
+export function sessionDeckBack(
   session: Pick<StoredDrawSession, 'kind' | 'draws'>,
   index: number,
 ): SpreadBack {
   if (session.kind === 'cursed') return CURSED_BACK
   const backSet = session.draws[index]?.backSet ?? null
   return backSet === null ? NEUTRAL_BACK : { kind: 'set', setCode: backSet }
+}
+
+/**
+ * The back of a session's face-down card (spec: card-images, "Cardbacks of face-down cards"; design D2 of
+ * `show-set-art-on-draws-and-library`): the Cursed back in a Cursed session, and in a random one the card's own back.
+ * While the card is not loaded, the neutral back.
+ */
+export function sessionCardBack(
+  session: Pick<StoredDrawSession, 'kind'>,
+  card: Pick<Card, 'kind' | 'setCode'> | undefined,
+): SpreadBack {
+  if (session.kind === 'cursed') return CURSED_BACK
+  return card === undefined ? NEUTRAL_BACK : cardBack(card)
 }
 
 /** Whether the card at `index` is face up: turned, or every card once the session has ended. */

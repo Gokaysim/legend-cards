@@ -9,7 +9,7 @@ import { useNow } from '@/lib/useNow'
 import { useDrawActions, useDrawSessions } from './drawsContext'
 import { LiveDrawDialog } from './LiveDrawDialog'
 import type { DrawSession } from './schema'
-import { isSessionCardUp, SESSION_TICK_MS, sessionBack, sessionState } from './sessions'
+import { isSessionCardUp, sessionCardBack, SESSION_TICK_MS, sessionState } from './sessions'
 import { type ProfileOf, sessionTitle } from './sessionText'
 import { LiveBanner } from './table/LiveBanner'
 
@@ -69,12 +69,15 @@ export function LiveDrawView() {
       <LiveBanner
         key={session.id}
         text={`${sessionTitle(session, profileOf, 'open')} · ${session.draws.length} kart · ${up} açık`}
-        cards={session.draws.map((entry, index) => ({
-          key: entry.drawId,
-          card: byCard?.get(entry.cardId),
-          isUp: isSessionCardUp(session, index, 'open'),
-          back: sessionBack(session, index),
-        }))}
+        cards={session.draws.map((entry, index) => {
+          const card = byCard?.get(entry.cardId)
+          return {
+            key: entry.drawId,
+            card,
+            isUp: isSessionCardUp(session, index, 'open'),
+            back: sessionCardBack(session, card),
+          }
+        })}
         onShow={() => setExpanded(session.id)}
         actions={
           isDm && me !== null ? (

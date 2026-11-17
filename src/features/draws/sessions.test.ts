@@ -1,10 +1,16 @@
 import { Timestamp } from 'firebase/firestore'
 import { describe, expect, it } from 'vitest'
 
-import { CURSED_BACK, NEUTRAL_BACK } from '@/features/art/spreadBack'
+import { BLESSED_BACK, CURSED_BACK, NEUTRAL_BACK } from '@/features/art/spreadBack'
 
 import type { StoredDrawSession } from './schema'
-import { isSessionCardUp, SESSION_STALE_MS, sessionBack, sessionState } from './sessions'
+import {
+  isSessionCardUp,
+  sessionCardBack,
+  sessionDeckBack,
+  SESSION_STALE_MS,
+  sessionState,
+} from './sessions'
 
 const LAST = 1_000_000
 
@@ -44,17 +50,42 @@ describe('sessionState', () => {
   })
 })
 
-describe('sessionBack', () => {
+describe('sessionDeckBack', () => {
   it('gives the neutral back without a set filter', () => {
-    expect(sessionBack(session, 0)).toEqual(NEUTRAL_BACK)
+    expect(sessionDeckBack(session, 0)).toEqual(NEUTRAL_BACK)
   })
 
   it("gives the set's back for a draw with the set filter", () => {
-    expect(sessionBack(session, 1)).toEqual({ kind: 'set', setCode: 'Kesqer' })
+    expect(sessionDeckBack(session, 1)).toEqual({ kind: 'set', setCode: 'Kesqer' })
   })
 
   it('gives the Cursed back in a Cursed session', () => {
-    expect(sessionBack({ ...session, kind: 'cursed' }, 0)).toEqual(CURSED_BACK)
+    expect(sessionDeckBack({ ...session, kind: 'cursed' }, 0)).toEqual(CURSED_BACK)
+  })
+})
+
+describe('sessionCardBack', () => {
+  it('gives the Cursed back in a Cursed session, whatever the card', () => {
+    expect(sessionCardBack({ kind: 'cursed' }, { kind: 'cursed', setCode: null })).toEqual(
+      CURSED_BACK,
+    )
+    expect(sessionCardBack({ kind: 'cursed' }, undefined)).toEqual(CURSED_BACK)
+  })
+
+  it('gives a Blessed card the Blessed back in a random session', () => {
+    expect(sessionCardBack(session, { kind: 'blessed', setCode: null })).toEqual(BLESSED_BACK)
+  })
+
+  it("gives a set card its set's back even when the draw had no set filter", () => {
+    expect(session.draws[0]?.backSet).toBeNull()
+    expect(sessionCardBack(session, { kind: 'normal', setCode: 'Kesqer' })).toEqual({
+      kind: 'set',
+      setCode: 'Kesqer',
+    })
+  })
+
+  it('gives the neutral back while the card is not loaded', () => {
+    expect(sessionCardBack(session, undefined)).toEqual(NEUTRAL_BACK)
   })
 })
 

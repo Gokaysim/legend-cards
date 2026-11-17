@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { ArtManifest } from '@/features/art/schema'
+import type { Card } from '@/features/cards/schema'
 import type { PackOpening } from '@/features/draws/schema'
 import { testArt, testPictureUrl } from '@/test/artFixtures'
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
@@ -43,19 +44,22 @@ function watch({
   actions = fakeActions(),
   art,
   sets,
+  cards = [],
 }: {
   viewer?: typeof bora
   pack?: PackOpening
   actions?: ReturnType<typeof fakeActions>
   art?: ArtManifest
   sets?: TestSets
+  /** More cards besides `CARDS`, Visions of Death and Second Wind. */
+  cards?: readonly Card[]
 } = {}) {
   const view = renderApp({
     art,
     sets,
     path: '/library',
     users: { currentProfile: ready(viewer), profiles: ready([ayla, viewer]) },
-    cards: { cards: ready([...CARDS, VISIONS, WIND]) },
+    cards: { cards: ready([...CARDS, VISIONS, WIND, ...cards]) },
     table: { openPackId: pack.status === 'open' ? pack.id : null },
     packs: { pack, actions },
   })
@@ -203,16 +207,39 @@ describe('the backs of a pack', () => {
     expect(packDialog().getAllByRole('img', { name: /: kapalı$/ })[0]).toHaveTextContent('✦')
   })
 
-  it('keeps the neutral back for a Golden Pack', () => {
-    const pack = testPack('ayla', {
-      packType: 'golden',
-      setCode: null,
-      offered: CARDS.map((card) => card.id),
-      cost: 4,
+  it('shows each card of a Golden Pack on its own back, in the dialog and in the banner', async () => {
+    // A Kesqer card, a Havenholm card without a cardback picture, and a Blessed card.
+    const harbor = testCard('Harbor Light', { setCode: 'Havenholm' })
+    const offered = [CARDS[0]?.id ?? '', harbor.id, WIND.id]
+    const { user } = watch({
+      pack: testPack('ayla', { packType: 'golden', setCode: null, offered, cost: 4 }),
+      art: BACKS,
+      sets: KESQER_WITH_BACK,
+      cards: [harbor],
     })
-    watch({ pack, art: BACKS })
 
-    expect(backPictures()).toEqual(Array(5).fill(undefined))
+    expect(backPictures()).toEqual([KESQER_BACK, undefined, '/art/backs/blessed.0123456789.webp'])
+
+    await user.click(packDialog().getByRole('button', { name: 'Küçült' }))
+    const pictures = within(screen.getByRole('status')).getByRole('list', { hidden: true })
+    expect([...pictures.querySelectorAll('img')].map((img) => img.getAttribute('src'))).toEqual([
+      KESQER_BACK,
+      '/art/backs/blessed.0123456789.webp',
+    ])
+  })
+
+  it("shows a set pack's cards on the set's cardback in the banner too", async () => {
+    const { user } = watch({
+      pack: testPack('ayla', { offered: CARDS.map((card) => card.id) }),
+      art: BACKS,
+      sets: KESQER_WITH_BACK,
+    })
+
+    await user.click(packDialog().getByRole('button', { name: 'Küçült' }))
+    const pictures = within(screen.getByRole('status')).getByRole('list', { hidden: true })
+    expect([...pictures.querySelectorAll('img')].map((img) => img.getAttribute('src'))).toEqual(
+      Array(5).fill(KESQER_BACK),
+    )
   })
 })
 

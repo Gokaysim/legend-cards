@@ -6,15 +6,16 @@ import { CardPicture } from '@/features/art/CardPicture'
 import { CSS_BACK_SHAPE, CSS_BACK_TONES } from '@/features/art/cssBack'
 import { type SpreadBack, spreadBackUrl } from '@/features/art/spreadBack'
 import { usePicture } from '@/features/art/usePicture'
+import { usePrefetchPicture } from '@/features/art/usePrefetchPicture'
 import type { Card } from '@/features/cards/schema'
 import { cn } from '@/lib/cn'
 
 import { LiveMark } from './LiveMark'
 
-/** One small card in the banner: its face once it is face up, its spread's back before. */
+/** One small card in the banner: its face once it is face up, its back before. */
 export type BannerCard = {
   key: string
-  /** The card, or `undefined` while it is not loaded. Never shown while face down. */
+  /** The card, or `undefined` while it is not loaded. Never shown while face down, though its picture is fetched. */
   card: Card | undefined
   isUp: boolean
   back: SpreadBack
@@ -49,7 +50,7 @@ export function LiveBanner({ text, cards, onShow, actions }: LiveBannerProps) {
                 {entry.isUp && entry.card ? (
                   <SmallFace card={entry.card} />
                 ) : (
-                  <SmallBack back={entry.back} />
+                  <SmallBack back={entry.back} card={entry.card} />
                 )}
               </li>
             ))}
@@ -87,9 +88,11 @@ function SmallFace({ card }: { card: Card }) {
   )
 }
 
-/** The spread's back: it tells nothing about the card under it. */
-function SmallBack({ back }: { back: SpreadBack }) {
-  const picture = usePicture(spreadBackUrl(useArt(), back))
+/** A face-down card's back. The card's picture, once the card is loaded, is fetched meanwhile for its face. */
+function SmallBack({ back, card }: { back: SpreadBack; card: Card | undefined }) {
+  const art = useArt()
+  const picture = usePicture(spreadBackUrl(art, back))
+  usePrefetchPicture(card === undefined ? null : art.pictureUrl(card.picture), true)
   return picture.src === null ? (
     <div
       data-testid="banner-back"

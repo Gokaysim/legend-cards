@@ -14,7 +14,7 @@ import { DeckPile } from './DeckPile'
 import { useDrawActions } from './drawsContext'
 import { FaceDownCard } from './FaceDownCard'
 import { DRAW_PRICE, type DrawSession } from './schema'
-import { isSessionCardUp, sessionBack, type SessionState } from './sessions'
+import { isSessionCardUp, sessionCardBack, sessionDeckBack, type SessionState } from './sessions'
 import { isPaidSession, nameFrom, type ProfileOf, sessionTitle } from './sessionText'
 import { DrawSpread } from './table/DrawSpread'
 import { DrawTable } from './table/DrawTable'
@@ -58,7 +58,7 @@ export function LiveDrawDialog({ session, state, profileOf, onClose }: LiveDrawD
     session.kind === 'cursed'
       ? CURSED_BACK
       : lastIndex >= 0
-        ? sessionBack(session, lastIndex)
+        ? sessionDeckBack(session, lastIndex)
         : NEUTRAL_BACK
 
   // The shocked pair for a Blessed card turned while this view is open, here or on another device.
@@ -133,7 +133,7 @@ export function LiveDrawDialog({ session, state, profileOf, onClose }: LiveDrawD
               <FaceDownCard
                 card={card}
                 position={index + 1}
-                back={sessionBack(session, index)}
+                back={sessionCardBack(session, card)}
                 isRevealed={isSessionCardUp(session, index, state)}
                 onReveal={() => {
                   actions.turnDrawCard(session.id, index).catch(() => undefined)

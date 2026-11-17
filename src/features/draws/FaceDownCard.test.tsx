@@ -1,10 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { CURSED_BACK, NEUTRAL_BACK, type SpreadBack } from '@/features/art/spreadBack'
-import { testArt } from '@/test/artFixtures'
+import { testArt, testPicturePath, testPictureUrl } from '@/test/artFixtures'
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 import { TestArtProvider } from '@/test/TestArtProvider'
 
@@ -245,5 +245,46 @@ describe('FaceDownCard magnifier', () => {
     )
 
     expect(screen.getByRole('button', { name: "Aboleth's Eyes: büyüt" })).toBeInTheDocument()
+  })
+})
+
+describe('FaceDownCard prefetch', () => {
+  const pictured = { ...eyes, picture: testPicturePath('card', eyes.id) }
+  const fetched: string[] = []
+
+  class FakeImage {
+    decoding = ''
+    set src(value: string) {
+      fetched.push(value)
+    }
+  }
+
+  afterEach(() => {
+    fetched.length = 0
+    vi.unstubAllGlobals()
+  })
+
+  it("fetches the face's picture while the card is face down, without rendering the face", () => {
+    vi.stubGlobal('Image', FakeImage)
+    const { container } = render(
+      <TestArtProvider>
+        <FaceDownCard card={pictured} position={1} back={NEUTRAL_BACK} />
+      </TestArtProvider>,
+    )
+
+    expect(fetched).toEqual([testPictureUrl(pictured.picture)])
+    expect(screen.queryByRole('article')).not.toBeInTheDocument()
+    expect(container.querySelector('img')).toBeNull()
+  })
+
+  it('fetches nothing for a card without a picture', () => {
+    vi.stubGlobal('Image', FakeImage)
+    render(
+      <TestArtProvider>
+        <FaceDownCard card={eyes} position={1} back={NEUTRAL_BACK} />
+      </TestArtProvider>,
+    )
+
+    expect(fetched).toEqual([])
   })
 })

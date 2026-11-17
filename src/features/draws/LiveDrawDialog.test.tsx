@@ -118,6 +118,27 @@ describe('LiveDrawDialog', () => {
     )
   })
 
+  it("shows a random draw's cards on their own backs, and the deck on the neutral back", () => {
+    const art = testArt({
+      cardbacks: {
+        Kesqer: '/art/backs/kesqer.0123456789.webp',
+        blessed: '/art/backs/blessed.0123456789.webp',
+      },
+    })
+    setup({ session: testSession('ayla', [WIND, EYES], 1000), art })
+
+    const [blessedBack, setBack] = faceDown()
+    expect(blessedBack?.querySelector('img')).toHaveAttribute(
+      'src',
+      '/art/backs/blessed.0123456789.webp',
+    )
+    expect(setBack?.querySelector('img')).toHaveAttribute(
+      'src',
+      '/art/backs/kesqer.0123456789.webp',
+    )
+    expect(screen.getByTestId('deck-pile')).toHaveAttribute('data-back', 'css-neutral')
+  })
+
   it('turns a card over when it is turned on another device', () => {
     const session = testSession('ayla', [EYES, RITE], 1000)
     const { update } = setup({ session })

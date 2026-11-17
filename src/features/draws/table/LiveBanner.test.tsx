@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { NEUTRAL_BACK, type SpreadBack } from '@/features/art/spreadBack'
 import { testArt, testPicturePath, testPictureUrl } from '@/test/artFixtures'
@@ -99,5 +99,28 @@ describe('LiveBanner', () => {
       'Göster',
       'Bitir',
     ])
+  })
+})
+
+describe('LiveBanner prefetch', () => {
+  const fetched: string[] = []
+
+  class FakeImage {
+    decoding = ''
+    set src(value: string) {
+      fetched.push(value)
+    }
+  }
+
+  afterEach(() => {
+    fetched.length = 0
+    vi.unstubAllGlobals()
+  })
+
+  it('fetches the pictures of the face-down cards it knows, and of no face-up card', () => {
+    vi.stubGlobal('Image', FakeImage)
+    renderBanner([card(EYES, true), card(RITE, false), card(undefined, false)])
+
+    expect(fetched).toEqual([testPictureUrl(RITE.picture)])
   })
 })

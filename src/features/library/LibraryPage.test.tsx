@@ -2,11 +2,14 @@ import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
+import { setMascotStem } from '@/features/art/artContext'
 import type { Card } from '@/features/cards/schema'
-import { ONLY_FROM_DM, testCard, testCursedCard } from '@/test/cardFixtures'
+import { testArt } from '@/test/artFixtures'
+import { ONLY_FROM_DM, testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 import { ready, testProfile } from '@/test/fixtures'
 import { testHolding } from '@/test/holdingFixtures'
 import { renderApp } from '@/test/renderApp'
+import { TEST_SETS_WITH_PICTURES } from '@/test/setFixtures'
 import { testTrueWord } from '@/test/trueWordFixtures'
 
 const eyes = testCard("Aboleth's Eyes")
@@ -297,5 +300,73 @@ describe('the Cursed tab', () => {
 
     expect(faces()).toEqual(['Hex'])
     expect(screen.getByRole('article', { name: 'Hex' })).toHaveTextContent('Elde: Ayla')
+  })
+})
+
+describe("the Kartlar tab's set Cardmaker", () => {
+  const ART = testArt({
+    mascots: {
+      cardmaker_lib: '/art/mascots/cardmaker_lib.0123456789.webp',
+      cardmaker_cursed: '/art/mascots/cardmaker_cursed.0123456789.webp',
+    },
+  })
+  // Every test set has a Cardmaker picture but Havenholm.
+  const SETS = TEST_SETS_WITH_PICTURES.map((set) =>
+    set.code === 'Havenholm' ? { ...set, mascot: null } : set,
+  )
+  const harbor = testCard('Harbor Light', { setCode: 'Havenholm' })
+  const wind = testBlessedCard('Second Wind')
+
+  function renderLibrary() {
+    const view = renderApp({
+      path: '/library',
+      art: ART,
+      users: { currentProfile: ready(player), profiles: ready([player]) },
+      cards: { cards: ready([eyes, harbor, wind, hex]) },
+      sets: { sets: ready(SETS) },
+    })
+    return { ...view, user: userEvent.setup() }
+  }
+
+  const headerMascot = () =>
+    screen
+      .getByRole('heading', { level: 1 })
+      .closest('header')
+      ?.querySelector('img[data-mascot]')
+      ?.getAttribute('data-mascot')
+  const chooseSet = (user: ReturnType<typeof userEvent.setup>, label: string) =>
+    user.selectOptions(screen.getByLabelText('Set'), label)
+
+  it("shows the chosen set's Cardmaker, and the tab's again for all sets", async () => {
+    const { user } = renderLibrary()
+    expect(headerMascot()).toBe('cardmaker_lib')
+
+    await chooseSet(user, 'Kesqerian Nights')
+    expect(headerMascot()).toBe(setMascotStem('Kesqer'))
+
+    await chooseSet(user, 'Tüm setler')
+    expect(headerMascot()).toBe('cardmaker_lib')
+  })
+
+  it("keeps the tab's Cardmaker for a set without one, and for Blessed", async () => {
+    const { user } = renderLibrary()
+
+    await chooseSet(user, 'Throne of Havenholm')
+    expect(headerMascot()).toBe('cardmaker_lib')
+
+    await chooseSet(user, 'Blessed')
+    expect(headerMascot()).toBe('cardmaker_lib')
+  })
+
+  it("shows the tab's Cardmaker again after another tab was opened", async () => {
+    const { user } = renderLibrary()
+    await chooseSet(user, 'Kesqerian Nights')
+
+    await user.click(tab(/^☠ Cursed/))
+    expect(headerMascot()).toBe('cardmaker_cursed')
+
+    await user.click(tab(/^♠ Kartlar/))
+    expect(headerMascot()).toBe('cardmaker_lib')
+    expect(screen.getByLabelText('Set')).toHaveValue('')
   })
 })

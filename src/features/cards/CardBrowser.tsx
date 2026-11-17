@@ -20,7 +20,7 @@ import { CardTable } from './CardTable'
 import { cardHaystack, cardMatchesQuery, NO_VALUE, setLabel } from './display'
 import { costChoices, hasCost } from './filters'
 import type { Definition } from './schema'
-import { setChoices } from './setChoices'
+import { BLESSED_SET_CHOICE, setChoices } from './setChoices'
 import {
   type CardSort,
   compareLabels,
@@ -168,6 +168,12 @@ export type CardBrowserProps<T extends Definition> = {
    * Kart geçmişi (spec: card-library, "History control on library faces").
    */
   linksHistory?: boolean
+  /**
+   * In the Kartlar tab: called with the code of the set the Set filter chooses, or `null` for "Tüm setler" and for
+   * Blessed, which is not a set. The Kütüphane shows the chosen set's Cardmaker (design D5 of
+   * `show-set-art-on-draws-and-library`).
+   */
+  onSetFilterChange?: (setCode: string | null) => void
 }
 
 /**
@@ -183,6 +189,7 @@ export function CardBrowser<T extends Definition>({
   statusFilter,
   onEdit,
   linksHistory = false,
+  onSetFilterChange,
 }: CardBrowserProps<T>) {
   const { texts } = SETUPS[deck]
   if (cards.status === 'loading') {
@@ -207,6 +214,7 @@ export function CardBrowser<T extends Definition>({
       statusFilter={statusFilter}
       onEdit={onEdit}
       linksHistory={linksHistory}
+      onSetFilterChange={onSetFilterChange}
     />
   )
 }
@@ -219,6 +227,7 @@ function LoadedCardBrowser<T extends Definition>({
   statusFilter,
   onEdit,
   linksHistory,
+  onSetFilterChange,
 }: Omit<CardBrowserProps<T>, 'cards' | 'linksHistory'> & { cards: T[]; linksHistory: boolean }) {
   const ids = useId()
   const setup = SETUPS[deck]
@@ -237,13 +246,16 @@ function LoadedCardBrowser<T extends Definition>({
     () => new Map(cards.map((card) => [card.id, cardHaystack(card, setName)])),
     [cards, setName],
   )
-  const sets = useMemo(
-    () =>
-      setup.hasSetFilters
-        ? setChoices(cards, setIndex, { withBlessed: true }).map((choice) => choice.label)
-        : [],
+  const setChoiceList = useMemo(
+    () => (setup.hasSetFilters ? setChoices(cards, setIndex, { withBlessed: true }) : []),
     [cards, setup, setIndex],
   )
+  const sets = useMemo(() => setChoiceList.map((choice) => choice.label), [setChoiceList])
+  const chooseSet = (label: string) => {
+    setSetFilter(label)
+    const code = setChoiceList.find((choice) => choice.label === label)?.code ?? null
+    onSetFilterChange?.(code === BLESSED_SET_CHOICE ? null : code)
+  }
   const mechanics = useMemo(
     () => (setup.hasSetFilters ? mechanicOptions(cards) : []),
     [cards, setup],
@@ -364,7 +376,7 @@ function LoadedCardBrowser<T extends Definition>({
         ) : null}
         {setup.hasSetFilters ? (
           <>
-            {select('Set', setFilter, setSetFilter, 'Tüm setler', sets)}
+            {select('Set', setFilter, chooseSet, 'Tüm setler', sets)}
             {select(
               'Mechanic Pack',
               mechanicFilter,

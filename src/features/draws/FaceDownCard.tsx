@@ -6,6 +6,7 @@ import { type SpreadBack, spreadBackUrl } from '@/features/art/spreadBack'
 import { CSS_BACK_SHAPE, CSS_BACK_TONES, type CssBackTone } from '@/features/art/cssBack'
 import { CssBackGlyph } from '@/features/art/NeutralCardBack'
 import { usePicture } from '@/features/art/usePicture'
+import { usePrefetchPicture } from '@/features/art/usePrefetchPicture'
 import { CardFace } from '@/features/cards/CardFace'
 import type { Card } from '@/features/cards/schema'
 import { cn } from '@/lib/cn'
@@ -14,7 +15,7 @@ export type FaceDownCardProps = {
   card: Card
   /** The card's place in the spread, from 1. */
   position: number
-  /** The spread's back, the same for each of its cards: it never depends on the card. */
+  /** The card's back: the spread's, or in a random draw and a Golden Pack the card's own (`cardBack`). */
   back: SpreadBack
   /**
    * Controlled mode: whether the card is face up, for a card whose state lives elsewhere (an open pack, turned on
@@ -30,8 +31,8 @@ export type FaceDownCardProps = {
 }
 
 /**
- * A drawn card, face down until it is selected. The back is the spread's cardback picture, or the CSS back without
- * one, and tells nothing about the card: the face is not rendered before the turn, and the back never glows. Selecting
+ * A drawn card, face down until it is selected. The back is the given cardback picture, or the CSS back without one.
+ * The face is not rendered before the turn, though its picture is fetched meanwhile, and the back never glows. Selecting
  * it turns it over to its face, which then stays revealed and glows in its kind's color; under
  * `prefers-reduced-motion` it switches without the turn.
  */
@@ -61,7 +62,11 @@ export function FaceDownCard({
     else setRevealedHere(true)
     onTurn?.()
   }
-  const picture = usePicture(spreadBackUrl(useArt(), back))
+  const art = useArt()
+  const picture = usePicture(spreadBackUrl(art, back))
+  // The face's picture loads while the card is face down, so the face shows it as the turn ends. The face itself is
+  // still not rendered before the turn.
+  usePrefetchPicture(art.pictureUrl(card.picture), !isRevealed)
   const tone: CssBackTone = back.kind === 'cursed' ? 'cursed' : 'neutral'
   const turnLabel = (className?: string) =>
     canTurn ? (

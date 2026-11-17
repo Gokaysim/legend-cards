@@ -614,28 +614,43 @@ describe('double-clicking a drawn card', () => {
 })
 
 describe('the backs of drawn cards', () => {
-  /** Every cardback has a picture, so a back that showed the card's own would show. */
+  /** The built cardbacks have pictures, and the stored sets have theirs (`TEST_SETS_WITH_PICTURES`). */
   const BACKS = testArt({
     cardbacks: {
-      Kesqer: '/art/backs/kesqer.0123456789.webp',
       blessed: '/art/backs/blessed.0123456789.webp',
       cursed: '/art/backs/cursed.0123456789.webp',
     },
   })
+  const KESQER_BACK = testPictureUrl(testPicturePath('set', 'kesqer'))
+  const deckBack = () => screen.getByTestId('deck-pile').getAttribute('data-back')
 
-  it("keeps the neutral back for a random draw's Blessed card, as for any other", async () => {
-    const { user } = setup({ cards: [WIND, EYES], art: BACKS })
+  it("shows a random draw's Blessed card on the Blessed back, and a set card on its set's", async () => {
+    const { user } = setup({ cards: [WIND, EYES], art: BACKS, sets: TEST_SETS_WITH_PICTURES })
     await user.click(control('🎲 Çek · 1 LP'))
     await user.click(control('🎲 Çek · 1 LP'))
 
-    const [blessedBack, normalBack] = backs()
-    expect(blessedBack?.querySelector('img')).toBeNull()
-    expect(blessedBack).toHaveTextContent('✦')
-    expect(blessedBack?.outerHTML.replace('Kart 1', 'Kart 2')).toBe(normalBack?.outerHTML)
+    const [blessedBack, setBack] = backs()
+    expect(blessedBack?.querySelector('img')).toHaveAttribute(
+      'src',
+      '/art/backs/blessed.0123456789.webp',
+    )
+    expect(setBack?.querySelector('img')).toHaveAttribute('src', KESQER_BACK)
+    expect(deckBack()).toBe('css-neutral')
   })
 
-  it("shows the chosen set's cardback on the deck and on the cards drawn under it", async () => {
-    const KESQER_BACK = testPictureUrl(testPicturePath('set', 'kesqer'))
+  it('shows the neutral back for a card whose back has no picture', async () => {
+    const { user } = setup({ cards: [WIND, EYES] })
+    await user.click(control('🎲 Çek · 1 LP'))
+    await user.click(control('🎲 Çek · 1 LP'))
+
+    const [blessedBack, setBack] = backs()
+    expect(blessedBack?.querySelector('img')).toBeNull()
+    expect(blessedBack).toHaveTextContent('✦')
+    expect(setBack?.querySelector('img')).toBeNull()
+  })
+
+  it("shows the chosen set's cardback on the deck, and each card's own back", async () => {
+    const HAVENHOLM_BACK = testPictureUrl(testPicturePath('set', 'havenholm'))
     // Test cards are of the set Kesqer unless they say otherwise.
     const harbor = testCard('Harbor Light', { setCode: 'Havenholm' })
     const { user } = setup({
@@ -644,7 +659,6 @@ describe('the backs of drawn cards', () => {
       art: BACKS,
       sets: TEST_SETS_WITH_PICTURES,
     })
-    const deckBack = () => screen.getByTestId('deck-pile').getAttribute('data-back')
 
     expect(deckBack()).toBe('css-neutral')
     await user.click(control('🎲 Çek'))
@@ -654,18 +668,18 @@ describe('the backs of drawn cards', () => {
     await user.click(control('🎲 Çek'))
 
     const [first, second] = backs()
-    expect(first?.querySelector('img')).toBeNull()
+    expect(first?.querySelector('img')).toHaveAttribute('src', HAVENHOLM_BACK)
     expect(second?.querySelector('img')).toHaveAttribute('src', KESQER_BACK)
   })
 
-  it('keeps the neutral back for a draw with only a rarity', async () => {
+  it("keeps the deck neutral for a draw with only a rarity, and shows the card's set back", async () => {
     const { user } = setup({ asDm: true, cards: [RITE], art: BACKS, sets: TEST_SETS_WITH_PICTURES })
     await user.click(pill(/^Rarity/))
     await user.click(item('Rare, 1 kart'))
     await user.click(control('🎲 Çek'))
 
-    expect(screen.getByTestId('deck-pile')).toHaveAttribute('data-back', 'css-neutral')
-    expect(backs()[0]?.querySelector('img')).toBeNull()
+    expect(deckBack()).toBe('css-neutral')
+    expect(backs()[0]?.querySelector('img')).toHaveAttribute('src', KESQER_BACK)
   })
 
   it('shows the Cursed cardback for a Cursed draw', async () => {

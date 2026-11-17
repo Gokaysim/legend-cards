@@ -13,6 +13,7 @@ import {
 import { Button } from '@/components/ui/Button'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { TabList, TabPanel } from '@/components/ui/TabList'
+import { setMascotStem, useArt } from '@/features/art/artContext'
 import { type BrowserDeck, CardBrowser } from '@/features/cards/CardBrowser'
 import type { Deck } from '@/features/cards/cardsContext'
 import { useAddDefinition } from '@/features/definitions/useAddDefinition'
@@ -33,7 +34,9 @@ const TAB_DECKS: Record<LibraryTab, BrowserDeck> = {
 /**
  * The Kütüphane (spec: card-library, "The Kütüphane screen and its tabs"): the Legend cards, the Cursed cards and the
  * True Words, each in its own tab, kept in the URL (`?tab=`). The open tab chooses the Cardmaker in the corner and the
- * DM's add control; the Kartlar tab adds "▥ Havuz Dağılımı". Only the open tab is rendered, keyed by the tab, so its
+ * DM's add control; the Kartlar tab adds "▥ Havuz Dağılımı". While the Kartlar tab's Set filter names a set with a
+ * Cardmaker picture, that set's Cardmaker stands in for the tab's (spec: card-images, "The Cardmaker on screens";
+ * design D5 of `show-set-art-on-draws-and-library`). Only the open tab is rendered, keyed by the tab, so its
  * search and filters start afresh each time it opens (design D9 of merge-library-tabs).
  */
 export function LibraryPage() {
@@ -44,6 +47,19 @@ export function LibraryPage() {
   const adding = useAddDefinition(deck)
   const counts = useLibraryCounts()
   const [isDistributionOpen, setIsDistributionOpen] = useState(false)
+  const art = useArt()
+  // The set the Set filter chose. A tab opened afresh, by a click or through the URL, starts with its filters empty,
+  // so a change of tab drops it. Adjusting state during render re-renders at once, before anything shows.
+  const [chosenSet, setChosenSet] = useState<{ tab: LibraryTab; setCode: string | null }>({
+    tab,
+    setCode: null,
+  })
+  if (chosenSet.tab !== tab) setChosenSet({ tab, setCode: null })
+  const filteredSet = chosenSet.tab === tab ? chosenSet.setCode : null
+  const mascot =
+    filteredSet !== null && art.setMascotUrl(filteredSet) !== null
+      ? setMascotStem(filteredSet)
+      : libraryTabById(tab).mascot
 
   const chooseTab = (next: LibraryTab) => {
     const search = new URLSearchParams(params)
@@ -69,7 +85,7 @@ export function LibraryPage() {
     <section className="flex flex-col gap-6">
       <PageHeader
         title={screenById('library').label}
-        mascot={libraryTabById(tab).mascot}
+        mascot={mascot}
         mascotPlacement="corner"
         actions={actions}
       />
@@ -86,7 +102,15 @@ export function LibraryPage() {
         tabClassName="whitespace-nowrap"
       />
       <TabPanel idPrefix={ids} selected={tab}>
-        {deck === 'words' ? <TrueWordsTab /> : <DeckTab key={deck} deck={deck} />}
+        {deck === 'words' ? (
+          <TrueWordsTab />
+        ) : (
+          <DeckTab
+            key={deck}
+            deck={deck}
+            onSetFilterChange={(setCode) => setChosenSet({ tab, setCode })}
+          />
+        )}
       </TabPanel>
       {isDistributionOpen ? (
         <PoolDistributionDialog onClose={() => setIsDistributionOpen(false)} />
@@ -100,7 +124,13 @@ export function LibraryPage() {
  * The Kartlar or the Cursed tab: every active card of the deck with where it is, live, and its history links. The DM
  * also edits the cards here, and browses the drafts and the retired cards through the status filter.
  */
-function DeckTab({ deck }: { deck: Deck }) {
+function DeckTab({
+  deck,
+  onSetFilterChange,
+}: {
+  deck: Deck
+  onSetFilterChange: (setCode: string | null) => void
+}) {
   const editing = useCardEditing(deck)
   const status = useDeckStatus(deck)
   return (
@@ -111,6 +141,7 @@ function DeckTab({ deck }: { deck: Deck }) {
         status={status}
         {...editing.browserProps}
         linksHistory
+        onSetFilterChange={onSetFilterChange}
       />
       {editing.dialog}
     </>

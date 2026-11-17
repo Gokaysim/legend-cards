@@ -1,7 +1,7 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { type CardFilterValue, filterCards } from '@/features/definitions/statusFilterOptions'
 import type { CardSet } from '@/features/sets/schema'
@@ -183,6 +183,21 @@ describe('CardBrowser for the Legend deck', () => {
     expect(screen.getByText('Kart bulunamadı.')).toBeInTheDocument()
     expect(screen.queryByRole('list', { name: 'Kartlar' })).not.toBeInTheDocument()
     expect(screen.getByText('0 kart (toplam 8)')).toBeInTheDocument()
+  })
+
+  it("reports the chosen set's code, and no set for all sets or for Blessed", async () => {
+    const user = userEvent.setup()
+    const onSetFilterChange = vi.fn()
+    renderWithSets(
+      <CardBrowser deck="legend" cards={ready(LEGEND)} onSetFilterChange={onSetFilterChange} />,
+    )
+    const set = screen.getByLabelText('Set')
+
+    await user.selectOptions(set, 'Kesqerian Nights')
+    await user.selectOptions(set, 'Blessed')
+    await user.selectOptions(set, 'Tüm setler')
+
+    expect(onSetFilterChange.mock.calls).toEqual([['Kesqer'], [null], [null]])
   })
 
   it('offers the sets in shop order with official names, Pandemonium last among sets, then Blessed', () => {

@@ -2,10 +2,13 @@ import { act, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { testCard, testCursedCard } from '@/test/cardFixtures'
+import type { ArtManifest } from '@/features/art/schema'
+import { testArt, testPicturePath, testPictureUrl } from '@/test/artFixtures'
+import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 import { testSession } from '@/test/drawFixtures'
 import { ready, testProfile, testUser } from '@/test/fixtures'
 import { renderApp } from '@/test/renderApp'
+import { TEST_SETS_WITH_PICTURES } from '@/test/setFixtures'
 
 import type { DrawActions } from './drawsContext'
 import type { DrawSession } from './schema'
@@ -23,8 +26,12 @@ const cem = testProfile({ displayName: 'Cem' })
 const EYES = testCard("Aboleth's Eyes")
 const RITE = testCard('Blood Rite')
 const VISIONS = testCursedCard('Visions of Death')
+const WIND = testBlessedCard('Second Wind')
 
-function watch(sessions: readonly DrawSession[], { asDm = false } = {}) {
+function watch(
+  sessions: readonly DrawSession[],
+  { asDm = false, art }: { asDm?: boolean; art?: ArtManifest } = {},
+) {
   const viewer = asDm ? { ...dana, id: testUser.uid } : cem
   const endDrawSession = vi.fn<DrawActions['endDrawSession']>(() => Promise.resolve())
   const turnDrawCard = vi.fn<DrawActions['turnDrawCard']>(() => Promise.resolve())
@@ -32,8 +39,10 @@ function watch(sessions: readonly DrawSession[], { asDm = false } = {}) {
   const view = renderApp({
     path: '/library',
     users: { currentProfile: ready(viewer), profiles: ready([ayla, bora, dana, viewer]) },
-    cards: { cards: ready([EYES, RITE, VISIONS]) },
+    cards: { cards: ready([EYES, RITE, VISIONS, WIND]) },
     draws: { sessions, actions },
+    art,
+    sets: { sets: ready([...TEST_SETS_WITH_PICTURES]) },
   })
   return {
     ...view,
@@ -85,6 +94,19 @@ describe('LiveDrawView', () => {
     expect(watching('Ayla kart çekiyor')).toBeInTheDocument()
     expect(watching('Bora kart çekiyor')).not.toBeInTheDocument()
     expect(banner(/Bora kart çekiyor/)).toBeDefined()
+  })
+
+  it("shows each face-down card's own back in the banner", async () => {
+    const art = testArt({ cardbacks: { blessed: '/art/backs/blessed.0123456789.webp' } })
+    watch([testSession('ayla', [WIND, EYES], Date.now())], { art })
+
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Küçült' }))
+
+    const pictures = banner(/Ayla kart çekiyor/)?.querySelectorAll('li img')
+    expect([...(pictures ?? [])].map((img) => img.getAttribute('src'))).toEqual([
+      '/art/backs/blessed.0123456789.webp',
+      testPictureUrl(testPicturePath('set', 'kesqer')),
+    ])
   })
 
   it('shrinks to a banner only on this device, and drops the banner when the session ends', async () => {

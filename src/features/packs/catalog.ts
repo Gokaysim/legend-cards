@@ -1,5 +1,5 @@
 import type { ArtLookup } from '@/features/art/artContext'
-import { CURSED_BACK, NEUTRAL_BACK, type SpreadBack } from '@/features/art/spreadBack'
+import { cardBack, CURSED_BACK, NEUTRAL_BACK, type SpreadBack } from '@/features/art/spreadBack'
 import { formatAmount } from '@/features/balances/format'
 import { AS_WRITTEN, type SetName } from '@/features/cards/display'
 import { cursedPool, inMechanicPacks, inSetPacks } from '@/features/cards/pool'
@@ -165,10 +165,10 @@ export function packCatalog(cards: readonly Card[], sets: SetIndex): PackCatalog
 }
 
 /**
- * The back every face-down card of a pack shows (design D7; design D1 of `polish-cards-packs-and-mascots`): the set's
- * cardback for a set's Standard, Premium or Pandemonium Pack, the Cursed cardback for every Cursed type, the Mechanic
- * Pack's own picture for a Mechanic Pack, and the neutral back for a Golden Pack, whose cards can be of any set. Never
- * the card's own: the same back for every card of the pack, so a back gives nothing away.
+ * The back a pack gives all its face-down cards (design D7; design D1 of `polish-cards-packs-and-mascots`): the set's
+ * cardback for a set's Standard, Premium or Pandemonium Pack, the Cursed cardback for every Cursed type, and the
+ * Mechanic Pack's own picture for a Mechanic Pack. A Golden Pack has none of its own: its cards show their own backs
+ * (`packCardBack`), and this gives the neutral back.
  */
 export function spreadBackOf(pack: {
   packType: PackType
@@ -193,6 +193,19 @@ export function spreadBackOf(pack: {
     case 'golden':
       return NEUTRAL_BACK
   }
+}
+
+/**
+ * The back of one face-down card of a pack (spec: card-images, "Cardbacks of face-down cards"; design D3 of
+ * `show-set-art-on-draws-and-library`): in a Golden Pack the card's own back, or the neutral back while the card is not
+ * loaded, and in every other pack the pack's back (`spreadBackOf`).
+ */
+export function packCardBack(
+  pack: Parameters<typeof spreadBackOf>[0],
+  card: Pick<Card, 'kind' | 'setCode'> | undefined,
+): SpreadBack {
+  if (pack.packType !== 'golden') return spreadBackOf(pack)
+  return card === undefined ? NEUTRAL_BACK : cardBack(card)
 }
 
 /**

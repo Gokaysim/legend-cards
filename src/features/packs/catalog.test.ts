@@ -21,6 +21,7 @@ import {
   packStatus as statusOf,
   packTitle as titleOf,
   priceLabel,
+  packCardBack,
   spreadBackOf,
 } from './catalog'
 
@@ -401,6 +402,38 @@ describe('spreadBackOf', () => {
   ] as const)('gives a %s pack the back of its spread', (packType, setCode, mechanicPack, back) => {
     expect(spreadBackOf({ packType, setCode, mechanicPack })).toEqual(back)
   })
+})
+
+describe('packCardBack', () => {
+  const golden = { packType: 'golden', setCode: null, mechanicPack: null } as const
+
+  it('gives each card of a Golden Pack its own back, or the neutral back while it loads', () => {
+    expect(packCardBack(golden, testCard('Harbor Light', { setCode: 'Kesqer' }))).toEqual({
+      kind: 'set',
+      setCode: 'Kesqer',
+    })
+    expect(packCardBack(golden, testBlessedCard('Second Wind'))).toEqual({ kind: 'blessed' })
+    expect(packCardBack(golden, undefined)).toEqual({ kind: 'neutral' })
+  })
+
+  it.each([
+    ['standard', 'Kesqer', null],
+    ['cursed', 'Kesqer', null],
+    ['cursedGolden', null, null],
+    ['mechanic', null, 'Blood & Battle'],
+  ] as const)(
+    "gives every card of a %s pack the pack's back",
+    (packType, setCode, mechanicPack) => {
+      const pack = { packType, setCode, mechanicPack }
+      for (const card of [
+        testBlessedCard('Second Wind'),
+        testCard('Ulagal Card', { setCode: 'Ulagal' }),
+        undefined,
+      ]) {
+        expect(packCardBack(pack, card)).toEqual(spreadBackOf(pack))
+      }
+    },
+  )
 })
 
 describe('groupArtUrl', () => {

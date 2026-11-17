@@ -3,7 +3,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Dialog } from '@/components/ui/Dialog'
 import { Spinner } from '@/components/ui/Spinner'
-import { CURSED_BACK, NEUTRAL_BACK, type SpreadBack } from '@/features/art/spreadBack'
+import { cardBack, CURSED_BACK, NEUTRAL_BACK, type SpreadBack } from '@/features/art/spreadBack'
 import { useBlessedShock } from '@/features/art/useBlessedShock'
 import { useAuth } from '@/features/auth/authContext'
 import { formatAmount } from '@/features/balances/format'
@@ -64,8 +64,8 @@ const TITLES: Record<DrawKind, string> = {
 const PEEK_PAGE = 20
 
 /**
- * A drawn card with the back of the deck it was drawn from (spec: card-draws, "The deck's back"), and its place in its
- * draw session (spec: live-draws). A dialog's cards are in one session, unless it went stale or was ended meanwhile.
+ * A drawn card with its back (spec: card-draws, "The deck's back"): the Cursed back in a Cursed draw, and the card's own
+ * back in a random draw. And its place in its draw session (spec: live-draws). A dialog's cards are in one session, unless it went stale or was ended meanwhile.
  */
 type Drawn = { result: DrawResult; back: SpreadBack; sessionId: string; index: number }
 
@@ -172,7 +172,8 @@ export function DrawDialog({ mode, owner, onClose }: DrawDialogProps) {
     return applyFacets(pool, facets, drawFacetValues(filters), test)
   }, [pool, hasFilters, facets, filters, test])
 
-  // The deck shows the chosen set's cardback: a set filter keeps Blessed cards out, so the back gives nothing away.
+  // The deck shows the chosen set's cardback. A drawn card shows its own back instead (`cardBack`), which under a set
+  // filter is the same one.
   const deckBack: SpreadBack =
     mode === 'cursed'
       ? CURSED_BACK
@@ -195,7 +196,6 @@ export function DrawDialog({ mode, owner, onClose }: DrawDialogProps) {
   }
 
   const runDraw = async (by: string, drawFrom: NonNullable<typeof candidates>) => {
-    const back = deckBack
     const input = {
       kind: mode,
       uid: owner.id,
@@ -218,6 +218,7 @@ export function DrawDialog({ mode, owner, onClose }: DrawDialogProps) {
       }
       const index = session.count
       session.count += 1
+      const back = mode === 'cursed' ? CURSED_BACK : cardBack(result.card)
       setDrawn((current) => [...current, { result, back, sessionId: session.id, index }])
     } catch (error) {
       const failure = toDrawFailure(error)

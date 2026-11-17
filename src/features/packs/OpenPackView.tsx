@@ -25,7 +25,7 @@ import { dative, genitive } from '@/lib/turkish'
 import { useOnlineStatus } from '@/lib/useOnlineStatus'
 import { useReducedMotion } from '@/lib/useReducedMotion'
 
-import { burstArtUrl, packOpeningTitle, spreadBackOf } from './catalog'
+import { burstArtUrl, packCardBack, packOpeningTitle } from './catalog'
 import { type PackFailure, packFailureMessage, toPackFailure } from './errors'
 import { useOpenPack, usePackActions } from './packsContext'
 
@@ -66,16 +66,18 @@ export function OpenPackView() {
 
   if (!view.isExpanded) {
     const byCard = cardsById.status === 'ready' ? cardsById.data : null
-    const back = spreadBackOf(pack)
     return pack.status === 'open' ? (
       <LiveBanner
         text={`${nameOf(pack.uid)} Pack açıyor · ${packOpeningTitle(pack, setName)}`}
-        cards={pack.offered.map((cardId, index) => ({
-          key: cardId,
-          card: byCard?.get(cardId),
-          isUp: pack.revealed.includes(index),
-          back,
-        }))}
+        cards={pack.offered.map((cardId, index) => {
+          const card = byCard?.get(cardId)
+          return {
+            key: cardId,
+            card,
+            isUp: pack.revealed.includes(index),
+            back: packCardBack(pack, card),
+          }
+        })}
         onShow={() => setExpanded(true)}
       />
     ) : null
@@ -143,7 +145,6 @@ function PackDialog({
   const isOpen = pack.status === 'open'
   const canAct = isOpen && uid !== null && (uid === pack.uid || isDm)
   const isCursedType = isCursedPackType(pack.packType)
-  const back = spreadBackOf(pack)
   const burstPicture = usePicture(burstArtUrl(useArt(), pack))
   // Only the pack's own animation ends the burst: the halo's and the backdrop's end on their own elements.
   const endBurst = (event: AnimationEvent) => {
@@ -318,7 +319,7 @@ function PackDialog({
                       <FaceDownCard
                         card={card}
                         position={index + 1}
-                        back={back}
+                        back={packCardBack(pack, card)}
                         isRevealed={isTurned}
                         onReveal={() => turn(index)}
                         canTurn={canAct}
