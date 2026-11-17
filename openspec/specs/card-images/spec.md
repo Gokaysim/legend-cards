@@ -181,18 +181,26 @@ When a card's cost in a hand differs from its own cost, its face with a picture 
 - **WHEN** the DM sets the cost of Ayla's 3-cost card with a picture to "3,0", or the cost of her "d6" card to "D6"
 - **THEN** the face shows no badge on the picture
 
-### Requirement: Cardbacks that give nothing away
-Every face-down card of one spread SHALL show the same back:
-- a Cursed draw, and a Cursed, Cursed Golden or Pandemonium Cursed Pack: the Cursed cardback
-- a set's Standard, Premium or Pandemonium Pack: that set's cardback
-- a Mechanic Pack: that Mechanic Pack's own picture, or the neutral back while it has none
-- a random draw and a Golden Pack: the neutral back drawn without a picture
+### Requirement: Cardbacks of face-down cards
+Each face-down card SHALL show the back of its draw or pack:
+- a Cursed draw, and a Cursed, Cursed Golden or Pandemonium Cursed Pack: the Cursed cardback, for every card
+- a set's Standard, Premium or Pandemonium Pack: that set's cardback, for every card
+- a Mechanic Pack: that Mechanic Pack's own picture, or the neutral back while it has none, for every card
+- a random draw and a Golden Pack: the card's own back, which is the Blessed cardback for a Blessed card and the cardback of the card's set for any other card
 
-The back SHALL never depend on the card under it.
+A back without a picture SHALL show the neutral back. Only in a random draw and a Golden Pack SHALL the back depend on the card under it.
 
 #### Scenario: A random draw
 - **WHEN** Ayla draws a random card that turns out to be Blessed
-- **THEN** its back is the neutral back, the same as for any other random draw
+- **THEN** its back is the Blessed cardback
+
+#### Scenario: A random draw of a set card
+- **WHEN** Ayla draws a random card of Kesqerian Nights without a set filter
+- **THEN** its back is the Kesqerian Nights cardback
+
+#### Scenario: A random draw of a set without a cardback picture
+- **WHEN** Ayla draws a random card whose set has no cardback picture
+- **THEN** its back is the neutral back
 
 #### Scenario: A set pack
 - **WHEN** a Kesqerian Nights Standard Pack opens
@@ -211,8 +219,12 @@ The back SHALL never depend on the card under it.
 - **THEN** all its face-down cards show the neutral back
 
 #### Scenario: A Golden Pack
-- **WHEN** a Golden Pack opens
-- **THEN** all its face-down cards show the neutral back
+- **WHEN** a Golden Pack opens with cards of Kesqerian Nights, a card of Pandemonium and a Blessed card
+- **THEN** each Kesqerian Nights card shows the Kesqerian Nights cardback, the Pandemonium card the Pandemonium cardback, and the Blessed card the Blessed cardback
+
+#### Scenario: A shrunk Golden Pack
+- **WHEN** Bora shrinks Ayla's open Golden Pack to its banner
+- **THEN** each small back in the banner is the back of the card under it, as in the open view
 
 ### Requirement: Pack pictures in the shop
 Each Pack Shop tile SHALL show the pack's picture across its width: a Mechanic Pack its mechanic's picture, the Golden and Cursed Golden Packs theirs, and a set's pack its set's cardback. A Mechanic Pack SHALL show its name under the picture and no price, because its price is in its section's heading. A pack inside a group SHALL show its short name under the picture and its price under the name. A tile without a picture SHALL show its glyph in the picture's place.
@@ -278,6 +290,8 @@ Each screen title SHALL show its Cardmaker picture, when there is one, as decora
 | Custom Card Draft | `cardmaker_custom` |
 | Veri / Yedek | `cardmaker_peek` |
 
+While the Kartlar tab's Set filter names a stored set with a Cardmaker picture, the Kütüphane SHALL show that set's Cardmaker in place of `cardmaker_lib`. "Tüm setler", "Blessed", and a set without a Cardmaker picture SHALL keep `cardmaker_lib`.
+
 A screen whose Cardmaker has no picture SHALL show none. On a window narrower than 640 CSS pixels, no screen SHALL show a Cardmaker.
 
 #### Scenario: The library
@@ -287,6 +301,26 @@ A screen whose Cardmaker has no picture SHALL show none. On a window narrower th
 #### Scenario: Another tab
 - **WHEN** a user opens the Kütüphane's Cursed tab on a tablet 800 CSS pixels wide
 - **THEN** `cardmaker_cursed` is shown next to the title
+
+#### Scenario: The library filtered to a set
+- **WHEN** a user chooses "Kesqerian Nights" in the Kartlar tab's Set filter on a 1280 CSS pixel wide window with a mouse, and Kesqerian Nights has a Cardmaker picture
+- **THEN** the Kesqerian Nights Cardmaker stands in the bottom-right corner in place of `cardmaker_lib`
+
+#### Scenario: A set without a Cardmaker
+- **WHEN** a user chooses a set without a Cardmaker picture in the Kartlar tab's Set filter
+- **THEN** `cardmaker_lib` stays
+
+#### Scenario: Blessed in the Set filter
+- **WHEN** a user chooses "Blessed" in the Kartlar tab's Set filter
+- **THEN** `cardmaker_lib` stays
+
+#### Scenario: Clearing the Set filter
+- **WHEN** a user who chose "Kesqerian Nights" chooses "Tüm setler" again
+- **THEN** `cardmaker_lib` comes back
+
+#### Scenario: Leaving the tab
+- **WHEN** a user who chose "Kesqerian Nights" opens the Cursed tab and comes back to Kartlar
+- **THEN** the Cursed tab shows `cardmaker_cursed`, and Kartlar shows `cardmaker_lib` again, with its Set filter empty
 
 #### Scenario: The library on a phone
 - **WHEN** a user opens the Kütüphane 360 CSS pixels wide
@@ -462,3 +496,18 @@ A stored picture SHALL be a WebP file of at most 1 MB, kept under its card's, wo
 #### Scenario: A set picture
 - **WHEN** the DM's device stores a 300 KB WebP file as the cardback of "Kesqer"
 - **THEN** the server accepts it
+
+### Requirement: Pictures fetched before the turn
+While a card with a picture is face down in a draw dialog, a watching view or an open pack, its picture SHALL be fetched in the background, so the face shows the picture right after the turn. The face SHALL still not be shown before the turn. A picture that fails to fetch SHALL change nothing: the face falls back as in "Pictures with a fallback".
+
+#### Scenario: A drawn card
+- **WHEN** Ayla draws "Aboleth's Eyes", waits a moment, and turns it over
+- **THEN** its picture is already loaded, and the face shows it as the turn ends
+
+#### Scenario: A card in an open pack
+- **WHEN** a Kesqerian Nights Standard Pack opens on Bora's screen
+- **THEN** the pictures of its nine cards are fetched while the cards are still face down
+
+#### Scenario: A failed fetch
+- **WHEN** the picture of a face-down card cannot be fetched
+- **THEN** nothing is shown about it before the turn, and after the turn the face falls back to its look without a picture
