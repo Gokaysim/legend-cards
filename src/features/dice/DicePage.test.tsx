@@ -102,6 +102,53 @@ describe('building a roll', () => {
     expect(formula()).toHaveTextContent('1d20 + 2d6 + 3')
   })
 
+  it('takes the fixed number as a sum, shows it as written, and rolls with its total', async () => {
+    const user = userEvent.setup()
+    const roll = vi.fn<DiceActions['roll']>(() => Promise.resolve(testRoll()))
+    renderDice({ dice: { actions: { roll } } })
+
+    await user.click(dieButton('d20'))
+    await user.type(within(form()).getByLabelText('Sabit sayı'), '5+10-4')
+    expect(within(form()).getByLabelText('Sabit sayı')).toHaveValue('5+10-4')
+    expect(formula()).toHaveTextContent('1d20 + 5 + 10 − 4')
+    await user.click(within(form()).getByRole('button', { name: 'At' }))
+
+    expect(roll).toHaveBeenCalledWith(
+      expect.objectContaining({ modifier: 11, modifierSum: '5+10-4' }),
+    )
+  })
+
+  it('refuses a fixed number that is not a sum of whole numbers', async () => {
+    const user = userEvent.setup()
+    renderDice()
+
+    await user.click(dieButton('d20'))
+    const field = within(form()).getByLabelText('Sabit sayı')
+    await user.type(field, '4+')
+
+    expect(field).toHaveAttribute('aria-invalid', 'true')
+    expect(field).toHaveAccessibleDescription(/örneğin 4\+4-5/)
+    expect(within(form()).getByRole('button', { name: 'At' })).toBeDisabled()
+
+    await user.type(field, '1')
+    expect(field).toHaveAttribute('aria-invalid', 'false')
+    expect(field).not.toHaveAccessibleDescription()
+    expect(within(form()).getByRole('button', { name: 'At' })).toBeEnabled()
+  })
+
+  it('refuses a sum outside −99 to +99 instead of clamping it', async () => {
+    const user = userEvent.setup()
+    renderDice()
+
+    await user.click(dieButton('d20'))
+    const field = within(form()).getByLabelText('Sabit sayı')
+    await user.type(field, '90+20')
+
+    expect(field).toHaveValue('90+20')
+    expect(field).toHaveAttribute('aria-invalid', 'true')
+    expect(within(form()).getByRole('button', { name: 'At' })).toBeDisabled()
+  })
+
   it('takes a die away', async () => {
     const user = userEvent.setup()
     renderDice()
@@ -176,6 +223,7 @@ describe('building a roll', () => {
       counts: { ...emptyCounts(), d20: 1 },
       mode: 'advantage',
       modifier: 5,
+      modifierSum: null,
       note: 'Okçuya saldırı',
       hidden: false,
     })
@@ -262,9 +310,31 @@ describe('the channel', () => {
     })
     const entry = within(channel()).getByRole('listitem', { name: 'Bora atışı' })
     expect(entry).toHaveTextContent('1d20 + 5 · avantaj')
-    expect(within(entry).getByText('Doğal 20')).toBeInTheDocument()
+    expect(within(entry).getByText('Nat 20')).toBeInTheDocument()
     expect(within(entry).getByText('(sayılmadı)').closest('li')).toHaveTextContent('8')
     expect(entry).toHaveTextContent('Toplam: 25')
+  })
+
+  it('shows the fixed number as written, and totals its sum', () => {
+    renderDice({
+      dice: {
+        rolls: [
+          testRoll({
+            by: 'bora',
+            dice: [['d20', 12]],
+            content: { modifier: 11, modifierSum: '5+10-4' },
+          }),
+          testRoll({ by: 'cem', dice: [['d20', 12]], content: { modifier: 3 } }),
+        ],
+      },
+    })
+    const bora = within(channel()).getByRole('listitem', { name: 'Bora atışı' })
+    expect(bora).toHaveTextContent('1d20 + 5 + 10 − 4')
+    expect(bora).toHaveTextContent('+5 +10 −4')
+    expect(bora).toHaveTextContent('Toplam: 23')
+    const cem = within(channel()).getByRole('listitem', { name: 'Cem atışı' })
+    expect(cem).toHaveTextContent('1d20 + 3')
+    expect(cem).toHaveTextContent('Toplam: 15')
   })
 
   it('marks a roll waiting to be sent, as offline', () => {

@@ -49,7 +49,7 @@ export function FlatDice({ view, style, size = 'sm', className }: FlatDiceProps)
   )
 }
 
-/** "Doğal 20" in gold or "Doğal 1" in red, or nothing. */
+/** "Nat 20" in gold or "Nat 1" in red, or nothing. */
 export function NaturalMarkLabel({ view, className }: { view: RollView; className?: string }) {
   if (!view.mark) return null
   return (

@@ -77,6 +77,7 @@ describe('roll records', () => {
         style: 'walnut',
         mode: 'normal',
         modifier: 3,
+        modifierSum: null,
         note: 'Ateş topu',
         dice: stored.dice,
         motion: twoD6,
@@ -94,6 +95,19 @@ describe('roll records', () => {
     expect(diceRollSchema.parse({ ...stored, motion: 42 }).content?.motion).toBeNull()
     expect(diceRollSchema.parse({ ...stored, sim: 0 }).content?.motion).toBeNull()
     expect(diceRollSchema.parse({ ...stored, sim: 2 }).content?.motion).toBeNull()
+  })
+
+  it('reads the fixed number as written when it adds up, and drops it otherwise', () => {
+    const sum = { ...stored, modifier: 11 }
+    expect(diceRollSchema.parse({ ...sum, modifierSum: '5+10-4' }).content?.modifierSum).toBe(
+      '5+10-4',
+    )
+    expect(diceRollSchema.parse({ ...sum, modifierSum: '5+10-3' }).content?.modifierSum).toBeNull()
+    expect(diceRollSchema.parse({ ...sum, modifierSum: '5+*6' }).content?.modifierSum).toBeNull()
+    expect(diceRollSchema.parse({ ...sum, modifierSum: 42 }).content?.modifierSum).toBeNull()
+    expect(diceRollSchema.parse(sum).content?.modifierSum).toBeNull()
+    const dm = dmRollSchema.parse({ ...sum, by: 'dm', hidden: true, modifierSum: '5+10-4' })
+    expect(dm.content?.modifierSum).toBe('5+10-4')
   })
 
   it('reads a pending roll without its server time', () => {

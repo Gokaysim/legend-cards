@@ -12,6 +12,7 @@ import {
   ROLL_MODES,
   type RollMode,
   type RolledDie,
+  checkedModifierSum,
 } from './formula'
 
 /**
@@ -156,6 +157,8 @@ const contentFields = {
   style: z.enum(DICE_STYLES),
   mode: z.enum(ROLL_MODES),
   modifier: z.number().int().min(MODIFIER_MIN).max(MODIFIER_MAX),
+  // Optional, and checked leniently: the rules check only its shape, and `contentOf` drops one that does not add up.
+  modifierSum: z.string().nullish().catch(null),
   note: z.string().max(NOTE_MAX),
   dice: z.array(rolledDieSchema).min(1).max(MAX_DICE),
   // Checked leniently: only a bounded string in the rules, decoded on the client (design D4).
@@ -163,11 +166,15 @@ const contentFields = {
   sim: z.number().int().catch(SIM_NONE),
 }
 
-/** A roll's content as features see it. `motion` is `null` when the record has none or a bad one. */
+/**
+ * A roll's content as features see it. `motion` is `null` when the record has none or a bad one. `modifierSum` is the
+ * fixed number as written, such as "5+10-4", or `null` when the record has none or one that does not add up.
+ */
 export type RollContent = {
   style: DiceStyle
   mode: RollMode
   modifier: number
+  modifierSum: string | null
   note: string
   dice: RolledDie[]
   motion: DieMotion[] | null
@@ -186,6 +193,7 @@ type StoredContent = {
   style: DiceStyle
   mode: RollMode
   modifier: number
+  modifierSum?: string | null | undefined
   note: string
   dice: RolledDie[]
   motion: string
@@ -193,9 +201,10 @@ type StoredContent = {
 }
 
 function contentOf(stored: StoredContent): RollContent {
-  const { motion, sim, ...rest } = stored
+  const { motion, sim, modifierSum, ...rest } = stored
   return {
     ...rest,
+    modifierSum: checkedModifierSum(stored.modifier, modifierSum),
     motion: sim === SIM_THROWS_AND_RESTS ? decodeMotion(motion, stored.dice.length) : null,
   }
 }

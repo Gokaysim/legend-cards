@@ -7093,6 +7093,40 @@ describe('dice rolls (diceRolls/{rollId} and dmRolls/{rollId})', () => {
       )
     })
 
+    it('allows the fixed number written as a sum, and a roll without one', async () => {
+      await assertSucceeds(
+        create('ayla', 'a', roll('ayla', { modifier: 11, modifierSum: '5+10-4' })),
+      )
+      await assertSucceeds(create('ayla', 'b', roll('ayla', { modifier: -5, modifierSum: '-2-3' })))
+      await assertSucceeds(
+        create('ayla', 'c', roll('ayla', { modifier: 8, modifierSum: '1+1+1+1+1+1+1+1' })),
+      )
+      await assertSucceeds(
+        create('ayla', 'd', roll('ayla', { modifier: 99, modifierSum: '99+99+99+99+99+99+99-99' })),
+      )
+      await assertSucceeds(create('ayla', 'e', roll('ayla')))
+    })
+
+    it("accepts the DM's hidden pair of 12 dice with a full motion and a written sum", async () => {
+      const dice = Array.from({ length: 6 }, () => [
+        { t: 'd100', v: 50 },
+        { t: 'd10', v: 5 },
+      ]).flat()
+      await assertSucceeds(
+        hiddenPair(
+          'dana',
+          'heavy-sum',
+          roll('dana', {
+            dice,
+            motion: 'A'.repeat(1400),
+            modifier: 11,
+            modifierSum: '5+10-4',
+          }),
+        ),
+      )
+      expect(await readAsAdmin('dmRolls/heavy-sum')).toMatchObject({ modifierSum: '5+10-4' })
+    })
+
     it("accepts the DM's hidden pair written in one batch", async () => {
       await assertSucceeds(hiddenPair('dana', 'h1'))
       expect(await readAsAdmin('diceRolls/h1')).toMatchObject({ by: 'dana', hidden: true })
@@ -7185,6 +7219,19 @@ describe('dice rolls (diceRolls/{rollId} and dmRolls/{rollId})', () => {
       await assertFails(create('ayla', 'f', roll('ayla', { motion: 'A'.repeat(1401) })))
       await assertFails(create('ayla', 'g', roll('ayla', { motion: 5 })))
       await assertFails(create('ayla', 'h', roll('ayla', { sim: 'one' })))
+    })
+
+    it('denies a malformed written sum', async () => {
+      const bad = (id: string, modifierSum: unknown) =>
+        create('ayla', id, roll('ayla', { modifier: 11, modifierSum }))
+      await assertFails(bad('a', '5+*4'))
+      await assertFails(bad('b', '100+1'))
+      await assertFails(bad('c', 11))
+      await assertFails(bad('d', '1+1+1+1+1+1+1+1+1'))
+      await assertFails(bad('e', '11'))
+      await assertFails(bad('f', '5 + 6'))
+      await assertFails(bad('g', '+5+6'))
+      await assertFails(bad('h', null))
     })
 
     it('denies missing and extra fields', async () => {

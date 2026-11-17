@@ -2316,6 +2316,12 @@ service cloud.firestore {
       return ['by', 'at', 'hidden', 'style', 'mode', 'modifier', 'note', 'dice', 'motion', 'sim'];
     }
 
+    // The fields a roll's content may hold besides rollKeys(): the fixed number as written, when it is a sum (design
+    // D1-D2 of dice-sum-modifier-and-nat-marks). Rolls from before it, and the initiative tracker's, have none.
+    function rollOptionalKeys() {
+      return ['modifierSum'];
+    }
+
     // Each die type with the faces it can show, as `<type>:<face>` (DIE_MAX in src/features/dice/formula.ts): d4 to
     // d20 from 1 to their size, and the d100 tens die from 0 to 90 in tens.
     function dieFaces() {
@@ -2337,14 +2343,21 @@ service cloud.firestore {
     }
 
     // A roll's content (spec: dice-rolls, "Roll records are checked"): 1 to 12 physical dice, each valid; advantage
-    // or disadvantage only with exactly two d20; a fixed number from -99 to 99; a note of at most 80 characters; one
-    // of the styles; and the motion as a bounded string, which the client decodes leniently (design D4).
+    // or disadvantage only with exactly two d20; a fixed number from -99 to 99, and its written sum, when present, as
+    // 2 to 8 numbers from 0 to 99 joined by + and - (MODIFIER_TEXT_MAX in src/features/dice/formula.ts); a note of at
+    // most 80 characters; one of the styles; and the motion as a bounded string, which the client decodes leniently
+    // (design D4). The client, not the rules, checks that the written sum adds up to the fixed number, and shows the
+    // fixed number alone when it does not (design D2 of dice-sum-modifier-and-nat-marks).
     function validRoll(data) {
       return data.style in diceStyles()
         && data.mode in ['normal', 'advantage', 'disadvantage']
         && data.modifier is int
         && data.modifier >= -99
         && data.modifier <= 99
+        && (!('modifierSum' in data)
+          || (data.modifierSum is string
+            && data.modifierSum.size() <= 24
+            && data.modifierSum.matches('-?[0-9]{1,2}([+-][0-9]{1,2}){1,7}')))
         && data.note is string
         && data.note.size() <= 80
         && data.motion is string
@@ -2373,7 +2386,7 @@ service cloud.firestore {
 
       function publicRoll() {
         let data = request.resource.data;
-        return data.keys().hasOnly(rollKeys())
+        return data.keys().hasOnly(rollKeys().concat(rollOptionalKeys()))
           && data.keys().hasAll(rollKeys())
           && data.hidden == false
           && validRoll(data);
@@ -2394,7 +2407,7 @@ service cloud.firestore {
     match /dmRolls/{rollId} {
       allow read: if isDm();
       allow create: if isMember()
-        && request.resource.data.keys().hasOnly(rollKeys())
+        && request.resource.data.keys().hasOnly(rollKeys().concat(rollOptionalKeys()))
         && request.resource.data.keys().hasAll(rollKeys())
         && request.resource.data.by == request.auth.uid
         && request.resource.data.at == request.time

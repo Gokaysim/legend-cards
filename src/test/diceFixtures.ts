@@ -22,6 +22,7 @@ export function testRoll(
     style: 'galaxy',
     mode: 'normal',
     modifier: 3,
+    modifierSum: null,
     note: '',
     dice: (
       dice ?? [
@@ -61,6 +62,7 @@ export function fakeRoll(request: RollRequest, by: string): DiceRoll {
       style: 'galaxy',
       mode,
       modifier: request.modifier,
+      modifierSum: request.modifierSum ?? null,
       note: request.note.trim(),
       dice: physicalDice(request.counts, mode).map((t) => ({ t, v: t === 'd100' ? 0 : 1 })),
       motion: null,

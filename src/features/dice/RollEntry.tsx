@@ -89,10 +89,8 @@ export function RollEntry({ roll, roller, onReplay }: RollEntryProps) {
             >
               <span className="mr-1 text-sm text-ink-muted">{view.formula}</span>
               <FlatDice view={view} style={content.style} />
-              {content.modifier !== 0 ? (
-                <span className="text-sm text-ink-muted">
-                  {content.modifier > 0 ? `+${content.modifier}` : `−${Math.abs(content.modifier)}`}
-                </span>
+              {view.modifier ? (
+                <span className="text-sm text-ink-muted">{view.modifier}</span>
               ) : null}
               <NaturalMarkLabel view={view} className="ml-1" />
               <span className="ml-2 text-2xl font-extrabold text-gold">

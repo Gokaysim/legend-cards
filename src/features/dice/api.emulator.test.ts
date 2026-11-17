@@ -89,6 +89,7 @@ describe('rolling under the real rules', () => {
       style: 'walnut',
       mode: 'normal',
       modifier: 3,
+      modifierSum: null,
       note: 'Ateş topu',
       dice: [
         { t: 'd20', v: 17 },
@@ -97,6 +98,31 @@ describe('rolling under the real rules', () => {
       ],
       motion: null,
     })
+  })
+
+  it('writes the fixed number as written, and leaves out a sum that does not add up', async () => {
+    const sum = await rollDice(
+      as('ayla'),
+      input({ modifier: 11, modifierSum: '5+10-4' }),
+      fixed(17, 4, 2),
+    )
+    await sum.written
+    expect(sum.roll.content?.modifierSum).toBe('5+10-4')
+    const stored = (await getDoc(doc(diceRollsRef(as('dana')), sum.roll.id))).data()
+    expect(stored?.content).toMatchObject({ modifier: 11, modifierSum: '5+10-4' })
+
+    const wrong = await rollDice(
+      as('ayla'),
+      input({ modifier: 11, modifierSum: '5+10-3' }),
+      fixed(17, 4, 2),
+    )
+    await wrong.written
+    let raw: Record<string, unknown> | undefined
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      raw = (await getDoc(doc(firestoreOf(admin), 'diceRolls', wrong.roll.id))).data()
+    })
+    expect(raw).not.toHaveProperty('modifierSum')
+    expect(raw).toMatchObject({ modifier: 11 })
   })
 
   it('stores the throw and the rests of the real physics, and they read back exactly', async () => {

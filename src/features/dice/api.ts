@@ -26,6 +26,7 @@ import {
   NOTE_MAX,
   type RollMode,
   type RolledDie,
+  checkedModifierSum,
   isSingleD20,
   physicalDice,
 } from './formula'
@@ -72,6 +73,11 @@ export type RollInput = {
   /** Advantage and disadvantage apply only to a single d20; any other formula rolls normally. */
   mode: RollMode
   modifier: number
+  /**
+   * The fixed number as written, when it is a sum of two or more numbers, such as "5+10-4" (spec: dice-rolls, "A
+   * fixed number written as a sum"). It must add up to `modifier`; otherwise it is left out.
+   */
+  modifierSum?: string | null
   note: string
   /** The DM's hidden roll. The rules refuse it from a player. */
   hidden: boolean
@@ -154,10 +160,14 @@ export async function rollDice(
   const ref = doc(collection(db, DICE_ROLLS_COLLECTION))
   const { values, motion } = await thrower(types, input.style, ref.id)
   const dice: RolledDie[] = types.map((t, index) => ({ t, v: values[index] ?? 1 }))
+  const modifier = clampModifier(input.modifier)
+  // The written sum goes in only when it adds up, so the record never shows numbers its total does not use.
+  const modifierSum = checkedModifierSum(modifier, input.modifierSum)
   const content = {
     style: input.style,
     mode,
-    modifier: clampModifier(input.modifier),
+    modifier,
+    ...(modifierSum ? { modifierSum } : {}),
     note: rollNote(input.note),
     dice,
     motion: motion ? encodeMotion(motion) : '',
@@ -197,6 +207,7 @@ export async function rollDice(
         style: content.style,
         mode,
         modifier: content.modifier,
+        modifierSum,
         note: content.note,
         dice,
         motion,

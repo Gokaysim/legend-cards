@@ -15,9 +15,9 @@ import {
   formulaText,
   isSingleD20,
   MAX_DICE,
-  MODIFIER_MAX,
-  MODIFIER_MIN,
+  MODIFIER_TEXT_MAX,
   NOTE_MAX,
+  parseModifier,
   physicalCount,
   type RollMode,
 } from './formula'
@@ -30,13 +30,6 @@ const FIELD =
 export type RollFormProps = {
   /** The user's dice style, for the quick dice's pictures. */
   style: DiceStyle
-}
-
-/** The fixed number as typed: a whole number from −99 to +99, or 0. */
-function modifierOf(text: string): number {
-  const value = Number.parseInt(text, 10)
-  if (!Number.isFinite(value)) return 0
-  return Math.min(MODIFIER_MAX, Math.max(MODIFIER_MIN, value))
 }
 
 /**
@@ -53,13 +46,17 @@ export function RollForm({ style }: RollFormProps) {
   const [isHidden, setIsHidden] = useState(false)
   const [isRolling, setIsRolling] = useState(false)
   const [failed, setFailed] = useState(false)
-  const ids = { modifier: useId(), note: useId(), limit: useId() }
+  const ids = { modifier: useId(), modifierError: useId(), note: useId(), limit: useId() }
 
-  const modifier = modifierOf(modifierText)
+  // The fixed number may be written as a sum, "5+10-4": the roll keeps the total and the numbers as written.
+  const parsedModifier = parseModifier(modifierText)
+  const isModifierValid = parsedModifier !== null
+  const modifier = parsedModifier?.total ?? 0
+  const modifierSum = parsedModifier?.sum ?? null
   const hasDice = physicalCount(counts) > 0
   const isFull = DIE_TYPES.some((type) => !canAdd(counts, type))
   const offersAdvantage = isSingleD20(counts)
-  const formula = formulaText(counts, modifier)
+  const formula = formulaText(counts, modifier, modifierSum)
 
   const add = (type: DieType) => setCounts((current) => ({ ...current, [type]: current[type] + 1 }))
   const remove = (type: DieType) =>
@@ -68,7 +65,7 @@ export function RollForm({ style }: RollFormProps) {
 
   const submit = (event: FormEvent) => {
     event.preventDefault()
-    if (!hasDice || isRolling) return
+    if (!hasDice || isRolling || !isModifierValid) return
     setIsRolling(true)
     setFailed(false)
     actions
@@ -76,6 +73,7 @@ export function RollForm({ style }: RollFormProps) {
         counts,
         mode: offersAdvantage ? mode : 'normal',
         modifier,
+        modifierSum,
         note,
         hidden: isHidden,
       })
@@ -153,16 +151,16 @@ export function RollForm({ style }: RollFormProps) {
           Sabit sayı
           <input
             id={ids.modifier}
-            type="number"
-            inputMode="numeric"
-            min={MODIFIER_MIN}
-            max={MODIFIER_MAX}
-            step={1}
+            type="text"
+            inputMode="text"
+            autoComplete="off"
+            maxLength={MODIFIER_TEXT_MAX}
             value={modifierText}
             placeholder="0"
+            aria-invalid={!isModifierValid}
+            aria-describedby={isModifierValid ? undefined : ids.modifierError}
             onChange={(event) => setModifierText(event.target.value)}
-            onBlur={() => setModifierText(modifier === 0 ? '' : String(modifier))}
-            className={cn(FIELD, 'w-20')}
+            className={cn(FIELD, 'w-28', !isModifierValid && 'border-danger-line')}
           />
         </label>
         <label
@@ -194,12 +192,18 @@ export function RollForm({ style }: RollFormProps) {
         <Button
           type="submit"
           variant="primary"
-          disabled={!hasDice || isRolling}
+          disabled={!hasDice || isRolling || !isModifierValid}
           className="h-10 px-6"
         >
           At
         </Button>
       </div>
+      {isModifierValid ? null : (
+        <p id={ids.modifierError} className="text-sm text-danger-ink">
+          Sabit sayı yalnızca 0–99 arası sayılardan, + ve − işaretlerinden oluşabilir: örneğin
+          4+4-5. Toplam −99 ile +99 arasında olmalı.
+        </p>
+      )}
       {failed ? (
         <p role="alert" className="text-sm text-danger-ink">
           Atış yapılamadı. Yeniden dene.

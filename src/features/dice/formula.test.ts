@@ -6,11 +6,15 @@ import {
   type RolledDie,
   DIE_TYPES,
   canAdd,
+  checkedModifierSum,
   countsOf,
   emptyCounts,
   formulaText,
   isSingleD20,
   keptIndexes,
+  modifierLabel,
+  modifierTerms,
+  parseModifier,
   naturalMark,
   percentileValue,
   physicalCount,
@@ -169,5 +173,66 @@ describe('natural 20 and natural 1', () => {
 
   it('marks nothing on another die', () => {
     expect(naturalMark(rolled(['d12', 1]), 'normal')).toBeNull()
+  })
+})
+
+describe('parseModifier', () => {
+  it('reads a whole number, signed or not, and an empty field as 0, with no written sum', () => {
+    expect(parseModifier('3')).toEqual({ total: 3, sum: null })
+    expect(parseModifier('-4')).toEqual({ total: -4, sum: null })
+    expect(parseModifier('+07')).toEqual({ total: 7, sum: null })
+    expect(parseModifier('')).toEqual({ total: 0, sum: null })
+    expect(parseModifier('  ')).toEqual({ total: 0, sum: null })
+  })
+
+  it('sums whole numbers joined by + and −, and keeps them as a canonical written sum', () => {
+    expect(parseModifier('4+4-5')).toEqual({ total: 3, sum: '4+4-5' })
+    expect(parseModifier('5+10-4')).toEqual({ total: 11, sum: '5+10-4' })
+    expect(parseModifier(' 5 + 10 − 4 ')).toEqual({ total: 11, sum: '5+10-4' })
+    expect(parseModifier(' -2 - 3 ')).toEqual({ total: -5, sum: '-2-3' })
+    expect(parseModifier('+05+3')).toEqual({ total: 8, sum: '5+3' })
+  })
+
+  it('takes eight numbers, each up to 99, and a total from −99 to +99', () => {
+    expect(parseModifier('1+1+1+1+1+1+1+1')).toEqual({ total: 8, sum: '1+1+1+1+1+1+1+1' })
+    expect(parseModifier('99')).toEqual({ total: 99, sum: null })
+    expect(parseModifier('-50-49')).toEqual({ total: -99, sum: '-50-49' })
+  })
+
+  it('refuses a sum outside the range instead of clamping it', () => {
+    for (const text of ['90+20', '-60-60', '150', '100-5', '1+1+1+1+1+1+1+1+1']) {
+      expect(parseModifier(text)).toBeNull()
+    }
+  })
+
+  it('refuses anything else', () => {
+    for (const text of ['4+', '+', '4++4', '4*2', '1d4', 'abc', '4.5', '4 4']) {
+      expect(parseModifier(text)).toBeNull()
+    }
+  })
+})
+
+describe('showing the fixed number', () => {
+  it('shows a written sum in the formula, after the dice and as numbers', () => {
+    expect(formulaText(counts({ d20: 1 }), 11, '5+10-4')).toBe('1d20 + 5 + 10 − 4')
+    expect(formulaText(counts({ d20: 1 }), -5, '-2-3')).toBe('1d20 − 2 − 3')
+    expect(modifierLabel(11, '5+10-4')).toBe('+5 +10 −4')
+    expect(modifierTerms(11, '5+10-4')).toEqual([5, 10, -4])
+  })
+
+  it('shows a single number as before', () => {
+    expect(formulaText(counts({ d20: 1 }), 3)).toBe('1d20 + 3')
+    expect(modifierLabel(3)).toBe('+3')
+    expect(modifierLabel(-2)).toBe('−2')
+    expect(modifierLabel(0)).toBe('')
+  })
+
+  it('falls back to the fixed number when the written sum does not add up or does not parse', () => {
+    expect(formulaText(counts({ d20: 1 }), 11, '5+10-3')).toBe('1d20 + 11')
+    expect(formulaText(counts({ d20: 1 }), 11, '5+*6')).toBe('1d20 + 11')
+    expect(modifierLabel(11, '11')).toBe('+11')
+    expect(checkedModifierSum(11, '5+10-4')).toBe('5+10-4')
+    expect(checkedModifierSum(11, '5+10-3')).toBeNull()
+    expect(checkedModifierSum(11, undefined)).toBeNull()
   })
 })

@@ -16,6 +16,7 @@ function rollAt(id: string, at: number | null, overrides: Partial<DiceRoll> = {}
       style: 'galaxy',
       mode: 'normal',
       modifier: 0,
+      modifierSum: null,
       note: '',
       dice: [{ t: 'd20', v: 12 }],
       motion: null,

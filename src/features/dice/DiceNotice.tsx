@@ -10,6 +10,7 @@ import { useDiceDeviceSettings } from './deviceSettings'
 import { useFreshRoll } from './diceContext'
 import { DiceView } from './DiceView'
 import { NaturalMarkLabel } from './FlatDice'
+import { modifierText } from './formula'
 import { rollView } from './rollView'
 
 /** The card closes this long after its dice come to rest (spec: "The notification card closes on its own"). */
@@ -109,9 +110,7 @@ export function DiceNotice() {
           <div className="mt-auto flex items-baseline gap-2">
             <span className="hidden truncate text-sm text-ink-muted sm:inline">
               {view.formula} · {kept.join(' + ')}
-              {content.modifier !== 0
-                ? ` ${content.modifier > 0 ? '+' : '−'} ${Math.abs(content.modifier)}`
-                : ''}
+              {modifierText(content.modifier, content.modifierSum)}
             </span>
             <NaturalMarkLabel view={view} />
             <span className="ml-auto text-3xl font-extrabold text-gold">

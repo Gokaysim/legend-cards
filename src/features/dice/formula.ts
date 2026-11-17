@@ -16,6 +16,78 @@ export const MODIFIER_MIN = -99
 export const MODIFIER_MAX = 99
 export const NOTE_MAX = 80
 
+/**
+ * The longest fixed number the roll form takes, as typed, and the longest written sum a record holds: eight numbers
+ * of two digits with their signs. Keep in step with `firestore.rules` (validRoll).
+ */
+export const MODIFIER_TEXT_MAX = 24
+
+/** The most numbers a written sum holds, and the largest of them (spec: dice-rolls, "A fixed number written as a sum"). */
+export const MODIFIER_TERMS_MAX = 8
+export const MODIFIER_TERM_MAX = 99
+
+/** The fixed number as the roll form reads it: its total, and the written sum when it has two or more numbers. */
+export type ParsedModifier = {
+  total: number
+  /** The canonical written sum, such as "5+10-4": no spaces, ASCII minus, no leading plus. `null` for one number. */
+  sum: string | null
+}
+
+/**
+ * The fixed number as typed (design D3 of dice-sum-modifier-and-nat-marks): one whole number, or whole numbers joined
+ * by + and −, such as "5+10-4". Each number is from 0 to 99, at most eight of them, and the total from −99 to +99.
+ * Spaces are ignored, "−" and "–" read as minus, and an empty field is 0. `null` for anything else.
+ */
+export function parseModifier(text: string): ParsedModifier | null {
+  // Spaces go only around the signs, so "4 4" stays two numbers without a sign and is refused.
+  const compact = text
+    .replace(/[−–]/g, '-')
+    .replace(/\s*([+-])\s*/g, '$1')
+    .trim()
+  if (compact === '') return { total: 0, sum: null }
+  if (!/^[+-]?\d+(?:[+-]\d+)*$/.test(compact)) return null
+  const terms = (compact.match(/[+-]?\d+/g) ?? []).map((part) => ({
+    isNegative: part.startsWith('-'),
+    value: Number(part.replace(/^[+-]/, '')),
+  }))
+  if (terms.length > MODIFIER_TERMS_MAX) return null
+  if (terms.some((term) => term.value > MODIFIER_TERM_MAX)) return null
+  const total = terms.reduce((sum, term) => sum + (term.isNegative ? -term.value : term.value), 0)
+  if (total < MODIFIER_MIN || total > MODIFIER_MAX) return null
+  if (terms.length === 1) return { total, sum: null }
+  const sum = terms
+    .map((term, index) => `${term.isNegative ? '-' : index === 0 ? '' : '+'}${term.value}`)
+    .join('')
+  return { total, sum }
+}
+
+/**
+ * A record's written sum, canonical, when it parses and adds up to its fixed number; otherwise `null`, and the fixed
+ * number shows alone (design D2: the rules check only the sum's shape).
+ */
+export function checkedModifierSum(
+  modifier: number,
+  sum: string | null | undefined,
+): string | null {
+  if (!sum) return null
+  const parsed = parseModifier(sum)
+  return parsed?.sum && parsed.total === modifier ? parsed.sum : null
+}
+
+/** The numbers the fixed number shows as, signed: the written sum's, or the fixed number alone, or none for 0. */
+export function modifierTerms(modifier: number, sum: string | null = null): number[] {
+  const checked = checkedModifierSum(modifier, sum)
+  if (checked) return (checked.match(/[+-]?\d+/g) ?? []).map(Number)
+  return modifier === 0 ? [] : [modifier]
+}
+
+/** The fixed number after the dice: "+5 +10 −4", "+3", or empty for 0. */
+export function modifierLabel(modifier: number, sum: string | null = null): string {
+  return modifierTerms(modifier, sum)
+    .map((term) => (term < 0 || Object.is(term, -0) ? `−${Math.abs(term)}` : `+${term}`))
+    .join(' ')
+}
+
 /** The highest face of each die. The d100 tens die shows 00 to 90. Shared with `firestore.rules` (dieAt). */
 export const DIE_MAX: Record<DieType, number> = {
   d4: 4,
@@ -59,19 +131,27 @@ export function isSingleD20(counts: DiceCounts): boolean {
   return counts.d20 === 1 && physicalCount(counts) === 1
 }
 
-/** The modifier as a formula writes it: "+ 3", "− 2", or nothing for 0. */
-function modifierText(modifier: number): string {
-  if (modifier === 0) return ''
-  return modifier > 0 ? ` + ${modifier}` : ` − ${Math.abs(modifier)}`
+/** The fixed number as a formula writes it: " + 3", " − 2", " + 5 + 10 − 4" for a written sum, or nothing for 0. */
+export function modifierText(modifier: number, sum: string | null = null): string {
+  return modifierTerms(modifier, sum)
+    .map((term) => (term < 0 || Object.is(term, -0) ? ` − ${Math.abs(term)}` : ` + ${term}`))
+    .join('')
 }
 
-/** "1d20 + 2d6 + 3": each type once with its count, in `FORMULA_ORDER`, then the fixed number. Empty without dice. */
-export function formulaText(counts: DiceCounts, modifier: number): string {
+/**
+ * "1d20 + 2d6 + 3": each type once with its count, in `FORMULA_ORDER`, then the fixed number, or its written sum when
+ * it adds up ("1d20 + 5 + 10 − 4"). Empty without dice.
+ */
+export function formulaText(
+  counts: DiceCounts,
+  modifier: number,
+  sum: string | null = null,
+): string {
   const dice = FORMULA_ORDER.filter((type) => counts[type] > 0).map(
     (type) => `${counts[type]}${type}`,
   )
   if (dice.length === 0) return ''
-  return `${dice.join(' + ')}${modifierText(modifier)}`
+  return `${dice.join(' + ')}${modifierText(modifier, sum)}`
 }
 
 /**
@@ -152,7 +232,7 @@ export function rollTotal(dice: readonly RolledDie[], mode: RollMode, modifier: 
 
 export type NaturalMark = 'natural20' | 'natural1'
 
-/** "Doğal 20" or "Doğal 1", when the roll's only kept die is a d20 showing 20 or 1. */
+/** "Nat 20" or "Nat 1", when the roll's only kept die is a d20 showing 20 or 1. */
 export function naturalMark(dice: readonly RolledDie[], mode: RollMode): NaturalMark | null {
   const kept = keptIndexes(dice, mode)
   if (kept.length !== 1) return null

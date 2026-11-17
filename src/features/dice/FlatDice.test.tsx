@@ -63,13 +63,13 @@ describe('NaturalMarkLabel', () => {
   it('marks a natural 20 in gold', () => {
     const view = rollView(contentOf(testRoll({ dice: [['d20', 20]] })))
     render(<NaturalMarkLabel view={view} />)
-    expect(screen.getByText('Doğal 20')).toHaveClass('text-gold')
+    expect(screen.getByText('Nat 20')).toHaveClass('text-gold')
   })
 
   it('marks a natural 1 in red', () => {
     const view = rollView(contentOf(testRoll({ dice: [['d20', 1]] })))
     render(<NaturalMarkLabel view={view} />)
-    expect(screen.getByText('Doğal 1')).toHaveClass('text-cursed')
+    expect(screen.getByText('Nat 1')).toHaveClass('text-cursed')
   })
 
   it('marks no 20 among other dice', () => {
