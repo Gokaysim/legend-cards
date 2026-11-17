@@ -39,6 +39,9 @@ const access = vi.hoisted(() => {
     linkOwnEntry: vi.fn((_db: unknown, _user: { uid: string; email: string }) =>
       Promise.resolve('linked' as const),
     ),
+    readEntryFromServer: vi.fn((_db: unknown, _email: string) =>
+      Promise.resolve('exists' as string),
+    ),
   }
 })
 
@@ -55,7 +58,10 @@ vi.mock('firebase/auth', () => ({
   signInWithPopup: firebaseAuth.signInWithPopup,
   signOut: firebaseAuth.signOut,
 }))
-vi.mock('@/features/access/api', () => ({ linkOwnEntry: access.linkOwnEntry }))
+vi.mock('@/features/access/api', () => ({
+  linkOwnEntry: access.linkOwnEntry,
+  readEntryFromServer: access.readEntryFromServer,
+}))
 vi.mock('@/features/access/useOwnAccessCheck', async () => {
   const { useSyncExternalStore } = await import('react')
   return {
@@ -299,5 +305,86 @@ describe('AuthProvider', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
 
     expect(() => renderHook(() => useAuth())).toThrow(/inside <AuthProvider>/)
+  })
+
+  // Spec: user-auth, "Diagnosing the 'ekli değil' decision" (diagnose-no-access).
+  describe('diagnosing "ekli değil"', () => {
+    function DiagnosisProbe() {
+      const auth = useAuth()
+      return <p>{auth.status === 'noAccess' ? JSON.stringify(auth.diagnosis) : auth.status}</p>
+    }
+
+    function renderDiagnosis() {
+      return render(
+        <AuthProvider>
+          <DiagnosisProbe />
+        </AuthProvider>,
+      )
+    }
+
+    const diagnosisShown = () => JSON.parse(screen.getByRole('paragraph').textContent) as unknown
+
+    beforeEach(() => {
+      vi.spyOn(console, 'info').mockImplementation(() => {})
+    })
+
+    it('reads the entry once from the server after a "missing" answer, and shows the result', async () => {
+      access.readEntryFromServer.mockResolvedValueOnce('exists')
+      const { rerender } = renderDiagnosis()
+      emitUser(GOKAY)
+      setEntry(fromServer(null))
+
+      expect(diagnosisShown()).toEqual({
+        reason: 'serverMissing',
+        entryId: 'gokay@example.com',
+        serverRead: 'pending',
+        buildId: 'dev',
+      })
+      await vi.waitFor(() => {
+        expect(diagnosisShown()).toMatchObject({ serverRead: 'exists' })
+      })
+
+      rerender(
+        <AuthProvider>
+          <DiagnosisProbe />
+        </AuthProvider>,
+      )
+      setEntry(fromServer(null))
+      expect(access.readEntryFromServer).toHaveBeenCalledTimes(1)
+      expect(access.readEntryFromServer).toHaveBeenCalledWith(
+        { name: 'test-db' },
+        'gokay@example.com',
+      )
+    })
+
+    it('makes no read for an account without a verified address, or without an address', () => {
+      renderDiagnosis()
+      emitUser({ ...GOKAY, emailVerified: false })
+      expect(diagnosisShown()).toEqual({
+        reason: 'unverified',
+        entryId: null,
+        serverRead: 'skipped',
+        buildId: 'dev',
+      })
+
+      emitUser({ ...GOKAY, email: null })
+      expect(diagnosisShown()).toMatchObject({ reason: 'noEmail', serverRead: 'skipped' })
+      expect(access.readEntryFromServer).not.toHaveBeenCalled()
+    })
+
+    it('logs each decision', () => {
+      renderDiagnosis()
+      emitUser(GOKAY)
+      setEntry(fromServer(entry('u1')))
+
+      expect(console.info).toHaveBeenCalledWith('[access] decision', {
+        status: 'checking',
+        diagnosis: undefined,
+      })
+      expect(console.info).toHaveBeenCalledWith('[access] decision', {
+        status: 'signedIn',
+        diagnosis: undefined,
+      })
+    })
   })
 })

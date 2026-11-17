@@ -100,6 +100,7 @@ describe('useOwnAccessCheck', () => {
     getIdToken.mockClear()
     vi.spyOn(console, 'warn').mockImplementation(() => {})
     vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.spyOn(console, 'info').mockImplementation(() => {})
   })
 
   afterEach(() => {
@@ -228,6 +229,27 @@ describe('useOwnAccessCheck', () => {
     await wait(60_000)
 
     expect(getIdToken).not.toHaveBeenCalled()
+  })
+
+  it('logs every answer about the entry (diagnose-no-access)', () => {
+    renderHook(() => useOwnAccessCheck('ayla@gmail.com'))
+    answer(0, { status: 'ready', data: null, fromCache: true, hasPendingWrites: false })
+    answer(0, fromServer(ENTRY))
+
+    expect(console.info).toHaveBeenCalledWith('[access] answer', {
+      entryId: 'ayla@gmail.com',
+      status: 'ready',
+      fromCache: true,
+      hasPendingWrites: false,
+      exists: false,
+    })
+    expect(console.info).toHaveBeenCalledWith('[access] answer', {
+      entryId: 'ayla@gmail.com',
+      status: 'ready',
+      fromCache: false,
+      hasPendingWrites: false,
+      exists: true,
+    })
   })
 
   it('retries even when the token refresh fails', async () => {

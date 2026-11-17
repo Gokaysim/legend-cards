@@ -16,6 +16,8 @@ export default defineConfig({
   },
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
+    // The commit the build came from: GitHub Actions sets GITHUB_SHA, local builds say `dev`.
+    __BUILD_ID__: JSON.stringify(process.env.GITHUB_SHA?.slice(0, 7) ?? 'dev'),
   },
   test: {
     projects: [

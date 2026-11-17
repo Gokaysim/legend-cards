@@ -5,11 +5,15 @@ import {
   doc,
   type DocumentReference,
   type Firestore,
+  getDocFromServer,
   runTransaction,
   serverTimestamp,
   setDoc,
 } from 'firebase/firestore'
 
+import { firebaseCode } from '@/lib/firestore/errors'
+
+import type { ServerRead } from './accessDiagnosis'
 import { type AccessEntry, accessEntryConverter } from './schema'
 
 /** Keep in step with `firestore.rules`, `storage.rules`, src/test/members.ts and scripts/lib/allowEmail.ts. */
@@ -60,4 +64,17 @@ export async function linkOwnEntry(
     transaction.update(ref, { uid: user.uid })
     return 'linked'
   })
+}
+
+/**
+ * Reads the own entry once, straight from the server, past the listener and the cache (design D2 of
+ * diagnose-no-access). It only reports what it found and never throws.
+ */
+export async function readEntryFromServer(db: Firestore, email: string): Promise<ServerRead> {
+  try {
+    const snapshot = await getDocFromServer(accessEntryRef(db, email))
+    return snapshot.exists() ? 'exists' : 'missing'
+  } catch (error) {
+    return `error:${firebaseCode(error) ?? 'unknown'}`
+  }
 }

@@ -257,3 +257,58 @@ describe('a failed access check', () => {
     expect(signInButton()).toBeInTheDocument()
   })
 })
+
+// Spec: user-auth, "Diagnosing the 'ekli değil' decision" (diagnose-no-access).
+describe('the diagnostic line on the "ekli değil" screen', () => {
+  const missing: AuthState = {
+    status: 'noAccess',
+    user: { ...testUser, email: 'cem@gmail.com' },
+    diagnosis: {
+      reason: 'serverMissing',
+      entryId: 'cem@gmail.com',
+      serverRead: 'missing',
+      buildId: 'abc1234',
+    },
+  }
+
+  it('names the server answer, the entry looked up, the direct read and the build', () => {
+    renderAt('/library', missing)
+
+    expect(
+      screen.getByText(
+        'Teşhis: abonelik: kayıt yok · kayıt: "cem@gmail.com" · sunucu: yok · build abc1234',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('names an unverified address, with no direct read', () => {
+    renderAt('/library', {
+      ...missing,
+      diagnosis: { reason: 'unverified', entryId: null, serverRead: 'skipped', buildId: 'abc1234' },
+    })
+
+    expect(
+      screen.getByText(/Teşhis: e-posta doğrulanmamış · kayıt: — · sunucu: yapılmadı/),
+    ).toBeInTheDocument()
+  })
+
+  it('shows both results when the direct read disagrees', () => {
+    renderAt('/library', {
+      ...missing,
+      diagnosis: {
+        reason: 'serverMissing',
+        entryId: 'cem@gmail.com',
+        serverRead: 'exists',
+        buildId: 'abc1234',
+      },
+    })
+
+    expect(screen.getByText(/abonelik: kayıt yok · .* · sunucu: var/)).toBeInTheDocument()
+  })
+
+  it('shows no line without a diagnosis', () => {
+    renderAt('/library', { status: 'noAccess', user: testUser })
+
+    expect(screen.queryByText(/Teşhis:/)).not.toBeInTheDocument()
+  })
+})

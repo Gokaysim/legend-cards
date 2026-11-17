@@ -81,6 +81,18 @@ export function useOwnAccessCheck(email: string | null): OwnAccessCheck {
   const failed =
     subscription.status === 'error' && !current.retryNow && current.retries >= RETRY_WAITS_MS.length
 
+  // Every answer about the entry, for diagnosing a wrong decision (design D5 of diagnose-no-access).
+  useEffect(() => {
+    if (subscription.status !== 'ready' || email === null) return
+    console.info('[access] answer', {
+      entryId: email,
+      status: subscription.status,
+      fromCache: subscription.fromCache,
+      hasPendingWrites: subscription.hasPendingWrites,
+      exists: subscription.data !== null,
+    })
+  }, [subscription, email])
+
   const { retries, retryNow } = current
   useEffect(() => {
     if (subscription.status !== 'error') return

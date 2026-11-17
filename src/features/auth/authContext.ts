@@ -1,5 +1,7 @@
 import { createContext, useContext } from 'react'
 
+import type { AccessDiagnosis } from '@/features/access/accessDiagnosis'
+
 /** The signed-in user, as the app sees it. Kept free of Firebase types on purpose. */
 export type AuthUser = {
   uid: string
@@ -22,7 +24,12 @@ export type AuthState =
   | { status: 'loading' }
   | { status: 'signedOut' }
   | { status: 'checking'; user: AuthUser }
-  | { status: 'noAccess'; user: AuthUser }
+  | {
+      status: 'noAccess'
+      user: AuthUser
+      /** Why the app decided so, for the diagnostic line (design D1 of diagnose-no-access). */
+      diagnosis?: AccessDiagnosis
+    }
   | { status: 'checkFailed'; user: AuthUser }
   | { status: 'signedIn'; user: AuthUser }
 
