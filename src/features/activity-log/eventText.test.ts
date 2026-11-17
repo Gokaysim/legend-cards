@@ -611,6 +611,28 @@ describe('describing fights', () => {
   })
 })
 
+describe('describing DM role changes', () => {
+  const roleChange = (target: string, before: 'player' | 'dm', after: 'player' | 'dm') => ({
+    id: `r-${target}`,
+    by: 'dana',
+    at: Timestamp.fromMillis(1000),
+    target,
+    before,
+    after,
+  })
+
+  it.each([
+    [roleChange('ayla', 'player', 'dm'), "Ayla'yı DM yaptı."],
+    [roleChange('cem', 'player', 'dm'), "Cem'i DM yaptı."],
+    [roleChange('ayla', 'dm', 'player'), "Ayla'nın DM'liğini aldı."],
+    [{ ...roleChange('dana', 'dm', 'player'), otherDm: 'ayla' }, "DM'likten çıktı."],
+  ])('describes %o', (change, expected) => {
+    const event = only({ roleChanges: [change] })
+    expect(event).toMatchObject({ kind: 'role', by: 'dana' })
+    expect(sentenceText(describeEvent(event, NAMES_OF))).toBe(expected)
+  })
+})
+
 describe('describing set changes', () => {
   const setEvent = (change: Parameters<typeof testSetChange>[1]) =>
     describeEvent(only({ setChanges: [testSetChange(1000, change)] }), NAMES_OF)

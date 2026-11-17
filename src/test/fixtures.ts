@@ -23,6 +23,7 @@ export function testProfile(overrides: Partial<UserProfile> = {}): UserProfile {
     lp: 0,
     lpEntryId: null,
     diceStyle: 'galaxy',
+    roleChangeId: null,
     ...overrides,
   }
 }

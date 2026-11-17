@@ -1,8 +1,9 @@
-import { render, screen, within } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Timestamp } from 'firebase/firestore'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import type { ChangeRoleInput } from '@/features/users/api'
 import type { UserProfile } from '@/features/users/schema'
 import type { Subscription } from '@/lib/firestore/subscription'
 import { ready, testProfile, testUser } from '@/test/fixtures'
@@ -16,7 +17,8 @@ import type { AccessEntry } from './schema'
 
 const add = vi.fn((_email: string) => Promise.resolve())
 const remove = vi.fn((_email: string) => Promise.resolve())
-const ACTIONS = { add, remove }
+const changeRole = vi.fn((_input: ChangeRoleInput) => Promise.resolve())
+const ACTIONS = { add, remove, changeRole }
 
 const entry = (email: string, uid?: string): AccessEntry => ({
   email,
@@ -77,7 +79,7 @@ describe('the "Masaya erişim" section', () => {
     expect(screen.getByText('Bu listedeki Google hesapları giriş yapabilir.')).toBeInTheDocument()
     const [ayla, me, bora] = rows()
     expect(ayla).toHaveTextContent('Aylaayla@example.com')
-    expect(me).toHaveTextContent('Gökayplayer@example.com')
+    expect(me).toHaveTextContent('GökayDM · senplayer@example.com')
     expect(bora).toHaveTextContent('bora@example.com')
     expect(bora).toHaveTextContent('Henüz giriş yapmadı')
     expect(ayla).not.toHaveTextContent('Henüz giriş yapmadı')
@@ -206,5 +208,119 @@ describe('the "Masaya erişim" section', () => {
 
       expect(await screen.findByRole('alert')).toHaveTextContent(ACCESS_MESSAGES.removeFailed)
     })
+  })
+})
+
+describe('role controls (spec: dm-roles)', () => {
+  const AYLA_DM = { ...AYLA, role: 'dm' as const }
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('offers "DM yap" on a linked player, nothing on an unlinked row, and keeps "Çıkar" there', () => {
+    renderSection()
+
+    const [ayla, me, bora] = rows()
+    expect(within(ayla!).getByRole('button', { name: 'DM yap: Ayla' })).toBeInTheDocument()
+    expect(
+      within(ayla!).getByRole('button', { name: 'Çıkar: ayla@example.com' }),
+    ).toBeInTheDocument()
+    expect(within(me!).queryByRole('button')).not.toBeInTheDocument()
+    expect(within(bora!).queryByRole('button', { name: /DM/ })).not.toBeInTheDocument()
+  })
+
+  it('makes a player a DM after the confirmation', async () => {
+    const { user } = renderSection()
+
+    await user.click(screen.getByRole('button', { name: 'DM yap: Ayla' }))
+    const dialog = screen.getByRole('dialog', { name: 'DM yap' })
+    expect(dialog).toHaveTextContent('Ayla DM yapılsın mı? DM, bütün DM yetkilerine sahip olur.')
+    expect(changeRole).not.toHaveBeenCalled()
+    await user.click(within(dialog).getByRole('button', { name: 'DM yap' }))
+
+    expect(changeRole).toHaveBeenCalledExactlyOnceWith({
+      target: 'ayla',
+      after: 'dm',
+      by: testUser.uid,
+    })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('changes nothing when the DM declines', async () => {
+    const { user } = renderSection()
+
+    await user.click(screen.getByRole('button', { name: 'DM yap: Ayla' }))
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Vazgeç' }))
+
+    expect(changeRole).not.toHaveBeenCalled()
+  })
+
+  it('marks another DM, offers "DM\'liği al" without "Çıkar", and takes the role', async () => {
+    const { user } = renderSection({ profiles: [DM, AYLA_DM] })
+
+    const [ayla] = rows()
+    expect(ayla).toHaveTextContent('AylaDM')
+    expect(within(ayla!).queryByRole('button', { name: /Çıkar/ })).not.toBeInTheDocument()
+    await user.click(within(ayla!).getByRole('button', { name: "DM'liği al: Ayla" }))
+    const dialog = screen.getByRole('dialog', { name: "DM'liği al" })
+    expect(dialog).toHaveTextContent("Ayla oyuncu yapılsın mı? Kartları ve LP'si kalır.")
+    await user.click(within(dialog).getByRole('button', { name: "DM'liği al" }))
+
+    expect(changeRole).toHaveBeenCalledExactlyOnceWith({
+      target: 'ayla',
+      after: 'player',
+      by: testUser.uid,
+    })
+  })
+
+  it('lets the DM step down naming the other DM, only while there is one', async () => {
+    const { user } = renderSection({ profiles: [DM, AYLA_DM] })
+
+    const [, me] = rows()
+    await user.click(within(me!).getByRole('button', { name: "DM'likten çık: Gökay" }))
+    const dialog = screen.getByRole('dialog', { name: "DM'likten çık" })
+    await user.click(within(dialog).getByRole('button', { name: "DM'likten çık" }))
+
+    expect(changeRole).toHaveBeenCalledExactlyOnceWith({
+      target: testUser.uid,
+      after: 'player',
+      by: testUser.uid,
+      otherDm: 'ayla',
+    })
+  })
+
+  it('updates the controls when a role changes elsewhere, without a reload', () => {
+    const { rerenderWith } = renderSection({ profiles: [DM, AYLA_DM] })
+    expect(screen.getByRole('button', { name: "DM'liği al: Ayla" })).toBeInTheDocument()
+
+    rerenderWith([DM, AYLA], ready(ENTRIES))
+
+    expect(screen.getByRole('button', { name: 'DM yap: Ayla' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Çıkar: ayla@example.com' })).toBeInTheDocument()
+  })
+
+  it('says a connection is needed offline, and changes nothing', async () => {
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+    act(() => {
+      window.dispatchEvent(new Event('offline'))
+    })
+    const { user } = renderSection()
+
+    await user.click(screen.getByRole('button', { name: 'DM yap: Ayla' }))
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'DM yap' }))
+
+    expect(screen.getByRole('alert')).toHaveTextContent(ACCESS_MESSAGES.roleOffline)
+    expect(changeRole).not.toHaveBeenCalled()
+  })
+
+  it('says so when the server refuses the change', async () => {
+    changeRole.mockRejectedValueOnce(new Error('denied'))
+    const { user } = renderSection()
+
+    await user.click(screen.getByRole('button', { name: 'DM yap: Ayla' }))
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'DM yap' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(ACCESS_MESSAGES.roleFailed)
   })
 })

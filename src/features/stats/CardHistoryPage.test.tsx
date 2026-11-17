@@ -200,7 +200,7 @@ describe('the stat tiles and the Geçmiş list', () => {
       "Bora'dan Ayla'ya transfer edildi",
       'Bora çekti',
       'Dana kullandı',
-      "DM, Dana'ya verdi",
+      "Gökay, Dana'ya verdi",
     ])
     expect(within(list).getByText('Kael üzerinde · 1 LP · kart havuza döndü')).toBeInTheDocument()
     expect(within(list).getByText('Seçilmedi')).toBeInTheDocument()

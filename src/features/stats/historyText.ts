@@ -11,7 +11,7 @@ import type { HistoryRow } from './cardHistory'
 // The Turkish of a card's Geçmiş list (design D6 of add-card-and-set-stats). The rows are about one card, so they
 // never name it: they name the people and the packs.
 
-/** A user's name in the history: "DM" for the DM, a player's profile name, or "İsimsiz oyuncu". */
+/** A user's name in the history: their profile name, a DM's included, or "İsimsiz oyuncu". */
 export type NameOf = (uid: string) => string
 
 /** What the texts need: the names, the sets' names for the packs, and the card itself. */

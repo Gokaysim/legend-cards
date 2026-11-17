@@ -6,7 +6,7 @@ import { formatAmount } from './format'
 import { BALANCE_LIMITS } from './schema'
 
 /** A balance change that the current data or the input does not allow, found before anything is written. */
-export type BalanceErrorKind = 'insufficient' | 'not-a-player' | 'invalid'
+export type BalanceErrorKind = 'insufficient' | 'no-profile' | 'invalid'
 
 export class BalanceError extends Error {
   override readonly name = 'BalanceError'
@@ -26,7 +26,7 @@ export type BalanceFailure =
   /** Subtracting more than the balance, which never goes below 0. */
   | { kind: 'insufficient'; balance: number }
   /** LP of someone who is not a player: the DM has no LP. */
-  | { kind: 'not-a-player' }
+  | { kind: 'no-profile' }
   /** An amount that is not a whole number in range, or a blank reason. */
   | { kind: 'invalid' }
   /** A pack is open: the table waits for it, and no balance changes until it ends. */
@@ -68,8 +68,8 @@ export function balanceFailureMessage(
       return owner.currency === 'lp'
         ? `${genitive(owner.name)} ${formatAmount(failure.balance)} LP'si var; ${formatAmount(amount)} LP düşülemez.`
         : `Grup kesesinde ${formatAmount(failure.balance)} GP var; ${formatAmount(amount)} GP düşülemez.`
-    case 'not-a-player':
-      return "Bu kişinin LP'si yok."
+    case 'no-profile':
+      return 'Bu kişinin profili yok.'
     case 'table-busy':
       return TABLE_BUSY_MESSAGE
     case 'invalid':

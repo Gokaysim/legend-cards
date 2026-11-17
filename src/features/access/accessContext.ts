@@ -1,5 +1,6 @@
 import { createContext, useContext } from 'react'
 
+import type { ChangeRoleInput } from '@/features/users/api'
 import type { Subscription } from '@/lib/firestore/subscription'
 
 import type { AccessEntry } from './schema'
@@ -10,6 +11,8 @@ export type AccessActions = {
   add: (email: string) => Promise<void>
   /** Removes an address from the list, as the DM. Rejects when the server denies it. */
   remove: (email: string) => Promise<void>
+  /** Changes a linked person's role, as a DM (spec: dm-roles). Rejects when the server denies it or is unreachable. */
+  changeRole: (input: ChangeRoleInput) => Promise<void>
 }
 
 export type AccessContextValue = {

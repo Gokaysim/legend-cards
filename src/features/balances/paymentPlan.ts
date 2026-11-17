@@ -3,13 +3,13 @@ import { genitive } from '@/lib/turkish'
 
 import { formatAmount } from './format'
 
-/** The player whose LP pays for a use, live. */
+/** The user whose LP pays for a use, live: the holder, a DM included. */
 export type UsePayer = { name: string; lp: number }
 
 export type UsePaymentInput = {
   /** The cost as written: a card's cost in this hand, or a True Word's cost. */
   cost: string | null
-  /** Whose LP pays; `null` for a hand or word of someone without LP, the DM. */
+  /** Whose LP pays; `null` for a hand or word of someone without a profile. */
   payer: UsePayer | null
   /** True when the DM uses it: the DM chooses the amount. */
   isDm: boolean
@@ -37,7 +37,7 @@ export type UsePaymentPlan = {
  * the amount of a use"; true-words, "Using a True Word"):
  * - a player's own use pays a fixed price as it is, or the die or amount they enter
  * - the DM enters any whole amount from 0, which starts at the price (`initialEntered`)
- * - a hand or word of someone without LP pays nothing and asks nothing
+ * - a hand or word of someone without a profile pays nothing and asks nothing
  *
  * The use cannot be confirmed while the amount is not valid or the payer's LP is below it.
  */

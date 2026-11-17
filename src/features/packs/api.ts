@@ -97,7 +97,7 @@ function isTaken(definition: Definition | undefined): boolean {
 const accountOf = (currency: PackCurrency, uid: string): BalanceAccount =>
   currency === 'lp' ? { currency: 'lp', uid } : { currency: 'gp' }
 
-/** Reads a balance inside the transaction, as the pack sees it: a non-player's LP is `not-a-player`. */
+/** Reads a balance inside the transaction, as the pack sees it: the LP of someone without a profile is `no-profile`. */
 async function readPackBalance(
   transaction: Transaction,
   db: Firestore,
@@ -106,8 +106,8 @@ async function readPackBalance(
   try {
     return await readBalance(transaction, db, account)
   } catch (error) {
-    if (error instanceof BalanceError && error.kind === 'not-a-player') {
-      throw new PackError('not-a-player')
+    if (error instanceof BalanceError && error.kind === 'no-profile') {
+      throw new PackError('no-profile')
     }
     throw error
   }
@@ -122,7 +122,7 @@ async function readPackBalance(
  * cards and the balance are read from the server to tell the reason: an open pack is `busy`, a taken card picks
  * again, a moved balance tries again, and anything else is thrown.
  *
- * Throws `PackError`: `busy`, `not-enough-cards`, `insufficient`, `not-a-player`, `invalid-amount` and
+ * Throws `PackError`: `busy`, `not-enough-cards`, `insufficient`, `no-profile`, `invalid-amount` and
  * `retries-exhausted`.
  */
 export async function openPack(db: Firestore, input: OpenPackInput): Promise<string> {

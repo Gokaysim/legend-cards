@@ -1,7 +1,7 @@
 import { Timestamp } from 'firebase/firestore'
 import { describe, expect, it } from 'vitest'
 
-import { userProfileSchema } from './schema'
+import { roleChangeSchema, userProfileSchema } from './schema'
 
 const valid = {
   displayName: 'Çağla',
@@ -60,5 +60,39 @@ describe('userProfileSchema', () => {
     expect(userProfileSchema.safeParse({ ...valid, displayName: 'x'.repeat(101) }).success).toBe(
       false,
     )
+  })
+})
+
+describe('roleChangeSchema', () => {
+  const record = {
+    by: 'dana',
+    at: Timestamp.fromMillis(0),
+    target: 'bob',
+    before: 'player',
+    after: 'dm',
+  }
+
+  it('accepts a grant, and a step down naming another DM', () => {
+    expect(roleChangeSchema.safeParse(record).success).toBe(true)
+    expect(
+      roleChangeSchema.safeParse({
+        ...record,
+        target: 'dana',
+        before: 'dm',
+        after: 'player',
+        otherDm: 'bob',
+      }).success,
+    ).toBe(true)
+  })
+
+  it('rejects an unknown role', () => {
+    expect(roleChangeSchema.safeParse({ ...record, after: 'admin' }).success).toBe(false)
+  })
+})
+
+describe('userProfileSchema and roles changed in the app', () => {
+  it('reads a profile without a role change as none, and keeps a stored one', () => {
+    expect(userProfileSchema.parse(valid).roleChangeId).toBeNull()
+    expect(userProfileSchema.parse({ ...valid, roleChangeId: 'r1' }).roleChangeId).toBe('r1')
   })
 })

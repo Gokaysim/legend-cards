@@ -17,9 +17,8 @@ import { useSetIndex } from '@/features/sets/setsContext'
 import { TABLE_BUSY_NOTE } from '@/features/table/errors'
 import type { KnownWordEntry } from '@/features/true-words/trueWordsContext'
 import { useIsTableBusy } from '@/features/table/tableContext'
-import { DmOnly } from '@/features/users/DmOnly'
 import type { UserProfile } from '@/features/users/schema'
-import { profileName } from '@/features/users/usersContext'
+import { profileName, useIsDm } from '@/features/users/usersContext'
 import { cn } from '@/lib/cn'
 import { genitive } from '@/lib/turkish'
 
@@ -147,7 +146,7 @@ export function HandSummary({
   const [openList, setOpenList] = useState<ListId | null>(null)
   const isTableBusy = useIsTableBusy()
   const setIndex = useSetIndex()
-  const isPlayer = profile.role === 'player'
+  const isDm = useIsDm()
   const playerName = profileName(profile)
   const active = entries.filter((entry) => entry.holding.active)
   const activeWords = words.filter((entry) => entry.record.active)
@@ -220,39 +219,37 @@ export function HandSummary({
   return (
     <div className="relative min-w-0">
       <dl aria-label="El özeti" className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-        {isPlayer ? (
-          <StatTile
-            label="Legend Point"
-            value={formatAmount(profile.lp)}
-            action={
-              isOwnHand ? (
-                // The player's own spend (spec: balances, "A player lowers their own LP").
-                <Button
-                  variant="ghost"
-                  className="shrink-0 px-2 py-1"
-                  disabled={isTableBusy || profile.lp <= 0}
-                  title={isTableBusy ? TABLE_BUSY_NOTE : undefined}
-                  onClick={() => setLpDialog('spend')}
-                >
-                  − LP
-                </Button>
-              ) : (
-                <DmOnly>
-                  <Button
-                    variant="ghost"
-                    className="shrink-0 px-2 py-1"
-                    aria-label={`${genitive(playerName)} LP'sini değiştir`}
-                    disabled={isTableBusy}
-                    title={isTableBusy ? TABLE_BUSY_NOTE : undefined}
-                    onClick={() => setLpDialog('change')}
-                  >
-                    ± LP
-                  </Button>
-                </DmOnly>
-              )
-            }
-          />
-        ) : null}
+        {/* Every hand shows LP, a DM's too (spec: balances, "LP on the hand screen"): the DM changes any hand's LP,
+            their own included, and a player spends their own. */}
+        <StatTile
+          label="Legend Point"
+          value={formatAmount(profile.lp)}
+          action={
+            isDm ? (
+              <Button
+                variant="ghost"
+                className="shrink-0 px-2 py-1"
+                aria-label={`${genitive(playerName)} LP'sini değiştir`}
+                disabled={isTableBusy}
+                title={isTableBusy ? TABLE_BUSY_NOTE : undefined}
+                onClick={() => setLpDialog('change')}
+              >
+                ± LP
+              </Button>
+            ) : isOwnHand ? (
+              // The player's own spend (spec: balances, "A player lowers their own LP").
+              <Button
+                variant="ghost"
+                className="shrink-0 px-2 py-1"
+                disabled={isTableBusy || profile.lp <= 0}
+                title={isTableBusy ? TABLE_BUSY_NOTE : undefined}
+                onClick={() => setLpDialog('spend')}
+              >
+                − LP
+              </Button>
+            ) : null
+          }
+        />
         <StatTile label="Eldeki kart" value={entries.length} />
         <StatTile
           label="Aktif efekt"

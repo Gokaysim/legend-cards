@@ -3,14 +3,22 @@ import {
   type RulesTestContext,
   type RulesTestEnvironment,
 } from '@firebase/rules-unit-testing'
-import { doc, type Firestore, getDoc, setDoc, Timestamp } from 'firebase/firestore'
+import {
+  collection,
+  doc,
+  type Firestore,
+  getDoc,
+  getDocs,
+  setDoc,
+  Timestamp,
+} from 'firebase/firestore'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import type { AuthUser } from '@/features/auth/authContext'
 import { memberContext, seedMembers } from '@/test/members'
 
 import firestoreRules from '../../../firestore.rules?raw'
-import { ensureProfile } from './api'
+import { changeRole, ensureProfile } from './api'
 
 let testEnv: RulesTestEnvironment
 
@@ -119,5 +127,73 @@ describe('ensureProfile under the real rules', () => {
       ensureProfile(aliceDb(), { ...alice, displayName: 'x'.repeat(150) }),
     ).resolves.toBe('updated')
     expect((await storedProfile('alice'))?.displayName).toBe('x'.repeat(100))
+  })
+})
+
+describe('changeRole under the real rules', () => {
+  const seeded = (role: 'player' | 'dm', displayName: string) => ({
+    displayName,
+    photoURL: null,
+    role,
+    createdAt: Timestamp.fromMillis(0),
+    lp: 3,
+  })
+  const as = (uid: string) => firestoreOf(memberContext(testEnv, uid))
+
+  async function records(): Promise<Record<string, unknown>[]> {
+    let data: Record<string, unknown>[] = []
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      data = (await getDocs(collection(firestoreOf(admin), 'roleChanges'))).docs.map((d) =>
+        d.data(),
+      )
+    })
+    return data
+  }
+
+  beforeEach(async () => {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const db = firestoreOf(admin)
+      await setDoc(doc(db, 'users/dana'), seeded('dm', 'Dana'))
+      await setDoc(doc(db, 'users/bob'), seeded('player', 'Bob'))
+    })
+  })
+
+  it('makes a player a DM, with its record, keeping the LP', async () => {
+    await changeRole(as('dana'), { target: 'bob', after: 'dm', by: 'dana' })
+
+    expect(await storedProfile('bob')).toMatchObject({ role: 'dm', lp: 3 })
+    expect(await records()).toEqual([
+      expect.objectContaining({ by: 'dana', target: 'bob', before: 'player', after: 'dm' }),
+    ])
+  })
+
+  it('takes the role from another DM', async () => {
+    await changeRole(as('dana'), { target: 'bob', after: 'dm', by: 'dana' })
+    await changeRole(as('dana'), { target: 'bob', after: 'player', by: 'dana' })
+
+    expect(await storedProfile('bob')).toMatchObject({ role: 'player' })
+    expect(await records()).toHaveLength(2)
+  })
+
+  it('lets a DM step down while naming another DM, and refuses it without one', async () => {
+    await expect(
+      changeRole(as('dana'), { target: 'dana', after: 'player', by: 'dana', otherDm: 'bob' }),
+    ).rejects.toThrow()
+    expect(await storedProfile('dana')).toMatchObject({ role: 'dm' })
+
+    await changeRole(as('dana'), { target: 'bob', after: 'dm', by: 'dana' })
+    await changeRole(as('dana'), { target: 'dana', after: 'player', by: 'dana', otherDm: 'bob' })
+    expect(await storedProfile('dana')).toMatchObject({ role: 'player' })
+    expect((await records()).find((r) => r.target === 'dana')).toMatchObject({ otherDm: 'bob' })
+  })
+
+  it('writes nothing for a role the user already has', async () => {
+    await changeRole(as('dana'), { target: 'bob', after: 'player', by: 'dana' })
+    expect(await records()).toEqual([])
+  })
+
+  it('is refused for a player', async () => {
+    await expect(changeRole(as('bob'), { target: 'bob', after: 'dm', by: 'bob' })).rejects.toThrow()
+    expect(await storedProfile('bob')).toMatchObject({ role: 'player' })
   })
 })

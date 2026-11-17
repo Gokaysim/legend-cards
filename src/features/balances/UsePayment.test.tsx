@@ -130,7 +130,20 @@ describe('UsePayment', () => {
     expect(screen.getByText("Bu kullanım 6 LP tutuyor; Ayla'nın 5 LP'si var.")).toBeInTheDocument()
   })
 
-  it("shows nothing for the DM's own hand, which pays nothing", () => {
+  it("asks the DM for an amount up to the DM's own LP on the DM's own card", async () => {
+    const user = userEvent.setup()
+    const { confirm } = setup('2', { name: 'Dana', lp: 4 }, true)
+
+    const field = screen.getByRole('spinbutton')
+    expect(field).toHaveValue(2)
+    expect(confirm()).toHaveTextContent('Kullanımı onayla (2 LP)')
+    await user.clear(field)
+    await user.type(field, '5')
+    expect(confirm()).toBeDisabled()
+    expect(screen.getByText("Bu kullanım 5 LP tutuyor; Dana'nın 4 LP'si var.")).toBeInTheDocument()
+  })
+
+  it('shows nothing for a hand without a profile, which pays nothing', () => {
     const { confirm } = setup('2', null, true)
 
     expect(screen.queryByText('Bedel')).not.toBeInTheDocument()

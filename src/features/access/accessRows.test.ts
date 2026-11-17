@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import { testProfile } from '@/test/fixtures'
 
-import { accessRows } from './accessRows'
+import { accessRows, otherDmOf } from './accessRows'
 import type { AccessEntry } from './schema'
 
 const entry = (email: string, uid?: string): AccessEntry => ({
@@ -54,5 +54,42 @@ describe('accessRows', () => {
   it('keeps a linked entry whose profile has not loaded among the rows without a profile', () => {
     const [row] = accessRows([entry('cem@example.com', 'cem')], PROFILES, null)
     expect(row).toMatchObject({ profile: null, isLinked: true })
+  })
+})
+
+describe('role controls', () => {
+  const ROWS_ENTRIES = [
+    entry('zerrin@example.com', 'dm'),
+    entry('ayla@example.com', 'ayla'),
+    entry('bora@example.com'),
+  ]
+  const byEmail = (rows: ReturnType<typeof accessRows>, email: string) =>
+    rows.find((row) => row.email === email)
+
+  it('offers "grant" on a linked player, and nothing on an unlinked row', () => {
+    const rows = accessRows(ROWS_ENTRIES, PROFILES, 'zerrin@example.com', 'dm')
+    expect(byEmail(rows, 'ayla@example.com')).toMatchObject({ isDm: false, roleAction: 'grant' })
+    expect(byEmail(rows, 'bora@example.com')).toMatchObject({ isDm: false, roleAction: null })
+  })
+
+  it('offers "take" on another DM, and "stepDown" on one’s own row only while another DM exists', () => {
+    const twoDms = PROFILES.map((profile) =>
+      profile.id === 'ayla' ? { ...profile, role: 'dm' as const } : profile,
+    )
+    const rows = accessRows(ROWS_ENTRIES, twoDms, 'zerrin@example.com', 'dm')
+    expect(byEmail(rows, 'ayla@example.com')).toMatchObject({ isDm: true, roleAction: 'take' })
+    expect(byEmail(rows, 'zerrin@example.com')).toMatchObject({
+      isDm: true,
+      isMe: true,
+      roleAction: 'stepDown',
+    })
+
+    const alone = accessRows(ROWS_ENTRIES, PROFILES, 'zerrin@example.com', 'dm')
+    expect(byEmail(alone, 'zerrin@example.com')).toMatchObject({ isDm: true, roleAction: null })
+  })
+
+  it('names another DM for a step down, or none', () => {
+    expect(otherDmOf(PROFILES, 'dm')).toBeNull()
+    expect(otherDmOf([...PROFILES, testProfile({ id: 'gokay', role: 'dm' })], 'dm')).toBe('gokay')
   })
 })

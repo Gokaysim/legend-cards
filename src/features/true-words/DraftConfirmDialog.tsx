@@ -50,14 +50,14 @@ export function DraftConfirmDialog({
   const isOnline = useOnlineStatus()
   const isTableBusy = useIsTableBusy()
 
-  const isPlayer = owner.role === 'player'
-  const [amountText, setAmountText] = useState(String(isPlayer ? price : 0))
+  // Every user's LP pays for a draft, a DM's included (spec: true-words, "The DM chooses the amount").
+  const [amountText, setAmountText] = useState(String(price))
   const [isBusy, setIsBusy] = useState(false)
   const [failure, setFailure] = useState<WordFailure | null>(null)
 
   const name = profileName(owner)
   const amount = isDm ? (amountText.trim() === '' ? Number.NaN : Number(amountText)) : price
-  const isShort = Number.isInteger(amount) && amount > 0 && (!isPlayer || amount > owner.lp)
+  const isShort = Number.isInteger(amount) && amount > 0 && amount > owner.lp
   const canStart = uid !== null && !isBusy && !isTableBusy && (isDm || !isShort)
 
   const start = async () => {
@@ -65,10 +65,6 @@ export function DraftConfirmDialog({
     setFailure(null)
     if (!Number.isInteger(amount) || amount < 0 || amount > DRAFT_COST_MAX) {
       setFailure({ kind: 'invalid-amount' })
-      return
-    }
-    if (amount > 0 && !isPlayer) {
-      setFailure({ kind: 'not-a-player' })
       return
     }
     if (amount > owner.lp) {
@@ -102,12 +98,8 @@ export function DraftConfirmDialog({
         <dd className="text-ink">{name}</dd>
         <dt className="text-ink-muted">Fiyat</dt>
         <dd className="text-gold tabular-nums">{`${formatAmount(price)} LP`}</dd>
-        {isPlayer ? (
-          <>
-            <dt className="text-ink-muted">Bakiye</dt>
-            <dd className="text-ink tabular-nums">{`${formatAmount(owner.lp)} LP`}</dd>
-          </>
-        ) : null}
+        <dt className="text-ink-muted">Bakiye</dt>
+        <dd className="text-ink tabular-nums">{`${formatAmount(owner.lp)} LP`}</dd>
       </dl>
       <p className="text-sm text-ink-muted">
         3 rastgele True Word gösterilir: birini öğren ya da pas geç.

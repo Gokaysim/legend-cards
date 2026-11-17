@@ -130,12 +130,12 @@ describe('PlayerList', () => {
     expect(within(list()).getByRole('link', { name: 'Ayla' })).not.toHaveAttribute('aria-current')
   })
 
-  it("shows each player's LP next to the name, and none for the DM", () => {
+  it("shows every user's LP next to the name, a DM's included", () => {
     renderList(
       <PlayerList
         profiles={ready([
           testProfile({ id: 'a', displayName: 'Ayla', lp: 7 }),
-          testProfile({ id: 'b', displayName: 'Dana', role: 'dm', lp: 3 }),
+          testProfile({ id: 'b', displayName: 'Dana', role: 'dm', lp: 2 }),
           testProfile({ id: 'c', displayName: 'Zeki', lp: 12500 }),
         ])}
       />,
@@ -144,8 +144,25 @@ describe('PlayerList', () => {
     const [ayla, dana, zeki] = within(list()).getAllByRole('listitem')
     expect(ayla).toHaveTextContent('7 LP')
     expect(within(ayla!).getByRole('link')).toHaveAccessibleName('Ayla')
-    expect(dana).not.toHaveTextContent('LP')
+    expect(dana).toHaveTextContent('2 LP')
     expect(zeki).toHaveTextContent('12.500 LP')
+  })
+
+  it('marks every DM when there are several', () => {
+    renderList(
+      <PlayerList
+        profiles={ready([
+          testProfile({ id: 'a', displayName: 'Ayla', role: 'dm' }),
+          testProfile({ id: 'b', displayName: 'Bora' }),
+          testProfile({ id: 'c', displayName: 'Gökay', role: 'dm' }),
+        ])}
+      />,
+    )
+
+    const [ayla, bora, gokay] = within(list()).getAllByRole('listitem')
+    expect(ayla).toHaveTextContent('DM')
+    expect(bora).not.toHaveTextContent('DM')
+    expect(gokay).toHaveTextContent('DM')
   })
 
   it('shows the new LP when it changes, without a reload', () => {

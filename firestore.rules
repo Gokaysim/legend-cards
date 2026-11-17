@@ -84,6 +84,10 @@ service cloud.firestore {
       return /databases/$(database)/documents/tableChanges/$(changeId);
     }
 
+    function roleChangePath(changeId) {
+      return /databases/$(database)/documents/roleChanges/$(changeId);
+    }
+
     function playerWordsPath(uid) {
       return /databases/$(database)/documents/playerWords/$(uid);
     }
@@ -376,15 +380,26 @@ service cloud.firestore {
         && resource.data.get('uid', null) == null
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['uid'])
         && request.resource.data.uid == request.auth.uid;
-      allow delete: if isDm() && email != myEmail();
+      allow delete: if isDm() && email != myEmail() && !isDmUid(resource.data.get('uid', null));
+
+      // No DM's address is removed, so one DM never locks another out without first taking the role, which leaves a
+      // record (design D5 of give-dms-lp-and-share-the-dm-role). An unlinked entry has no profile, so no role.
+      function isDmUid(entryUid) {
+        return entryUid is string
+          && exists(userPath(entryUid))
+          && get(userPath(entryUid)).data.role == 'dm';
+      }
     }
 
     // User profiles. Everyone signed in reads every profile. A user creates only their own, only as a player,
-    // and later changes only its name, its picture and its dice style. Roles are changed by the admin script (Admin SDK), never here.
-    // The other writes are a player's Legend Points, each together with the ledger entry that records it: the DM
-    // changes them by hand, a player lowers their own by hand (never raises them), a player pays 1 LP for their own
-    // draw, a pack's or a True Word draft's payment or refund moves them, and the player or the DM pays for using the
-    // player's card or True Word (a use that closes its holding, `use`, or one that keeps it in the hand, `keptUse`).
+    // and later changes only its name, its picture and its dice style. A DM changes a role, anyone's, their own
+    // included, together with the `roleChanges` record that this same request creates for it (design D2 of
+    // give-dms-lp-and-share-the-dm-role); the admin script (Admin SDK) changes roles without a record.
+    // The other writes are a user's Legend Points, a DM's included (design D1 of give-dms-lp-and-share-the-dm-role),
+    // each together with the ledger entry that records it: the DM changes them by hand, a player lowers their own by
+    // hand (never raises them), a player pays 1 LP for their own draw, a pack's or a True Word draft's payment or refund
+    // moves them, and the holder or the DM pays for using the holder's card or True Word (a use that closes its
+    // holding, `use`, or one that keeps it in the hand, `keptUse`).
     match /users/{uid} {
       allow read: if isMember();
       allow create: if isSelf(uid)
@@ -394,7 +409,10 @@ service cloud.firestore {
         && request.resource.data.createdAt == request.time
         && validName(request.resource.data.displayName)
         && validPhoto(request.resource.data.photoURL);
-      allow update: if (
+      // The role branch comes first: its `onlyChanges` fails at once for every other write, so the heaviest
+      // branches below pay almost nothing for it (1000-expression limit).
+      allow update: if (onlyChanges(['role', 'roleChangeId']) && setsRole())
+        || (
           isSelf(uid)
           && onlyChanges(['displayName', 'photoURL'])
           && validName(request.resource.data.displayName)
@@ -414,8 +432,21 @@ service cloud.firestore {
         || (lpSetByEntry('keptUse') && (isSelf(uid) || isDm()));
       allow delete: if false;
 
-      // A player's LP (a whole number, never below 0) set with a new ledger entry from `source`: a change by hand
-      // (the DM's, or the player's own lowering), the player's draw payment, whose amount the ledger rules fix at 1, a
+      // A DM sets this profile's role to the other one, and the record this same request creates names this profile.
+      // The record's rule checks its before, its after and, when a DM steps down, the other DM.
+      function setsRole() {
+        let next = request.resource.data;
+        let changeId = next.get('roleChangeId', null);
+        return changeId is string
+          && next.role in ['player', 'dm']
+          && next.role != resource.data.role
+          && createdNow(roleChangePath(changeId))
+          && getAfter(roleChangePath(changeId)).data.target == uid
+          && isDm();
+      }
+
+      // A user's LP (a whole number, never below 0), whatever their role, set with a new ledger entry from `source`:
+      // a change by hand (the DM's, or the player's own lowering), the player's draw payment, whose amount the ledger rules fix at 1, a
       // pack's or a True Word draft's payment or refund, or a use's payment, which the ledger rules tie to its record.
       // A missing `lp` is 0.
       //
@@ -430,7 +461,6 @@ service cloud.firestore {
           && getAfter(ledgerPath(entryId)).data.source == source
           && isMember()
           && onlyChanges(['lp', 'lpEntryId'])
-          && resource.data.role == 'player'
           && next.get('lp', null) is int
           && next.lp >= 0
           && setByNewEntry(entryId, 'lp', uid, resource.data.get('lp', 0), next.lp);
@@ -655,14 +685,13 @@ service cloud.firestore {
           || (pack.paidWith == 'gp' && data.currency == 'gp' && data.account == 'party');
       }
 
-      // A player's LP: the profile now points at this entry and holds its balance, which follows from the balance
-      // before (missing: 0) and the change.
+      // A user's LP, whatever their role: the profile now points at this entry and holds its balance, which follows
+      // from the balance before (missing: 0) and the change.
       function setsLp() {
         let data = request.resource.data;
         let profile = userPath(data.account);
         return data.currency == 'lp'
           && exists(profile)
-          && get(profile).data.role == 'player'
           && getAfter(profile).data.get('lpEntryId', null) == entryId
           && getAfter(profile).data.get('lp', null) == data.balanceAfter
           && get(profile).data.get('lp', 0) + data.delta == data.balanceAfter;
@@ -1791,6 +1820,48 @@ service cloud.firestore {
           && existsAfter(tablePath())
           && getAfter(tablePath()).data.get('playerDrawChangeId', null) == changeId
           && getAfter(tablePath()).data.get('playerDraw', 'off') == data.after;
+      }
+    }
+
+    // Role change records (design D2, D3 of give-dms-lp-and-share-the-dm-role): one per role change a DM makes in the
+    // app, with who made it, when, whose role changed (`target`), the role before and the role after. Everyone signed
+    // in reads them. Only a DM creates one, together with the profile change it records: the profile now points at it
+    // and holds its after, and its before is the profile's role before. A DM who steps down names another user who is
+    // a DM now (`otherDm`), so stepping down never leaves the table without a DM by itself. A record never changes and
+    // is never deleted.
+    match /roleChanges/{changeId} {
+      allow read: if isMember();
+      allow create: if isMember() && validRoleChange() && isDm();
+      allow update, delete: if false;
+
+      function validRoleChange() {
+        let data = request.resource.data;
+        let target = data.get('target', null);
+        let isStepDown = target == request.auth.uid;
+        let fields = isStepDown
+          ? ['by', 'at', 'target', 'before', 'after', 'otherDm']
+          : ['by', 'at', 'target', 'before', 'after'];
+        return data.keys().hasOnly(fields)
+          && data.keys().hasAll(fields)
+          && data.by == request.auth.uid
+          && data.at == request.time
+          && target is string
+          && exists(userPath(target))
+          && data.before in ['player', 'dm']
+          && data.after in ['player', 'dm']
+          && data.before != data.after
+          && data.before == get(userPath(target)).data.role
+          && getAfter(userPath(target)).data.get('roleChangeId', null) == changeId
+          && getAfter(userPath(target)).data.role == data.after
+          && (!isStepDown || otherDmNamed(data.get('otherDm', null)));
+      }
+
+      // Another user who is a DM before this request.
+      function otherDmNamed(otherDm) {
+        return otherDm is string
+          && otherDm != request.auth.uid
+          && exists(userPath(otherDm))
+          && get(userPath(otherDm)).data.role == 'dm';
       }
     }
 

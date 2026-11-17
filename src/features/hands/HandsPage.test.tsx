@@ -221,14 +221,40 @@ describe('Legend Points on the hand', () => {
     expect(stat('Legend Point')).toBe('9')
   })
 
-  it("shows no LP on the DM's own hand", () => {
+  it("shows the DM's own LP, with the DM's change and no spend", async () => {
+    const user = userEvent.setup()
+    const changeBalance = vi.fn<BalanceActions['changeBalance']>(() => Promise.resolve('e1'))
+    const dmWithLp = { ...dmProfile, lp: 3 }
     renderApp({
       path: `/hands/${testUser.uid}`,
-      users: { currentProfile: ready(dmProfile), profiles: ready([dmProfile]) },
+      users: { currentProfile: ready(dmWithLp), profiles: ready([dmWithLp]) },
+      balances: { actions: { changeBalance } },
     })
-    expect(
-      within(screen.getByLabelText('El özeti')).queryByText('Legend Point'),
-    ).not.toBeInTheDocument()
+    // The stat's value cell also holds its control.
+    expect(stat('Legend Point')).toBe('3± LP')
+    expect(main().queryByRole('button', { name: '− LP' })).not.toBeInTheDocument()
+
+    await user.click(main().getByRole('button', { name: /LP'sini değiştir/ }))
+    const dialog = within(screen.getByRole('dialog', { name: /^Legend Point: / }))
+    await user.type(dialog.getByRole('spinbutton', { name: 'Miktar' }), '2')
+    await user.type(dialog.getByRole('textbox', { name: 'Neden' }), 'NPC ödülü')
+    await user.click(dialog.getByRole('button', { name: '+ Ekle' }))
+
+    expect(changeBalance).toHaveBeenCalledExactlyOnceWith({
+      account: { currency: 'lp', uid: testUser.uid },
+      delta: 2,
+      reason: 'NPC ödülü',
+      by: testUser.uid,
+    })
+  })
+
+  it("shows a DM's LP to a player, without a control", () => {
+    renderApp({
+      path: '/hands/dana',
+      users: { profiles: ready([me, { ...dmProfile, id: 'dana', lp: 3 }]) },
+    })
+    expect(stat('Legend Point')).toBe('3')
+    expect(main().queryByRole('button', { name: /LP/ })).not.toBeInTheDocument()
   })
 })
 

@@ -10,7 +10,7 @@ export type PackErrorKind =
   | 'busy'
   | 'not-enough-cards'
   | 'insufficient'
-  | 'not-a-player'
+  | 'no-profile'
   | 'invalid-amount'
   | 'retries-exhausted'
   | 'closed'
@@ -43,7 +43,7 @@ export type PackFailure =
   /** The balance is less than the amount. */
   | { kind: 'insufficient'; currency: PackCurrency; balance: number; amount: number }
   /** LP charged to someone who is not a player: the DM has no LP. */
-  | { kind: 'not-a-player' }
+  | { kind: 'no-profile' }
   /** The DM's amount is not a whole number from 0 to 1,000,000. */
   | { kind: 'invalid-amount' }
   /** Every pick lost a shown card to another hand meanwhile, five times in a row. */
@@ -96,8 +96,8 @@ export function packFailureMessage(failure: PackFailure, names: PackFailureNames
       return failure.currency === 'lp'
         ? `Bu Pack için ${formatAmount(failure.amount)} LP gerekiyor; ${genitive(names.owner)} ${formatAmount(failure.balance)} LP'si var.`
         : `Bu Pack için ${formatAmount(failure.amount)} GP gerekiyor; grup kesesinde ${formatAmount(failure.balance)} GP var.`
-    case 'not-a-player':
-      return "Bu kişinin LP'si yok: Pack'i GP ile ya da ücretsiz aç."
+    case 'no-profile':
+      return "Bu kişinin profili yok: Pack'i GP ile ya da ücretsiz aç."
     case 'invalid-amount':
       return 'Tutar 0 ile 1.000.000 arasında bir tam sayı olmalı.'
     case 'retries-exhausted':

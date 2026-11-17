@@ -89,13 +89,13 @@ async function readState(transaction: Transaction, db: Firestore, uid: string) {
   return (await transaction.get(playerWordsRef(db, uid))).data() ?? EMPTY_PLAYER_WORDS
 }
 
-/** Reads a player's LP inside the transaction; the DM, who has no LP, is `not-a-player`. */
+/** Reads a user's LP inside the transaction, a DM's included; a missing profile is `no-profile`. */
 async function readLp(transaction: Transaction, db: Firestore, uid: string): Promise<number> {
   try {
     return await readBalance(transaction, db, { currency: 'lp', uid })
   } catch (error) {
-    if (error instanceof BalanceError && error.kind === 'not-a-player') {
-      throw new WordError('not-a-player')
+    if (error instanceof BalanceError && error.kind === 'no-profile') {
+      throw new WordError('no-profile')
     }
     throw error
   }
@@ -193,7 +193,7 @@ export function learnableWords(words: readonly TrueWord[], known: ReadonlySet<st
  * The 3 words are picked outside the transaction. A picked word that the player came to know meanwhile is replaced
  * by another pick, so the player is charged once.
  *
- * Throws `WordError` (`too-few-words`, `insufficient`, `not-a-player`, `invalid-amount`, `draft-open`,
+ * Throws `WordError` (`too-few-words`, `insufficient`, `no-profile`, `invalid-amount`, `draft-open`,
  * `retries-exhausted`) and `TableBusyError`.
  */
 export async function startDraft(db: Firestore, input: StartDraftInput): Promise<string> {
@@ -518,7 +518,7 @@ function asWordError(error: unknown): unknown {
     case 'price-changed':
       return new WordError('price-changed', null, error.price)
     case 'invalid-amount':
-    case 'not-a-player':
+    case 'no-profile':
       return new WordError(error.kind)
     default:
       return error
@@ -532,7 +532,7 @@ function asWordError(error: unknown): unknown {
  *
  * Throws `WordError`: `not-known` for a word taken back, `unavailable` for a missing word, `price-changed` with the
  * price now when the player's own use confirms another fixed price, `invalid-amount` for an amount the price does not
- * allow, `insufficient` when the LP is below the amount, and `not-a-player` for a paid use of the DM's word. Throws
+ * allow, `insufficient` when the LP is below the amount, and `no-profile` for a paid use of a word whose holder has no profile. Throws
  * `TableBusyError` while a pack is open.
  */
 export async function recordWordUse(db: Firestore, input: RecordWordUseInput): Promise<void> {

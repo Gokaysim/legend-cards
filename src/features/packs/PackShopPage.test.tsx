@@ -21,6 +21,7 @@ const me = testProfile({ lp: 5 })
 const ayla = testProfile({ id: 'ayla', displayName: 'Ayla', lp: 4 })
 const bora = testProfile({ id: 'bora', displayName: 'Bora', lp: 3 })
 const dm = testProfile({ role: 'dm', displayName: 'Dana', lp: 0 })
+const dmWithLp = testProfile({ role: 'dm', displayName: 'Dana', lp: 3 })
 
 /** The stored sets with the given pictures. */
 function setsWith(
@@ -716,7 +717,7 @@ describe("the DM's payment", () => {
     await user.click(packButton('Kesqerian Nights Standard Pack'))
     const dialog = within(screen.getByRole('dialog'))
     expect(dialog.getByRole('combobox', { name: 'Kimin için' })).toHaveValue('ayla')
-    expect(dialog.getByRole('radio', { name: "Oyuncunun LP'si (4 LP)" })).toBeChecked()
+    expect(dialog.getByRole('radio', { name: "Ayla'nın LP'si (4 LP)" })).toBeChecked()
     expect(dialog.getByRole('spinbutton', { name: 'Tutar (LP)' })).toHaveValue(2)
     await user.click(dialog.getByRole('button', { name: "Pack'i aç" }))
 
@@ -765,15 +766,20 @@ describe("the DM's payment", () => {
     expect(openPack).not.toHaveBeenCalled()
   })
 
-  it("offers no LP for the DM's own hand, and starts with GP", async () => {
+  it("charges the DM's own LP for the DM's own hand at the LP price by default", async () => {
     const user = userEvent.setup()
-    dmShop({ path: `/shops/packs?for=${testUser.uid}&group=Kesqer` })
+    const openPack = vi.fn<PackActions['openPack']>(() => Promise.resolve('pack-1'))
+    dmShop({ path: `/shops/packs?for=${testUser.uid}&group=Kesqer`, viewer: dmWithLp, openPack })
 
     await user.click(packButton('Kesqerian Nights Standard Pack'))
     const dialog = within(screen.getByRole('dialog'))
-    expect(dialog.getByRole('radio', { name: /Oyuncunun LP'si/ })).toBeDisabled()
-    expect(dialog.getByRole('radio', { name: /Grup kesesi/ })).toBeChecked()
-    expect(dialog.getByRole('spinbutton', { name: 'Tutar (GP)' })).toHaveValue(5000)
+    expect(dialog.getByRole('radio', { name: "Dana'nın LP'si (3 LP)" })).toBeChecked()
+    expect(dialog.getByRole('spinbutton', { name: 'Tutar (LP)' })).toHaveValue(2)
+    await user.click(dialog.getByRole('button', { name: "Pack'i aç" }))
+
+    expect(openPack).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ uid: testUser.uid, payment: { currency: 'lp', amount: 2 } }),
+    )
   })
 
   it('picks the first player who is not the DM without a link', async () => {
@@ -799,7 +805,7 @@ describe("the DM's payment", () => {
     await user.click(packButton('Kesqerian Nights Standard Pack'))
     let dialog = within(screen.getByRole('dialog'))
     await user.selectOptions(dialog.getByRole('combobox', { name: 'Kimin için' }), 'bora')
-    expect(dialog.getByRole('radio', { name: "Oyuncunun LP'si (3 LP)" })).toBeChecked()
+    expect(dialog.getByRole('radio', { name: "Bora'nın LP'si (3 LP)" })).toBeChecked()
     expect(dialog.getByRole('spinbutton', { name: 'Tutar (LP)' })).toHaveValue(2)
     expect(router.state.location.search).toBe('?for=bora&group=Kesqer')
     expect(router.state.historyAction).toBe('REPLACE')
@@ -815,15 +821,18 @@ describe("the DM's payment", () => {
     expect(dialog.getByRole('combobox', { name: 'Kimin için' })).toHaveValue('bora')
   })
 
-  it('switches to the purse at the GP price when the DM picks their own hand', async () => {
+  it('keeps the chosen currency at its price when the DM picks their own hand', async () => {
     const user = userEvent.setup()
-    dmShop({ path: '/shops/packs?for=ayla&group=Kesqer' })
+    dmShop({ path: '/shops/packs?for=ayla&group=Kesqer', viewer: dmWithLp })
 
     await user.click(packButton('Kesqerian Nights Standard Pack'))
     const dialog = within(screen.getByRole('dialog'))
     await user.selectOptions(dialog.getByRole('combobox', { name: 'Kimin için' }), testUser.uid)
+    expect(dialog.getByRole('radio', { name: "Dana'nın LP'si (3 LP)" })).toBeChecked()
+    expect(dialog.getByRole('spinbutton', { name: 'Tutar (LP)' })).toHaveValue(2)
 
-    expect(dialog.getByRole('radio', { name: /Oyuncunun LP'si/ })).toBeDisabled()
+    await user.click(dialog.getByRole('radio', { name: /Grup kesesi/ }))
+    await user.selectOptions(dialog.getByRole('combobox', { name: 'Kimin için' }), 'ayla')
     expect(dialog.getByRole('radio', { name: /Grup kesesi/ })).toBeChecked()
     expect(dialog.getByRole('spinbutton', { name: 'Tutar (GP)' })).toHaveValue(5000)
   })

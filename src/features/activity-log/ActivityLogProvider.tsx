@@ -21,6 +21,7 @@ function useFirestoreLogRecords(uid: string | null, n: number) {
   const setChanges = useCollection(queries.setChanges)
   const tableChanges = useCollection(queries.tableChanges)
   const combatChanges = useCollection(queries.combatChanges)
+  const roleChanges = useCollection(queries.roleChanges)
   return useMemo(
     () =>
       combineSubscriptions({
@@ -33,8 +34,20 @@ function useFirestoreLogRecords(uid: string | null, n: number) {
         setChanges,
         tableChanges,
         combatChanges,
+        roleChanges,
       }),
-    [given, closed, draws, entries, uses, changes, setChanges, tableChanges, combatChanges],
+    [
+      given,
+      closed,
+      draws,
+      entries,
+      uses,
+      changes,
+      setChanges,
+      tableChanges,
+      combatChanges,
+      roleChanges,
+    ],
   )
 }
 

@@ -8,7 +8,8 @@ import type { NameOf } from './historyText'
 export const UNKNOWN_PLAYER = 'İsimsiz oyuncu'
 
 /**
- * How the statistics pages name users: "DM" for the DM, a player by their profile name, and "İsimsiz oyuncu" for a
+ * How the statistics pages name users: everyone by their profile name, a DM included, so that one of several DMs is
+ * told apart (design D6 of give-dms-lp-and-share-the-dm-role), and "İsimsiz oyuncu" for a
  * missing profile. `loading` until the profiles are read; profiles that cannot be read leave every name unknown.
  */
 export function useStatsNames(): { status: 'loading' | 'ready'; nameOf: NameOf } {
@@ -18,7 +19,7 @@ export function useStatsNames(): { status: 'loading' | 'ready'; nameOf: NameOf }
     const nameOf: NameOf = (uid) => {
       const profile = byId.get(uid)
       if (!profile) return UNKNOWN_PLAYER
-      return profile.role === 'dm' ? 'DM' : profileName(profile)
+      return profileName(profile)
     }
     return { status: profiles.status === 'loading' ? 'loading' : 'ready', nameOf }
   }, [profiles])

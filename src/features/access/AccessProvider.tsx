@@ -1,5 +1,6 @@
 import { type ReactNode, useMemo } from 'react'
 
+import { changeRole } from '@/features/users/api'
 import { useIsDm } from '@/features/users/usersContext'
 import { db } from '@/lib/firebase/firestore'
 import { useCollection } from '@/lib/firestore/useCollection'
@@ -12,6 +13,7 @@ const allEntries = accessEntriesRef(db)
 const actions: AccessActions = {
   add: (email) => addEmail(db, email),
   remove: (email) => removeEmail(db, email),
+  changeRole: (input) => changeRole(db, input),
 }
 
 /**

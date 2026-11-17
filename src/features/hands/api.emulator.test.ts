@@ -47,7 +47,7 @@ const FREE = 'cursed-freecurse'
 const X_CARD = 'cursed-xcurse'
 
 /** Ayla's and Bora's LP before each test. */
-const LP = { ayla: 10, bora: 2 }
+const LP = { ayla: 10, bora: 2, dana: 4 }
 
 /** A stored active card with its kind's starting flags, unless overridden. */
 const storedCard = (
@@ -131,7 +131,7 @@ beforeEach(async () => {
     })
     await setDoc(doc(db, 'users/ayla'), { ...profile('player', 'Ayla'), lp: LP.ayla })
     await setDoc(doc(db, 'users/bora'), { ...profile('player', 'Bora'), lp: LP.bora })
-    await setDoc(doc(db, 'users/dana'), profile('dm', 'Dana'))
+    await setDoc(doc(db, 'users/dana'), { ...profile('dm', 'Dana'), lp: LP.dana })
     await setDoc(doc(db, `cards/${POOL}`), storedCard('normal', "Aboleth's Eyes"))
     await setDoc(doc(db, `cards/${CURSED}`), storedCard('cursed', 'Visions of Death'))
     await setDoc(doc(db, `cards/${FREE}`), storedCard('cursed', 'Free Curse', '0'))
@@ -272,15 +272,16 @@ describe('closing holdings under the real rules', () => {
     expect(await stored(`userCards/${paid}`)).toMatchObject({ returnedBy: 'dana', useCost: 5 })
   })
 
-  it("uses a card in the DM's own hand only for free", async () => {
-    const id = await giveCard(as('dana'), { cardId: CURSED, uid: 'dana', by: 'dana' })
+  it("pays a card in the DM's own hand from the DM's LP, or uses it for free", async () => {
+    const paid = await giveCard(as('dana'), { cardId: CURSED, uid: 'dana', by: 'dana' })
+    const free = await giveCard(as('dana'), { cardId: CURSED, uid: 'dana', by: 'dana' })
 
-    const paid = await failureOf(
-      closeHolding(as('dana'), { holdingId: id, by: 'dana', reason: 'used', amount: 3 }),
-    )
-    expect(toHoldingFailure(paid)).toEqual({ kind: 'not-a-player' })
-    await closeHolding(as('dana'), { holdingId: id, by: 'dana', reason: 'used', amount: 0 })
-    expect(await stored(`userCards/${id}`)).toMatchObject({ useCost: 0, useEntryId: null })
+    await closeHolding(as('dana'), { holdingId: paid, by: 'dana', reason: 'used', amount: 3 })
+    expect(await stored('users/dana')).toMatchObject({ lp: LP.dana - 3 })
+    expect(await stored(`userCards/${paid}`)).toMatchObject({ useCost: 3 })
+    await closeHolding(as('dana'), { holdingId: free, by: 'dana', reason: 'used', amount: 0 })
+    expect(await stored(`userCards/${free}`)).toMatchObject({ useCost: 0, useEntryId: null })
+    expect(await stored('users/dana')).toMatchObject({ lp: LP.dana - 3 })
   })
 
   it('fails with "insufficient" when the LP is below the price, and changes nothing', async () => {

@@ -97,13 +97,12 @@ export function TrueWordDetails({ entry, holderName, onDone, layout }: TrueWordD
   const cost = record.costOverride ?? word.cost
 
   const canUse = isDm || (uid !== null && uid === record.uid)
-  // The player's LP pays for a use, live. Until the profiles load, the payment is not known and a use waits.
+  // The owner's LP pays for a use, a DM's included, live. Until the profiles load, the payment is not known and a use waits.
   const ownerProfile =
     profiles.status === 'ready'
       ? profiles.data.find((profile) => profile.id === record.uid)
       : undefined
-  const payer: UsePayer | null =
-    ownerProfile?.role === 'player' ? { name: holderName, lp: ownerProfile.lp } : null
+  const payer: UsePayer | null = ownerProfile ? { name: holderName, lp: ownerProfile.lp } : null
   const payment = planUsePayment({ cost, payer, isDm, entered })
 
   const run = async (action: () => Promise<void>, onDone?: () => void) => {

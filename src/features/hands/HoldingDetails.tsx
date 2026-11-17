@@ -131,8 +131,7 @@ export function HoldingDetails({ entry, holderName, onDone, layout }: HoldingDet
     profiles.status === 'ready'
       ? profiles.data.find((profile) => profile.id === holding.uid)
       : undefined
-  const payer: UsePayer | null =
-    holderProfile?.role === 'player' ? { name: holderName, lp: holderProfile.lp } : null
+  const payer: UsePayer | null = holderProfile ? { name: holderName, lp: holderProfile.lp } : null
   const payment = planUsePayment({ cost, payer, isDm, entered })
   const canConfirmUse = holderProfile !== undefined && payment.canConfirm
 

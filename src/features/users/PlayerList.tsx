@@ -62,11 +62,10 @@ export function PlayerList({ profiles, onNavigate }: PlayerListProps) {
                 <span className="truncate">{profileName(profile)}</span>
                 {profile.role === 'dm' ? <RoleTag role="dm" /> : null}
               </NavLink>
-              {profile.role === 'player' ? (
-                <span className="shrink-0 pr-3 text-xs text-ink-muted tabular-nums">
-                  {formatAmount(profile.lp)} LP
-                </span>
-              ) : null}
+              {/* Every user's LP, a DM's included (spec: user-profiles, "Player list"). */}
+              <span className="shrink-0 pr-3 text-xs text-ink-muted tabular-nums">
+                {formatAmount(profile.lp)} LP
+              </span>
             </li>
           ))}
         </ul>

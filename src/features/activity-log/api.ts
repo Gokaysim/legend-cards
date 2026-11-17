@@ -21,6 +21,8 @@ import { setChangesRef } from '@/features/sets/api'
 import type { SetChange } from '@/features/sets/schema'
 import { tableChangesRef } from '@/features/table/api'
 import type { TableChange } from '@/features/table/schema'
+import { roleChangesRef } from '@/features/users/api'
+import type { RoleChange } from '@/features/users/schema'
 import { combatChangesRef } from '@/features/combat/api'
 import type { CombatChange } from '@/features/combat/schema'
 
@@ -54,6 +56,8 @@ export type LogQueries = {
   tableChanges: Query<TableChange> | null
   /** Every fight's start and end; left out with a user, as the table changes are. */
   combatChanges: Query<CombatChange> | null
+  /** The DM role changes, or with a user those of that user's role (spec: activity-log, "Player filter"). */
+  roleChanges: Query<RoleChange>
 }
 
 /**
@@ -106,6 +110,12 @@ export function logQueries(
     tableChanges: uid !== null ? null : query(tableChangesRef(db), orderBy('at', 'desc'), limit(n)),
     combatChanges:
       uid !== null ? null : query(combatChangesRef(db), orderBy('at', 'desc'), limit(n)),
+    roleChanges: query(
+      roleChangesRef(db),
+      ...(uid === null ? [] : [where('target', '==', uid)]),
+      orderBy('at', 'desc'),
+      limit(n),
+    ),
   }
 }
 

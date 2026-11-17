@@ -48,3 +48,26 @@ export function ablative(name: string): string {
   const hard = /[fstkçşhp]$/.test(lower)
   return `${name.trim()}'${hard ? 't' : 'd'}${front ? 'en' : 'an'}`
 }
+
+/** The four-way vowel of the accusative, as of the genitive: the last vowel picks ı, i, u or ü. */
+const ACCUSATIVE_SUFFIX: Record<string, string> = {
+  a: 'ı',
+  ı: 'ı',
+  e: 'i',
+  i: 'i',
+  o: 'u',
+  u: 'u',
+  ö: 'ü',
+  ü: 'ü',
+}
+
+/**
+ * A name in the accusative ("whom"), with an apostrophe and four-way vowel harmony: "Ayla'yı", "Cem'i",
+ * "Gökay'ı", "Umut'u", "Türkü'yü". A name without a Turkish vowel takes "'ı".
+ */
+export function accusative(name: string): string {
+  const lower = name.trim().toLocaleLowerCase('tr')
+  const lastVowel = lower.match(VOWELS)?.at(-1) ?? 'a'
+  const buffer = /[aeıioöuü]$/.test(lower) ? 'y' : ''
+  return `${name.trim()}'${buffer}${ACCUSATIVE_SUFFIX[lastVowel] ?? 'ı'}`
+}

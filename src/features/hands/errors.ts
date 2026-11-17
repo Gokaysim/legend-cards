@@ -12,7 +12,7 @@ export type HoldingErrorKind =
   | 'insufficient'
   | 'price-changed'
   | 'invalid-amount'
-  | 'not-a-player'
+  | 'no-profile'
   | 'character-unavailable'
 
 /** What a use could not pay, for `insufficient`: the holder's LP and the amount. */
@@ -54,7 +54,7 @@ export type HoldingFailure =
   /** An amount the price does not allow, or not a whole number from 0 to 1,000,000. */
   | { kind: 'invalid-amount' }
   /** A paid use of a card in the DM's own hand: the DM has no LP. */
-  | { kind: 'not-a-player' }
+  | { kind: 'no-profile' }
   /** The chosen character was archived meanwhile, or does not exist (spec: card-holdings). */
   | { kind: 'character-unavailable' }
   /** A pack is open: the table waits for it, and no card moves until it ends. */
@@ -117,8 +117,8 @@ export function holdingFailureMessage(
       return `Kartın bedeli değişti: şimdi ${formatAmount(failure.price)} LP. Yeni bedelle tekrar onayla.`
     case 'invalid-amount':
       return 'Bu tutar bu kartın bedeline uymuyor.'
-    case 'not-a-player':
-      return "Bu elin sahibinin LP'si yok: kartı ücretsiz kullan."
+    case 'no-profile':
+      return 'Bu elin sahibinin profili yok: kartı ücretsiz kullan.'
     case 'character-unavailable':
       return 'Bu karakter artık seçilemiyor. Başka bir karakter seç.'
     case 'table-busy':

@@ -5,4 +5,6 @@ export const ACCESS_MESSAGES = {
   addFailed: 'Adres eklenemedi. Tekrar dene.',
   removeFailed: 'Adres çıkarılamadı. Tekrar dene.',
   loadFailed: 'Liste yüklenemedi.',
+  roleFailed: 'Rol değiştirilemedi. Tekrar dene.',
+  roleOffline: 'Bağlantı yok: rolü değiştirmek için internet bağlantısı gerekiyor.',
 } as const

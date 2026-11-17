@@ -1,8 +1,14 @@
+import { renderHook } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { ready } from '@/test/fixtures'
 
-import { combineSubscriptions } from './subscription'
+import {
+  combineSubscriptions,
+  equalOrBothNull,
+  subscribeOrEmpty,
+  useSnapshotSubscription,
+} from './subscription'
 
 const failed = {
   status: 'error' as const,
@@ -30,5 +36,28 @@ describe('combineSubscriptions', () => {
       status: 'loading',
     })
     expect(combineSubscriptions({ a: { status: 'loading' }, b: failed })).toEqual(failed)
+  })
+})
+
+describe('useSnapshotSubscription when a DM loses the role', () => {
+  // A DM-gated provider subscribes to a DM-only target while the role is DM, and to `null` once it is not (design D7
+  // of give-dms-lp-and-share-the-dm-role). The server may deny the old listener before the new profile arrives.
+  const subscribe = subscribeOrEmpty<string, string[]>((_target, emit) => {
+    emit(failed)
+    return () => {}
+  }, [])
+  const isEqual = equalOrBothNull<string>((a, b) => a === b)
+
+  it("drops the old target's denial once the target becomes null, and shows no error", () => {
+    const initialProps: { target: string | null } = { target: 'allowedEmails' }
+    const { result, rerender } = renderHook(
+      ({ target }) => useSnapshotSubscription(target, isEqual, subscribe),
+      { initialProps },
+    )
+    expect(result.current).toEqual(failed)
+
+    rerender({ target: null })
+
+    expect(result.current).toEqual(ready([]))
   })
 })

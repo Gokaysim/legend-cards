@@ -62,7 +62,7 @@ describe('wordFailureMessage', () => {
   it('has a message for every failure', () => {
     const kinds: WordFailure['kind'][] = [
       'too-few-words',
-      'not-a-player',
+      'no-profile',
       'invalid-amount',
       'draft-open',
       'retries-exhausted',

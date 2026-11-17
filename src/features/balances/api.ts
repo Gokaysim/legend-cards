@@ -99,7 +99,7 @@ const MAX_ATTEMPTS = 3
  *
  * Throws `BalanceError`:
  * - `invalid` for a bad amount or a blank reason
- * - `not-a-player` for LP of someone who is not a player
+ * - `no-profile` for LP of someone without a profile
  * - `insufficient`, with the balance, when the result would go below 0
  *
  * When two devices change the same balance at once, the loser's commit reaches the server after the winner's. The
@@ -176,8 +176,8 @@ export function setBalance(
 }
 
 /**
- * The balance inside the transaction. A missing purse holds 0 GP; LP belongs to players only, and anyone else's
- * throws `BalanceError('not-a-player')`.
+ * The balance inside the transaction. A missing purse holds 0 GP. Every user with a profile has LP, a DM included
+ * (design D1 of give-dms-lp-and-share-the-dm-role); a missing profile throws `BalanceError('no-profile')`.
  */
 export async function readBalance(
   transaction: Transaction,
@@ -188,7 +188,7 @@ export async function readBalance(
     return (await transaction.get(partyPurseRef(db))).data()?.gp ?? 0
   }
   const profile = (await transaction.get(profileRef(db, account.uid))).data()
-  if (profile?.role !== 'player') throw new BalanceError('not-a-player')
+  if (!profile) throw new BalanceError('no-profile')
   return profile.lp
 }
 

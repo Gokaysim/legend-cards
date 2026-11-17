@@ -495,3 +495,33 @@ describe('the fight records query', () => {
     expect(await fightIds('ayla', 'ayla')).toBeNull()
   })
 })
+
+describe('the role changes query', () => {
+  beforeEach(async () => {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const db = firestoreOf(admin)
+      const change = (target: string, after: 'player' | 'dm', millis: number) => ({
+        by: 'dana',
+        at: at(millis),
+        target,
+        before: after === 'dm' ? 'player' : 'dm',
+        after,
+      })
+      await setDoc(doc(db, 'roleChanges/r-1'), change('ayla', 'dm', 1000))
+      await setDoc(doc(db, 'roleChanges/r-2'), change('bora', 'player', 2000))
+    })
+  })
+
+  const roleChangeIds = async (viewer: string, uid: string | null = null) => {
+    const queries = logQueries(firestoreOf(memberContext(testEnv, viewer)), uid, 50, false)
+    return (await getDocs(queries.roleChanges)).docs.map((document) => document.id)
+  }
+
+  it('gives a player every change, newest first', async () => {
+    expect(await roleChangeIds('ayla')).toEqual(['r-2', 'r-1'])
+  })
+
+  it("keeps only the changes of the filtered user's role", async () => {
+    expect(await roleChangeIds('bora', 'ayla')).toEqual(['r-1'])
+  })
+})

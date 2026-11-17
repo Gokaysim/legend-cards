@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { ablative, dative, genitive } from './turkish'
+import { ablative, accusative, dative, genitive } from './turkish'
 
 describe('genitive', () => {
   it.each([
@@ -52,5 +52,26 @@ describe('ablative', () => {
     ['XYZ', "XYZ'dan"],
   ])('writes %s as %s', (name, expected) => {
     expect(ablative(name)).toBe(expected)
+  })
+})
+
+describe('accusative', () => {
+  it.each([
+    ['Ayla', "Ayla'yı"],
+    ['Bora', "Bora'yı"],
+    ['Gökay', "Gökay'ı"],
+    ['Cem', "Cem'i"],
+    ['Deniz', "Deniz'i"],
+    ['Umut', "Umut'u"],
+    ['Ömür', "Ömür'ü"],
+    ['Türkü', "Türkü'yü"],
+    ['Ece', "Ece'yi"],
+    ['İlker', "İlker'i"],
+    ['IŞIK', "IŞIK'ı"],
+    ['Jo', "Jo'yu"],
+    ['  Ayla ', "Ayla'yı"],
+    ['XYZ', "XYZ'ı"],
+  ])('writes %s as %s', (name, expected) => {
+    expect(accusative(name)).toBe(expected)
   })
 })

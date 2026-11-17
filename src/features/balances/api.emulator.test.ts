@@ -163,11 +163,21 @@ describe('changing balances under the real rules', () => {
     expect(await ledger()).toEqual([])
   })
 
-  it('refuses LP for the DM', async () => {
+  it("lets the DM change the DM's own LP (design D1 of give-dms-lp-and-share-the-dm-role)", async () => {
+    await changeBalance(as('dana'), {
+      account: lp('dana'),
+      delta: 3,
+      reason: 'NPC ödülü',
+      by: 'dana',
+    })
+    expect(await stored('users/dana')).toMatchObject({ lp: 3, role: 'dm' })
+  })
+
+  it('refuses LP for someone without a profile', async () => {
     const error = await failureOf(
-      changeBalance(as('dana'), { account: lp('dana'), delta: 1, reason: 'x', by: 'dana' }),
+      changeBalance(as('dana'), { account: lp('nobody'), delta: 1, reason: 'x', by: 'dana' }),
     )
-    expect(toBalanceFailure(error)).toEqual({ kind: 'not-a-player' })
+    expect(toBalanceFailure(error)).toEqual({ kind: 'no-profile' })
   })
 
   it('refuses a bad amount or a blank reason before writing', async () => {

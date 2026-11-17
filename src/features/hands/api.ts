@@ -242,7 +242,7 @@ const MAX_USE_ATTEMPTS = 3
  * - `insufficient`, with the LP and the amount, when the holder's LP is below the amount
  * - `price-changed`, with the price now, when the holder's own use confirms another fixed price
  * - `invalid-amount` for an amount the price does not allow, or out of range
- * - `not-a-player` for a paid use of a card in the DM's own hand
+ * - `no-profile` for a paid use of a card whose holder has no profile
  *
  * Fails with `TableBusyError` while a pack is open.
  */
@@ -299,9 +299,10 @@ function closeHoldingOnce(db: Firestore, input: CloseHoldingInput, read: LpRead)
       throw new HoldingError('invalid-amount')
     }
     const owner = (await transaction.get(profileRef(db, holding.uid))).data()
-    const isPlayer = owner?.role === 'player'
-    if (!isPlayer && amount > 0) throw new HoldingError('not-a-player')
-    if (isPlayer && by === holding.uid) {
+    if (!owner && amount > 0) throw new HoldingError('no-profile')
+    // A player's own use pays the price. The DM chooses any amount, in a DM's own hand too (spec: card-holdings, "The
+    // DM chooses the amount of a use"); another user's use can only be the DM's.
+    if (owner && by === holding.uid && owner.role !== 'dm') {
       const price = priceOfUse(holding.costOverride ?? current.cost)
       if (!priceAllows(price, amount)) {
         throw price.kind === 'fixed'

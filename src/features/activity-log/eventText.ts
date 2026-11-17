@@ -16,7 +16,7 @@ import type { SetChange, SetField } from '@/features/sets/schema'
 import { PLAYER_DRAW_LABELS } from '@/features/table/playerDraw'
 import { costLabel } from '@/features/true-words/display'
 import type { WordDraft } from '@/features/true-words/schema'
-import { ablative, dative, genitive } from '@/lib/turkish'
+import { ablative, accusative, dative, genitive } from '@/lib/turkish'
 
 import type { LogEvent } from './events'
 
@@ -508,5 +508,20 @@ export function describeEvent(
         ],
         reason: null,
       }
+    case 'role': {
+      // spec: activity-log, "DM role changes are events".
+      const { change } = event
+      const target = names.nameOf(change.target)
+      return {
+        parts: [
+          change.after === 'dm'
+            ? `${accusative(target)} DM yaptı.`
+            : change.target === change.by
+              ? "DM'likten çıktı."
+              : `${genitive(target)} DM'liğini aldı.`,
+        ],
+        reason: null,
+      }
+    }
   }
 }

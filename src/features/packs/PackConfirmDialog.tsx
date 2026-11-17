@@ -12,6 +12,7 @@ import { TABLE_BUSY_NOTE } from '@/features/table/errors'
 import { useIsTableBusy } from '@/features/table/tableContext'
 import type { UserProfile } from '@/features/users/schema'
 import { profileName, useIsDm } from '@/features/users/usersContext'
+import { genitive } from '@/lib/turkish'
 import { useOnlineStatus } from '@/lib/useOnlineStatus'
 
 import { PACK_PRICES, type PackDef, packTitle, priceLabel } from './catalog'
@@ -65,11 +66,11 @@ export function PackConfirmDialog({
   const isOnline = useOnlineStatus()
   const isTableBusy = useIsTableBusy()
 
-  const isPlayer = owner.role === 'player'
   const price = PACK_PRICES[def.type]
   const description = packLine(def)?.summary ?? null
-  const [currency, setCurrency] = useState<PackCurrency>(isPlayer ? 'lp' : 'gp')
-  const [amountText, setAmountText] = useState(String(isPlayer ? price.lp : price.gp))
+  // Every hand's owner has LP, a DM included (spec: pack-shop, "The DM chooses the payment").
+  const [currency, setCurrency] = useState<PackCurrency>('lp')
+  const [amountText, setAmountText] = useState(String(price.lp))
   const [isBusy, setIsBusy] = useState(false)
   const [failure, setFailure] = useState<PackFailure | null>(null)
 
@@ -91,7 +92,7 @@ export function PackConfirmDialog({
     const next = choices.find((profile) => profile.id === uid)
     if (next === undefined) return
     onOwnerChange(next.id)
-    chooseCurrency(next.role === 'player' ? 'lp' : 'gp')
+    chooseCurrency(currency)
   }
 
   const canOpen = uid !== null && !isBusy && !isTableBusy && (isDm || !isShort)
@@ -182,10 +183,9 @@ export function PackConfirmDialog({
                 type="radio"
                 name={`${ids}-currency`}
                 checked={currency === 'lp'}
-                disabled={!isPlayer}
                 onChange={() => chooseCurrency('lp')}
               />
-              {`Oyuncunun LP'si (${formatAmount(owner.lp)} LP)`}
+              {`${genitive(name)} LP'si (${formatAmount(owner.lp)} LP)`}
             </label>
             <label className="flex items-center gap-2 text-sm text-ink">
               <input

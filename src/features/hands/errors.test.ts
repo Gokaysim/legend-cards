@@ -32,7 +32,7 @@ describe('toHoldingFailure for uses', () => {
       price: 4,
     })
     expect(toHoldingFailure(new HoldingError('invalid-amount'))).toEqual({ kind: 'invalid-amount' })
-    expect(toHoldingFailure(new HoldingError('not-a-player'))).toEqual({ kind: 'not-a-player' })
+    expect(toHoldingFailure(new HoldingError('no-profile'))).toEqual({ kind: 'no-profile' })
   })
 })
 

@@ -8,7 +8,7 @@ import { CharacterUnavailableError } from '@/features/characters/errors'
 export type WordErrorKind =
   | 'too-few-words'
   | 'insufficient'
-  | 'not-a-player'
+  | 'no-profile'
   | 'invalid-amount'
   | 'draft-open'
   | 'retries-exhausted'
@@ -46,7 +46,7 @@ export type WordFailure =
   /** The player's LP is less than the amount. */
   | { kind: 'insufficient'; balance: number; amount: number }
   /** LP charged to someone who is not a player: the DM has no LP. */
-  | { kind: 'not-a-player' }
+  | { kind: 'no-profile' }
   /** The DM's amount is not a whole number from 0 to 1,000,000. */
   | { kind: 'invalid-amount' }
   /** The player already has an open draft. */
@@ -106,8 +106,8 @@ export function wordFailureMessage(failure: WordFailure, name: string): string {
       return 'Draft için en az 3 öğrenilmemiş True Word gerekli.'
     case 'insufficient':
       return `Bu draft ${formatAmount(failure.amount)} LP tutuyor; ${genitive(name)} ${formatAmount(failure.balance)} LP'si var.`
-    case 'not-a-player':
-      return "Bu kişinin LP'si yok: draft'ı ücretsiz başlat."
+    case 'no-profile':
+      return "Bu kişinin profili yok: draft'ı ücretsiz başlat."
     case 'invalid-amount':
       return 'Tutar 0 ile 1.000.000 arasında bir tam sayı olmalı.'
     case 'draft-open':

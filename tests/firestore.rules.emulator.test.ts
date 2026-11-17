@@ -181,6 +181,11 @@ describe('access list (allowedEmails/{email})', () => {
       expect(await readAsAdmin('allowedEmails/bob@example.com')).toBeUndefined()
     })
 
+    it('lets the DM remove an address nobody has entered with yet', async () => {
+      await assertSucceeds(deleteDoc(entry(as('dana'), 'eren@example.com')))
+      expect(await readAsAdmin(EREN)).toBeUndefined()
+    })
+
     it('lets a member read their own entry, and an account that is not on the list read its missing one', async () => {
       await assertSucceeds(getDoc(entry(as('bob'), 'bob@example.com')))
       const missing = await assertSucceeds(getDoc(entry(cem(), 'cem@example.com')))
@@ -267,6 +272,21 @@ describe('access list (allowedEmails/{email})', () => {
     it('denies the DM removing their own address', async () => {
       await assertFails(deleteDoc(entry(as('dana'), 'dana@example.com')))
       expect(await readAsAdmin('allowedEmails/dana@example.com')).toBeDefined()
+    })
+
+    it("denies a DM removing another DM's address, until that user is a player", async () => {
+      await testEnv.withSecurityRulesDisabled(async (admin) => {
+        await setDoc(doc(firestoreOf(admin), 'users/alice'), {
+          displayName: 'Alice',
+          photoURL: null,
+          role: 'dm',
+          createdAt: Timestamp.fromMillis(0),
+        })
+      })
+      await assertFails(deleteDoc(entry(as('dana'), 'alice@example.com')))
+      expect(await readAsAdmin('allowedEmails/alice@example.com')).toBeDefined()
+      await updateDocAsAdmin('users/alice', { role: 'player' })
+      await assertSucceeds(deleteDoc(entry(as('dana'), 'alice@example.com')))
     })
 
     it('denies signed-out requests', async () => {
@@ -478,13 +498,13 @@ describe('user profiles (users/{uid})', () => {
       await assertFails(updateDoc(doc(as('bob'), 'users/bob'), { displayName: '' }))
     })
 
-    it("denies the DM changing another user's profile or role", async () => {
+    it("denies the DM changing another user's profile, or role without its record", async () => {
       await assertFails(updateDoc(doc(as('dana'), 'users/bob'), { displayName: 'Renamed' }))
       await assertFails(updateDoc(doc(as('dana'), 'users/bob'), { role: 'dm' }))
       expect(await readAsAdmin('users/bob')).toMatchObject({ displayName: 'Bob', role: 'player' })
     })
 
-    it('denies the DM removing their own role from the application', async () => {
+    it('denies the DM removing their own role without a record', async () => {
       await assertFails(updateDoc(doc(as('dana'), 'users/dana'), { role: 'player' }))
     })
 
@@ -524,6 +544,223 @@ describe('user profiles (users/{uid})', () => {
       await assertFails(deleteDoc(doc(as('bob'), 'users/bob')))
       await assertFails(deleteDoc(doc(as('dana'), 'users/bob')))
       expect(await readAsAdmin('users/bob')).toBeDefined()
+    })
+  })
+})
+
+describe('DM roles (users/{uid}.role with roleChanges/{changeId})', () => {
+  // Dana is a DM; Bob, Ayla and Alice are players. Alice becomes a second DM where a test needs one.
+  const profile = (
+    role: 'player' | 'dm',
+    displayName: string,
+    extra: Record<string, unknown> = {},
+  ) => ({
+    displayName,
+    photoURL: null,
+    role,
+    createdAt: Timestamp.fromMillis(0),
+    ...extra,
+  })
+
+  beforeEach(async () => {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const db = firestoreOf(admin)
+      await setDoc(doc(db, 'users/dana'), profile('dm', 'Dana'))
+      await setDoc(doc(db, 'users/bob'), profile('player', 'Bob', { lp: 4, lpEntryId: 'e-bob' }))
+      await setDoc(doc(db, 'users/ayla'), profile('player', 'Ayla'))
+      await setDoc(doc(db, 'users/alice'), profile('player', 'Alice'))
+    })
+  })
+
+  const as = (uid: string) => firestoreOf(memberContext(testEnv, uid))
+  const makeDm = (uid: string) => updateDocAsAdmin(`users/${uid}`, { role: 'dm' })
+
+  type RoleChange = {
+    /** Overrides of the record, or `null` to write none. */
+    record?: Record<string, unknown> | null
+    /** Overrides of the profile write, or `null` to leave the profile alone. */
+    profile?: Record<string, unknown> | null
+    changeId?: string
+  }
+
+  /**
+   * One role change as the application writes it, in one batch: the record `r-new` and the target's new role. The
+   * record's `before` is the other role; `otherDm` is added by the caller for a step down.
+   */
+  function changeRole(by: string, target: string, after: 'player' | 'dm', change: RoleChange = {}) {
+    const db = as(by)
+    const changeId = change.changeId ?? 'r-new'
+    const batch = writeBatch(db)
+    if (change.record !== null) {
+      batch.set(doc(db, `roleChanges/${changeId}`), {
+        by,
+        at: serverTimestamp(),
+        target,
+        before: after === 'dm' ? 'player' : 'dm',
+        after,
+        ...change.record,
+      })
+    }
+    if (change.profile !== null) {
+      batch.update(doc(db, `users/${target}`), {
+        role: after,
+        roleChangeId: changeId,
+        ...change.profile,
+      })
+    }
+    return batch.commit()
+  }
+
+  describe('allowed', () => {
+    it('lets a DM make a player a DM, with its record', async () => {
+      await assertSucceeds(changeRole('dana', 'bob', 'dm'))
+      expect(await readAsAdmin('users/bob')).toMatchObject({
+        role: 'dm',
+        roleChangeId: 'r-new',
+        lp: 4,
+        displayName: 'Bob',
+      })
+      expect(await readAsAdmin('roleChanges/r-new')).toMatchObject({
+        by: 'dana',
+        target: 'bob',
+        before: 'player',
+        after: 'dm',
+      })
+    })
+
+    it('lets a DM take the role from another DM', async () => {
+      await makeDm('bob')
+      await assertSucceeds(changeRole('dana', 'bob', 'player'))
+      expect(await readAsAdmin('users/bob')).toMatchObject({ role: 'player', lp: 4 })
+    })
+
+    it('lets a new DM act as a DM at once, and a former DM no longer', async () => {
+      await assertSucceeds(changeRole('dana', 'bob', 'dm'))
+      await assertSucceeds(getDocs(collection(as('bob'), 'allowedEmails')))
+      await assertSucceeds(changeRole('bob', 'dana', 'player', { changeId: 'r-next' }))
+      await assertFails(getDocs(collection(as('dana'), 'allowedEmails')))
+    })
+
+    it('lets a DM step down while naming another current DM', async () => {
+      await makeDm('alice')
+      await assertSucceeds(changeRole('dana', 'dana', 'player', { record: { otherDm: 'alice' } }))
+      expect(await readAsAdmin('users/dana')).toMatchObject({ role: 'player' })
+      expect(await readAsAdmin('users/alice')).toMatchObject({ role: 'dm' })
+    })
+
+    it('lets a DM change a role while a pack is open', async () => {
+      await testEnv.withSecurityRulesDisabled(async (admin) => {
+        await setDoc(doc(firestoreOf(admin), 'table/main'), { openPackId: 'p-open' })
+      })
+      await assertSucceeds(changeRole('dana', 'bob', 'dm'))
+    })
+
+    it('lets every member read the records', async () => {
+      await changeRole('dana', 'bob', 'dm')
+      await assertSucceeds(getDoc(doc(as('ayla'), 'roleChanges/r-new')))
+      await assertSucceeds(getDocs(collection(as('ayla'), 'roleChanges')))
+    })
+  })
+
+  describe('denied', () => {
+    it('denies a player changing a role, their own included, with or without a record', async () => {
+      await assertFails(changeRole('bob', 'bob', 'dm'))
+      await assertFails(changeRole('bob', 'bob', 'dm', { record: null }))
+      await assertFails(changeRole('bob', 'ayla', 'dm'))
+      await assertFails(changeRole('bob', 'dana', 'player', { record: { otherDm: 'dana' } }))
+      expect(await readAsAdmin('users/bob')).toMatchObject({ role: 'player' })
+      expect(await readAsAdmin('users/dana')).toMatchObject({ role: 'dm' })
+    })
+
+    it('denies an account that is not on the list changing a role', async () => {
+      const db = firestoreOf(outsiderContext(testEnv))
+      await assertFails(updateDoc(doc(db, 'users/bob'), { role: 'dm', roleChangeId: 'r-x' }))
+    })
+
+    it('denies a role change without its record, and a record without its role change', async () => {
+      await assertFails(changeRole('dana', 'bob', 'dm', { record: null }))
+      await assertFails(changeRole('dana', 'bob', 'dm', { profile: null }))
+      await assertFails(changeRole('dana', 'bob', 'dm', { profile: { roleChangeId: 'r-other' } }))
+      expect(await readAsAdmin('users/bob')).toMatchObject({ role: 'player' })
+      expect(await readAsAdmin('roleChanges/r-new')).toBeUndefined()
+    })
+
+    it('denies a record that names another user than the role it changes', async () => {
+      await assertFails(changeRole('dana', 'bob', 'dm', { record: { target: 'ayla' } }))
+    })
+
+    it('denies a role change together with another field', async () => {
+      await assertFails(changeRole('dana', 'bob', 'dm', { profile: { lp: 5 } }))
+      await assertFails(changeRole('dana', 'bob', 'dm', { profile: { displayName: 'Bobby' } }))
+    })
+
+    it('denies an unknown role, and a role that does not change', async () => {
+      await assertFails(
+        changeRole('dana', 'bob', 'dm', { profile: { role: 'admin' }, record: { after: 'admin' } }),
+      )
+      await assertFails(
+        changeRole('dana', 'bob', 'dm', {
+          profile: { role: 'player' },
+          record: { after: 'player' },
+        }),
+      )
+    })
+
+    it("denies a record whose before is not the profile's role, or whose after is not its new role", async () => {
+      await makeDm('bob')
+      // Bob is a DM already: a record saying player → dm does not match.
+      await assertFails(
+        changeRole('dana', 'bob', 'player', { record: { before: 'player', after: 'dm' } }),
+      )
+      await assertFails(changeRole('dana', 'ayla', 'dm', { record: { after: 'player' } }))
+    })
+
+    it('denies a record written by or at another than the request', async () => {
+      await assertFails(changeRole('dana', 'bob', 'dm', { record: { by: 'alice' } }))
+      await assertFails(
+        changeRole('dana', 'bob', 'dm', { record: { at: Timestamp.fromMillis(5) } }),
+      )
+    })
+
+    it('denies extra fields, and otherDm on a change of another user', async () => {
+      await assertFails(changeRole('dana', 'bob', 'dm', { record: { note: 'x' } }))
+      await assertFails(changeRole('dana', 'bob', 'dm', { record: { otherDm: 'dana' } }))
+    })
+
+    it('denies stepping down without another DM, naming a player, or naming yourself', async () => {
+      await assertFails(changeRole('dana', 'dana', 'player'))
+      await assertFails(changeRole('dana', 'dana', 'player', { record: { otherDm: 'bob' } }))
+      await assertFails(changeRole('dana', 'dana', 'player', { record: { otherDm: 'dana' } }))
+      await assertFails(changeRole('dana', 'dana', 'player', { record: { otherDm: 'nobody' } }))
+      expect(await readAsAdmin('users/dana')).toMatchObject({ role: 'dm' })
+    })
+
+    it('denies a role change of a user without a profile', async () => {
+      const db = as('dana')
+      await assertFails(
+        setDoc(doc(db, 'roleChanges/r-new'), {
+          by: 'dana',
+          at: serverTimestamp(),
+          target: 'nobody',
+          before: 'player',
+          after: 'dm',
+        }),
+      )
+    })
+
+    it('denies changing or deleting a record, even by a DM', async () => {
+      await changeRole('dana', 'bob', 'dm')
+      await assertFails(updateDoc(doc(as('dana'), 'roleChanges/r-new'), { after: 'player' }))
+      await assertFails(deleteDoc(doc(as('dana'), 'roleChanges/r-new')))
+      await assertFails(deleteDoc(doc(as('bob'), 'roleChanges/r-new')))
+    })
+
+    it('denies reads by signed-out requests and by accounts that are not on the list', async () => {
+      await changeRole('dana', 'bob', 'dm')
+      await assertFails(
+        getDoc(doc(firestoreOf(testEnv.unauthenticatedContext()), 'roleChanges/r-new')),
+      )
+      await assertFails(getDoc(doc(firestoreOf(outsiderContext(testEnv)), 'roleChanges/r-new')))
     })
   })
 })
@@ -2591,21 +2828,25 @@ describe('card uses and their payments (userCards with ledger/{entryId} and user
       await assertSucceeds(use('dana', 'h-bora', 0, { release: HELD }))
     })
 
-    it("lets the DM use a card in the DM's own hand only for free", async () => {
+    it("lets the DM pay a card in the DM's own hand from the DM's LP, or use it for free", async () => {
       await testEnv.withSecurityRulesDisabled(async (admin) => {
-        await setDoc(
-          doc(firestoreOf(admin), 'userCards/h-dana'),
-          seededHolding({
-            cardId: CURSED,
-            cardName: 'Visions of Death',
-            cardKind: 'cursed',
-            uid: 'dana',
-          }),
-        )
+        const db = firestoreOf(admin)
+        const holding = seededHolding({
+          cardId: CURSED,
+          cardName: 'Visions of Death',
+          cardKind: 'cursed',
+          uid: 'dana',
+        })
+        await setDoc(doc(db, 'userCards/h-dana'), holding)
+        await setDoc(doc(db, 'userCards/h-dana-free'), holding)
+        await updateDoc(doc(db, 'users/dana'), { lp: 5, lpEntryId: 'e-old-dana' })
       })
-      // The DM has no LP to pay from, even with a balance that would stay above 0.
-      await assertFails(use('dana', 'h-dana', 1, { payer: 'dana', lpBefore: 5 }))
-      await assertSucceeds(use('dana', 'h-dana', 0))
+      // Like a player's LP (design D1 of give-dms-lp-and-share-the-dm-role): any amount up to the DM's LP.
+      await assertFails(use('dana', 'h-dana', 6, { payer: 'dana', lpBefore: 5 }))
+      await assertSucceeds(use('dana', 'h-dana', 2, { payer: 'dana', lpBefore: 5 }))
+      expect(await readAsAdmin('users/dana')).toMatchObject({ lp: 3, lpEntryId: 'e-use' })
+      expect(await readAsAdmin('ledger/e-use')).toMatchObject({ by: 'dana', account: 'dana' })
+      await assertSucceeds(use('dana', 'h-dana-free', 0))
     })
   })
 
@@ -2996,6 +3237,38 @@ describe('balances (users/{uid}.lp, party/main, ledger/{entryId})', () => {
       expect(await readAsAdmin('party/main')).toEqual({ gp: 12500, gpEntryId: 'g-next' })
     })
 
+    it('lets the DM raise and lower their own LP by hand (design D1 of give-dms-lp-and-share-the-dm-role)', async () => {
+      await assertSucceeds(
+        changeLp('dana', 'dana', {
+          balance: { lp: 3 },
+          entry: { delta: 3, balanceAfter: 3, reason: 'NPC ödülü' },
+        }),
+      )
+      expect(await readAsAdmin('users/dana')).toMatchObject({ lp: 3, lpEntryId: 'e-new' })
+      await assertSucceeds(
+        changeLp('dana', 'dana', {
+          entryId: 'e-next',
+          balance: { lp: 1 },
+          entry: { delta: -2, balanceAfter: 1 },
+        }),
+      )
+      expect(await readAsAdmin('users/dana')).toMatchObject({ lp: 1, role: 'dm' })
+    })
+
+    it("lets a DM change another DM's LP", async () => {
+      await testEnv.withSecurityRulesDisabled(async (admin) => {
+        await setDoc(doc(firestoreOf(admin), 'users/bob'), {
+          ...seededUser('dm', 'Bob'),
+          lp: 4,
+          lpEntryId: 'e-bob',
+        })
+      })
+      await assertSucceeds(
+        changeLp('dana', 'bob', { balance: { lp: 3 }, entry: { delta: -1, balanceAfter: 3 } }),
+      )
+      expect(await readAsAdmin('users/bob')).toMatchObject({ lp: 3 })
+    })
+
     it('lets a player lower their own LP by hand, with a reason', async () => {
       await assertSucceeds(spendLp())
       expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 4, lpEntryId: 'e-new' })
@@ -3075,10 +3348,18 @@ describe('balances (users/{uid}.lp, party/main, ledger/{entryId})', () => {
       })
     })
 
-    it("denies LP on the DM's profile", async () => {
+    it("denies a player changing a DM's LP by hand, up or down", async () => {
+      await updateDocAsAdmin('users/dana', { lp: 3, lpEntryId: 'e-dana' })
       await assertFails(
-        changeLp('dana', 'dana', { balance: { lp: 2 }, entry: { balanceAfter: 2 } }),
+        changeLp('ayla', 'dana', {
+          balance: { lp: 5 },
+          entry: { by: 'ayla', delta: 2, balanceAfter: 5 },
+        }),
       )
+      await assertFails(
+        spendLp('ayla', 'dana', { balance: { lp: 2 }, entry: { delta: -1, balanceAfter: 2 } }),
+      )
+      expect(await readAsAdmin('users/dana')).toMatchObject({ lp: 3 })
     })
 
     it('denies a balance without its entry, and an entry without its balance', async () => {
@@ -4771,8 +5052,23 @@ describe('packs (draws/{drawId} with kind pack, table/main, and their holdings a
       await assertFails(open('ayla', { entry: { balanceAfter: -1 }, balance: { lp: -1 } }))
     })
 
-    it('denies the DM charging LP to someone who is not a player', async () => {
-      await assertFails(open('dana', { pack: { uid: 'dana', paidWith: 'lp', cost: 2 } }))
+    it("allows the DM charging the DM's own LP for a pack into the DM's own hand", async () => {
+      // A DM's LP works like a player's (design D1 of give-dms-lp-and-share-the-dm-role).
+      await updateDocAsAdmin('users/dana', { lp: 5, lpEntryId: 'e-old-dana' })
+      await assertSucceeds(open('dana', { pack: { uid: 'dana', paidWith: 'lp', cost: 2 } }))
+      expect(await readAsAdmin('users/dana')).toMatchObject({ lp: 3, lpEntryId: 'e-pay' })
+    })
+
+    it("denies charging another user's LP than the hand's owner", async () => {
+      await updateDocAsAdmin('users/dana', { lp: 5, lpEntryId: 'e-old-dana' })
+      const db = asUser('dana')
+      const batch = writeBatch(db)
+      batch.set(doc(db, 'draws/p-new'), packFields('dana', { uid: 'bora' }))
+      batch.set(doc(db, 'table/main'), { openPackId: 'p-new' })
+      batch.set(doc(db, 'ledger/e-pay'), packEntry('dana', { account: 'dana' }))
+      batch.update(doc(db, 'users/dana'), { lp: 3, lpEntryId: 'e-pay' })
+      await assertFails(batch.commit())
+      expect(await readAsAdmin('users/dana')).toMatchObject({ lp: 5 })
     })
 
     it('denies a payment that disagrees with the pack, or a pack without its payment', async () => {
@@ -5459,6 +5755,20 @@ describe('True Words (cards, userCards, playerWords, draws of kind wordDraft and
         by: 'dana',
         uid: 'ayla',
       })
+    })
+
+    it("lets the DM start the DM's own draft, paid from the DM's LP", async () => {
+      // A DM's LP works like a player's (design D1 of give-dms-lp-and-share-the-dm-role).
+      await updateDocAsAdmin('users/dana', { lp: 3, lpEntryId: 'e-old-dana' })
+      await assertSucceeds(
+        start('dana', {
+          draft: { uid: 'dana', cost: 1 },
+          entry: { balanceAfter: 2 },
+          balance: { lp: 2 },
+          state: { known: {}, openDraftId: 'd-new', holdingId: null },
+        }),
+      )
+      expect(await readAsAdmin('users/dana')).toMatchObject({ lp: 2, lpEntryId: 'e-pay' })
     })
 
     it('lets the DM charge any amount up to the LP', async () => {

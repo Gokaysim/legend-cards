@@ -126,6 +126,23 @@ describe('ActivityLogPage', () => {
     expect(third).toHaveTextContent('Ayla: +2 LP (5 → 7)')
   })
 
+  it('lists a DM role change among the other events, newest first, naming the DM', () => {
+    const grant = {
+      id: 'r-1',
+      by: 'dana',
+      at: on(8, 50),
+      target: 'ayla',
+      before: 'player' as const,
+      after: 'dm' as const,
+    }
+    renderLog({ records: ready(records({ entries: [lpForAyla], roleChanges: [grant] })) })
+
+    const [first, second] = rows()
+    expect(first).toHaveTextContent("Ayla'yı DM yaptı.")
+    expect(first).toHaveTextContent('Dana')
+    expect(second).toHaveTextContent('Ayla: +2 LP (5 → 7)')
+  })
+
   it('shows a new event at the top without a reload', () => {
     const { setActivityLog } = renderLog({ records: ready(records({ given: [givenToAyla] })) })
 

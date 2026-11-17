@@ -5,9 +5,10 @@ import { Button } from '@/components/ui/Button'
 import { Dialog } from '@/components/ui/Dialog'
 import { useAuth } from '@/features/auth/authContext'
 import { profileName, useIsDm, useProfiles } from '@/features/users/usersContext'
+import { useOnlineStatus } from '@/lib/useOnlineStatus'
 
 import { useAccessList } from './accessContext'
-import { type AccessRow, accessRows } from './accessRows'
+import { type AccessRow, accessRows, otherDmOf, type RoleAction } from './accessRows'
 import { isValidEmail, normalizeEmail } from './email'
 import { ACCESS_MESSAGES } from './messages'
 
@@ -16,7 +17,8 @@ const fieldClasses =
 
 /**
  * "Masaya erişim" on the Ayarlar screen (spec: table-access; design D6 of invite-only-sign-in): the DM's list of the
- * Google addresses that may use the app. Players get nothing: the addresses are private, and `AccessProvider` reads
+ * Google addresses that may use the app, with each linked person's role control (spec: dm-roles; design D4 of
+ * give-dms-lp-and-share-the-dm-role). Players get nothing: the addresses are private, and `AccessProvider` reads
  * the list on the DM's device only.
  */
 export function AccessSection() {
@@ -32,13 +34,16 @@ function AccessList() {
   const [input, setInput] = useState('')
   const [message, setMessage] = useState<string | null>(null)
   const [removing, setRemoving] = useState<string | null>(null)
+  const [roleStep, setRoleStep] = useState<RoleStep | null>(null)
+  const [isChangingRole, setIsChangingRole] = useState(false)
+  const isOnline = useOnlineStatus()
 
+  const myUid = auth.status === 'signedIn' ? auth.user.uid : null
   const myEmail =
     auth.status === 'signedIn' && auth.user.email ? normalizeEmail(auth.user.email) : null
+  const profileList = profiles.status === 'ready' ? profiles.data : []
   const rows =
-    entries.status === 'ready'
-      ? accessRows(entries.data, profiles.status === 'ready' ? profiles.data : [], myEmail)
-      : []
+    entries.status === 'ready' ? accessRows(entries.data, profileList, myEmail, myUid) : []
 
   function handleAdd(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -66,6 +71,29 @@ function AccessList() {
     actions.remove(email).catch(() => {
       setMessage(ACCESS_MESSAGES.removeFailed)
     })
+  }
+
+  async function handleRoleChange(step: RoleStep) {
+    setRoleStep(null)
+    if (myUid === null) return
+    if (!isOnline) {
+      setMessage(ACCESS_MESSAGES.roleOffline)
+      return
+    }
+    setMessage(null)
+    setIsChangingRole(true)
+    try {
+      await actions.changeRole({
+        target: step.uid,
+        after: step.action === 'grant' ? 'dm' : 'player',
+        by: myUid,
+        ...(step.action === 'stepDown' ? { otherDm: otherDmOf(profileList, myUid) ?? '' } : {}),
+      })
+    } catch {
+      setMessage(ACCESS_MESSAGES.roleFailed)
+    } finally {
+      setIsChangingRole(false)
+    }
   }
 
   return (
@@ -110,7 +138,13 @@ function AccessList() {
       ) : null}
       <ul className="flex flex-col gap-2" aria-label="Erişimi olan adresler">
         {rows.map((row) => (
-          <AccessRowItem key={row.email} row={row} onRemove={() => setRemoving(row.email)} />
+          <AccessRowItem
+            key={row.email}
+            row={row}
+            isBusy={isChangingRole}
+            onRemove={() => setRemoving(row.email)}
+            onRoleAction={(action, uid, name) => setRoleStep({ action, uid, name })}
+          />
         ))}
       </ul>
       {removing ? (
@@ -129,14 +163,69 @@ function AccessList() {
           </div>
         </Dialog>
       ) : null}
+      {roleStep ? (
+        <Dialog title={ROLE_TEXTS[roleStep.action].title} onClose={() => setRoleStep(null)}>
+          <div className="flex flex-col gap-4">
+            <p className="text-sm text-ink">
+              {ROLE_TEXTS[roleStep.action].question(roleStep.name)}
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button onClick={() => setRoleStep(null)}>Vazgeç</Button>
+              <Button
+                variant={roleStep.action === 'grant' ? 'primary' : 'danger'}
+                onClick={() => void handleRoleChange(roleStep)}
+              >
+                {ROLE_TEXTS[roleStep.action].button}
+              </Button>
+            </div>
+          </div>
+        </Dialog>
+      ) : null}
     </section>
   )
 }
 
-function AccessRowItem({ row, onRemove }: { row: AccessRow; onRemove: () => void }) {
+/** A role control the DM chose, waiting for the confirmation. */
+type RoleStep = { action: RoleAction; uid: string; name: string }
+
+/** The Turkish texts of each role control and its confirmation (spec: dm-roles). */
+const ROLE_TEXTS: Record<
+  RoleAction,
+  { button: string; title: string; question: (name: string) => string }
+> = {
+  grant: {
+    button: 'DM yap',
+    title: 'DM yap',
+    question: (name) => `${name} DM yapılsın mı? DM, bütün DM yetkilerine sahip olur.`,
+  },
+  take: {
+    button: "DM'liği al",
+    title: "DM'liği al",
+    question: (name) => `${name} oyuncu yapılsın mı? Kartları ve LP'si kalır.`,
+  },
+  stepDown: {
+    button: "DM'likten çık",
+    title: "DM'likten çık",
+    question: () => "DM'likten çıkıp oyuncu olunsun mu? Kartların ve LP'n kalır.",
+  },
+}
+
+function AccessRowItem({
+  row,
+  isBusy,
+  onRemove,
+  onRoleAction,
+}: {
+  row: AccessRow
+  isBusy: boolean
+  onRemove: () => void
+  onRoleAction: (action: RoleAction, uid: string, name: string) => void
+}) {
   const name = row.profile ? profileName(row.profile) : null
+  const { roleAction, profile } = row
+  const marks = [row.isDm ? 'DM' : null, row.isMe ? 'sen' : null].filter(Boolean).join(' · ')
   return (
-    <li className="flex items-center gap-3 rounded-lg border border-line bg-pane-raised p-3">
+    <li className="flex flex-wrap items-center gap-3 rounded-lg border border-line bg-pane-raised p-3">
       {row.profile && name ? (
         <Avatar name={name} photoURL={row.profile.photoURL} />
       ) : (
@@ -146,22 +235,33 @@ function AccessRowItem({ row, onRemove }: { row: AccessRow; onRemove: () => void
         />
       )}
       <div className="flex min-w-0 flex-1 flex-col">
-        {name ? <span className="text-sm font-semibold text-ink">{name}</span> : null}
+        {name ? (
+          <span className="flex flex-wrap items-baseline gap-x-2 text-sm font-semibold text-ink">
+            {name}
+            {marks ? <span className="text-xs font-semibold text-gold">{marks}</span> : null}
+          </span>
+        ) : null}
         <span className="text-sm break-all text-ink-muted">{row.email}</span>
         {row.isLinked ? null : <span className="text-xs text-ink-muted">Henüz giriş yapmadı</span>}
       </div>
-      {row.isMe ? (
-        <span className="shrink-0 text-xs font-semibold text-gold">DM · sen</span>
-      ) : (
-        <Button
-          variant="danger"
-          className="shrink-0"
-          aria-label={`Çıkar: ${row.email}`}
-          onClick={onRemove}
-        >
-          Çıkar
-        </Button>
-      )}
+      {roleAction || !row.isDm ? (
+        <div className="flex shrink-0 flex-wrap justify-end gap-2">
+          {roleAction && profile && name ? (
+            <Button
+              aria-label={`${ROLE_TEXTS[roleAction].button}: ${name}`}
+              disabled={isBusy}
+              onClick={() => onRoleAction(roleAction, profile.id, name)}
+            >
+              {ROLE_TEXTS[roleAction].button}
+            </Button>
+          ) : null}
+          {row.isDm ? null : (
+            <Button variant="danger" aria-label={`Çıkar: ${row.email}`} onClick={onRemove}>
+              Çıkar
+            </Button>
+          )}
+        </div>
+      ) : null}
     </li>
   )
 }

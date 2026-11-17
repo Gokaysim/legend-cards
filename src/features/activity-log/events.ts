@@ -5,6 +5,7 @@ import type { Holding, KeptUse } from '@/features/hands/schema'
 import type { SetChange } from '@/features/sets/schema'
 import type { TableChange } from '@/features/table/schema'
 import type { CombatChange } from '@/features/combat/schema'
+import type { RoleChange } from '@/features/users/schema'
 import { type LearnedWord, learnedWordOf, type WordDraft } from '@/features/true-words/schema'
 
 /** A server time, or `null` while it is pending in the local snapshot. */
@@ -15,7 +16,8 @@ export type EventTime = Holding['givenAt']
  * unify-cards-and-true-words): the holdings the DM gave or transferred, the words the DM taught among them, by the time
  * they were given; closed holdings, the words the DM took back among them, by the time they were closed; draws, pack
  * openings and True Word drafts; the ledger's changes by hand; the uses of cards and words kept on use; the definition
- * changes this device may read; the set changes; the table setting changes; and the fights' starts and ends. The holdings and entries of draws, packs and drafts, the entries of
+ * changes this device may read; the set changes; the table setting changes; the fights' starts and ends; and the DM
+ * role changes. The holdings and entries of draws, packs and drafts, the entries of
  * uses, and the words learned from drafts, are not among them.
  */
 export type LogRecords = {
@@ -31,6 +33,8 @@ export type LogRecords = {
   tableChanges: readonly TableChange[]
   /** Every user reads every fight's start and end (spec: activity-log, "Fights are events"). */
   combatChanges: readonly CombatChange[]
+  /** Every user reads every DM role change (spec: activity-log, "DM role changes are events"). */
+  roleChanges: readonly RoleChange[]
 }
 
 /** No records at all. */
@@ -44,6 +48,7 @@ export const EMPTY_LOG_RECORDS: LogRecords = {
   setChanges: [],
   tableChanges: [],
   combatChanges: [],
+  roleChanges: [],
 }
 
 type EventBase = {
@@ -86,6 +91,7 @@ export type LogEvent =
   | (EventBase & { kind: 'set'; change: SetChange })
   | (EventBase & { kind: 'tableSetting'; change: TableChange })
   | (EventBase & { kind: 'fight'; change: CombatChange })
+  | (EventBase & { kind: 'role'; change: RoleChange })
 
 type TransferEvent = Extract<LogEvent, { kind: 'transferred' }>
 
@@ -202,6 +208,10 @@ export function deriveEvents(records: LogRecords): LogEvent[] {
     const key = `fight:${change.id}`
     events.set(key, { kind: 'fight', key, at: change.at, by: change.by, change })
   }
+  for (const change of records.roleChanges) {
+    const key = `role:${change.id}`
+    events.set(key, { kind: 'role', key, at: change.at, by: change.by, change })
+  }
   return [...events.values()]
 }
 
@@ -258,6 +268,7 @@ export function newestEvents(
     records.changes.length >= limit ||
     records.setChanges.length >= limit ||
     records.tableChanges.length >= limit ||
-    records.combatChanges.length >= limit
+    records.combatChanges.length >= limit ||
+    records.roleChanges.length >= limit
   return { events: events.slice(0, limit), mayHaveMore }
 }

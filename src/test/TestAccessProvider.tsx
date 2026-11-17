@@ -20,6 +20,7 @@ export type TestAccess = {
 const NO_ACTIONS: AccessActions = {
   add: () => Promise.resolve(),
   remove: () => Promise.resolve(),
+  changeRole: () => Promise.resolve(),
 }
 
 export type TestAccessProviderProps = TestAccess & { children: ReactNode }
