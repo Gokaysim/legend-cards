@@ -492,12 +492,13 @@ export function describeEvent(
     case 'set':
       return setSentence(event.change)
     case 'tableSetting':
-      // The only table setting so far is the player draw mode (spec: activity-log, "Player draw mode changes are
-      // events").
-      return {
-        parts: [`oyuncu kart çekişini “${PLAYER_DRAW_LABELS[event.change.after]}” yaptı.`],
-        reason: null,
-      }
+      // spec: activity-log, "Player draw mode changes are events" and "Dice channel resets are events".
+      return event.change.setting === 'diceReset'
+        ? { parts: [`zar kanalını sıfırladı: ${event.change.rolls} atış.`], reason: null }
+        : {
+            parts: [`oyuncu kart çekişini “${PLAYER_DRAW_LABELS[event.change.after]}” yaptı.`],
+            reason: null,
+          }
     case 'fight':
       // spec: activity-log, "Fights are events".
       return {

@@ -113,8 +113,16 @@ export function DicePage() {
     )
     return () => clearTimeout(timer)
   }, [settlingId])
+  // The strip forgets its roll once the roll has been in the channel and is gone from it: the DM reset the channel
+  // (design D4 of release-1-0-0). A roll just made may reach the strip a moment before the channel, so a roll the
+  // channel never held stays.
+  const isStripInList = strip !== null && list.some((roll) => roll.id === strip.roll.id)
+  const [stripListed, setStripListed] = useState<string | null>(null)
+  if (strip && isStripInList && stripListed !== strip.roll.id) setStripListed(strip.roll.id)
+  const isStripGone = strip !== null && !isStripInList && stripListed === strip.roll.id
   const shown: StripState | null =
-    strip ?? (newestWithContent ? { roll: newestWithContent, playing: false, key: 0 } : null)
+    (isStripGone ? null : strip) ??
+    (newestWithContent ? { roll: newestWithContent, playing: false, key: 0 } : null)
   const replay = (roll: DiceRoll) => setStrip({ roll, playing: true, key: (strip?.key ?? 0) + 1 })
 
   // While the screen is open, every roll counts as seen.

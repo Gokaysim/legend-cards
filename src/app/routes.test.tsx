@@ -1,4 +1,4 @@
-import { act, screen, within } from '@testing-library/react'
+import { act, fireEvent, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -269,14 +269,47 @@ describe('routes and navigation', () => {
     expect(router.state.location.pathname).toBe('/sets')
   })
 
-  it('shows a not-found page with a link back to the default screen', async () => {
+  it('shows only the manticore, centered, with "Sayfa bulunamadı" under it, and the menu to leave', async () => {
     const user = userEvent.setup()
     const { router } = renderApp({ path: '/does-not-exist' })
 
-    expect(screen.getByRole('heading', { level: 1, name: 'Sayfa bulunamadı' })).toBeInTheDocument()
-    await user.click(screen.getByRole('link', { name: 'Oyuncu elleri ekranına dön' }))
+    const page = screen.getByRole('heading', { level: 1, name: 'Sayfa bulunamadı' }).parentElement
+    if (!page) throw new Error('No page')
+    expect(page).toHaveClass('items-center', 'justify-center')
+    expect(within(page).getAllByRole('img')).toHaveLength(1)
+    expect(within(page).queryByRole('link')).not.toBeInTheDocument()
+    expect(page).toHaveTextContent(/^Sayfa bulunamadı$/)
 
+    await user.click(screen.getAllByRole('link', { name: /Oyuncu elleri/ })[0] as HTMLElement)
     expect(router.state.location.pathname).toBe(`/hands/${testUser.uid}`)
+  })
+
+  describe('on a phone', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals()
+    })
+
+    it('shows the manticore above the message, also on a phone', () => {
+      stubPhoneWidth()
+      renderApp({ path: '/does-not-exist' })
+
+      const picture = screen.getByRole('img', { name: 'Mahcup ama tehlikeli bir mantikor' })
+      const heading = screen.getByRole('heading', { level: 1, name: 'Sayfa bulunamadı' })
+      expect(
+        picture.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy()
+      expect(picture).toHaveAttribute('width', '1200')
+      expect(picture).toHaveAttribute('height', '922')
+    })
+  })
+
+  it('keeps the line when the picture fails', () => {
+    renderApp({ path: '/does-not-exist' })
+
+    fireEvent.error(screen.getByRole('img', { name: 'Mahcup ama tehlikeli bir mantikor' }))
+
+    expect(screen.queryByRole('img', { name: /mantikor/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'Sayfa bulunamadı' })).toBeInTheDocument()
   })
 })
 

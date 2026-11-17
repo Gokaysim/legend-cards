@@ -12,10 +12,13 @@ import { usePlayerDrawMode } from '@/features/table/tableContext'
 import { useChangePlayerDrawMode } from '@/features/table/useChangePlayerDrawMode'
 import { useIsDm } from '@/features/users/usersContext'
 
+import { DataSection } from './DataSection'
+
 /**
  * Ayarlar (spec: table-settings, "The Ayarlar screen"): the table settings that the DM changes for everyone, the DM's
- * "Masaya erişim" list (spec: table-access), and the data and backup section that is still to come. The DM changes
- * "Oyuncu kart çekişi" here; a player sees the chosen mode without a control to change it, and no access list.
+ * "Masaya erişim" list (spec: table-access), and the data section, with the DM's dice channel reset and the backup
+ * that is still to come. The DM changes "Oyuncu kart çekişi" here; a player sees the chosen mode without a control to
+ * change it, no access list and no reset.
  */
 export function SettingsPage() {
   const screen = screenById('settings')
@@ -24,15 +27,7 @@ export function SettingsPage() {
       <PageHeader title={screen.label} mascot={screen.mascot} mascotPlacement="corner" />
       <TableSettings />
       <AccessSection />
-      <section
-        aria-labelledby="settings-data"
-        className="flex flex-col gap-2 rounded-2xl border border-line bg-pane p-4 sm:p-6"
-      >
-        <h2 id="settings-data" className="text-lg font-bold text-ink">
-          Veri / Yedek
-        </h2>
-        <p className="text-sm text-ink-muted">Yakında: verileri yedekleme ve geri yükleme.</p>
-      </section>
+      <DataSection />
     </section>
   )
 }

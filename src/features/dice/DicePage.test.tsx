@@ -396,6 +396,27 @@ describe('the strip', () => {
     expect(within(strip()).getByRole('list', { name: 'Zarlar' })).toHaveTextContent('d12: 9')
   })
 
+  it('empties when the DM resets the channel, also after a roll played in it', () => {
+    const cem = testRoll({ by: 'cem', dice: [['d4', 3]] })
+    const view = renderDice({ dice: { rolls: [cem], fresh: null } })
+    view.setDice({ rolls: [cem], fresh: cem })
+    expect(strip()).toHaveTextContent('Son atış: Cem')
+
+    view.setDice({ rolls: [], fresh: cem })
+
+    expect(strip()).toHaveTextContent('Henüz zar atılmadı.')
+    expect(strip()).not.toHaveTextContent('Son atış')
+    expect(within(channel()).queryAllByRole('listitem', { name: /atışı$/ })).toHaveLength(0)
+  })
+
+  it('keeps playing a roll made here that the channel does not hold yet', async () => {
+    const user = userEvent.setup()
+    renderDice({ dice: { rolls: [] } })
+    await user.click(dieButton('d8'))
+    await user.click(within(form()).getByRole('button', { name: 'At' }))
+    expect(await within(strip()).findByText('Son atış:')).toHaveTextContent('Gökay')
+  })
+
   it('plays a roll again with "Tekrar izle", writing nothing', async () => {
     const user = userEvent.setup()
     const roll = vi.fn<DiceActions['roll']>()

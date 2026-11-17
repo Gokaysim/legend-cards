@@ -36,26 +36,54 @@ export function playerDrawModeOf(table: Table | null | undefined): PlayerDrawMod
   return table?.playerDraw ?? DEFAULT_PLAYER_DRAW_MODE
 }
 
-/** The settings a table change record can name. Only the player draw mode so far. */
-export const TABLE_SETTINGS = ['playerDraw'] as const
+/**
+ * What a table change record names: the player draw mode, or a reset of the dice channel (design D2 of
+ * release-1-0-0), which is not a setting but a DM action on the whole table.
+ */
+export const TABLE_SETTINGS = ['playerDraw', 'diceReset'] as const
 
 /** A server timestamp. `null` only in the local snapshot while the server time is pending. */
 const serverTime = z.instanceof(Timestamp).nullable()
 
 /**
- * One change of a table setting by the DM, at `tableChanges/{changeId}` (design D2 of player-draw-modes). It is
- * created once, together with the table change it records, and never changed or deleted.
+ * One change of the player draw mode by the DM (design D2 of player-draw-modes). It is created once, together with
+ * the table change it records.
  */
-export const tableChangeSchema = z.object({
+const playerDrawChangeSchema = z.object({
   /** The DM who changed it. */
   by: z.string().min(1),
   at: serverTime,
-  setting: z.enum(TABLE_SETTINGS),
+  setting: z.literal('playerDraw'),
   before: z.enum(PLAYER_DRAW_MODES),
   after: z.enum(PLAYER_DRAW_MODES),
 })
+
+/**
+ * One reset of the dice channel by the DM (spec: dice-rolls, "Resetting the dice channel"): how many rolls it
+ * deleted. It is written with the reset's first batch of deletes.
+ */
+const diceResetSchema = z.object({
+  /** The DM who reset it. */
+  by: z.string().min(1),
+  at: serverTime,
+  setting: z.literal('diceReset'),
+  /** The number of rolls deleted, a hidden roll counted once. */
+  rolls: z.number().int().min(0),
+})
+
+/** One record at `tableChanges/{changeId}`, never changed or deleted. */
+export const tableChangeSchema = z.discriminatedUnion('setting', [
+  playerDrawChangeSchema,
+  diceResetSchema,
+])
 
 export const tableChangeConverter = createConverter(tableChangeSchema, { idField: 'id' })
 
 /** A table change record with its document ID as `id`. */
 export type TableChange = z.infer<typeof tableChangeSchema> & { id: string }
+
+/** A player draw mode change record. */
+export type PlayerDrawChange = Extract<TableChange, { setting: 'playerDraw' }>
+
+/** A dice channel reset record. */
+export type DiceResetChange = Extract<TableChange, { setting: 'diceReset' }>

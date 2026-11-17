@@ -1794,14 +1794,28 @@ service cloud.firestore {
       }
     }
 
-    // Table change records: one per change of a table setting by the DM (design D2 of player-draw-modes), so far only
-    // the player draw mode. Everyone signed in reads them. Only the DM creates one, together with the table change it
-    // records: the table now points at it, with its mode after, and its mode before is the table's before. A record
-    // never changes and is never deleted.
+    // Table change records: one per change of a table setting by the DM (design D2 of player-draw-modes), and one per
+    // dice channel reset (design D2 of release-1-0-0). Everyone signed in reads them. Only the DM creates one. A mode
+    // change's record comes together with the table change it records: the table now points at it, with its mode
+    // after, and its mode before is the table's before. A reset's record holds how many rolls it deleted; the deletes
+    // may take several batches, so the record is not tied to them. A record never changes and is never deleted.
     match /tableChanges/{changeId} {
       allow read: if isMember();
-      allow create: if isMember() && validTableChange() && isDm();
+      allow create: if isMember()
+        && (request.resource.data.get('setting', null) == 'diceReset' ? validDiceReset() : validTableChange())
+        && isDm();
       allow update, delete: if false;
+
+      function validDiceReset() {
+        let data = request.resource.data;
+        let fields = ['by', 'at', 'setting', 'rolls'];
+        return data.keys().hasOnly(fields)
+          && data.keys().hasAll(fields)
+          && data.by == request.auth.uid
+          && data.at == request.time
+          && data.rolls is int
+          && data.rolls >= 0;
+      }
 
       function validTableChange() {
         let data = request.resource.data;
@@ -2452,15 +2466,17 @@ service cloud.firestore {
     }
 
     // Dice rolls (spec: dice-rolls, "Roll records"). Everyone signed in reads every roll. A user creates only their
-    // own, at the server time, and nobody changes or deletes one. A public roll holds its whole content. A hidden roll
-    // is the DM's only: its public record holds who and when, and its content goes to `dmRolls` in the same batch.
+    // own, at the server time, and nobody changes one. Only the DM deletes them, when resetting the channel (design D3
+    // of release-1-0-0). A public roll holds its whole content. A hidden roll is the DM's only: its public record holds
+    // who and when, and its content goes to `dmRolls` in the same batch.
     match /diceRolls/{rollId} {
       allow read: if isMember();
       allow create: if isMember()
         && request.resource.data.by == request.auth.uid
         && request.resource.data.at == request.time
         && (publicRoll() || hiddenRoll());
-      allow update, delete: if false;
+      allow update: if false;
+      allow delete: if isMember() && isDm();
 
       function publicRoll() {
         let data = request.resource.data;
@@ -2481,7 +2497,7 @@ service cloud.firestore {
     }
 
     // A hidden roll's content: only the DM reads one, and only the DM creates one, together with its hidden public
-    // record under the same ID. Nobody changes or deletes one.
+    // record under the same ID. Nobody changes one. Only the DM deletes them, when resetting the channel.
     match /dmRolls/{rollId} {
       allow read: if isDm();
       allow create: if isMember()
@@ -2494,7 +2510,8 @@ service cloud.firestore {
         && isDm()
         && createdNow(diceRollPath(rollId))
         && getAfter(diceRollPath(rollId)).data.hidden == true;
-      allow update, delete: if false;
+      allow update: if false;
+      allow delete: if isMember() && isDm();
     }
 
     // The one combat (spec: initiative-tracker; design D1, D5-D7 of add-initiative-tracker). Everyone signed in reads

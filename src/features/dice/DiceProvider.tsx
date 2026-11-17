@@ -6,7 +6,15 @@ import { db } from '@/lib/firebase/firestore'
 import { useCollection } from '@/lib/firestore/useCollection'
 import { useNow } from '@/lib/useNow'
 
-import { type AlsoWrite, recentDmRollsQuery, recentRollsQuery, rollDice, setDiceStyle } from './api'
+import {
+  type AlsoWrite,
+  countRollsOnServer,
+  recentDmRollsQuery,
+  recentRollsQuery,
+  resetDiceChannel,
+  rollDice,
+  setDiceStyle,
+} from './api'
 import {
   type DiceActions,
   DiceContext,
@@ -109,6 +117,9 @@ export function DiceProvider({ children }: { children: ReactNode }) {
       setDiceStyle: (next) =>
         uid === null ? Promise.reject(new Error('Signed out')) : setDiceStyle(db, uid, next),
       loadOlder: () => setCount((current) => current + ROLLS_PAGE),
+      countRolls: () => countRollsOnServer(db),
+      resetChannel: () =>
+        uid === null ? Promise.reject(new Error('Signed out')) : resetDiceChannel(db, { by: uid }),
     }
   }, [uid, style])
 

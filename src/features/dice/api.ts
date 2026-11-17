@@ -2,7 +2,10 @@ import {
   collection,
   type CollectionReference,
   doc,
+  type DocumentReference,
   type Firestore,
+  getCountFromServer,
+  getDocsFromServer,
   limit,
   orderBy,
   query,
@@ -14,9 +17,11 @@ import {
   writeBatch,
 } from 'firebase/firestore'
 
+import { TABLE_CHANGES_COLLECTION } from '@/features/table/api'
 import { USERS_COLLECTION } from '@/features/users/api'
 import { randomIndex } from '@/lib/random'
 
+import { DiceResetIncompleteError } from './errors'
 import {
   type DiceCounts,
   type DieType,
@@ -220,4 +225,49 @@ export async function rollDice(
 /** Saves the user's own dice style (spec: user-profiles). Offline, the write is queued. */
 export function setDiceStyle(db: Firestore, uid: string, style: DiceStyle): Promise<void> {
   return updateDoc(doc(db, USERS_COLLECTION, uid), { diceStyle: style })
+}
+
+/** The most writes one batch may hold. */
+export const RESET_BATCH_WRITES = 500
+
+/** How many rolls the channel holds on the server, a hidden roll counted once. It needs a connection. */
+export async function countRollsOnServer(db: Firestore): Promise<number> {
+  return (await getCountFromServer(diceRollsRef(db))).data().count
+}
+
+/**
+ * Resets the dice channel as the DM (design D1, D2 of release-1-0-0): reads every roll record and every hidden
+ * roll's content from the server, writes the `diceReset` record with the first deletes, and deletes the rest in
+ * batches of at most 500 writes, one after the other. Resolves with the number of rolls deleted. It needs a
+ * connection: offline, the reads fail before anything is written. A player's reset fails on the DM-only read, so
+ * nothing is deleted. When a batch after the first fails, it throws `DiceResetIncompleteError`.
+ */
+export async function resetDiceChannel(db: Firestore, input: { by: string }): Promise<number> {
+  const [rolls, contents] = await Promise.all([
+    getDocsFromServer(diceRollsRef(db)),
+    getDocsFromServer(dmRollsRef(db)),
+  ])
+  const refs: DocumentReference[] = [...rolls.docs, ...contents.docs].map((roll) => roll.ref)
+
+  const first = writeBatch(db)
+  first.set(doc(collection(db, TABLE_CHANGES_COLLECTION)), {
+    by: input.by,
+    at: serverTimestamp(),
+    setting: 'diceReset',
+    rolls: rolls.size,
+  })
+  const firstDeletes = RESET_BATCH_WRITES - 1
+  for (const ref of refs.slice(0, firstDeletes)) first.delete(ref)
+  await first.commit()
+
+  try {
+    for (let start = firstDeletes; start < refs.length; start += RESET_BATCH_WRITES) {
+      const batch = writeBatch(db)
+      for (const ref of refs.slice(start, start + RESET_BATCH_WRITES)) batch.delete(ref)
+      await batch.commit()
+    }
+  } catch (error) {
+    throw new DiceResetIncompleteError(error)
+  }
+  return rolls.size
 }

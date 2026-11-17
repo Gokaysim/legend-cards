@@ -3,7 +3,16 @@ import {
   type RulesTestContext,
   type RulesTestEnvironment,
 } from '@firebase/rules-unit-testing'
-import { doc, type Firestore, getDoc, getDocs, setDoc, Timestamp } from 'firebase/firestore'
+import {
+  collection,
+  doc,
+  type Firestore,
+  getDoc,
+  getDocs,
+  setDoc,
+  Timestamp,
+  writeBatch,
+} from 'firebase/firestore'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { memberContext, seedMembers } from '@/test/members'
@@ -12,10 +21,12 @@ import firestoreRules from '../../../firestore.rules?raw'
 import { userProfileConverter } from '@/features/users/schema'
 
 import {
+  countRollsOnServer,
   diceRollsRef,
   dmRollsRef,
   recentDmRollsQuery,
   recentRollsQuery,
+  resetDiceChannel,
   rollDice,
   type RollInput,
   setDiceStyle,
@@ -267,5 +278,70 @@ describe('the dice style', () => {
       await getDoc(doc(as('ayla'), 'users/ayla').withConverter(userProfileConverter))
     ).data()
     expect(profile?.diceStyle).toBe('iron')
+  })
+})
+
+describe('resetting the channel (spec: dice-rolls, "Resetting the dice channel")', () => {
+  /** Stores `publicCount` public rolls and `hiddenCount` hidden pairs, as an admin, in batches. */
+  async function seedRolls(publicCount: number, hiddenCount: number) {
+    const writes: { path: string; data: Record<string, unknown> }[] = []
+    for (let i = 0; i < publicCount; i += 1) {
+      writes.push({
+        path: `diceRolls/p-${i}`,
+        data: { by: 'ayla', at: Timestamp.fromMillis(i), hidden: false },
+      })
+    }
+    for (let i = 0; i < hiddenCount; i += 1) {
+      const at = Timestamp.fromMillis(100_000 + i)
+      writes.push({ path: `diceRolls/h-${i}`, data: { by: 'dana', at, hidden: true } })
+      writes.push({ path: `dmRolls/h-${i}`, data: { by: 'dana', at, hidden: true } })
+    }
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const db = firestoreOf(admin)
+      for (let start = 0; start < writes.length; start += 400) {
+        const batch = writeBatch(db)
+        for (const write of writes.slice(start, start + 400))
+          batch.set(doc(db, write.path), write.data)
+        await batch.commit()
+      }
+    })
+  }
+
+  /** The documents of a collection, read as an admin. */
+  async function adminDocs(path: string) {
+    let docs: { id: string; data: Record<string, unknown> }[] = []
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const snapshot = await getDocs(collection(firestoreOf(admin), path))
+      docs = snapshot.docs.map((document) => ({ id: document.id, data: document.data() }))
+    })
+    return docs
+  }
+
+  it('deletes more than one batch of public and hidden rolls, and records how many', async () => {
+    await seedRolls(300, 150)
+    expect(await countRollsOnServer(as('dana'))).toBe(450)
+
+    expect(await resetDiceChannel(as('dana'), { by: 'dana' })).toBe(450)
+
+    expect(await adminDocs('diceRolls')).toEqual([])
+    expect(await adminDocs('dmRolls')).toEqual([])
+    const records = await adminDocs('tableChanges')
+    expect(records).toHaveLength(1)
+    expect(records[0]?.data).toMatchObject({ by: 'dana', setting: 'diceReset', rolls: 450 })
+    expect(records[0]?.data.at).toBeInstanceOf(Timestamp)
+  })
+
+  it('records an empty channel with 0, deleting nothing', async () => {
+    expect(await resetDiceChannel(as('dana'), { by: 'dana' })).toBe(0)
+    const records = await adminDocs('tableChanges')
+    expect(records.map((record) => record.data.rolls)).toEqual([0])
+  })
+
+  it("refuses a player's reset, and deletes nothing", async () => {
+    await seedRolls(3, 2)
+    await expect(resetDiceChannel(as('ayla'), { by: 'ayla' })).rejects.toThrow()
+    expect(await adminDocs('diceRolls')).toHaveLength(5)
+    expect(await adminDocs('dmRolls')).toHaveLength(2)
+    expect(await adminDocs('tableChanges')).toEqual([])
   })
 })

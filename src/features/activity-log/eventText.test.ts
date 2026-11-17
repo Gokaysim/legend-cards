@@ -14,7 +14,7 @@ import { testHolding } from '@/test/holdingFixtures'
 import { testGpEntry, testLedgerEntry } from '@/test/ledgerFixtures'
 import { testTrueWord, testWordDraft, testWordHolding, testWordUse } from '@/test/trueWordFixtures'
 import { testSetChange, testSetName } from '@/test/setFixtures'
-import { testTableChange } from '@/test/tableFixtures'
+import { testDiceReset, testTableChange } from '@/test/tableFixtures'
 import type { WordDraft } from '@/features/true-words/schema'
 
 import { deriveEvents, EMPTY_LOG_RECORDS, type LogEvent, type LogRecords } from './events'
@@ -597,6 +597,16 @@ describe('describing player draw mode changes', () => {
   ] as const)('describes %s → %s', (before, after, text) => {
     const change = testTableChange(1000, { before, after })
     expect(sentenceText(describeEvent(only({ tableChanges: [change] }), NAMES_OF))).toBe(text)
+  })
+})
+
+describe('describing dice channel resets', () => {
+  it.each([
+    [142, 'zar kanalını sıfırladı: 142 atış.'],
+    [0, 'zar kanalını sıfırladı: 0 atış.'],
+  ] as const)('describes a reset of %i rolls', (rolls, text) => {
+    const reset = testDiceReset(1000, rolls)
+    expect(sentenceText(describeEvent(only({ tableChanges: [reset] }), NAMES_OF))).toBe(text)
   })
 })
 

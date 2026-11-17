@@ -27,7 +27,7 @@ src/
     screens.ts          the single lists of screens (main menu and Shops sub-screens)
     routes.tsx          route table: sign-in, RequireAuth, AppShell, one route per screen, not-found
     layout/             AppShell, SidebarContent, MobileNav, UserBadge, OfflineBanner
-    NotFoundPage.tsx, ConfigErrorScreen.tsx
+    NotFoundPage.tsx, ConfigErrorScreen.tsx, notFoundManticore.webp (the not-found page's picture)
   features/             one folder per product area
     art/                the built pictures: the manifest schema (EMPTY_ART), ArtProvider (loadArtManifest), useArt,
                         usePicture (the fallback after a load error), CardPicture, the spread backs (SpreadBack,
@@ -300,12 +300,13 @@ All stored data lives in Firestore and is read in real time.
 
 ## Pictures
 
-Pictures come from two places:
+Pictures come from these places:
 
 - **Card and True Word pictures** are files in Cloud Storage, `cards/<id>/<hash>.webp` and `words/<id>/<hash>.webp`. The definition's `picture` field holds the path (`src/features/definitions/picturePath.ts`). `npm run import-pictures` and the DM's forms store them (see [The picture import](#the-picture-import)).
 - **Set cardbacks and set Cardmakers** are files in Cloud Storage, `sets/<setId>/<hash>.webp`. The set's `cardback` and `mascot` fields hold the paths. `npm run import-sets` and the DM's set form store them (see [The set import](#the-set-import)).
 - **Character photos** are files in Cloud Storage, `characters/<characterId>/<hash>.webp`, cropped from the center to 3:4 (`CHARACTER_PICTURE_BOX` in `src/features/definitions/picture.ts`). The character's `picture` field holds the path, and the character steps store them. The owner and the DM may store and delete them, and anyone may read them by address, as the card pictures.
 - **The Blessed and Cursed cardbacks, pack pictures and the screens' Cardmaker** are static files on Hosting: `npm run build-art` writes them with a manifest to `public/art/` (see [The picture build](#the-picture-build)). Vite serves that folder in development and copies it into `dist/`. The folder is committed, so every clone and the CI build has the pictures without the archives; Prettier skips it as generated output.
+- **The not-found page's manticore** is `src/app/notFoundManticore.webp`, a bundled Vite asset (design D6 of `release-1-0-0`): imported by `NotFoundPage`, hashed and cached with the other assets, and outside the picture build's manifest.
 
 How components use them:
 

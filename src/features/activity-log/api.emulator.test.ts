@@ -442,6 +442,12 @@ describe('the table changes query', () => {
       const db = firestoreOf(admin)
       await setDoc(doc(db, 'tableChanges/tc-1'), change('filtered', 1000))
       await setDoc(doc(db, 'tableChanges/tc-2'), change('pick', 2000))
+      await setDoc(doc(db, 'tableChanges/tc-3'), {
+        by: 'dana',
+        at: at(3000),
+        setting: 'diceReset',
+        rolls: 142,
+      })
     })
   })
 
@@ -452,8 +458,8 @@ describe('the table changes query', () => {
       : (await getDocs(queries.tableChanges)).docs.map((document) => document.id)
   }
 
-  it('gives a player every change, newest first', async () => {
-    expect(await tableChangeIds('ayla')).toEqual(['tc-2', 'tc-1'])
+  it('gives a player every change, a dice reset included, newest first', async () => {
+    expect(await tableChangeIds('ayla')).toEqual(['tc-3', 'tc-2', 'tc-1'])
   })
 
   it('leaves the changes out with a user filter', async () => {

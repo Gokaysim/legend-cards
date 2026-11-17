@@ -59,6 +59,8 @@ export function TestDiceProvider({
       },
       setDiceStyle: () => Promise.resolve(),
       loadOlder: () => undefined,
+      countRolls: () => Promise.resolve(rolls.length),
+      resetChannel: () => Promise.resolve(rolls.length),
     }
     return {
       rolls: state ?? { status: 'ready', rolls, hasOlder },

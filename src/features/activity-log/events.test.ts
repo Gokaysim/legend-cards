@@ -8,7 +8,7 @@ import { testHolding } from '@/test/holdingFixtures'
 import { testGpEntry, testLedgerEntry } from '@/test/ledgerFixtures'
 import { testPack } from '@/test/packFixtures'
 import { testSetChange } from '@/test/setFixtures'
-import { testTableChange } from '@/test/tableFixtures'
+import { testDiceReset, testTableChange } from '@/test/tableFixtures'
 import { testTrueWord, testWordDraft, testWordHolding, testWordUse } from '@/test/trueWordFixtures'
 
 import { deriveEvents, EMPTY_LOG_RECORDS, type LogRecords, newestEvents } from './events'
@@ -74,6 +74,22 @@ describe('deriveEvents', () => {
     expect(events.map((event) => event.kind)).toEqual(['tableSetting', 'given'])
     const changes = [testTableChange(1), testTableChange(2)]
     expect(newestEvents(records({ tableChanges: changes }), 2).mayHaveMore).toBe(true)
+  })
+
+  it('turns a dice reset into one table setting event, ordered after an earlier LP change', () => {
+    const reset = testDiceReset(7000)
+    const lp = testLedgerEntry(6000)
+    const { events } = newestEvents(records({ entries: [lp], tableChanges: [reset] }), 50)
+    expect(events).toEqual([
+      {
+        kind: 'tableSetting',
+        key: `tableSetting:${reset.id}`,
+        at: reset.at,
+        by: 'dana',
+        change: reset,
+      },
+      { kind: 'balance', key: 'balance:entry-6000', at: at(6000), by: 'dm-1', entry: lp },
+    ])
   })
 
   it('turns a holding given by the DM into a given event', () => {

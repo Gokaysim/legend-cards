@@ -4,11 +4,18 @@ import { Timestamp } from 'firebase/firestore'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { AccessEntry } from '@/features/access/schema'
+import type { DiceActions } from '@/features/dice/diceContext'
+import { DiceResetIncompleteError } from '@/features/dice/errors'
+import type { DiceRoll } from '@/features/dice/schema'
 import type { PlayerDrawMode } from '@/features/table/playerDraw'
 import type { TableActions } from '@/features/table/tableContext'
+import { testCombat } from '@/test/combatFixtures'
+import { testRoll } from '@/test/diceFixtures'
 import { ready, testProfile, testUser } from '@/test/fixtures'
 import { TestAccessProvider } from '@/test/TestAccessProvider'
 import { TestAuthProvider } from '@/test/TestAuthProvider'
+import { TestCombatProvider } from '@/test/TestCombatProvider'
+import { TestDiceProvider } from '@/test/TestDiceProvider'
 import { TestTableProvider } from '@/test/TestTableProvider'
 import { TestUsersProvider } from '@/test/TestUsersProvider'
 
@@ -25,29 +32,54 @@ const ENTRIES: AccessEntry[] = [
   { email: 'bora@example.com', addedAt: Timestamp.fromMillis(0) },
 ]
 
+const ROLLS: readonly DiceRoll[] = [testRoll({ by: 'bora' }), testRoll({ by: 'cem' })]
+
 function setup({
   asDm = true,
   playerDraw = 'off',
   setPlayerDrawMode = () => Promise.resolve(),
+  rolls = ROLLS,
+  countRolls = () => Promise.resolve(142),
+  resetChannel = () => Promise.resolve(142),
+  isCombatOpen = false,
 }: {
   asDm?: boolean
   playerDraw?: PlayerDrawMode
   setPlayerDrawMode?: TableActions['setPlayerDrawMode']
+  rolls?: readonly DiceRoll[]
+  countRolls?: DiceActions['countRolls']
+  resetChannel?: DiceActions['resetChannel']
+  isCombatOpen?: boolean
 } = {}) {
   const user = userEvent.setup()
   const change = vi.fn<TableActions['setPlayerDrawMode']>(setPlayerDrawMode)
+  const count = vi.fn<DiceActions['countRolls']>(countRolls)
+  const reset = vi.fn<DiceActions['resetChannel']>(resetChannel)
   render(
     <TestAuthProvider state={{ status: 'signedIn', user: testUser }}>
       <TestUsersProvider currentProfile={ready(asDm ? dm : player)}>
         <TestAccessProvider entries={ready(ENTRIES)}>
           <TestTableProvider playerDraw={playerDraw} actions={{ setPlayerDrawMode: change }}>
-            <SettingsPage />
+            <TestDiceProvider rolls={rolls} actions={{ countRolls: count, resetChannel: reset }}>
+              <TestCombatProvider
+                combat={isCombatOpen ? testCombat({ phase: 'gathering' }) : undefined}
+              >
+                <SettingsPage />
+              </TestCombatProvider>
+            </TestDiceProvider>
           </TestTableProvider>
         </TestAccessProvider>
       </TestUsersProvider>
     </TestAuthProvider>,
   )
-  return { user, change }
+  return { user, change, count, reset }
+}
+
+function goOffline() {
+  vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+  act(() => {
+    window.dispatchEvent(new Event('offline'))
+  })
 }
 
 const group = () => screen.getByRole('group', { name: 'Oyuncu kart çekişi' })
@@ -110,10 +142,7 @@ describe('the Ayarlar screen', () => {
   })
 
   it('needs a connection, and changes nothing offline', async () => {
-    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
-    act(() => {
-      window.dispatchEvent(new Event('offline'))
-    })
+    goOffline()
     const { user, change } = setup()
 
     await user.click(option('Filtreli çekiş'))
@@ -134,6 +163,119 @@ describe('the Ayarlar screen', () => {
 
     expect(screen.getByRole('alert')).toHaveTextContent(
       'Masa ayarlarını yalnızca DM değiştirebilir.',
+    )
+  })
+})
+
+describe('the dice channel reset (spec: dice-rolls, "Resetting the dice channel")', () => {
+  const data = () => screen.getByRole('region', { name: 'Veri / Yedek' })
+  const resetButton = () => within(data()).getByRole('button', { name: 'Zar kanalını sıfırla' })
+  const dialog = () => screen.getByRole('dialog', { name: 'Zar kanalı sıfırlansın mı?' })
+
+  it('shows the DM "Zar kanalı" with its line and the reset, and the backup note', () => {
+    setup()
+
+    expect(
+      within(data()).getByRole('heading', { level: 3, name: 'Zar kanalı' }),
+    ).toBeInTheDocument()
+    expect(data()).toHaveTextContent(
+      'Kanaldaki bütün atışları siler, gizli atışlar dahil. Kartlar, LP, inisiyatif ve İşlem Logu etkilenmez.',
+    )
+    expect(resetButton()).toBeEnabled()
+    expect(data()).toHaveTextContent('Yakında: verileri yedekleme ve geri yükleme.')
+  })
+
+  it('shows a player only the backup note, and no reset', () => {
+    setup({ asDm: false })
+
+    expect(within(data()).queryByRole('button')).not.toBeInTheDocument()
+    expect(within(data()).queryByText('Zar kanalı')).not.toBeInTheDocument()
+    expect(data()).toHaveTextContent('Yakında: verileri yedekleme ve geri yükleme.')
+  })
+
+  it('disables the reset when the channel holds no rolls', () => {
+    setup({ rolls: [] })
+    expect(resetButton()).toBeDisabled()
+  })
+
+  it('asks first, naming the count from the server, and resets on "Sıfırla"', async () => {
+    const { user, count, reset } = setup()
+
+    await user.click(resetButton())
+
+    expect(count).toHaveBeenCalledOnce()
+    expect(dialog()).toHaveTextContent('142 atış kalıcı olarak silinecek. Bu geri alınamaz.')
+    expect(dialog()).not.toHaveTextContent('Savaş açık')
+    expect(reset).not.toHaveBeenCalled()
+
+    await user.click(within(dialog()).getByRole('button', { name: 'Sıfırla' }))
+
+    expect(reset).toHaveBeenCalledOnce()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(within(data()).getByRole('status')).toHaveTextContent(
+      'Zar kanalı sıfırlandı: 142 atış silindi.',
+    )
+  })
+
+  it('deletes nothing on "Vazgeç"', async () => {
+    const { user, reset } = setup()
+
+    await user.click(resetButton())
+    await user.click(within(dialog()).getByRole('button', { name: 'Vazgeç' }))
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(reset).not.toHaveBeenCalled()
+  })
+
+  it('says during a combat that the initiative order stays', async () => {
+    const { user } = setup({ isCombatOpen: true })
+
+    await user.click(resetButton())
+
+    expect(dialog()).toHaveTextContent(
+      'Savaş açık: inisiyatif sırası kalır, yalnızca kanaldaki atışlar silinir.',
+    )
+  })
+
+  it('needs a connection, and neither counts nor deletes offline', async () => {
+    goOffline()
+    const { user, count, reset } = setup()
+
+    await user.click(resetButton())
+
+    expect(within(data()).getByRole('alert')).toHaveTextContent(
+      'Bağlantı yok: zar kanalını sıfırlamak için internet bağlantısı gerekiyor.',
+    )
+    expect(count).not.toHaveBeenCalled()
+    expect(reset).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('says when the connection dropped before the reset started', async () => {
+    const { user } = setup({
+      resetChannel: () =>
+        Promise.reject(Object.assign(new Error('offline'), { code: 'unavailable' })),
+    })
+
+    await user.click(resetButton())
+    await user.click(within(dialog()).getByRole('button', { name: 'Sıfırla' }))
+
+    expect(within(data()).getByRole('alert')).toHaveTextContent(
+      'Bağlantı yok: zar kanalını sıfırlamak için internet bağlantısı gerekiyor.',
+    )
+  })
+
+  it('says when a reset stopped part way', async () => {
+    const { user } = setup({
+      resetChannel: () => Promise.reject(new DiceResetIncompleteError(new Error('lost'))),
+    })
+
+    await user.click(resetButton())
+    await user.click(within(dialog()).getByRole('button', { name: 'Sıfırla' }))
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(within(data()).getByRole('alert')).toHaveTextContent(
+      'Bazı atışlar silinemedi; tekrar dene.',
     )
   })
 })

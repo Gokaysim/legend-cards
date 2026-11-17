@@ -60,6 +60,28 @@ describe('tableChangeSchema', () => {
     expect(tableChangeSchema.safeParse({ ...change, after: 'all' }).success).toBe(false)
     expect(tableChangeSchema.safeParse({ ...change, setting: 'lp' }).success).toBe(false)
   })
+
+  const reset = { by: 'dm', at: Timestamp.fromMillis(0), setting: 'diceReset', rolls: 142 }
+
+  it('accepts a dice reset, also of an empty channel', () => {
+    expect(tableChangeSchema.safeParse(reset).success).toBe(true)
+    expect(tableChangeSchema.safeParse({ ...reset, rolls: 0 }).success).toBe(true)
+    expect(tableChangeSchema.safeParse({ ...reset, at: null }).success).toBe(true)
+  })
+
+  it('rejects a dice reset without a whole, non-negative number of rolls', () => {
+    const { rolls: _rolls, ...withoutRolls } = reset
+    expect(tableChangeSchema.safeParse(withoutRolls).success).toBe(false)
+    expect(tableChangeSchema.safeParse({ ...reset, rolls: -1 }).success).toBe(false)
+    expect(tableChangeSchema.safeParse({ ...reset, rolls: 1.5 }).success).toBe(false)
+  })
+
+  it('rejects a dice reset shaped as a mode change', () => {
+    const { rolls: _rolls, ...withoutRolls } = reset
+    expect(
+      tableChangeSchema.safeParse({ ...withoutRolls, before: 'off', after: 'pick' }).success,
+    ).toBe(false)
+  })
 })
 
 describe('openPackIdOf', () => {

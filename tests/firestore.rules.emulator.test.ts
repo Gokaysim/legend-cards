@@ -7533,6 +7533,31 @@ describe('dice rolls (diceRolls/{rollId} and dmRolls/{rollId})', () => {
     })
   })
 
+  describe('reset (spec: dice-rolls, "Resetting the dice channel")', () => {
+    it("lets the DM delete a public roll, a hidden roll's public record and its DM record", async () => {
+      const db = asUser('dana')
+      const batch = writeBatch(db)
+      batch.delete(doc(db, 'diceRolls/old'))
+      batch.delete(doc(db, 'diceRolls/secret'))
+      batch.delete(doc(db, 'dmRolls/secret'))
+      await assertSucceeds(batch.commit())
+      expect(await readAsAdmin('diceRolls/old')).toBeUndefined()
+      expect(await readAsAdmin('diceRolls/secret')).toBeUndefined()
+      expect(await readAsAdmin('dmRolls/secret')).toBeUndefined()
+    })
+
+    it('lets the DM delete each record on its own', async () => {
+      await assertSucceeds(deleteDoc(doc(asUser('dana'), 'dmRolls/secret')))
+      await assertSucceeds(deleteDoc(doc(asUser('dana'), 'diceRolls/old')))
+    })
+
+    it('denies signed-out deletes', async () => {
+      const db = firestoreOf(testEnv.unauthenticatedContext())
+      await assertFails(deleteDoc(doc(db, 'diceRolls/old')))
+      await assertFails(deleteDoc(doc(db, 'dmRolls/secret')))
+    })
+  })
+
   describe('denied', () => {
     it('denies rolling for someone else', async () => {
       await assertFails(create('bora', 'r1', roll('ayla')))
@@ -7635,18 +7660,25 @@ describe('dice rolls (diceRolls/{rollId} and dmRolls/{rollId})', () => {
       await assertFails(create('ayla', 'b', roll('ayla', { total: 26 })))
     })
 
-    it('denies changing or deleting a roll, even for its roller or the DM', async () => {
+    it('denies changing a roll, even for its roller or the DM', async () => {
       await assertFails(updateDoc(doc(asUser('ayla'), 'diceRolls/old'), { modifier: 10 }))
       await assertFails(
         updateDoc(doc(asUser('ayla'), 'diceRolls/old'), { dice: [{ t: 'd20', v: 20 }] }),
       )
       await assertFails(setDoc(doc(asUser('ayla'), 'diceRolls/old'), roll('ayla')))
-      await assertFails(deleteDoc(doc(asUser('ayla'), 'diceRolls/old')))
-      await assertFails(deleteDoc(doc(asUser('dana'), 'diceRolls/old')))
+      await assertFails(updateDoc(doc(asUser('dana'), 'diceRolls/old'), { modifier: 10 }))
+      await assertFails(setDoc(doc(asUser('dana'), 'diceRolls/old'), roll('ayla')))
       await assertFails(updateDoc(doc(asUser('dana'), 'dmRolls/secret'), { modifier: 10 }))
-      await assertFails(deleteDoc(doc(asUser('dana'), 'dmRolls/secret')))
-      await assertFails(deleteDoc(doc(asUser('dana'), 'diceRolls/secret')))
       expect(await readAsAdmin('diceRolls/old')).toEqual(STORED_ROLL)
+    })
+
+    it("denies a player's delete of their own roll, another's roll, and a hidden roll's records", async () => {
+      await assertFails(deleteDoc(doc(asUser('ayla'), 'diceRolls/old')))
+      await assertFails(deleteDoc(doc(asUser('bora'), 'diceRolls/old')))
+      await assertFails(deleteDoc(doc(asUser('ayla'), 'diceRolls/secret')))
+      await assertFails(deleteDoc(doc(asUser('ayla'), 'dmRolls/secret')))
+      expect(await readAsAdmin('diceRolls/old')).toEqual(STORED_ROLL)
+      expect(await readAsAdmin('dmRolls/secret')).toEqual(STORED_DM_ROLL)
     })
 
     it("denies a player's hidden roll, alone or as a pair", async () => {
@@ -7859,6 +7891,83 @@ describe('table settings (table/main.playerDraw, tableChanges/{changeId})', () =
       await assertFails(getDoc(doc(db, 'table/main')))
       await assertFails(getDocs(collection(db, 'tableChanges')))
     })
+  })
+})
+
+describe('dice channel reset records (tableChanges/{changeId} with setting diceReset)', () => {
+  beforeEach(async () => {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const db = firestoreOf(admin)
+      await setDoc(doc(db, 'users/ayla'), seededUser('player', 'Ayla'))
+      await setDoc(doc(db, 'users/dana'), seededUser('dm', 'Dana'))
+    })
+  })
+
+  /** A reset record as the application writes it. */
+  const reset = (by: string, overrides: Record<string, unknown> = {}) => ({
+    by,
+    at: serverTimestamp(),
+    setting: 'diceReset',
+    rolls: 142,
+    ...overrides,
+  })
+
+  const write = (writer: string, data: Record<string, unknown>) =>
+    setDoc(doc(asUser(writer), 'tableChanges/r-new'), data)
+
+  it("accepts the DM's record, also of an empty channel, without touching the table", async () => {
+    await assertSucceeds(write('dana', reset('dana')))
+    expect(await readAsAdmin('tableChanges/r-new')).toMatchObject({
+      by: 'dana',
+      setting: 'diceReset',
+      rolls: 142,
+    })
+    await assertSucceeds(
+      setDoc(doc(asUser('dana'), 'tableChanges/r-zero'), reset('dana', { rolls: 0 })),
+    )
+    expect(await readAsAdmin('table/main')).toBeUndefined()
+  })
+
+  it("denies a player's record", async () => {
+    await assertFails(write('ayla', reset('ayla')))
+  })
+
+  it('denies a negative, fractional or text number of rolls', async () => {
+    await assertFails(write('dana', reset('dana', { rolls: -1 })))
+    await assertFails(write('dana', reset('dana', { rolls: 1.5 })))
+    await assertFails(write('dana', reset('dana', { rolls: '142' })))
+  })
+
+  it('denies a record by someone else, at another time, with missing or extra fields', async () => {
+    await assertFails(write('dana', reset('ayla')))
+    await assertFails(write('dana', reset('dana', { at: Timestamp.fromMillis(0) })))
+    await assertFails(write('dana', { by: 'dana', at: serverTimestamp(), setting: 'diceReset' }))
+    await assertFails(write('dana', reset('dana', { before: 'off' })))
+    await assertFails(write('dana', reset('dana', { setting: 'dice' })))
+  })
+
+  it('denies changing or deleting a record', async () => {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(firestoreOf(admin), 'tableChanges/r-old'), {
+        ...reset('dana'),
+        at: Timestamp.fromMillis(0),
+      })
+    })
+    await assertFails(updateDoc(doc(asUser('dana'), 'tableChanges/r-old'), { rolls: 1 }))
+    await assertFails(deleteDoc(doc(asUser('dana'), 'tableChanges/r-old')))
+  })
+
+  it('lets every signed-in user read it, and denies a signed-out read', async () => {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(firestoreOf(admin), 'tableChanges/r-old'), {
+        ...reset('dana'),
+        at: Timestamp.fromMillis(0),
+      })
+    })
+    await assertSucceeds(getDoc(doc(asUser('ayla'), 'tableChanges/r-old')))
+    await assertFails(
+      getDoc(doc(firestoreOf(testEnv.unauthenticatedContext()), 'tableChanges/r-old')),
+    )
   })
 })
 

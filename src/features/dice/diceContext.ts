@@ -25,6 +25,13 @@ export type DiceActions = {
   setDiceStyle: (style: DiceStyle) => Promise<void>
   /** Asks for 50 older rolls. */
   loadOlder: () => void
+  /** How many rolls the channel holds on the server. It needs a connection. */
+  countRolls: () => Promise<number>
+  /**
+   * Deletes every roll as the signed-in DM, with the reset's record (spec: dice-rolls, "Resetting the dice channel").
+   * Resolves with the number of rolls deleted.
+   */
+  resetChannel: () => Promise<number>
 }
 
 /** The channel's rolls, oldest first. */
