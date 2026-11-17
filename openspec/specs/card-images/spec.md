@@ -7,7 +7,7 @@ Builds the owner's card, cardback, pack, True Word and Cardmaker pictures into t
 ## Requirements
 
 ### Requirement: Building the pictures
-A picture build script SHALL read the `.7z` archives and loose PNG files of a given folder, without changing them, and write the converted Blessed and Cursed cardbacks, packs and Cardmaker with a manifest to the app's public picture folder, which is not committed. It SHALL replace an earlier build. It SHALL leave card and True Word pictures to the picture import, and the sets' cardbacks and Cardmakers to the set import (spec: admin-scripts), and SHALL NOT touch Firestore or the file storage. Without 7-Zip it SHALL stop with a Turkish message saying how to install it.
+A picture build script SHALL read the `.7z` archives and loose PNG files of a given folder, without changing them, and write the converted Blessed and Cursed cardbacks, packs and Cardmaker with a manifest to the app's public picture folder, which is committed, so that a build without the archives still has them. It SHALL replace an earlier build. It SHALL leave card and True Word pictures to the picture import, and the sets' cardbacks and Cardmakers to the set import (spec: admin-scripts), and SHALL NOT touch Firestore or the file storage. Without 7-Zip it SHALL stop with a Turkish message saying how to install it.
 
 #### Scenario: Building from the downloads
 - **WHEN** an admin runs the build script with the folder that holds the five archives
@@ -16,6 +16,14 @@ A picture build script SHALL read the `.7z` archives and loose PNG files of a gi
 #### Scenario: No 7-Zip
 - **WHEN** the build script runs on a machine without 7-Zip
 - **THEN** it stops with a Turkish message naming `brew install sevenzip`, and writes nothing
+
+#### Scenario: Building the app without the archives
+- **WHEN** the app is built on a fresh clone that has never seen the archives
+- **THEN** the built app shows the committed cardbacks, pack pictures and Cardmaker
+
+#### Scenario: A rebuilt picture
+- **WHEN** an admin rebuilds the pictures after an archive changed one pack picture
+- **THEN** `git status` shows that pack's old file removed and its new file and the manifest changed, ready to commit
 
 ### Requirement: Matching card and word pictures
 Each file SHALL be matched by its name without the extension, compared as card names are. `tw<name>` SHALL be that True Word, and `cursed_<name>` that Cursed card. A name that is no other kind of picture SHALL be the Legend card, normal or Blessed, of that name, or else the Cursed card of that name. The picture import SHALL match against the stored definitions, whatever their status: a name SHALL find the definition whose identity that name gives, or else the one whose name equals it.
@@ -58,7 +66,7 @@ The build SHALL count the set files as left to the set import. `<set>_std`, `_pr
 - **THEN** the build writes no picture for it, and its report counts it as left to the set import
 
 ### Requirement: Picture aliases
-A table kept in the repository SHALL map a file name to the card, Cursed card, True Word or asset it shows, for files whose names differ from the data. An alias SHALL win over the name rules. An alias naming an asset that does not exist SHALL stop the build with its row number. An alias naming a card, Cursed card or True Word that is not stored SHALL stop the picture import with its row number.
+A table in the local data folder (spec: developer-workflow, "The owner's data stays out of the repository") SHALL map a file name to the card, Cursed card, True Word or asset it shows, for files whose names differ from the data. An alias SHALL win over the name rules. An alias naming an asset that does not exist SHALL stop the build with its row number. An alias naming a card, Cursed card or True Word that is not stored SHALL stop the picture import with its row number.
 
 #### Scenario: A misspelled file
 - **WHEN** the table maps `orkolsacquisiton.png` to "Orkol's Acquisition"

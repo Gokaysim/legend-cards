@@ -59,10 +59,10 @@ The role script SHALL stop without changing anything when no account uses the gi
 - **THEN** the script stops with a message listing the valid roles, and nothing changes
 
 ### Requirement: Importing cards from CSV files
-A card import script SHALL load card definitions from two CSV files: one for the Legend cards (normal and Blessed) and one for the Cursed cards. Without file options, it SHALL use both files kept in the repository. Given only one of the two files, it SHALL import only that deck and leave the other deck unchanged. Each card it adds SHALL get its kind's starting behavior flags (spec: definition-editing, "Starting values of the flags"); the files have no column for them.
+A card import script SHALL load card definitions from two CSV files: one for the Legend cards (normal and Blessed) and one for the Cursed cards. Without file options, it SHALL use both files in the local data folder (spec: developer-workflow, "The owner's data stays out of the repository"). Given only one of the two files, it SHALL import only that deck and leave the other deck unchanged. Each card it adds SHALL get its kind's starting behavior flags (spec: definition-editing, "Starting values of the flags"); the files have no column for them.
 
 #### Scenario: Importing the repository data
-- **WHEN** an admin runs the card import script without file options against empty emulators
+- **WHEN** an admin with the owner's files in the data folder runs the card import script without file options against empty emulators
 - **THEN** the emulators hold 591 Legend cards (572 normal, 3 of them drafts, and 19 Blessed) and 154 Cursed cards
 
 #### Scenario: Importing one deck
@@ -104,11 +104,19 @@ The Legend card file SHALL have the columns Name, Set, Cost, Rarity, Text, and M
 - **THEN** the import ignores them, and no card stores their values
 
 ### Requirement: Legend card rows
-A Legend card row whose Set is "Blessed" SHALL become a Blessed card, and its rarity SHALL be "—" or empty. Every other row SHALL become a normal card, with the rarity "Common", "Rare" or empty. A row with an empty Set SHALL become a normal card without a set. A "—" in the Cost column SHALL mean the card has no cost. In the other columns, a "—" SHALL count as empty.
+A Legend card row whose Set is "Blessed" SHALL become a Blessed card, and its rarity SHALL be "—", "Blessed" (in any letter case) or empty; each of them SHALL store the card without a rarity. Every other row SHALL become a normal card, with the rarity "Common", "Rare" or empty. A row with an empty Set SHALL become a normal card without a set. A "—" in the Cost column SHALL mean the card has no cost. In the other columns, a "—" SHALL count as empty.
 
 #### Scenario: A Blessed row
 - **WHEN** the Legend card file has a row with the set "Blessed", the cost "—", the rarity "—", and the mechanic pack "Risk & Reward"
 - **THEN** that card is stored as an active Blessed card, with no set, no rarity, no cost, and the mechanic pack "Risk & Reward"
+
+#### Scenario: A Blessed row that names its rarity "Blessed"
+- **WHEN** the Legend card file has a row with the set "Blessed" and the rarity "Blessed"
+- **THEN** that card is stored as a Blessed card with no rarity, as with the rarity "—"
+
+#### Scenario: A Blessed row with another rarity
+- **WHEN** the Legend card file has a row with the set "Blessed" and the rarity "Rare"
+- **THEN** the import stops with that row's number and changes nothing
 
 #### Scenario: A row without a set
 - **WHEN** the Legend card file has the row "The Cartographer" with an empty Set, Rarity and Mechanic Pack
@@ -152,10 +160,10 @@ With a dry-run option, the card import SHALL validate the files and print the sa
 - **THEN** the report shows one card that would be added, and no card changes
 
 ### Requirement: Importing True Words from a CSV file
-A True Words import script SHALL load the word definitions from one CSV file into the card definitions, as True Words with a True Word's starting behavior flags (spec: definition-editing, "Starting values of the flags"). Without a file option, it SHALL use the True Words file kept in the repository. Like the card import, it SHALL act on the local emulators unless a real project is named and confirmed.
+A True Words import script SHALL load the word definitions from one CSV file into the card definitions, as True Words with a True Word's starting behavior flags (spec: definition-editing, "Starting values of the flags"). Without a file option, it SHALL use the True Words file in the local data folder. Like the card import, it SHALL act on the local emulators unless a real project is named and confirmed.
 
 #### Scenario: Importing the repository data
-- **WHEN** an admin runs the True Words import script without a file option against empty emulators
+- **WHEN** an admin with the owner's True Words file in the data folder runs the True Words import script without a file option against empty emulators
 - **THEN** the emulators hold 53 True Words
 
 #### Scenario: A held word
@@ -312,10 +320,10 @@ A picture import that gives pictures SHALL write change records in the same run 
 - **THEN** it writes no record
 
 ### Requirement: Importing sets from a CSV file
-A set import script SHALL load sets from one CSV file, by default the sets file kept in the repository. The file SHALL have the columns Code, Name, Aliases and Packs, matched regardless of case. Aliases SHALL be separated by commas inside the cell. Packs SHALL be "standard" or "pandemonium". The rows' order SHALL be the order of the sets it adds. Like the other imports, it SHALL act on the local emulators unless a real project is named and confirmed.
+A set import script SHALL load sets from one CSV file, by default the sets file in the local data folder. The file SHALL have the columns Code, Name, Aliases and Packs, matched regardless of case. Aliases SHALL be separated by commas inside the cell. Packs SHALL be "standard" or "pandemonium". The rows' order SHALL be the order of the sets it adds. Like the other imports, it SHALL act on the local emulators unless a real project is named and confirmed.
 
 #### Scenario: The repository's sets
-- **WHEN** an admin runs the set import against empty emulators
+- **WHEN** an admin with the owner's set file in the data folder runs the set import against empty emulators
 - **THEN** the 12 sets are stored in the file's order, from "The End is Nigh" to "Pandemonium", with "Pandemonium" having the "Tek paket + Cursed" layout
 
 ### Requirement: The set file is validated before writing
@@ -382,3 +390,18 @@ The access script SHALL stop without changing anything when the email address is
 #### Scenario: Missing address
 - **WHEN** an admin runs the access script without an address
 - **THEN** the script stops with its usage message, and nothing changes
+
+### Requirement: A missing data file
+When a file that a script reads by default is missing from the local data folder, the script SHALL stop before it reads the archives or writes anything. It SHALL print a Turkish message that names the missing file, says it is kept only on the owner's machine, and names the option that takes another file, where there is one. This SHALL hold for the card, True Words and set imports, for the picture alias table, and for the picture build and the picture import.
+
+#### Scenario: Importing on a fresh clone
+- **WHEN** an admin runs the card import script without file options on a clone whose data folder holds only its documentation
+- **THEN** the script names the missing Legend card file in Turkish, mentions `--legend` and `--cursed`, and writes nothing
+
+#### Scenario: The alias table is missing
+- **WHEN** an admin runs the picture import with the archives while the alias table is not in the data folder
+- **THEN** the script names the missing alias table in Turkish and stops before it extracts anything
+
+#### Scenario: A file given by option
+- **WHEN** an admin runs the True Words import with `--file` pointing at a CSV file outside the data folder, on a clone whose data folder is empty
+- **THEN** the import reads that file and does not ask for the default one

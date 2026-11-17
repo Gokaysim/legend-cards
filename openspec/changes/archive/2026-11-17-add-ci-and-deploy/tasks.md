@@ -111,7 +111,7 @@
 ## 6. Live project and first automated deploy (with the owner)
 
 - [x] 6.1 Walk the runbook with the owner up to the first local deploy, fixing any step that does not work as written. Verify that `https://<project-id>.web.app` loads the sign-in screen.
-- [ ] 6.2 Load the data and pictures into the live project with the runbook commands, `--dry-run` first. Then give the first DM access. Verify:
+- [x] 6.2 Load the data and pictures into the live project with the runbook commands, `--dry-run` first. Then give the first DM access. Verify:
   - the DM signs in on the live site and has the DM role
   - the Kart kütüphanesi shows the owner's cards with pictures
 - [x] 6.3 Set the GitHub variables, then start a manual run on `master`. If the CLI stops on a missing permission, grant the narrowest role it names and record it in the runbook (design D3). Verify:
