@@ -2414,32 +2414,46 @@ service cloud.firestore {
       return ['modifierSum'];
     }
 
-    // Each die type with the faces it can show, as `<type>:<face>` (DIE_MAX in src/features/dice/formula.ts): d4 to
-    // d20 from 1 to their size, and the d100 tens die from 0 to 90 in tens.
-    function dieFaces() {
-      return 'd4:[1-4]|d6:[1-6]|d8:[1-8]|d10:([1-9]|10)|d12:([1-9]|1[0-2])|d20:([1-9]|1[0-9]|20)|d100:([1-9]?0)';
+    // Every die a roll can hold, as `{t, v}` (DIE_MAX in src/features/dice/formula.ts): d4 to d20 from 1 to their size,
+    // and the d100 tens die from 0 to 90 in tens.
+    function allDice() {
+      return [
+        {'t': 'd4', 'v': 1}, {'t': 'd4', 'v': 2}, {'t': 'd4', 'v': 3}, {'t': 'd4', 'v': 4},
+        {'t': 'd6', 'v': 1}, {'t': 'd6', 'v': 2}, {'t': 'd6', 'v': 3}, {'t': 'd6', 'v': 4}, {'t': 'd6', 'v': 5},
+        {'t': 'd6', 'v': 6},
+        {'t': 'd8', 'v': 1}, {'t': 'd8', 'v': 2}, {'t': 'd8', 'v': 3}, {'t': 'd8', 'v': 4}, {'t': 'd8', 'v': 5},
+        {'t': 'd8', 'v': 6}, {'t': 'd8', 'v': 7}, {'t': 'd8', 'v': 8},
+        {'t': 'd10', 'v': 1}, {'t': 'd10', 'v': 2}, {'t': 'd10', 'v': 3}, {'t': 'd10', 'v': 4}, {'t': 'd10', 'v': 5},
+        {'t': 'd10', 'v': 6}, {'t': 'd10', 'v': 7}, {'t': 'd10', 'v': 8}, {'t': 'd10', 'v': 9}, {'t': 'd10', 'v': 10},
+        {'t': 'd12', 'v': 1}, {'t': 'd12', 'v': 2}, {'t': 'd12', 'v': 3}, {'t': 'd12', 'v': 4}, {'t': 'd12', 'v': 5},
+        {'t': 'd12', 'v': 6}, {'t': 'd12', 'v': 7}, {'t': 'd12', 'v': 8}, {'t': 'd12', 'v': 9}, {'t': 'd12', 'v': 10},
+        {'t': 'd12', 'v': 11}, {'t': 'd12', 'v': 12},
+        {'t': 'd20', 'v': 1}, {'t': 'd20', 'v': 2}, {'t': 'd20', 'v': 3}, {'t': 'd20', 'v': 4}, {'t': 'd20', 'v': 5},
+        {'t': 'd20', 'v': 6}, {'t': 'd20', 'v': 7}, {'t': 'd20', 'v': 8}, {'t': 'd20', 'v': 9}, {'t': 'd20', 'v': 10},
+        {'t': 'd20', 'v': 11}, {'t': 'd20', 'v': 12}, {'t': 'd20', 'v': 13}, {'t': 'd20', 'v': 14},
+        {'t': 'd20', 'v': 15}, {'t': 'd20', 'v': 16}, {'t': 'd20', 'v': 17}, {'t': 'd20', 'v': 18},
+        {'t': 'd20', 'v': 19}, {'t': 'd20', 'v': 20},
+        {'t': 'd100', 'v': 0}, {'t': 'd100', 'v': 10}, {'t': 'd100', 'v': 20}, {'t': 'd100', 'v': 30},
+        {'t': 'd100', 'v': 40}, {'t': 'd100', 'v': 50}, {'t': 'd100', 'v': 60}, {'t': 'd100', 'v': 70},
+        {'t': 'd100', 'v': 80}, {'t': 'd100', 'v': 90}
+      ];
     }
 
-    // The die at index `i`, or true past the list's end. A die is `{t, v}` with a face its die can show, and a d100
-    // tens die is followed by its d10. Rules have no loops, so validRoll calls this per index. The check is one
-    // pattern per die: twelve dice must stay well inside the rules' 1000 expressions per request.
-    function dieAt(dice, i) {
-      return i >= dice.size() || validDie(dice, i, dice[i]);
+    // Every die is one of allDice(), with exactly its two keys. One `hasOnly` costs the same whatever the dice count,
+    // so sixty dice stay inside the rules' 1000 expressions per request; any per-index check fits only 13 to 48
+    // (design D3 of dice-formula-and-sixty-dice). That a d100 tens die is followed by its d10 is left to the client,
+    // which always writes the pair and reads a lone tens die as a die of its own.
+    function validDice(dice) {
+      return dice.hasOnly(allDice());
     }
 
-    function validDie(dice, i, die) {
-      return die.keys().hasOnly(['t', 'v'])
-        && die.v is int
-        && (die.t + ':' + string(die.v)).matches(dieFaces())
-        && (die.t != 'd100' || dice[i + 1].t == 'd10');
-    }
-
-    // A roll's content (spec: dice-rolls, "Roll records are checked"): 1 to 12 physical dice, each valid; advantage
-    // or disadvantage only with exactly two d20; a fixed number from -99 to 99, and its written sum, when present, as
-    // 2 to 8 numbers from 0 to 99 joined by + and - (MODIFIER_TEXT_MAX in src/features/dice/formula.ts); a note of at
-    // most 80 characters; one of the styles; and the motion as a bounded string, which the client decodes leniently
-    // (design D4). The client, not the rules, checks that the written sum adds up to the fixed number, and shows the
-    // fixed number alone when it does not (design D2 of dice-sum-modifier-and-nat-marks).
+    // A roll's content (spec: dice-rolls, "Roll records are checked"): 1 to 60 physical dice, each one of allDice();
+    // advantage or disadvantage only with exactly two d20; a fixed number from -99 to 99, and its written sum, when
+    // present, as 2 to 8 numbers from 0 to 99 joined by + and - (MODIFIER_TEXT_MAX in src/features/dice/formula.ts); a
+    // note of at most 80 characters; one of the styles; and the motion as a bounded string (MOTION_MAX in
+    // src/features/dice/schema.ts: 60 dice of 20 32-bit floats in base64, with room), which the client decodes
+    // leniently (design D4). The client, not the rules, checks that the written sum adds up to the fixed number, and
+    // shows the fixed number alone when it does not (design D2 of dice-sum-modifier-and-nat-marks).
     function validRoll(data) {
       return data.style in diceStyles()
         && data.mode in ['normal', 'advantage', 'disadvantage']
@@ -2453,14 +2467,12 @@ service cloud.firestore {
         && data.note is string
         && data.note.size() <= 80
         && data.motion is string
-        && data.motion.size() <= 1400
+        && data.motion.size() <= 6600
         && data.sim is int
         && data.dice is list
         && data.dice.size() >= 1
-        && data.dice.size() <= 12
-        && dieAt(data.dice, 0) && dieAt(data.dice, 1) && dieAt(data.dice, 2) && dieAt(data.dice, 3)
-        && dieAt(data.dice, 4) && dieAt(data.dice, 5) && dieAt(data.dice, 6) && dieAt(data.dice, 7)
-        && dieAt(data.dice, 8) && dieAt(data.dice, 9) && dieAt(data.dice, 10) && dieAt(data.dice, 11)
+        && data.dice.size() <= 60
+        && validDice(data.dice)
         && (data.mode == 'normal'
           || (data.dice.size() == 2 && data.dice[0].t == 'd20' && data.dice[1].t == 'd20'));
     }

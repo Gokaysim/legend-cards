@@ -7459,6 +7459,30 @@ describe('dice rolls (diceRolls/{rollId} and dmRolls/{rollId})', () => {
       }
     })
 
+    it('allows thirteen dice, and sixty dice with a full motion (spec: dice-rolls, "At most sixty dice")', async () => {
+      const thirteen = Array.from({ length: 13 }, () => ({ t: 'd6', v: 3 }))
+      await assertSucceeds(create('ayla', 'r13', roll('ayla', { dice: thirteen })))
+      const sixty = Array.from({ length: 60 }, (_, index) => ({ t: 'd6', v: (index % 6) + 1 }))
+      await assertSucceeds(
+        create('ayla', 'r60', roll('ayla', { dice: sixty, motion: 'A'.repeat(6600) })),
+      )
+    })
+
+    it('allows thirty d100 pairs, sixty physical dice', async () => {
+      const dice = Array.from({ length: 30 }, (_, index) => [
+        { t: 'd100', v: (index % 10) * 10 },
+        { t: 'd10', v: (index % 10) + 1 },
+      ]).flat()
+      await assertSucceeds(create('ayla', 'r1', roll('ayla', { dice, motion: 'A'.repeat(6600) })))
+    })
+
+    it('allows a d100 tens die without its d10, which the client always writes and reads leniently', async () => {
+      const dice: Die[] = Array.from({ length: 40 }, () => ({ t: 'd6', v: 3 }))
+      dice[35] = { t: 'd100', v: 30 }
+      await assertSucceeds(create('ayla', 'r1', roll('ayla', { dice })))
+      await assertSucceeds(create('ayla', 'r2', roll('ayla', { dice: [{ t: 'd100', v: 30 }] })))
+    })
+
     it('allows advantage and disadvantage with two d20', async () => {
       const dice = [
         { t: 'd20', v: 20 },
@@ -7478,13 +7502,13 @@ describe('dice rolls (diceRolls/{rollId} and dmRolls/{rollId})', () => {
       await assertSucceeds(create('ayla', 'c', roll('ayla', { motion: '', sim: 0 })))
     })
 
-    it("accepts the DM's hidden pair of 12 dice with a full motion, the heaviest request", async () => {
-      const dice = Array.from({ length: 6 }, () => [
+    it("accepts the DM's hidden pair of 60 dice with a full motion, the heaviest request", async () => {
+      const dice = Array.from({ length: 30 }, () => [
         { t: 'd100', v: 50 },
         { t: 'd10', v: 5 },
       ]).flat()
       await assertSucceeds(
-        hiddenPair('dana', 'heavy', roll('dana', { dice, motion: 'A'.repeat(1400) })),
+        hiddenPair('dana', 'heavy', roll('dana', { dice, motion: 'A'.repeat(6600) })),
       )
     })
 
@@ -7502,8 +7526,8 @@ describe('dice rolls (diceRolls/{rollId} and dmRolls/{rollId})', () => {
       await assertSucceeds(create('ayla', 'e', roll('ayla')))
     })
 
-    it("accepts the DM's hidden pair of 12 dice with a full motion and a written sum", async () => {
-      const dice = Array.from({ length: 6 }, () => [
+    it("accepts the DM's hidden pair of 60 dice with a full motion and a written sum", async () => {
+      const dice = Array.from({ length: 30 }, () => [
         { t: 'd100', v: 50 },
         { t: 'd10', v: 5 },
       ]).flat()
@@ -7513,7 +7537,7 @@ describe('dice rolls (diceRolls/{rollId} and dmRolls/{rollId})', () => {
           'heavy-sum',
           roll('dana', {
             dice,
-            motion: 'A'.repeat(1400),
+            motion: 'A'.repeat(6600),
             modifier: 11,
             modifierSum: '5+10-4',
           }),
@@ -7590,27 +7614,21 @@ describe('dice rolls (diceRolls/{rollId} and dmRolls/{rollId})', () => {
       await assertFails(bad([{ t: 'd20', v: 3, extra: true } as Die]))
     })
 
-    it('denies a d100 tens die without its d10 right after it', async () => {
-      const bad = (dice: Die[]) => create('ayla', 'r1', roll('ayla', { dice }))
-      await assertFails(bad([{ t: 'd100', v: 30 }]))
-      await assertFails(
-        bad([
-          { t: 'd100', v: 30 },
-          { t: 'd6', v: 3 },
-        ]),
-      )
-      await assertFails(
-        bad([
-          { t: 'd10', v: 3 },
-          { t: 'd100', v: 30 },
-        ]),
-      )
+    it('denies no dice and sixty-one dice', async () => {
+      await assertFails(create('ayla', 'r1', roll('ayla', { dice: [] })))
+      const sixtyOne = Array.from({ length: 61 }, () => ({ t: 'd6', v: 3 }))
+      await assertFails(create('ayla', 'r2', roll('ayla', { dice: sixtyOne })))
     })
 
-    it('denies no dice and thirteen dice', async () => {
-      await assertFails(create('ayla', 'r1', roll('ayla', { dice: [] })))
-      const thirteen = Array.from({ length: 13 }, () => ({ t: 'd6', v: 3 }))
-      await assertFails(create('ayla', 'r2', roll('ayla', { dice: thirteen })))
+    it('denies an impossible result or an extra key late in a big roll', async () => {
+      const valid = Array.from({ length: 59 }, () => ({ t: 'd6', v: 3 }))
+      await assertFails(create('ayla', 'r1', roll('ayla', { dice: [...valid, { t: 'd6', v: 7 }] })))
+      await assertFails(
+        create('ayla', 'r2', roll('ayla', { dice: [...valid, { t: 'd6', v: 3, extra: 1 }] })),
+      )
+      await assertFails(
+        create('ayla', 'r3', roll('ayla', { dice: [...valid, { t: 'd6', v: '3' }] })),
+      )
     })
 
     it('denies advantage or disadvantage without exactly two d20', async () => {
@@ -7636,7 +7654,7 @@ describe('dice rolls (diceRolls/{rollId} and dmRolls/{rollId})', () => {
       await assertFails(create('ayla', 'c', roll('ayla', { modifier: 1.5 })))
       await assertFails(create('ayla', 'd', roll('ayla', { note: 'x'.repeat(81) })))
       await assertFails(create('ayla', 'e', roll('ayla', { style: 'gold' })))
-      await assertFails(create('ayla', 'f', roll('ayla', { motion: 'A'.repeat(1401) })))
+      await assertFails(create('ayla', 'f', roll('ayla', { motion: 'A'.repeat(6601) })))
       await assertFails(create('ayla', 'g', roll('ayla', { motion: 5 })))
       await assertFails(create('ayla', 'h', roll('ayla', { sim: 'one' })))
     })

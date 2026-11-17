@@ -70,8 +70,8 @@ export const SIM_NONE = 0
 /** Floats per die in `motion`: the throw (13) and the rest (7). */
 export const MOTION_FLOATS = 20
 
-/** The longest `motion`: 12 dice of 20 32-bit floats, in base64, with room to spare. Keep in step with the rules. */
-export const MOTION_MAX = 1400
+/** The longest `motion`: 60 dice of 20 32-bit floats, 6400 base64 characters, with room. Keep in step with the rules. */
+export const MOTION_MAX = 6600
 
 function floatsOf(motion: DieMotion): number[] {
   const { throw: t, rest } = motion

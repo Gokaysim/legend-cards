@@ -11,7 +11,7 @@ export type DieType = (typeof DIE_TYPES)[number]
 export const FORMULA_ORDER: readonly DieType[] = ['d20', 'd12', 'd10', 'd8', 'd6', 'd4', 'd100']
 
 /** At most this many physical dice per roll. A d100 counts as two. */
-export const MAX_DICE = 12
+export const MAX_DICE = 60
 export const MODIFIER_MIN = -99
 export const MODIFIER_MAX = 99
 export const NOTE_MAX = 80
@@ -88,7 +88,7 @@ export function modifierLabel(modifier: number, sum: string | null = null): stri
     .join(' ')
 }
 
-/** The highest face of each die. The d100 tens die shows 00 to 90. Shared with `firestore.rules` (dieAt). */
+/** The highest face of each die. The d100 tens die shows 00 to 90. Shared with `firestore.rules` (allDice). */
 export const DIE_MAX: Record<DieType, number> = {
   d4: 4,
   d6: 6,
@@ -152,6 +152,68 @@ export function formulaText(
   )
   if (dice.length === 0) return ''
   return `${dice.join(' + ')}${modifierText(modifier, sum)}`
+}
+
+/**
+ * The formula field's canonical text (spec: dice-rolls, "A typed formula"): `formulaText`, and without dice the fixed
+ * number alone, "5" or "−2 − 3", so that leaving the field never drops what was typed. Empty for no dice and 0.
+ */
+export function formulaInputText(
+  counts: DiceCounts,
+  modifier: number,
+  sum: string | null = null,
+): string {
+  if (physicalCount(counts) > 0) return formulaText(counts, modifier, sum)
+  return modifierText(modifier, sum).replace(/^ \+ /, '').replace(/^ − /, '−')
+}
+
+/** A formula as the roll form reads it: its dice, its fixed number and the written sum, or why it is refused. */
+export type ParsedFormula =
+  | { ok: true; counts: DiceCounts; modifier: number; modifierSum: string | null }
+  | { ok: false; reason: 'invalid' | 'tooMany' }
+
+const DIE_SIZES = '100|20|12|10|8|6|4|%'
+const FORMULA_TERM = `(?:\\d{1,3})?d(?:${DIE_SIZES})|\\d+`
+const FORMULA_PATTERN = new RegExp(`^[+-]?(?:${FORMULA_TERM})(?:[+-](?:${FORMULA_TERM}))*$`, 'i')
+const DICE_TERM = new RegExp(`^(\\d{1,3})?d(${DIE_SIZES})$`, 'i')
+
+/**
+ * The formula as typed (design D1 of dice-formula-and-sixty-dice): dice terms such as "40d6", "d20" or "d%", and whole
+ * numbers, joined by + and −. A missing count is 1, case does not matter, and terms of one die add up. The numbers
+ * follow `parseModifier`. A die after a minus, a count of 0 or an unknown die is `invalid`; more than `MAX_DICE`
+ * physical dice is `tooMany`. Spaces around the signs are ignored, and an empty text is a formula without dice.
+ */
+export function parseFormula(text: string): ParsedFormula {
+  const compact = text
+    .replace(/[−–]/g, '-')
+    .replace(/\s*([+-])\s*/g, '$1')
+    .trim()
+  const counts = emptyCounts()
+  if (compact === '') return { ok: true, counts, modifier: 0, modifierSum: null }
+  if (!FORMULA_PATTERN.test(compact)) return { ok: false, reason: 'invalid' }
+  const numbers: string[] = []
+  for (const token of compact.match(/[+-]?[^+-]+/g) ?? []) {
+    const dice = DICE_TERM.exec(token.replace(/^[+-]/, ''))
+    if (!dice) {
+      numbers.push(token)
+      continue
+    }
+    const count = dice[1] === undefined ? 1 : Number(dice[1])
+    if (token.startsWith('-') || count === 0) return { ok: false, reason: 'invalid' }
+    const size = (dice[2] as string) === '%' ? '100' : (dice[2] as string)
+    const type = `d${size}` as DieType
+    counts[type] += count
+  }
+  const modifier = parseModifier(numbers.join(''))
+  if (!modifier) return { ok: false, reason: 'invalid' }
+  if (physicalCount(counts) > MAX_DICE) return { ok: false, reason: 'tooMany' }
+  return { ok: true, counts, modifier: modifier.total, modifierSum: modifier.sum }
+}
+
+/** The most dice of `type` the formula can hold with its other dice, for a count typed on a chip. */
+export function maxCount(counts: DiceCounts, type: DieType): number {
+  const others = physicalCount(counts) - counts[type] * physicalSize(type)
+  return Math.floor((MAX_DICE - others) / physicalSize(type))
 }
 
 /**

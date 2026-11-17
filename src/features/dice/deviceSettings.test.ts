@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   lastSeenKey,
   resetDeviceSettingsMemory,
+  SHOW_3D_KEY,
   SHOW_ROLLS_KEY,
   SOUND_KEY,
   useDiceDeviceSettings,
@@ -20,10 +21,22 @@ afterEach(() => {
 })
 
 describe('useDiceDeviceSettings', () => {
-  it('shows rolls and stays silent by default', () => {
+  it('shows rolls, stays silent and shows the dice in 3D by default', () => {
     const { result } = renderHook(() => useDiceDeviceSettings())
     expect(result.current.showRolls).toBe(true)
     expect(result.current.sound).toBe(false)
+    expect(result.current.show3d).toBe(true)
+  })
+
+  it('keeps "Zarları 3D göster" off on the device, also for a hook that reads it later', () => {
+    const { result } = renderHook(() => useDiceDeviceSettings())
+    act(() => result.current.setShow3d(false))
+    expect(result.current.show3d).toBe(false)
+    expect(window.localStorage.getItem(SHOW_3D_KEY)).toBe('0')
+    resetDeviceSettingsMemory()
+    expect(renderHook(() => useDiceDeviceSettings()).result.current.show3d).toBe(false)
+    act(() => result.current.setShow3d(true))
+    expect(window.localStorage.getItem(SHOW_3D_KEY)).toBe('1')
   })
 
   it('keeps each setting on the device', () => {

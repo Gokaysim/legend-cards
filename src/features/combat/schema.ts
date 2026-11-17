@@ -10,7 +10,7 @@ import { createConverter } from '@/lib/firestore/converter'
 export const COMBAT_LIMITS = {
   /** Combatants in one combat ("Typed NPCs"). */
   combatants: 50,
-  /** NPCs added at once ("Typed NPCs"); also the 12 dice of one roll (design D4). */
+  /** NPCs added at once ("Typed NPCs"), rolled as one hidden roll of that many d20 (design D4). */
   npcCount: 12,
   /** A typed NPC name. */
   name: 40,

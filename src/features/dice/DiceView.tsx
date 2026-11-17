@@ -19,6 +19,8 @@ export type DiceViewProps = {
   /** A new value plays the throw again. */
   playKey?: number
   sound?: boolean
+  /** "Zarları 3D göster" on this device. Off, the dice show flat and the 3D part never loads. On by default. */
+  show3d?: boolean
   /** Called once the dice lie at rest, or at once when they show flat. */
   onRest?: () => void
   className?: string
@@ -43,6 +45,9 @@ class StageBoundary extends Component<BoundaryProps, { failed: boolean }> {
   }
 }
 
+/** The most results the flat strip shows large. */
+const FLAT_LARGE_MAX = 12
+
 /** The roll's results as numbers, for a device without 3D. Tells the caller at once that the dice are at rest. */
 function FlatStage({ roll, onRest }: Pick<DiceViewProps, 'roll' | 'onRest'>) {
   const onRestRef = useRef(onRest)
@@ -54,12 +59,17 @@ function FlatStage({ roll, onRest }: Pick<DiceViewProps, 'roll' | 'onRest'>) {
   }, [roll.id])
   if (!roll.content) return null
   const view = rollView(roll.content)
+  // Up to twelve results show large; more show at the channel's size, so sixty fit the strip. A narrow strip scrolls,
+  // and "safe" centring keeps the first row reachable below the strip's labels (design D6 of
+  // dice-formula-and-sixty-dice).
+  const size = view.results.length > FLAT_LARGE_MAX ? 'sm' : 'lg'
   return (
     <div
       data-testid="flat-dice"
-      className="flex size-full flex-wrap items-center justify-center gap-2 p-2"
+      data-size={size}
+      className="flex size-full flex-wrap [align-content:safe_center] items-center justify-center gap-2 overflow-y-auto px-2 pt-12 pb-2"
     >
-      <FlatDice view={view} style={roll.content.style} size="lg" />
+      <FlatDice view={view} style={roll.content.style} size={size} className="justify-center" />
       <NaturalMarkLabel view={view} />
     </div>
   )
@@ -67,13 +77,15 @@ function FlatStage({ roll, onRest }: Pick<DiceViewProps, 'roll' | 'onRest'>) {
 
 /**
  * A roll's dice (design D7, D8): the lazily loaded 3D stage, or the flat dice when the roll has no motion, the browser
- * has no WebGL, or the 3D part fails to load. With reduced motion the stage shows the recorded rests at once.
+ * has no WebGL, the device turned "Zarları 3D göster" off (design D5 of dice-formula-and-sixty-dice), or the 3D part
+ * fails to load. With reduced motion the stage shows the recorded rests at once.
  */
 export function DiceView({
   roll,
   playing,
   playKey = 0,
   sound = false,
+  show3d = true,
   onRest,
   className,
 }: DiceViewProps) {
@@ -82,7 +94,7 @@ export function DiceView({
   const flat = <FlatStage roll={roll} onRest={onRest} />
   return (
     <div className={cn('relative overflow-hidden', className)}>
-      {motion && canDraw3d() ? (
+      {motion && show3d && canDraw3d() ? (
         <StageBoundary key={roll.id} fallback={flat}>
           <Suspense fallback={<span className="sr-only">Zarlar yükleniyor</span>}>
             <DiceStage

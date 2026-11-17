@@ -23,7 +23,8 @@ function renderDice(options: RenderAppOptions = {}) {
 
 const form = () => screen.getByRole('form', { name: 'Zar at' })
 const dieButton = (type: string) => within(form()).getByRole('button', { name: `${type} ekle` })
-const formula = () => within(form()).getByRole('status', { name: 'Formül' })
+const formula = () => within(form()).getByRole('textbox', { name: 'Formül' })
+const rollButton = () => within(form()).getByRole('button', { name: 'At' })
 const channel = () => screen.getByRole('list', { name: 'Atışlar' })
 const strip = () => screen.getByTestId('dice-strip')
 
@@ -90,77 +91,51 @@ describe('the Zarlar screen', () => {
 })
 
 describe('building a roll', () => {
-  it('mixes dice and a fixed number in the formula', async () => {
+  it('mixes dice and a fixed number typed at the end of the formula', async () => {
     const user = userEvent.setup()
     renderDice()
 
     await user.click(dieButton('d20'))
     await user.click(dieButton('d6'))
     await user.click(dieButton('d6'))
-    await user.type(within(form()).getByLabelText('Sabit sayı'), '3')
+    expect(formula()).toHaveValue('1d20 + 2d6')
+    await user.type(formula(), ' + 3')
 
-    expect(formula()).toHaveTextContent('1d20 + 2d6 + 3')
+    expect(formula()).toHaveValue('1d20 + 2d6 + 3')
   })
 
-  it('takes the fixed number as a sum, shows it as written, and rolls with its total', async () => {
-    const user = userEvent.setup()
-    const roll = vi.fn<DiceActions['roll']>(() => Promise.resolve(testRoll()))
-    renderDice({ dice: { actions: { roll } } })
-
-    await user.click(dieButton('d20'))
-    await user.type(within(form()).getByLabelText('Sabit sayı'), '5+10-4')
-    expect(within(form()).getByLabelText('Sabit sayı')).toHaveValue('5+10-4')
-    expect(formula()).toHaveTextContent('1d20 + 5 + 10 − 4')
-    await user.click(within(form()).getByRole('button', { name: 'At' }))
-
-    expect(roll).toHaveBeenCalledWith(
-      expect.objectContaining({ modifier: 11, modifierSum: '5+10-4' }),
-    )
-  })
-
-  it('refuses a fixed number that is not a sum of whole numbers', async () => {
+  it('sets a count typed on a chip, and takes a die type away with its "×"', async () => {
     const user = userEvent.setup()
     renderDice()
 
-    await user.click(dieButton('d20'))
-    const field = within(form()).getByLabelText('Sabit sayı')
-    await user.type(field, '4+')
-
-    expect(field).toHaveAttribute('aria-invalid', 'true')
-    expect(field).toHaveAccessibleDescription(/örneğin 4\+4-5/)
-    expect(within(form()).getByRole('button', { name: 'At' })).toBeDisabled()
-
-    await user.type(field, '1')
-    expect(field).toHaveAttribute('aria-invalid', 'false')
-    expect(field).not.toHaveAccessibleDescription()
-    expect(within(form()).getByRole('button', { name: 'At' })).toBeEnabled()
-  })
-
-  it('refuses a sum outside −99 to +99 instead of clamping it', async () => {
-    const user = userEvent.setup()
-    renderDice()
-
-    await user.click(dieButton('d20'))
-    const field = within(form()).getByLabelText('Sabit sayı')
-    await user.type(field, '90+20')
-
-    expect(field).toHaveValue('90+20')
-    expect(field).toHaveAttribute('aria-invalid', 'true')
-    expect(within(form()).getByRole('button', { name: 'At' })).toBeDisabled()
-  })
-
-  it('takes a die away', async () => {
-    const user = userEvent.setup()
-    renderDice()
     await user.click(dieButton('d6'))
-    await user.click(dieButton('d6'))
+    const count = within(form()).getByRole('textbox', { name: 'd6 sayısı' })
+    await user.clear(count)
+    await user.type(count, '40')
+    expect(formula()).toHaveValue('40d6')
+
+    await user.clear(formula())
+    await user.type(formula(), '1d20+40d6+5')
     await user.click(within(form()).getByRole('button', { name: 'd6 çıkar' }))
-    expect(formula()).toHaveTextContent('1d6')
+    expect(formula()).toHaveValue('1d20 + 5')
   })
 
-  it('disables "At" without dice', () => {
+  it('takes the die type away when its chip is left empty', async () => {
+    const user = userEvent.setup()
     renderDice()
-    expect(within(form()).getByRole('button', { name: 'At' })).toBeDisabled()
+    await user.type(formula(), '2d6+1d8')
+    await user.clear(within(form()).getByRole('textbox', { name: 'd6 sayısı' }))
+    await user.tab()
+    expect(formula()).toHaveValue('1d8')
+  })
+
+  it('disables "At" without dice, and with only a fixed number', async () => {
+    const user = userEvent.setup()
+    renderDice()
+    expect(rollButton()).toBeDisabled()
+    await user.type(formula(), '5')
+    expect(formula()).toHaveAttribute('aria-invalid', 'false')
+    expect(rollButton()).toBeDisabled()
   })
 
   it('keeps the first 80 characters of a long note', async () => {
@@ -170,28 +145,174 @@ describe('building a roll', () => {
     await user.type(note, 'x'.repeat(100))
     expect(note).toHaveValue('x'.repeat(80))
   })
+})
 
-  it('disables every die and says so with twelve d6', async () => {
+describe('a typed formula', () => {
+  it('rolls a typed big roll with its fixed number', async () => {
+    const user = userEvent.setup()
+    const roll = vi.fn<DiceActions['roll']>(() => Promise.resolve(testRoll()))
+    renderDice({ dice: { actions: { roll } } })
+
+    await user.type(formula(), '40d6+5')
+    await user.click(rollButton())
+
+    expect(roll).toHaveBeenCalledWith(
+      expect.objectContaining({
+        counts: { ...emptyCounts(), d6: 40 },
+        modifier: 5,
+        modifierSum: null,
+      }),
+    )
+  })
+
+  it('writes the canonical formula when the field is left', async () => {
     const user = userEvent.setup()
     renderDice()
-    for (let index = 0; index < 12; index += 1) await user.click(dieButton('d6'))
+    const leave = async (text: string) => {
+      await user.clear(formula())
+      await user.type(formula(), text)
+      await user.tab()
+      return formula()
+    }
 
+    expect(await leave('2d6+3d6')).toHaveValue('5d6')
+    expect(await leave('D20+4')).toHaveValue('1d20 + 4')
+    expect(await leave('d%')).toHaveValue('1d100')
+    expect(await leave('5+2d6+d20')).toHaveValue('1d20 + 2d6 + 5')
+    expect(await leave('5+1d20+3')).toHaveValue('1d20 + 5 + 3')
+    expect(await leave(' -2 - 3 + 1d6 ')).toHaveValue('1d6 − 2 − 3')
+    expect(await leave('1d20+5+10-4')).toHaveValue('1d20 + 5 + 10 − 4')
+  })
+
+  it('keeps the text as typed while the user types', async () => {
+    const user = userEvent.setup()
+    renderDice()
+    await user.type(formula(), '2d6+')
+    expect(formula()).toHaveValue('2d6+')
+  })
+
+  it('rewrites the formula when a die is selected after typing', async () => {
+    const user = userEvent.setup()
+    renderDice()
+    await user.type(formula(), '2d6+5')
+    await user.click(dieButton('d20'))
+    expect(formula()).toHaveValue('1d20 + 2d6 + 5')
+  })
+
+  it('takes the fixed number as a sum, and rolls with its total and the numbers as written', async () => {
+    const user = userEvent.setup()
+    const roll = vi.fn<DiceActions['roll']>(() => Promise.resolve(testRoll()))
+    renderDice({ dice: { actions: { roll } } })
+
+    await user.type(formula(), '1d20+5+10-4')
+    await user.click(rollButton())
+
+    expect(roll).toHaveBeenCalledWith(
+      expect.objectContaining({ modifier: 11, modifierSum: '5+10-4' }),
+    )
+  })
+})
+
+describe('an invalid formula', () => {
+  it('marks a sum left open, explains it, and disables "At" until it is fixed', async () => {
+    const user = userEvent.setup()
+    renderDice()
+
+    await user.type(formula(), '1d20+4+')
+    expect(formula()).toHaveAttribute('aria-invalid', 'true')
+    expect(formula()).toHaveAccessibleDescription(/örneğin 1d20\+4\+4-5/)
+    expect(rollButton()).toBeDisabled()
+
+    await user.type(formula(), '1')
+    expect(formula()).toHaveAttribute('aria-invalid', 'false')
+    expect(formula()).not.toHaveAccessibleDescription()
+    expect(rollButton()).toBeEnabled()
+  })
+
+  it('refuses what is not a formula, and a sum out of range, keeping the text', async () => {
+    const user = userEvent.setup()
+    renderDice()
+    for (const text of ['1d20+4*2', '2d7', '-1d4', '2d20kh1', '1d20+90+20']) {
+      await user.clear(formula())
+      await user.type(formula(), text)
+      expect(formula(), text).toHaveValue(text)
+      expect(formula(), text).toHaveAttribute('aria-invalid', 'true')
+      expect(rollButton()).toBeDisabled()
+    }
+  })
+
+  it('says "En fazla 60 zar" for too many dice', async () => {
+    const user = userEvent.setup()
+    renderDice()
+    for (const text of ['61d6', '31d100']) {
+      await user.clear(formula())
+      await user.type(formula(), text)
+      expect(formula()).toHaveAttribute('aria-invalid', 'true')
+      expect(formula()).toHaveAccessibleDescription('En fazla 60 zar')
+      expect(rollButton()).toBeDisabled()
+    }
+  })
+
+  it('keeps the controls on the last valid formula and disabled while the text is invalid', async () => {
+    const user = userEvent.setup()
+    renderDice()
+    await user.type(formula(), '2d6+')
+    expect(dieButton('d20')).toBeDisabled()
+    expect(within(form()).getByRole('textbox', { name: 'd6 sayısı' })).toHaveValue('2')
+    expect(within(form()).getByRole('button', { name: 'd6 çıkar' })).toBeDisabled()
+  })
+})
+
+describe('at most sixty dice', () => {
+  it('keeps every die enabled with twelve d6', async () => {
+    const user = userEvent.setup()
+    renderDice()
+    await user.type(formula(), '12d6')
+    for (const type of ['d4', 'd6', 'd8', 'd10', 'd12', 'd20', 'd100']) {
+      expect(dieButton(type)).toBeEnabled()
+    }
+    expect(within(form()).queryByText('En fazla 60 zar')).not.toBeInTheDocument()
+  })
+
+  it('disables every die and says so with sixty d6', async () => {
+    const user = userEvent.setup()
+    renderDice()
+    await user.type(formula(), '59d6')
+    await user.click(dieButton('d6'))
+
+    expect(formula()).toHaveValue('60d6')
     for (const type of ['d4', 'd6', 'd8', 'd10', 'd12', 'd20', 'd100']) {
       expect(dieButton(type)).toBeDisabled()
     }
-    expect(within(form()).getByText('En fazla 12 zar')).toBeInTheDocument()
+    expect(within(form()).getByText('En fazla 60 zar')).toBeInTheDocument()
   })
 
-  it('disables only the d100 with eleven physical dice', async () => {
+  it('disables only the d100 with fifty-nine physical dice', async () => {
     const user = userEvent.setup()
     renderDice()
-    for (let index = 0; index < 11; index += 1) await user.click(dieButton('d6'))
+    await user.type(formula(), '59d6')
 
     expect(dieButton('d100')).toBeDisabled()
     for (const type of ['d4', 'd6', 'd8', 'd10', 'd12', 'd20'])
       expect(dieButton(type)).toBeEnabled()
   })
 
+  it('caps a count typed on a chip to what fits', async () => {
+    const user = userEvent.setup()
+    renderDice()
+    await user.click(dieButton('d20'))
+    await user.click(dieButton('d6'))
+    const count = within(form()).getByRole('textbox', { name: 'd6 sayısı' })
+    await user.clear(count)
+    await user.type(count, '70')
+
+    expect(formula()).toHaveValue('1d20 + 59d6')
+    await user.tab()
+    expect(count).toHaveValue('59')
+  })
+})
+
+describe('advantage, disadvantage and Gizli', () => {
   it('offers Avantaj and Dezavantaj only for a single d20', async () => {
     const user = userEvent.setup()
     renderDice()
@@ -213,9 +334,8 @@ describe('building a roll', () => {
     const roll = vi.fn<DiceActions['roll']>(() => Promise.resolve(testRoll()))
     renderDice({ dice: { actions: { roll } } })
 
-    await user.click(dieButton('d20'))
+    await user.type(formula(), 'd20+5')
     await user.click(within(form()).getByRole('button', { name: 'Avantaj' }))
-    await user.type(within(form()).getByLabelText('Sabit sayı'), '5')
     await user.type(within(form()).getByLabelText('Not'), 'Okçuya saldırı')
     await user.click(within(form()).getByRole('button', { name: 'At' }))
 
@@ -476,6 +596,26 @@ describe('the dice settings dialog', () => {
     expect(window.localStorage.getItem('lcm.dice.show')).toBe('0')
     await user.click(within(dialog).getByRole('button', { name: /Kapat/ }))
     expect(screen.queryByRole('dialog', { name: 'Zar ayarları' })).not.toBeInTheDocument()
+  })
+
+  it('lists "Zarları 3D göster" third under "Bu cihazda", on by default, and keeps it off on the device', async () => {
+    const user = userEvent.setup()
+    renderDice()
+    const dialog = await openSettings(user)
+    const settings = within(
+      within(dialog).getByRole('region', { name: 'Bu cihazda' }),
+    ).getAllByRole('checkbox')
+    expect(settings.map((box) => box.closest('label')?.textContent)).toEqual([
+      'Atışları göster',
+      'Zar sesi',
+      'Zarları 3D göster',
+    ])
+    const show3d = within(dialog).getByRole('checkbox', { name: 'Zarları 3D göster' })
+    expect(show3d).toBeChecked()
+
+    await user.click(show3d)
+    expect(show3d).not.toBeChecked()
+    expect(window.localStorage.getItem('lcm.dice.3d')).toBe('0')
   })
 
   it('closes with Escape', async () => {

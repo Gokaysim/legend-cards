@@ -65,6 +65,19 @@ describe('simulateThrow', () => {
     })
   })
 
+  it('brings sixty d6 to rest inside the tray within five seconds, each on a face', () => {
+    const dice: DieType[] = Array.from({ length: 60 }, () => 'd6')
+    const result = simulateThrow(dice, 'galaxy', makeThrows(dice, seededUnit(60)))
+    expect(result.frameCount).toBeLessThanOrEqual(5 * 60 + 1)
+    expect(result.rests).toHaveLength(60)
+    result.rests.forEach((rest, index) => {
+      expect(Math.abs(rest.position.x)).toBeLessThan(0.46)
+      expect(Math.abs(rest.position.z)).toBeLessThan(0.96)
+      expect(rest.position.y).toBeGreaterThan(0)
+      expect([1, 2, 3, 4, 5, 6]).toContain(result.values[index])
+    })
+  })
+
   it('records impacts at frames of the throw', () => {
     const dice: DieType[] = ['d6', 'd6', 'd6']
     const result = simulateThrow(dice, 'galaxy', makeThrows(dice, seededUnit(3)))

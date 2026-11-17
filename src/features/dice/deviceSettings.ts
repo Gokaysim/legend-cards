@@ -3,6 +3,7 @@ import { useCallback, useSyncExternalStore } from 'react'
 /** The keys of this device's dice settings (design D9). Keep them stable: they outlive releases. */
 export const SHOW_ROLLS_KEY = 'lcm.dice.show'
 export const SOUND_KEY = 'lcm.dice.sound'
+export const SHOW_3D_KEY = 'lcm.dice.3d'
 export function lastSeenKey(uid: string): string {
   return `lcm.dice.seen.${uid}`
 }
@@ -53,17 +54,32 @@ export type DiceDeviceSettings = {
   showRolls: boolean
   /** "Zar sesi": the dice make their sounds. Off by default. */
   sound: boolean
+  /**
+   * "Zarları 3D göster": the strip plays the dice in 3D. On by default. Off, this device shows every roll's dice flat
+   * and never loads the 3D part; its own rolls are still thrown with physics (design D5 of dice-formula-and-sixty-dice).
+   */
+  show3d: boolean
   setShowRolls: (on: boolean) => void
   setSound: (on: boolean) => void
+  setShow3d: (on: boolean) => void
 }
 
 /** This device's dice settings (spec: dice-rolls, "Device settings"), live across the app's tabs. */
 export function useDiceDeviceSettings(): DiceDeviceSettings {
   const show = useStored(SHOW_ROLLS_KEY)
   const sound = useStored(SOUND_KEY)
+  const show3d = useStored(SHOW_3D_KEY)
   const setShowRolls = useCallback((on: boolean) => write(SHOW_ROLLS_KEY, on ? '1' : '0'), [])
   const setSound = useCallback((on: boolean) => write(SOUND_KEY, on ? '1' : '0'), [])
-  return { showRolls: show !== '0', sound: sound === '1', setShowRolls, setSound }
+  const setShow3d = useCallback((on: boolean) => write(SHOW_3D_KEY, on ? '1' : '0'), [])
+  return {
+    showRolls: show !== '0',
+    sound: sound === '1',
+    show3d: show3d !== '0',
+    setShowRolls,
+    setSound,
+    setShow3d,
+  }
 }
 
 /**

@@ -9,11 +9,14 @@ import {
   checkedModifierSum,
   countsOf,
   emptyCounts,
+  formulaInputText,
   formulaText,
   isSingleD20,
   keptIndexes,
+  maxCount,
   modifierLabel,
   modifierTerms,
+  parseFormula,
   parseModifier,
   naturalMark,
   percentileValue,
@@ -61,23 +64,34 @@ describe('building a roll', () => {
   })
 })
 
-describe('at most twelve dice', () => {
+describe('at most sixty dice', () => {
   it('counts a d100 as two physical dice', () => {
     expect(physicalCount(counts({ d100: 1, d6: 3 }))).toBe(5)
   })
 
-  it('disables every die with twelve d6', () => {
-    const full = counts({ d6: 12 })
+  it('keeps every die enabled with twelve d6', () => {
+    expect(DIE_TYPES.every((type) => canAdd(counts({ d6: 12 }), type))).toBe(true)
+  })
+
+  it('disables every die with sixty d6', () => {
+    const full = counts({ d6: 60 })
     expect(DIE_TYPES.filter((type) => canAdd(full, type))).toEqual([])
   })
 
-  it('disables only the d100 with eleven physical dice', () => {
-    const eleven = counts({ d6: 9, d100: 1 })
-    expect(physicalCount(eleven)).toBe(11)
-    expect(canAdd(eleven, 'd100')).toBe(false)
-    expect(DIE_TYPES.filter((type) => type !== 'd100').every((type) => canAdd(eleven, type))).toBe(
-      true,
-    )
+  it('disables only the d100 with fifty-nine physical dice', () => {
+    const fiftyNine = counts({ d6: 57, d100: 1 })
+    expect(physicalCount(fiftyNine)).toBe(59)
+    expect(canAdd(fiftyNine, 'd100')).toBe(false)
+    expect(
+      DIE_TYPES.filter((type) => type !== 'd100').every((type) => canAdd(fiftyNine, type)),
+    ).toBe(true)
+  })
+
+  it('caps a count typed on a chip to what fits with the other dice', () => {
+    expect(maxCount(counts({ d20: 1 }), 'd6')).toBe(59)
+    expect(maxCount(counts({ d20: 1, d6: 4 }), 'd6')).toBe(59)
+    expect(maxCount(counts({ d6: 1 }), 'd100')).toBe(29)
+    expect(maxCount(emptyCounts(), 'd100')).toBe(30)
   })
 })
 
@@ -144,6 +158,16 @@ describe('results and the total', () => {
       { type: 'd100', value: 42, indexes: [1, 2] },
       { type: 'd10', value: 7, indexes: [3] },
     ])
+  })
+
+  it('read a lone tens die, which the rules allow, as a die of its own and add its face', () => {
+    const dice = rolled(['d6', 4], ['d100', 30], ['d6', 2])
+    expect(resultGroups(dice)).toEqual([
+      { type: 'd6', value: 4, indexes: [0] },
+      { type: 'd100', value: 30, indexes: [1] },
+      { type: 'd6', value: 2, indexes: [2] },
+    ])
+    expect(rollTotal(dice, 'normal', 0)).toBe(36)
   })
 
   it('count a percentile pair as one d100 in the formula', () => {
@@ -234,5 +258,118 @@ describe('showing the fixed number', () => {
     expect(checkedModifierSum(11, '5+10-4')).toBe('5+10-4')
     expect(checkedModifierSum(11, '5+10-3')).toBeNull()
     expect(checkedModifierSum(11, undefined)).toBeNull()
+  })
+})
+
+describe('parseFormula (spec: dice-rolls, "A typed formula")', () => {
+  const ok = (text: string) => {
+    const parsed = parseFormula(text)
+    if (!parsed.ok) throw new Error(`${text} refused: ${parsed.reason}`)
+    return parsed
+  }
+
+  it('reads a big roll and its fixed number', () => {
+    expect(ok('40d6+5')).toEqual({
+      ok: true,
+      counts: counts({ d6: 40 }),
+      modifier: 5,
+      modifierSum: null,
+    })
+  })
+
+  it('adds up terms of the same die', () => {
+    expect(ok('2d6+3d6').counts).toEqual(counts({ d6: 5 }))
+  })
+
+  it('reads a missing count as 1, either case, and d% as d100', () => {
+    expect(ok('D20+4')).toMatchObject({ counts: counts({ d20: 1 }), modifier: 4 })
+    expect(ok('d%').counts).toEqual(counts({ d100: 1 }))
+    expect(ok('2D100+d10').counts).toEqual(counts({ d100: 2, d10: 1 }))
+  })
+
+  it('keeps the numbers among the dice as a written sum, in order', () => {
+    expect(ok('5+1d20+3')).toMatchObject({
+      counts: counts({ d20: 1 }),
+      modifier: 8,
+      modifierSum: '5+3',
+    })
+    expect(ok('1d20+5+10-4')).toMatchObject({ modifier: 11, modifierSum: '5+10-4' })
+  })
+
+  it('ignores spaces around the signs and reads − and – as minus', () => {
+    expect(ok(' -2 - 3 + 1d6 ')).toMatchObject({
+      counts: counts({ d6: 1 }),
+      modifier: -5,
+      modifierSum: '-2-3',
+    })
+    expect(ok('1d20 − 2')).toMatchObject({ modifier: -2, modifierSum: null })
+    expect(ok('1d20 – 2').modifier).toBe(-2)
+  })
+
+  it('reads an empty text and a lone number as formulas without dice', () => {
+    expect(ok('')).toEqual({ ok: true, counts: emptyCounts(), modifier: 0, modifierSum: null })
+    expect(ok('   ').counts).toEqual(emptyCounts())
+    expect(ok('5')).toMatchObject({ counts: emptyCounts(), modifier: 5 })
+  })
+
+  it('refuses more than sixty physical dice', () => {
+    expect(parseFormula('61d6')).toEqual({ ok: false, reason: 'tooMany' })
+    expect(parseFormula('31d100')).toEqual({ ok: false, reason: 'tooMany' })
+    expect(parseFormula('30d6+31d6')).toEqual({ ok: false, reason: 'tooMany' })
+    expect(ok('60d6').counts.d6).toBe(60)
+    expect(ok('30d100').counts.d100).toBe(30)
+  })
+
+  it('refuses anything else as invalid', () => {
+    for (const text of [
+      '1d20+4+',
+      '1d20+4*2',
+      '2d7',
+      '-1d4',
+      '1d20-1d4',
+      '0d6',
+      '2d20kh1',
+      '1d20+90+20',
+      '1d20+150',
+      'd',
+      '4 4',
+      '1 d6',
+      'd1000',
+      '1d20+1+1+1+1+1+1+1+1+1',
+    ]) {
+      expect(parseFormula(text), text).toEqual({ ok: false, reason: 'invalid' })
+    }
+  })
+
+  it('reads its own canonical text back to the same formula', () => {
+    for (const text of [
+      '40d6+5',
+      'D20+4',
+      '5+1d20+3',
+      ' -2 - 3 + 1d6 ',
+      '1d20+5+10-4',
+      '1d4+1d6+1d8+1d10+1d12+1d20+1d100-7',
+      '5',
+      '-2-3',
+      '',
+    ]) {
+      const parsed = ok(text)
+      const canonical = formulaInputText(parsed.counts, parsed.modifier, parsed.modifierSum)
+      expect(ok(canonical), `${text} -> ${canonical}`).toEqual(parsed)
+    }
+  })
+
+  it('writes the canonical text with the dice first, and the fixed number alone without dice', () => {
+    const write = (text: string) => {
+      const parsed = ok(text)
+      return formulaInputText(parsed.counts, parsed.modifier, parsed.modifierSum)
+    }
+    expect(write('5+2d6+d20')).toBe('1d20 + 2d6 + 5')
+    expect(write('2d6+3d6')).toBe('5d6')
+    expect(write('d%')).toBe('1d100')
+    expect(write(' -2 - 3 + 1d6 ')).toBe('1d6 − 2 − 3')
+    expect(write('5')).toBe('5')
+    expect(write('-2-3')).toBe('−2 − 3')
+    expect(write('')).toBe('')
   })
 })

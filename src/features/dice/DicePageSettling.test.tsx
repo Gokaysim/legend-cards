@@ -181,4 +181,15 @@ describe('results hidden until the dice rest', () => {
     view.setDice({ rolls: [flat], fresh: flat })
     expectShown('Bora', 23)
   })
+
+  it('hides nothing with "Zarları 3D göster" off, where the dice show flat at once', () => {
+    window.localStorage.setItem('lcm.dice.3d', '0')
+    const bora = thrown('bora', 18)
+    const view = renderDice({ dice: { rolls: [], fresh: null } })
+    view.setDice({ rolls: [bora], fresh: bora })
+
+    expect(screen.queryByRole('button', { name: `${bora.id} plays` })).not.toBeInTheDocument()
+    expect(within(screen.getByTestId('dice-strip')).getByTestId('flat-dice')).toBeInTheDocument()
+    expectShown('Bora', 23)
+  })
 })

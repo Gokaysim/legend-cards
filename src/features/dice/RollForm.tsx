@@ -12,12 +12,13 @@ import {
   type DieType,
   emptyCounts,
   FORMULA_ORDER,
-  formulaText,
+  formulaInputText,
   isSingleD20,
   MAX_DICE,
-  MODIFIER_TEXT_MAX,
+  maxCount,
   NOTE_MAX,
-  parseModifier,
+  parseFormula,
+  type ParsedFormula,
   physicalCount,
   type RollMode,
 } from './formula'
@@ -27,53 +28,117 @@ import { previewUrl } from './stage/previews'
 const FIELD =
   'rounded-lg border border-control-line bg-control px-3 py-2 text-sm text-ink placeholder:text-ink-muted'
 
+/** The longest formula the field takes: every die type with a count, and eight two-digit numbers, with room. */
+const FORMULA_TEXT_MAX = 120
+
+type ValidFormula = Extract<ParsedFormula, { ok: true }>
+
+const EMPTY_FORMULA: ValidFormula = {
+  ok: true,
+  counts: emptyCounts(),
+  modifier: 0,
+  modifierSum: null,
+}
+
 export type RollFormProps = {
   /** The user's dice style, for the quick dice's pictures. */
   style: DiceStyle
 }
 
+type CountFieldProps = {
+  type: DieType
+  count: number
+  disabled: boolean
+  /** A count typed on the chip, capped by the caller to what fits. Returns the count the formula now holds. */
+  onCount: (count: number) => number
+  onRemove: () => void
+}
+
 /**
- * The roll form (spec: dice-rolls, "Building a roll" to "Advantage and disadvantage", "The DM's hidden roll"): the
- * quick dice add to the formula, its dice take one away, then the fixed number, the note, Avantaj or Dezavantaj for
- * a single d20, the DM's "Gizli", and "At".
+ * A dice chip's count (design D2 of dice-formula-and-sixty-dice): typing changes the formula at once, an empty field
+ * leaves it as it was, and leaving the field empty or at 0 takes the die type away.
+ */
+function CountField({ type, count, disabled, onCount, onRemove }: CountFieldProps) {
+  const [draft, setDraft] = useState<string | null>(null)
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      autoComplete="off"
+      aria-label={`${type} sayısı`}
+      disabled={disabled}
+      value={draft ?? String(count)}
+      onChange={(event) => {
+        const digits = event.target.value.replace(/\D/g, '').slice(0, 3)
+        const wanted = Number(digits)
+        if (digits === '' || wanted === 0) {
+          setDraft(digits)
+          return
+        }
+        setDraft(String(onCount(wanted)))
+      }}
+      onBlur={() => {
+        if (draft === '' || draft === '0') onRemove()
+        setDraft(null)
+      }}
+      className="w-9 rounded-md border border-control-line bg-control px-1 text-center text-xs text-ink disabled:opacity-40"
+    />
+  )
+}
+
+/**
+ * The roll form (spec: dice-rolls, "Building a roll" to "Advantage and disadvantage", "The DM's hidden roll"). The
+ * formula text is the one source (design D1 of dice-formula-and-sixty-dice): the user types it, and the quick dice and
+ * the chips rewrite it in its canonical form. Then the note, Avantaj or Dezavantaj for a single d20, the DM's "Gizli",
+ * and "At".
  */
 export function RollForm({ style }: RollFormProps) {
   const actions = useDiceActions()
-  const [counts, setCounts] = useState<DiceCounts>(emptyCounts)
-  const [modifierText, setModifierText] = useState('')
+  const [text, setText] = useState('')
+  // The last formula that parsed, which the controls show while the text is invalid.
+  const [lastValid, setLastValid] = useState<ValidFormula>(EMPTY_FORMULA)
   const [note, setNote] = useState('')
   const [mode, setMode] = useState<RollMode>('normal')
   const [isHidden, setIsHidden] = useState(false)
   const [isRolling, setIsRolling] = useState(false)
   const [failed, setFailed] = useState(false)
-  const ids = { modifier: useId(), modifierError: useId(), note: useId(), limit: useId() }
+  const ids = { formula: useId(), formulaError: useId(), note: useId(), limit: useId() }
 
-  // The fixed number may be written as a sum, "5+10-4": the roll keeps the total and the numbers as written.
-  const parsedModifier = parseModifier(modifierText)
-  const isModifierValid = parsedModifier !== null
-  const modifier = parsedModifier?.total ?? 0
-  const modifierSum = parsedModifier?.sum ?? null
-  const hasDice = physicalCount(counts) > 0
-  const isFull = DIE_TYPES.some((type) => !canAdd(counts, type))
-  const offersAdvantage = isSingleD20(counts)
-  const formula = formulaText(counts, modifier, modifierSum)
+  const parsed = parseFormula(text)
+  const isValid = parsed.ok
+  const shown = parsed.ok ? parsed : lastValid
+  const counts = shown.counts
+  const hasDice = isValid && physicalCount(counts) > 0
+  const isFull = isValid && DIE_TYPES.some((type) => !canAdd(counts, type))
+  const offersAdvantage = isValid && isSingleD20(counts)
 
-  const add = (type: DieType) => setCounts((current) => ({ ...current, [type]: current[type] + 1 }))
-  const remove = (type: DieType) =>
-    setCounts((current) => ({ ...current, [type]: Math.max(0, current[type] - 1) }))
+  const update = (next: string) => {
+    setText(next)
+    const result = parseFormula(next)
+    if (result.ok) setLastValid(result)
+  }
+  const write = (next: DiceCounts) =>
+    update(formulaInputText(next, shown.modifier, shown.modifierSum))
+  const add = (type: DieType) => write({ ...counts, [type]: counts[type] + 1 })
+  const setCount = (type: DieType, wanted: number) => {
+    const count = Math.min(wanted, maxCount(counts, type))
+    write({ ...counts, [type]: count })
+    return count
+  }
+  const remove = (type: DieType) => write({ ...counts, [type]: 0 })
   const toggleMode = (next: RollMode) => setMode((current) => (current === next ? 'normal' : next))
 
   const submit = (event: FormEvent) => {
     event.preventDefault()
-    if (!hasDice || isRolling || !isModifierValid) return
+    if (!parsed.ok || !hasDice || isRolling) return
     setIsRolling(true)
     setFailed(false)
     actions
       .roll({
-        counts,
+        counts: parsed.counts,
         mode: offersAdvantage ? mode : 'normal',
-        modifier,
-        modifierSum,
+        modifier: parsed.modifier,
+        modifierSum: parsed.modifierSum,
         note,
         hidden: isHidden,
       })
@@ -95,7 +160,7 @@ export function RollForm({ style }: RollFormProps) {
             type="button"
             aria-label={`${type} ekle`}
             aria-describedby={isFull && !canAdd(counts, type) ? ids.limit : undefined}
-            disabled={!canAdd(counts, type)}
+            disabled={!isValid || !canAdd(counts, type)}
             onClick={() => add(type)}
             className="flex h-10 items-center gap-0.5 rounded-lg border border-line bg-pane-raised pr-2.5 pl-1 text-sm text-ink transition-colors hover:border-gold disabled:cursor-not-allowed disabled:opacity-40"
           >
@@ -128,41 +193,60 @@ export function RollForm({ style }: RollFormProps) {
         </p>
       ) : null}
 
-      <div className="flex flex-wrap items-center gap-2">
-        <output aria-label="Formül" className="font-bold text-gold">
-          {formula || 'Zar seç'}
-        </output>
-        {FORMULA_ORDER.filter((type) => counts[type] > 0).map((type) => (
-          <button
-            key={type}
-            type="button"
-            aria-label={`${type} çıkar`}
-            onClick={() => remove(type)}
-            className="rounded-full border border-line px-2 py-0.5 text-xs text-ink-muted hover:border-gold hover:text-ink"
-          >
-            {counts[type]}
-            {type} ×
-          </button>
-        ))}
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor={ids.formula} className="text-xs text-ink-muted">
+          Formül
+        </label>
+        <input
+          id={ids.formula}
+          type="text"
+          inputMode="text"
+          autoComplete="off"
+          autoCapitalize="off"
+          spellCheck={false}
+          maxLength={FORMULA_TEXT_MAX}
+          value={text}
+          placeholder="örneğin 1d20+5"
+          aria-invalid={!isValid}
+          aria-describedby={isValid ? undefined : ids.formulaError}
+          onChange={(event) => update(event.target.value)}
+          onBlur={() => {
+            if (parsed.ok)
+              setText(formulaInputText(parsed.counts, parsed.modifier, parsed.modifierSum))
+          }}
+          className={cn(FIELD, 'font-bold text-gold', !isValid && 'border-danger-line')}
+        />
+        {physicalCount(counts) > 0 ? (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {FORMULA_ORDER.filter((type) => counts[type] > 0).map((type) => (
+              <span
+                key={type}
+                className="flex items-center gap-1 rounded-full border border-line py-0.5 pr-1 pl-1 text-xs text-ink-muted"
+              >
+                <CountField
+                  type={type}
+                  count={counts[type]}
+                  disabled={!isValid}
+                  onCount={(wanted) => setCount(type, wanted)}
+                  onRemove={() => remove(type)}
+                />
+                {type}
+                <button
+                  type="button"
+                  aria-label={`${type} çıkar`}
+                  disabled={!isValid}
+                  onClick={() => remove(type)}
+                  className="rounded-full px-1 hover:text-ink disabled:opacity-40"
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : null}
       </div>
 
       <div className="flex flex-wrap items-end gap-2">
-        <label htmlFor={ids.modifier} className="flex flex-col gap-1 text-xs text-ink-muted">
-          Sabit sayı
-          <input
-            id={ids.modifier}
-            type="text"
-            inputMode="text"
-            autoComplete="off"
-            maxLength={MODIFIER_TEXT_MAX}
-            value={modifierText}
-            placeholder="0"
-            aria-invalid={!isModifierValid}
-            aria-describedby={isModifierValid ? undefined : ids.modifierError}
-            onChange={(event) => setModifierText(event.target.value)}
-            className={cn(FIELD, 'w-28', !isModifierValid && 'border-danger-line')}
-          />
-        </label>
         <label
           htmlFor={ids.note}
           className="flex min-w-40 flex-1 flex-col gap-1 text-xs text-ink-muted"
@@ -192,16 +276,17 @@ export function RollForm({ style }: RollFormProps) {
         <Button
           type="submit"
           variant="primary"
-          disabled={!hasDice || isRolling || !isModifierValid}
+          disabled={!hasDice || isRolling}
           className="h-10 px-6"
         >
           At
         </Button>
       </div>
-      {isModifierValid ? null : (
-        <p id={ids.modifierError} className="text-sm text-danger-ink">
-          Sabit sayı yalnızca 0–99 arası sayılardan, + ve − işaretlerinden oluşabilir: örneğin
-          4+4-5. Toplam −99 ile +99 arasında olmalı.
+      {isValid ? null : (
+        <p id={ids.formulaError} className="text-sm text-danger-ink">
+          {parsed.reason === 'tooMany'
+            ? `En fazla ${MAX_DICE} zar`
+            : 'Formül zarlardan (40d6, d20, d%) ve 0–99 arası sayılardan, + ve − işaretleriyle oluşabilir: örneğin 1d20+4+4-5. Sayıların toplamı −99 ile +99 arasında olmalı.'}
         </p>
       )}
       {failed ? (

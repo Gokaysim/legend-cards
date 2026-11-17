@@ -200,6 +200,7 @@ export function DicePage() {
                   playing={shown.playing}
                   playKey={shown.key}
                   sound={settings.sound}
+                  show3d={settings.show3d}
                   onRest={() => settle(shown.roll.id)}
                   className="size-full"
                 />

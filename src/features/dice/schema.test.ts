@@ -50,10 +50,11 @@ describe('motion', () => {
     expect(decodeMotion(encodeMotion(twoD6), 2)).toEqual(twoD6)
   })
 
-  it('fits twelve dice in the rules limit', () => {
-    const twelve = Array.from({ length: 12 }, (_, index) => motionOf(index))
-    expect(encodeMotion(twelve).length).toBeLessThanOrEqual(MOTION_MAX)
-    expect(encodeMotion(twelve)).toHaveLength(1280)
+  it('fits sixty dice in the rules limit', () => {
+    const sixty = Array.from({ length: 60 }, (_, index) => motionOf(index))
+    expect(encodeMotion(sixty).length).toBeLessThanOrEqual(MOTION_MAX)
+    expect(encodeMotion(sixty)).toHaveLength(6400)
+    expect(decodeMotion(encodeMotion(sixty), 60)).toEqual(sixty)
   })
 
   it('decodes garbage, a wrong length and non-finite numbers to null', () => {
@@ -127,6 +128,16 @@ describe('roll records', () => {
     const roll = dmRollSchema.parse({ ...stored, by: 'dm', hidden: true })
     expect(roll.hidden).toBe(true)
     expect(roll.content?.dice).toEqual(stored.dice)
+  })
+
+  it('reads a roll of sixty dice with its motion, and refuses sixty-one', () => {
+    const sixty = Array.from({ length: 60 }, (_, index) => ({ t: 'd6', v: (index % 6) + 1 }))
+    const motion = encodeMotion(Array.from({ length: 60 }, (_, index) => motionOf(index)))
+    const roll = diceRollSchema.parse({ ...stored, dice: sixty, motion })
+    expect(roll.content?.dice).toHaveLength(60)
+    expect(roll.content?.motion).toHaveLength(60)
+    const sixtyOne = [...sixty, { t: 'd6', v: 1 }]
+    expect(diceRollSchema.safeParse({ ...stored, dice: sixtyOne }).success).toBe(false)
   })
 
   it('refuses a roll with a bad style, mode, die, modifier or note', () => {

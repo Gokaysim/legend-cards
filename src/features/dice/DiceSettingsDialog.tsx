@@ -72,6 +72,15 @@ export function DiceSettingsDialog({ style, onClose }: { style: DiceStyle; onClo
             />
             Zar sesi
           </label>
+          <label className="flex items-center gap-2 text-ink-muted">
+            <input
+              type="checkbox"
+              checked={settings.show3d}
+              onChange={(event) => settings.setShow3d(event.target.checked)}
+              className="size-4.5 accent-gold"
+            />
+            Zarları 3D göster
+          </label>
         </section>
       </div>
     </Dialog>

@@ -48,6 +48,28 @@ describe('DiceView', () => {
     expect(screen.getByTestId('flat-dice')).toBeInTheDocument()
   })
 
+  it('shows the dice flat at once with "Zarları 3D göster" off, without loading the 3D part', () => {
+    webgl.available = true
+    const onRest = vi.fn()
+    render(
+      <DiceView roll={testRoll({ content: { motion } })} playing show3d={false} onRest={onRest} />,
+    )
+    // At once, with no loading step: the lazy 3D part is never rendered.
+    expect(screen.getByTestId('flat-dice')).toHaveTextContent('17')
+    expect(screen.queryByText('Zarlar yükleniyor')).not.toBeInTheDocument()
+    expect(onRest).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows up to twelve results large, and more at the smaller size', () => {
+    const { unmount } = render(<DiceView roll={testRoll()} playing />)
+    expect(screen.getByTestId('flat-dice')).toHaveAttribute('data-size', 'lg')
+    unmount()
+    const sixty = Array.from({ length: 60 }, (_, index): ['d6', number] => ['d6', (index % 6) + 1])
+    render(<DiceView roll={testRoll({ dice: sixty })} playing />)
+    expect(screen.getByTestId('flat-dice')).toHaveAttribute('data-size', 'sm')
+    expect(screen.getAllByRole('listitem')).toHaveLength(60)
+  })
+
   it('shows a roll without motion flat', () => {
     webgl.available = true
     const onRest = vi.fn()
