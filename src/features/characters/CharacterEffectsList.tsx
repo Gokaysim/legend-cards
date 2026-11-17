@@ -1,8 +1,10 @@
 import { Button } from '@/components/ui/Button'
-import { Pill, type PillTone } from '@/components/ui/Pill'
+import { Pill } from '@/components/ui/Pill'
 import { cn } from '@/lib/cn'
 
-import type { CharacterEffect, EffectSource } from './effects'
+import { effectRows } from './effectRows'
+import type { CharacterEffect } from './effects'
+import { EFFECT_STYLES } from './effectStyles'
 import type { HeldEffect } from './heldEffects'
 
 /** "9 Kas 14:32": when a stored effect was added, as the notes and the İşlem Logu show a time. */
@@ -12,43 +14,6 @@ const addedAtFormat = new Intl.DateTimeFormat('tr-TR', {
   hour: '2-digit',
   minute: '2-digit',
 })
-
-/** Each stored source's mark. */
-const SOURCE_MARKS: Record<EffectSource, string> = {
-  card: 'Kart',
-  word: 'True Word',
-  own: 'Özel',
-  dm: 'DM',
-}
-
-type Row = {
-  key: string
-  mark: string
-  tone?: PillTone
-  name: string
-  /** Card and word names are English, as the cards are. */
-  isEnglish: boolean
-  text: string
-  cursed: boolean
-  /** "Ayla · 9 Kas 14:32" for a stored effect; `null` for one from the hand. */
-  meta: string | null
-  /** The stored effect, when it is one and the user may remove it. */
-  removable: CharacterEffect | null
-}
-
-function heldRow(effect: HeldEffect): Row {
-  return {
-    key: `held-${effect.id}`,
-    mark: effect.kind === 'held' ? 'Elden' : 'True Word',
-    tone: effect.cursed ? 'cursed' : effect.kind === 'word' ? 'true-word' : undefined,
-    name: effect.name,
-    isEnglish: true,
-    text: effect.text,
-    cursed: effect.cursed,
-    meta: null,
-    removable: null,
-  }
-}
 
 export type CharacterEffectsListProps = {
   /** The effects from the owner's hand: the same on every one of their characters. */
@@ -77,29 +42,23 @@ export function CharacterEffectsList({
   nameOf,
   onAdd,
 }: CharacterEffectsListProps) {
-  const rows: Row[] = [
-    ...held.map(heldRow),
-    ...effects.map((effect) => ({
-      key: effect.id,
-      mark: SOURCE_MARKS[effect.source],
-      tone: effect.cursed
-        ? ('cursed' as const)
-        : effect.source === 'word'
-          ? ('true-word' as const)
-          : undefined,
-      name: effect.name,
-      isEnglish: effect.source === 'card' || effect.source === 'word',
-      text: effect.text,
-      cursed: effect.cursed,
-      meta: [
-        nameOf(effect.createdBy),
-        effect.createdAt === null ? null : addedAtFormat.format(effect.createdAt.toDate()),
-      ]
-        .filter((part) => part !== null)
-        .join(' · '),
-      removable: canRemove(effect) ? effect : null,
-    })),
-  ]
+  const rows = effectRows(held, effects).map((row) => ({
+    ...row,
+    /** "Ayla · 9 Kas 14:32" for a stored effect; `null` for one from the hand. */
+    meta:
+      row.stored === null
+        ? null
+        : [
+            nameOf(row.stored.createdBy),
+            row.stored.createdAt === null
+              ? null
+              : addedAtFormat.format(row.stored.createdAt.toDate()),
+          ]
+            .filter((part) => part !== null)
+            .join(' · '),
+    /** The stored effect, when it is one and the user may remove it. */
+    removable: row.stored !== null && canRemove(row.stored) ? row.stored : null,
+  }))
   return (
     <section aria-label="Aktif efektler" className="flex flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
@@ -114,45 +73,49 @@ export function CharacterEffectsList({
         <p className="text-sm text-ink-muted">Aktif efekt yok.</p>
       ) : (
         <ul className="flex flex-col gap-2">
-          {rows.map((row) => (
-            <li
-              key={row.key}
-              className={cn(
-                'flex flex-col gap-1 rounded-lg border-l-2 bg-pane-raised p-2 text-sm',
-                row.cursed ? 'border-cursed' : 'border-line',
-              )}
-            >
-              <div className="flex flex-wrap items-center gap-2">
-                <Pill tone={row.tone}>{row.mark}</Pill>
+          {rows.map((row) => {
+            const style = EFFECT_STYLES[row.kind]
+            return (
+              <li
+                key={row.key}
+                data-kind={row.kind}
+                className={cn(
+                  'flex flex-col gap-1 rounded-lg border bg-pane-raised p-2 text-sm',
+                  style.box,
+                )}
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <Pill tone={style.tone}>{row.mark}</Pill>
+                  <p
+                    lang={row.isEnglish ? 'en' : undefined}
+                    className={cn('min-w-0 flex-1 font-semibold break-words', style.name)}
+                  >
+                    {style.prefix ? <span className="sr-only">{style.prefix}</span> : null}
+                    {row.name}
+                  </p>
+                  {row.removable !== null ? (
+                    <Button
+                      variant="ghost"
+                      className="px-2 py-1 text-danger-ink"
+                      aria-label={`${row.name} efektini kaldır`}
+                      onClick={() => {
+                        if (row.removable) onRemove(row.removable)
+                      }}
+                    >
+                      Kaldır
+                    </Button>
+                  ) : null}
+                </div>
                 <p
                   lang={row.isEnglish ? 'en' : undefined}
-                  className="min-w-0 flex-1 font-semibold break-words text-ink"
+                  className="break-words whitespace-pre-line text-ink-muted"
                 >
-                  {row.cursed ? <span className="sr-only">Cursed: </span> : null}
-                  {row.name}
+                  {row.text || 'Efekt metni yok.'}
                 </p>
-                {row.removable !== null ? (
-                  <Button
-                    variant="ghost"
-                    className="px-2 py-1 text-danger-ink"
-                    aria-label={`${row.name} efektini kaldır`}
-                    onClick={() => {
-                      if (row.removable) onRemove(row.removable)
-                    }}
-                  >
-                    Kaldır
-                  </Button>
-                ) : null}
-              </div>
-              <p
-                lang={row.isEnglish ? 'en' : undefined}
-                className="break-words whitespace-pre-line text-ink-muted"
-              >
-                {row.text || 'Efekt metni yok.'}
-              </p>
-              {row.meta !== null ? <p className="text-xs text-ink-muted">{row.meta}</p> : null}
-            </li>
-          ))}
+                {row.meta !== null ? <p className="text-xs text-ink-muted">{row.meta}</p> : null}
+              </li>
+            )
+          })}
         </ul>
       )}
     </section>

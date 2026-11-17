@@ -51,7 +51,7 @@ const LP = { ayla: 10, bora: 2, dana: 4 }
 
 /** A stored active card with its kind's starting flags, unless overridden. */
 const storedCard = (
-  kind: 'normal' | 'cursed',
+  kind: 'normal' | 'cursed' | 'blessed',
   name: string,
   cost = '3',
   flags: Partial<BehaviorFlags> = {},
@@ -62,7 +62,7 @@ const storedCard = (
   setCode: kind === 'normal' ? 'Kesqer' : null,
   cost,
   rarity: kind === 'normal' ? 'common' : null,
-  mechanicPack: kind === 'normal' ? 'Arcanus Divine' : null,
+  mechanicPack: kind === 'cursed' ? null : 'Arcanus Divine',
   text: `${name} text.`,
   status: 'active',
   ...startingFlags(kind, ''),
@@ -419,7 +419,34 @@ describe('closing holdings under the real rules', () => {
           name: 'Visions of Death',
           text: 'Roll twice and take the lower.',
           cursed: true,
+          blessed: false,
           createdBy: 'ayla',
+        }),
+      ])
+    })
+
+    it("marks a Blessed card's effect Blessed", async () => {
+      const BLESSED = 'legend-secondwind'
+      await seedThorin()
+      await seedCard(BLESSED, storedCard('blessed', 'Second Wind', '3', { hasUseEffect: true }))
+      const id = await giveCard(as('dana'), { cardId: BLESSED, uid: 'ayla', by: 'dana' })
+
+      await closeHolding(as('ayla'), {
+        holdingId: id,
+        by: 'ayla',
+        reason: 'used',
+        target: { kind: 'character', characterId: THORIN },
+        addEffect: true,
+        amount: 3,
+      })
+
+      expect(await effects()).toEqual([
+        expect.objectContaining({
+          source: 'card',
+          sourceId: id,
+          name: 'Second Wind',
+          cursed: false,
+          blessed: true,
         }),
       ])
     })
@@ -483,7 +510,13 @@ describe('closing holdings under the real rules', () => {
       const [use] = await all('uses')
       expect(use).toMatchObject({ holdingId: id, usedOn: 'Thorin', usedOnCharacterId: THORIN })
       expect(await effects()).toEqual([
-        expect.objectContaining({ source: 'card', sourceId: use?.id, name: "Aboleth's Eyes" }),
+        expect.objectContaining({
+          source: 'card',
+          sourceId: use?.id,
+          name: "Aboleth's Eyes",
+          cursed: false,
+          blessed: false,
+        }),
       ])
     })
 

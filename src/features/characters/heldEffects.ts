@@ -24,6 +24,7 @@ export type HeldEffect = {
   name: string
   text: string
   cursed: boolean
+  blessed: boolean
 }
 
 /** The hand's active cards in the hand's order, then its active words in the order learned. */
@@ -40,6 +41,7 @@ export function heldEffects(
         name: entry.card.name,
         text: visibleText(entry.card.text),
         cursed: entry.card.kind === 'cursed',
+        blessed: entry.card.kind === 'blessed',
       })),
     ...words
       .filter((entry) => entry.record.active)
@@ -49,6 +51,7 @@ export function heldEffects(
         name: entry.word.name,
         text: visibleText(entry.word.text),
         cursed: false,
+        blessed: false,
       })),
   ]
 }

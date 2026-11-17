@@ -3081,6 +3081,79 @@ describe('card uses and their payments (userCards with ledger/{entryId} and user
       )
     })
 
+    describe('the Blessed mark', () => {
+      beforeEach(async () => {
+        await testEnv.withSecurityRulesDisabled(async (admin) => {
+          await setDoc(
+            doc(firestoreOf(admin), 'userCards/h-ayla-blessed'),
+            seededHolding({
+              cardId: HOLDINGS_SEED.BLESSED,
+              cardName: 'Second Wind',
+              cardKind: 'blessed',
+            }),
+          )
+        })
+      })
+
+      const blessedEffect = (overrides: Record<string, unknown> = {}) =>
+        cardEffect('dana', 'h-ayla-blessed', THORIN, {
+          name: 'Second Wind',
+          cursed: false,
+          blessed: true,
+          ...overrides,
+        })
+
+      it("allows a Blessed card's effect marked Blessed", async () => {
+        await assertSucceeds(
+          use('dana', 'h-ayla-blessed', 0, { ...on(THORIN, 'Thorin'), extra: blessedEffect() }),
+        )
+        expect(await readAsAdmin('characterEffects/fx-card')).toMatchObject({ blessed: true })
+      })
+
+      it("allows a Blessed card's effect without the field, as a page of the previous build writes it", async () => {
+        await assertSucceeds(
+          use('dana', 'h-ayla-blessed', 0, {
+            ...on(THORIN, 'Thorin'),
+            extra: (batch, db) => {
+              batch.set(doc(db, 'characterEffects/fx-card'), {
+                characterId: THORIN,
+                uid: 'ayla',
+                source: 'card',
+                sourceId: 'h-ayla-blessed',
+                name: 'Second Wind',
+                text: 'Second Wind text.',
+                cursed: false,
+                createdBy: 'dana',
+                createdAt: serverTimestamp(),
+              })
+            },
+          }),
+        )
+      })
+
+      it.each([
+        ['a normal card', 'h-ayla-extra', { cursed: false }],
+        ['a Cursed card', 'h-ayla-cursed', { cursed: true }],
+        ['a Cursed card marked both', 'h-ayla-cursed', { cursed: true, blessed: true }],
+      ])('denies the Blessed mark on the effect of %s', async (_case, holdingId, overrides) => {
+        await assertFails(
+          use('dana', holdingId, 0, {
+            ...on(THORIN, 'Thorin'),
+            extra: cardEffect('dana', holdingId, THORIN, { blessed: true, ...overrides }),
+          }),
+        )
+      })
+
+      it('denies a Blessed mark that is not a boolean', async () => {
+        await assertFails(
+          use('dana', 'h-ayla-blessed', 0, {
+            ...on(THORIN, 'Thorin'),
+            extra: blessedEffect({ blessed: 'yes' }),
+          }),
+        )
+      })
+    })
+
     it('denies a character on a discard', async () => {
       await assertFails(
         updateDoc(doc(asUser('dana'), 'userCards/h-ayla-cursed'), {
@@ -6258,6 +6331,15 @@ describe('True Words (cards, userCards, playerWords, draws of kind wordDraft and
       )
     })
 
+    it("denies a word's effect marked Blessed", async () => {
+      await assertFails(
+        useWord('ayla', {
+          ...on(THORIN, 'Thorin'),
+          extra: wordEffect('ayla', THORIN, { blessed: true }),
+        }),
+      )
+    })
+
     it('denies an effect without its use, on another character, or for another user', async () => {
       const db = asUser('ayla')
       const alone = writeBatch(db)
@@ -6632,6 +6714,7 @@ describe('kept uses of cards (uses with userCards, ledger/{entryId} and users/{u
 
   it('denies the effect when "Kullanınca efekt bırakır" is off, or marked as a word', async () => {
     await assertFails(useCoin('ayla', { use: onThorin, extra: coinEffect({ source: 'word' }) }))
+    await assertFails(useCoin('ayla', { use: onThorin, extra: coinEffect({ blessed: true }) }))
     await updateDocAsAdmin(`cards/${COIN}`, { hasUseEffect: false })
     await assertFails(useCoin('ayla', { use: onThorin, extra: coinEffect() }))
   })
@@ -7213,6 +7296,8 @@ describe('character effects by hand and deleting (characterEffects/{effectId})',
     ['an empty text', 'ayla', { text: '' }],
     ['a text over 500', 'dana', { text: 'x'.repeat(501) }],
     ['an effect by hand that names a use', 'ayla', { sourceId: 'h1' }],
+    ['a Blessed own effect', 'ayla', { blessed: true }],
+    ['a Blessed DM effect', 'dana', { blessed: true }],
     ['a Cursed effect by hand', 'dana', { cursed: true }],
     ['a forged creator', 'ayla', { createdBy: 'dana' }],
     ['a card effect by hand', 'dana', { source: 'card', sourceId: 'h1' }],

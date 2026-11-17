@@ -43,6 +43,9 @@
   --color-blessed-pill: #e8e3ce;
   --color-true-word: #c7b5ff;
   --color-true-word-line: #9a87d1;
+  /* The name of an effect written by hand, an own or a DM effect, which glows `glow-custom` (spec: visual-effects,
+     "Effect colors"). */
+  --color-custom-ink: #a9d4ff;
 
   /*
    * The hand's stat tiles (spec: visual-effects, "The hand's stat colors"; design D7). The values are v2.2.8's
@@ -76,6 +79,8 @@
   /* An active True Word, in two rings: the inner one and the deeper outer one. */
   --color-glow-word: #a67bff;
   --color-glow-word-deep: #8f67f7;
+  /* An effect written by hand on a character, an own or a DM effect (design D5 of redesign-hand-dashboard). */
+  --color-glow-custom: #4fa8ff;
   /* The Premium Pack tile's ridged gold frame: the ridge, the dark ring and the light ring. */
   --color-premium-frame: #e9b94c;
   --color-premium-frame-dark: #8d5a17;
@@ -130,6 +135,20 @@
   --text-shadow-glow-word: 0 0 8px color-mix(in oklab, var(--color-glow-word) 47%, transparent);
   /* The number on the hand's "☠ Cursed kart" tile. */
   --text-shadow-glow-cursed: 0 0 16px color-mix(in oklab, var(--color-glow-cursed) 40%, transparent);
+  /*
+   * A character's effect, by its kind (spec: visual-effects, "Effect colors"; design D5 of redesign-hand-dashboard): a
+   * glow around its row in "Aktif efektler" and in the popover of the character's tab, with a border in the same color.
+   */
+  --shadow-glow-effect-cursed: 0 0 14px -2px
+    color-mix(in oklab, var(--color-glow-cursed) 80%, transparent);
+  --shadow-glow-effect-blessed: 0 0 14px -2px
+    color-mix(in oklab, var(--color-glow-blessed) 75%, transparent);
+  --shadow-glow-effect-word: 0 0 14px -2px
+    color-mix(in oklab, var(--color-glow-word) 85%, transparent);
+  --shadow-glow-effect-card: 0 0 14px -2px
+    color-mix(in oklab, var(--color-glow-active) 65%, transparent);
+  --shadow-glow-effect-custom: 0 0 14px -2px
+    color-mix(in oklab, var(--color-glow-custom) 80%, transparent);
 
   /* The card flip's soft turn (v2.2.8): fast at first, settling slowly. */
   --ease-card-flip: cubic-bezier(0.18, 0.72, 0.16, 1);

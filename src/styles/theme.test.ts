@@ -111,6 +111,8 @@ describe('theme tokens', () => {
     expect(contrastRatio(token('gold'), token('pane-raised'))).toBeGreaterThanOrEqual(4.5)
   })
 
+  // Since redesign-hand-dashboard the Cursed and True Words counts share one stat, a gradient from `stat-cursed` to
+  // `stat-word-deep`: its label and both counts are read on both ends.
   const statTiles: [surfaces: string[], inks: string[]][] = [
     [
       ['stat-cursed', 'stat-cursed-deep'],
@@ -120,6 +122,10 @@ describe('theme tokens', () => {
       ['stat-word', 'stat-word-deep'],
       ['true-word', 'ink-muted'],
     ],
+    [
+      ['stat-cursed', 'stat-word-deep'],
+      ['stat-cursed-ink', 'cursed-soft', 'true-word'],
+    ],
   ]
   for (const [surfaces, inks] of statTiles) {
     for (const ink of inks) {
@@ -128,6 +134,16 @@ describe('theme tokens', () => {
           expect(contrastRatio(token(ink), token(surface))).toBeGreaterThanOrEqual(4.5)
         })
       }
+    }
+  }
+
+  // A character's effects (spec: visual-effects, "Effect colors"): each name in its kind's ink, on the rows of
+  // "Aktif efektler" and in the popover of the character's tab.
+  for (const ink of ['cursed-soft', 'blessed', 'true-word', 'green', 'custom-ink']) {
+    for (const surface of ['pane-raised', 'sidebar']) {
+      it(`${ink} effect name on ${surface} has at least 4.5:1 contrast`, () => {
+        expect(contrastRatio(token(ink), token(surface))).toBeGreaterThanOrEqual(4.5)
+      })
     }
   }
 

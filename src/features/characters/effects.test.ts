@@ -28,6 +28,7 @@ describe('characterEffectSchema', () => {
     ['a DM effect', dm],
     ['a hand-made name of 60 Turkish letters', { ...own, name: 'ğ'.repeat(60) }],
     ['a pending creation time', { ...own, createdAt: null }],
+    ['a Blessed card effect', { ...card, blessed: true }],
   ])('accepts %s', (_case, effect) => {
     expect(characterEffectSchema.safeParse(effect).success).toBe(true)
   })
@@ -42,7 +43,16 @@ describe('characterEffectSchema', () => {
     ['a Cursed DM effect', { ...dm, cursed: true }],
     ['an unknown source', { ...own, source: 'spell' }],
     ['an empty name', { ...card, name: '' }],
+    ['a Blessed word effect', { ...word, blessed: true }],
+    ['a Blessed own effect', { ...own, blessed: true }],
+    ['a Blessed DM effect', { ...dm, blessed: true }],
+    ['a card effect both Cursed and Blessed', { ...card, cursed: true, blessed: true }],
   ])('rejects %s', (_case, effect) => {
     expect(characterEffectSchema.safeParse(effect).success).toBe(false)
+  })
+
+  it('reads an effect stored before the Blessed mark as not Blessed', () => {
+    const parsed = characterEffectSchema.parse(card)
+    expect(parsed.blessed).toBe(false)
   })
 })

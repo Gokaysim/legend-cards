@@ -1,17 +1,11 @@
-import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
+import { useId, useState } from 'react'
 
 import { Button } from '@/components/ui/Button'
+import { PopoverTrigger } from '@/components/ui/PopoverTrigger'
 import { useAuth } from '@/features/auth/authContext'
 import { BalanceDialog } from '@/features/balances/BalanceDialog'
 import { formatAmount } from '@/features/balances/format'
 import { compareLabels } from '@/features/cards/sort'
-import { visibleText } from '@/features/cards/text'
-import {
-  charactersOf,
-  effectsOf,
-  useCharacterEffects,
-  useCharacters,
-} from '@/features/characters/charactersContext'
 import type { SetIndex } from '@/features/sets/index'
 import { useSetIndex } from '@/features/sets/setsContext'
 import { TABLE_BUSY_NOTE } from '@/features/table/errors'
@@ -19,8 +13,8 @@ import type { KnownWordEntry } from '@/features/true-words/trueWordsContext'
 import { useIsTableBusy } from '@/features/table/tableContext'
 import type { UserProfile } from '@/features/users/schema'
 import { profileName, useIsDm } from '@/features/users/usersContext'
-import { cn } from '@/lib/cn'
 import { genitive } from '@/lib/turkish'
+import { usePopover } from '@/lib/usePopover'
 
 import type { HandEntry } from './handEntries'
 import { StatTile } from './StatTile'
@@ -42,90 +36,15 @@ function handSets(
   return [...counts.values()].sort((a, b) => a.order - b.order || compareLabels(a.name, b.name))
 }
 
-/** The two lists that open from their stats. */
-type ListId = 'active' | 'sets'
-
-/** Each list's heading, v2.2.8's words. */
-const LIST_NAMES: Record<ListId, string> = {
-  active: 'Aktif Efektler',
-  sets: 'Eldeki setler',
-}
-
-/** The name of the button over each list's stat. */
-const TRIGGER_NAMES: Record<ListId, string> = {
-  active: 'Aktif efektler',
-  sets: 'Eldeki setler',
-}
-
-const isPointing = (pointerType: string) => pointerType === 'mouse' || pointerType === 'pen'
-
-type ListTriggerProps = {
-  id: ListId
-  /** The id of the list it opens. */
-  controls: string
-  onOpen: () => void
-  /** Closes its list, if its list is the open one. */
-  onClose: () => void
-  onToggle: () => void
-}
-
 /**
- * The button that covers a stat and opens its list (design D6). A mouse or pen opens the list while it rests on the
- * stat, and its click keeps it open. A tap or a key toggles it. Focus that does not come from a press, that is from the
- * keyboard, opens it, and leaving the stat closes it.
- */
-function ListTrigger({ id, controls, onOpen, onClose, onToggle }: ListTriggerProps) {
-  /** The pointer type of the last press, and whether a press is under way until its click or the blur. */
-  const lastPointer = useRef('')
-  const isPressed = useRef(false)
-  return (
-    <button
-      type="button"
-      aria-label={TRIGGER_NAMES[id]}
-      aria-controls={controls}
-      data-list-trigger={id}
-      onPointerEnter={(event) => {
-        if (isPointing(event.pointerType)) onOpen()
-      }}
-      onPointerLeave={(event) => {
-        if (isPointing(event.pointerType)) onClose()
-      }}
-      onPointerDown={(event) => {
-        lastPointer.current = event.pointerType
-        isPressed.current = true
-      }}
-      onClick={(event) => {
-        isPressed.current = false
-        // `detail` is 0 for a click from the keyboard.
-        if (event.detail !== 0 && isPointing(lastPointer.current)) onOpen()
-        else onToggle()
-      }}
-      onFocus={() => {
-        // Focus from a press is left to the click; a tap may focus the button before its click.
-        if (!isPressed.current) onOpen()
-      }}
-      onBlur={() => {
-        isPressed.current = false
-        onClose()
-      }}
-      className="absolute inset-0 cursor-help rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold"
-    />
-  )
-}
-
-/**
- * The stats above the hand (v2.2.8's `.stats`): a player's Legend Points (the DM changes them here with "± LP", the
- * player spends their own with "− LP"; the DM has none),
- * how many cards the hand holds, how many effects are active (cards, True Words, and the stored effects on the player's
- * active characters), from how many sets the cards
- * come, how many are Cursed, and how many True Words the player knows. True Words are not cards.
+ * The strip above the hand (spec: card-holdings, "Hand summary"; design D1 of redesign-hand-dashboard), three stats in
+ * one row on every width: the user's Legend Points (the DM changes them here with "± LP", the player spends their own
+ * with "− LP"), how many cards the hand holds, and how many of them are Cursed beside how many True Words the player
+ * knows. True Words are not cards.
  *
- * "Aktif efekt ⓘ" opens the list of the active cards with their visible text, then the active True Words marked ✦,
- * then each active character's stored effects under its name;
- * "Farklı set ⓘ" opens the sets with their card counts (design D6). A list opens while a mouse or pen rests on its stat,
+ * "Kartlar ⓘ" opens the hand's sets with their card counts. The list opens while a mouse or pen rests on the stat,
  * while the stat has the focus from the keyboard, and after a tap until the next tap, a press elsewhere, or Escape. It
- * lies under the whole stats block, so it never widens the page. Closed, it is `sr-only`: screen readers and search
- * still read it.
+ * lies under the strip, so it never widens the page. Closed, it is `sr-only`: screen readers and search still read it.
  */
 export function HandSummary({
   entries,
@@ -143,86 +62,26 @@ export function HandSummary({
   const isOwnHand = auth.status === 'signedIn' && auth.user.uid === profile.id
   /** The open LP dialog: the DM's change, or the player's own spend. */
   const [lpDialog, setLpDialog] = useState<'change' | 'spend' | null>(null)
-  const [openList, setOpenList] = useState<ListId | null>(null)
+  const setsList = usePopover()
   const isTableBusy = useIsTableBusy()
   const setIndex = useSetIndex()
   const isDm = useIsDm()
   const playerName = profileName(profile)
-  const active = entries.filter((entry) => entry.holding.active)
-  const activeWords = words.filter((entry) => entry.record.active)
-  // The stored effects on the player's active characters, by character (spec: card-holdings, "Hand summary").
-  const characters = useCharacters()
-  const effects = useCharacterEffects()
-  const characterEffects =
-    characters.status === 'ready' && effects.status === 'ready'
-      ? charactersOf(characters.data, profile.id)
-          .map((character) => ({ character, effects: effectsOf(effects.data, character.id) }))
-          .filter((group) => group.effects.length > 0)
-      : []
-  const storedCount = characterEffects.reduce((sum, group) => sum + group.effects.length, 0)
   const sets = handSets(entries, setIndex)
   const cursedCount = entries.filter((entry) => entry.card.kind === 'cursed').length
-
-  // An open list closes with Escape, or with a press outside its stat (a tap elsewhere on a phone).
-  useEffect(() => {
-    if (openList === null) return
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpenList(null)
-    }
-    const onPointerDown = (event: globalThis.PointerEvent) => {
-      const isOnTrigger =
-        event.target instanceof Element &&
-        event.target.closest(`[data-list-trigger="${openList}"]`) !== null
-      if (!isOnTrigger) setOpenList(null)
-    }
-    document.addEventListener('keydown', onKeyDown)
-    document.addEventListener('pointerdown', onPointerDown)
-    return () => {
-      document.removeEventListener('keydown', onKeyDown)
-      document.removeEventListener('pointerdown', onPointerDown)
-    }
-  }, [openList])
-
-  /** The button over a stat that opens its list. */
-  const trigger = (id: ListId) => (
-    <ListTrigger
-      id={id}
-      controls={`${ids}-${id}`}
-      onOpen={() => setOpenList(id)}
-      onClose={() => setOpenList((current) => (current === id ? null : current))}
-      onToggle={() => setOpenList((current) => (current === id ? null : id))}
-    />
-  )
-
-  /** A list under the stats: shown while open, `sr-only` while closed. */
-  const list = (id: ListId, content: ReactNode) => {
-    const isOpen = openList === id
-    return (
-      <section
-        id={`${ids}-${id}`}
-        aria-labelledby={`${ids}-${id}-title`}
-        data-open={isOpen || undefined}
-        className={
-          isOpen
-            ? 'pointer-events-none absolute inset-x-0 top-full z-40 mt-2 flex max-w-xl flex-col gap-2 rounded-xl border border-gold/60 bg-sidebar p-3 shadow-lg'
-            : 'sr-only'
-        }
-      >
-        <h2 id={`${ids}-${id}-title`} className="text-sm font-semibold text-gold">
-          {LIST_NAMES[id]}
-        </h2>
-        {content}
-      </section>
-    )
-  }
+  const listId = `${ids}-sets`
 
   return (
     <div className="relative min-w-0">
-      <dl aria-label="El özeti" className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+      <dl
+        aria-label="El özeti"
+        className="grid grid-cols-3 overflow-hidden rounded-xl border border-line bg-pane"
+      >
         {/* Every hand shows LP, a DM's too (spec: balances, "LP on the hand screen"): the DM changes any hand's LP,
             their own included, and a player spends their own. */}
         <StatTile
-          label="Legend Point"
+          // English, as the game term is: a Turkish capital would dot its "i" ("POİNT").
+          label={<span lang="en">Legend Point</span>}
           value={formatAmount(profile.lp)}
           action={
             isDm ? (
@@ -250,85 +109,62 @@ export function HandSummary({
             ) : null
           }
         />
-        <StatTile label="Eldeki kart" value={entries.length} />
         <StatTile
-          label="Aktif efekt"
-          value={active.length + activeWords.length + storedCount}
+          label="Kartlar"
+          value={entries.length}
           hasInfo
-          cover={trigger('active')}
+          className="border-l border-line"
+          cover={
+            <PopoverTrigger
+              state={setsList}
+              tap="toggle"
+              aria-label="Eldeki setler"
+              aria-controls={listId}
+              className="absolute inset-0 cursor-help focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-gold"
+            />
+          }
         />
-        <StatTile label="Farklı set" value={sets.length} hasInfo cover={trigger('sets')} />
-        <StatTile label="☠ Cursed kart" value={cursedCount} tone="cursed" />
-        <StatTile label="✦ True Words" value={words.length} tone="word" />
+        <StatTile
+          label={
+            <>
+              Cursed <span aria-hidden="true">·</span>{' '}
+              <abbr title="True Words" className="no-underline">
+                TW
+              </abbr>
+            </>
+          }
+          tone="cursed-word"
+          className="border-l border-line"
+          value={
+            <span className="flex flex-wrap items-baseline gap-x-3">
+              <span className="text-stat-cursed-ink text-shadow-glow-cursed">
+                <span aria-hidden="true">☠ </span>
+                <span className="sr-only">Cursed kart: </span>
+                {cursedCount}
+              </span>
+              <span className="text-true-word text-shadow-glow-word">
+                <span aria-hidden="true">✦ </span>
+                <span className="sr-only">True Words: </span>
+                {words.length}
+              </span>
+            </span>
+          }
+        />
       </dl>
-      {list(
-        'active',
-        active.length === 0 && activeWords.length === 0 && storedCount === 0 ? (
-          <p className="text-sm text-ink-muted">Aktif efekt yok.</p>
-        ) : (
-          <ul className="flex flex-col gap-2">
-            {active.map(({ holding, card }) => (
-              <li
-                key={holding.id}
-                className={cn(
-                  'border-l-2 pl-2 text-sm',
-                  card.kind === 'cursed' ? 'border-cursed' : 'border-line',
-                )}
-              >
-                <p lang="en" className="font-semibold break-words text-ink">
-                  {card.kind === 'cursed' ? (
-                    <>
-                      <span aria-hidden="true">☠ </span>
-                      <span className="sr-only">Cursed: </span>
-                    </>
-                  ) : null}
-                  {card.name}
-                </p>
-                <p lang="en" className="break-words whitespace-pre-line text-ink-muted">
-                  {visibleText(card.text) || 'Efekt metni yok.'}
-                </p>
-              </li>
-            ))}
-            {activeWords.map(({ record, word }) => (
-              <li key={record.id} className="border-l-2 border-gold pl-2 text-sm">
-                {/* An active True Word's name glows purple (spec: visual-effects). */}
-                <p lang="en" className="font-semibold break-words text-ink text-shadow-glow-word">
-                  <span aria-hidden="true">✦ </span>
-                  <span className="sr-only">True Word: </span>
-                  {word.name}
-                </p>
-                <p lang="en" className="break-words whitespace-pre-line text-ink-muted">
-                  {visibleText(word.text) || 'Efekt metni yok.'}
-                </p>
-              </li>
-            ))}
-            {characterEffects.map(({ character, effects: list }) => (
-              <li key={character.id} className="flex flex-col gap-1 text-sm">
-                <p className="font-semibold break-words text-gold">{character.name}</p>
-                <ul className="flex flex-col gap-1">
-                  {list.map((effect) => (
-                    <li
-                      key={effect.id}
-                      className={cn(
-                        'border-l-2 pl-2',
-                        effect.cursed ? 'border-cursed' : 'border-line',
-                      )}
-                    >
-                      <p className="font-semibold break-words text-ink">{effect.name}</p>
-                      <p className="break-words whitespace-pre-line text-ink-muted">
-                        {effect.text || 'Efekt metni yok.'}
-                      </p>
-                    </li>
-                  ))}
-                </ul>
-              </li>
-            ))}
-          </ul>
-        ),
-      )}
-      {list(
-        'sets',
-        sets.length === 0 ? (
+      <section
+        id={listId}
+        aria-labelledby={`${listId}-title`}
+        data-open={setsList.isOpen || undefined}
+        className={
+          setsList.isOpen
+            ? 'pointer-events-none absolute inset-x-0 top-full z-40 mt-2 flex max-w-xl flex-col gap-2 rounded-xl border border-gold/60 bg-sidebar p-3 shadow-lg sm:right-auto sm:left-1/3 sm:w-80'
+            : 'sr-only'
+        }
+      >
+        <h2 id={`${listId}-title`} className="text-sm font-semibold text-gold">
+          {`Eldeki setler · ${sets.length} set`}
+        </h2>
+        {sets.length === 0 ? (
           <p className="text-sm text-ink-muted">Henüz set yok.</p>
         ) : (
           <ul className="flex flex-col text-sm">
@@ -344,8 +180,8 @@ export function HandSummary({
               </li>
             ))}
           </ul>
-        ),
-      )}
+        )}
+      </section>
       {lpDialog !== null ? (
         <BalanceDialog
           currency="lp"

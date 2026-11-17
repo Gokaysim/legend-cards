@@ -376,6 +376,7 @@ function closeHoldingOnce(db: Firestore, input: CloseHoldingInput, read: LpRead)
           name: current.name,
           text: visibleText(current.text),
           cursed: current.kind === 'cursed',
+          blessed: current.kind === 'blessed',
         },
         by,
       })

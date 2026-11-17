@@ -1,8 +1,8 @@
-import { screen, within } from '@testing-library/react'
+import { act, fireEvent, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { testCard, testCursedCard } from '@/test/cardFixtures'
+import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 import { testCharacter, testEffect } from '@/test/characterFixtures'
 import { ready, testProfile, testUser } from '@/test/fixtures'
 import { testHolding } from '@/test/holdingFixtures'
@@ -12,8 +12,8 @@ import { testLearnedWord, testTrueWord } from '@/test/trueWordFixtures'
 import type { CharacterActions } from './charactersContext'
 import type { CharacterEffect } from './effects'
 
-// The effects on the Karakterler tab (spec: character-effects): the counts on the character tabs, the "Aktif efektler"
-// list in the selected character's view, removing and adding.
+// The effects on the characters (spec: character-effects): the counts and the popovers on the character tabs of the
+// hand's tab row, the "Aktif efektler" list in the open character's view, removing and adding.
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -26,6 +26,7 @@ type Viewer = 'owner' | 'player' | 'dm'
 const OWNER = 'ayla'
 const devilsPride = testCursedCard("Devil's Pride", { text: 'Held: no Natural 20 [note].' })
 const nightOwl = testCard('Night Owl')
+const secondWind = testBlessedCard('Second Wind', { text: 'Held: regain hit points.' })
 const abyss = testTrueWord('Abyss', { text: 'Abyss word.', hasHeldEffect: true })
 
 function setup({
@@ -33,11 +34,14 @@ function setup({
   effects = () => [],
   heldActive = false,
   wordActive = false,
+  blessedActive = false,
 }: {
   viewer?: Viewer
   effects?: (ownerId: string, thorinId: string) => CharacterEffect[]
   heldActive?: boolean
   wordActive?: boolean
+  /** Whether the hand holds the Blessed "Second Wind", active. */
+  blessedActive?: boolean
 } = {}) {
   const ownerId = viewer === 'owner' ? testUser.uid : OWNER
   const me = testProfile({
@@ -57,11 +61,14 @@ function setup({
   const view = renderApp({
     path: `/hands/${ownerId}?tab=characters`,
     users: { currentProfile: ready(me), profiles: ready([me, owner]) },
-    cards: { cards: ready([devilsPride, nightOwl]) },
+    cards: { cards: ready([devilsPride, nightOwl, secondWind]) },
     holdings: {
       openHoldings: ready([
         testHolding(devilsPride, ownerId, 1000, { id: 'h-devil', active: heldActive }),
         testHolding(nightOwl, ownerId, 2000, { id: 'h-owl', active: false }),
+        ...(blessedActive
+          ? [testHolding(secondWind, ownerId, 3000, { id: 'h-wind', active: true })]
+          : []),
       ]),
     },
     trueWords: {
@@ -157,6 +164,40 @@ describe('the active effects in the details', () => {
     expect(rows[0]).toHaveTextContent('Cursed:')
     expect(within(rows[0] as HTMLElement).getByText('Held: no Natural 20 .')).toBeInTheDocument()
     expect(within(rows[1] as HTMLElement).getByText('Abyss')).toBeInTheDocument()
+    // Each glows in its kind's color (spec: visual-effects, "Effect colors").
+    expect(rows.map((row) => row.dataset.kind)).toEqual(['cursed', 'word', 'custom', 'card'])
+  })
+
+  it('marks a held Blessed card and a stored Blessed effect as Blessed', async () => {
+    const { user } = setup({
+      blessedActive: true,
+      effects: (uid, thorinId) => [
+        testEffect(
+          'Second Wind',
+          { id: thorinId, uid },
+          { source: 'card', sourceId: 'h-old', blessed: true },
+        ),
+      ],
+    })
+
+    await select(user, 'Thorin')
+
+    const rows = effectsList().getAllByRole('listitem')
+    expect(rows.map((row) => row.dataset.kind)).toEqual(['blessed', 'blessed'])
+    expect(rows[0]).toHaveTextContent('Blessed: Second Wind')
+    expect(rows[1]).toHaveTextContent('Blessed: Second Wind')
+  })
+
+  it('shows an own effect in the custom color', async () => {
+    const { user } = setup({
+      effects: (uid, thorinId) => [testEffect('Gizlenme', { id: thorinId, uid })],
+    })
+
+    await select(user, 'Thorin')
+
+    const [row] = effectsList().getAllByRole('listitem')
+    expect(row?.dataset.kind).toBe('custom')
+    expect(row).toHaveTextContent('Özel')
   })
 
   it('shows who added a stored effect and when', async () => {
@@ -290,5 +331,100 @@ describe('adding an effect', () => {
     await select(user, 'Thorin')
 
     expect(effectsList().queryByRole('button', { name: '+ Efekt ekle' })).not.toBeInTheDocument()
+  })
+})
+
+describe("the effects popover on a character's tab", () => {
+  const popover = (name: string) => screen.queryByRole('region', { name: new RegExp(`^${name} ·`) })
+
+  it('shows the names and marks of the effects while the mouse rests on the tab', () => {
+    setup({
+      heldActive: true,
+      effects: (uid, thorinId) => [
+        testEffect('Kutsal kalkan', { id: thorinId, uid }, { source: 'dm', createdBy: 'dana' }),
+      ],
+    })
+
+    fireEvent.pointerEnter(tab('Thorin'), { pointerType: 'mouse' })
+
+    const list = popover('Thorin')
+    expect(list).toHaveAccessibleName('Thorin · 2 aktif efekt')
+    const rows = within(list!).getAllByRole('listitem')
+    expect(rows.map((row) => row.textContent)).toEqual([
+      "Cursed: Devil's PrideElden",
+      'Kutsal kalkanDM',
+    ])
+    expect(rows.map((row) => row.dataset.kind)).toEqual(['cursed', 'custom'])
+    // Without their texts.
+    expect(list).not.toHaveTextContent('Held: no Natural 20')
+    expect(tab('Thorin')).toHaveAttribute('aria-describedby', list!.id)
+
+    fireEvent.pointerLeave(tab('Thorin'), { pointerType: 'mouse' })
+    expect(popover('Thorin')).toBeNull()
+  })
+
+  it('shows while the tab has the keyboard focus, and closes with Escape', () => {
+    setup()
+
+    act(() => tab('Kuzgun').focus())
+    expect(popover('Kuzgun')).toHaveTextContent('Aktif efekt yok.')
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(popover('Kuzgun')).toBeNull()
+  })
+
+  it('opens the character on a tap, with no popover', () => {
+    setup({ heldActive: true })
+
+    fireEvent.pointerEnter(tab('Kuzgun'), { pointerType: 'touch' })
+    fireEvent.pointerDown(tab('Kuzgun'), { pointerType: 'touch' })
+    act(() => tab('Kuzgun').focus())
+    fireEvent.click(tab('Kuzgun'), { detail: 1 })
+
+    expect(popover('Kuzgun')).toBeNull()
+    expect(tab('Kuzgun')).toHaveAttribute('aria-selected', 'true')
+    expect(
+      within(main().getByRole('tabpanel', { name: /^Kuzgun/ })).getByRole('region', {
+        name: 'Aktif efektler',
+      }),
+    ).toHaveTextContent("Devil's Pride")
+  })
+
+  it('shows an effect added meanwhile without a reload', () => {
+    const view = setup()
+
+    fireEvent.pointerEnter(tab('Thorin'), { pointerType: 'mouse' })
+    view.setCharacters({
+      characters: ready([view.thorin, view.kuzgun]),
+      effects: ready([testEffect('Gizlenme', view.thorin)]),
+    })
+
+    expect(popover('Thorin')).toHaveAccessibleName('Thorin · 1 aktif efekt')
+    expect(within(popover('Thorin')!).getByRole('listitem')).toHaveAttribute('data-kind', 'custom')
+  })
+
+  it('glows each kind in its color, an old Blessed effect as a card', () => {
+    setup({
+      heldActive: true,
+      wordActive: true,
+      blessedActive: true,
+      effects: (uid, thorinId) => [
+        testEffect('Old Blessing', { id: thorinId, uid }, { source: 'card', sourceId: 'h-old' }),
+        testEffect('Gizlenme', { id: thorinId, uid }, { addedAtMillis: 5000 }),
+      ],
+    })
+
+    fireEvent.pointerEnter(tab('Thorin'), { pointerType: 'mouse' })
+
+    const kinds = within(popover('Thorin')!)
+      .getAllByRole('listitem')
+      .map((row) => [row.textContent, row.dataset.kind])
+    expect(kinds).toEqual([
+      ["Cursed: Devil's PrideElden", 'cursed'],
+      ['Blessed: Second WindElden', 'blessed'],
+      ['AbyssTrue Word', 'word'],
+      ['GizlenmeÖzel', 'custom'],
+      ['Old BlessingKart', 'card'],
+    ])
   })
 })

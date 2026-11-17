@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -230,11 +230,15 @@ function stat(label: string) {
   const term = within(screen.getByLabelText('El özeti'))
     .getAllByRole('term')
     .find((candidate) => candidate.textContent.replace(/\s*ⓘ$/, '') === label)
-  return term?.nextElementSibling?.textContent
+  return term?.parentElement?.querySelector('dd')?.textContent
 }
 
-/** A list of the summary, by its name, whether it shows or not. */
-const summaryList = (name: string) => screen.getByRole('region', { name })
+/** The Cursed and True Words counts, as a screen reader reads the third stat. */
+const cursedAndWords = (cursed: number, words: number) =>
+  `☠ Cursed kart: ${cursed}✦ True Words: ${words}`
+
+/** The sets list of the summary, whether it shows or not. */
+const setsList = () => screen.getByRole('region', { name: /^Eldeki setler/ })
 const listTrigger = (name: string) =>
   within(screen.getByLabelText('El özeti')).getByRole('button', { name })
 
@@ -267,7 +271,7 @@ describe('double-clicking a hand card', () => {
 })
 
 describe('hand summary', () => {
-  it('counts the cards, the active ones, the sets and the Cursed cards, and lists them', () => {
+  it('counts the cards and the Cursed cards, and lists the sets', () => {
     renderHand([
       testHolding(owl, 'ayla', 1000, { active: true }),
       testHolding(greedy, 'ayla', 2000),
@@ -276,26 +280,30 @@ describe('hand summary', () => {
       testHolding(visions, 'ayla', 5000, { active: true }),
     ])
 
-    expect(stat('Eldeki kart')).toBe('5')
-    expect(stat('Aktif efekt')).toBe('2')
-    expect(stat('Farklı set')).toBe('2')
-    expect(stat('☠ Cursed kart')).toBe('1')
+    expect(stat('Kartlar')).toBe('5')
+    expect(stat('Cursed · TW')).toBe(cursedAndWords(1, 0))
 
-    // Closed, the lists still read for screen readers.
-    const effects = within(summaryList('Aktif Efektler'))
-    expect(effects.getAllByRole('listitem').map((item) => item.textContent)).toEqual([
-      'Night OwlNight Owl text.',
-      '☠ Cursed: Visions of DeathHeld: Every hour draw.',
-    ])
-
-    const sets = within(summaryList('Eldeki setler'))
-    expect(sets.getAllByRole('listitem').map((item) => item.textContent)).toEqual([
-      'Kesqerian Nights3 kart',
-      'Throne of Havenholm1 kart',
-    ])
+    // Closed, the list still reads for screen readers, headed with how many sets there are.
+    expect(setsList()).toHaveAccessibleName('Eldeki setler · 2 set')
+    expect(
+      within(setsList())
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual(['Kesqerian Nights3 kart', 'Throne of Havenholm1 kart'])
   })
 
-  it('counts the True Words and their active ones, lists them after the cards, and never as cards', () => {
+  it('shows three stats and no active effects', () => {
+    renderHand([testHolding(owl, 'ayla', 1000, { active: true })])
+
+    const terms = within(screen.getByLabelText('El özeti'))
+      .getAllByRole('term')
+      .map((term) => term.textContent)
+    expect(terms).toEqual(['Legend Point', 'Kartlar ⓘ', 'Cursed · TW'])
+    expect(screen.queryByRole('region', { name: /Aktif Efektler/i })).toBeNull()
+    expect(within(screen.getByLabelText('El özeti')).queryByText(/Aktif efekt/)).toBeNull()
+  })
+
+  it('counts the True Words beside the Cursed cards, and never as cards', () => {
     const abyss = testTrueWord('Abyss', { text: 'Free card.', hasHeldEffect: true })
     const aid = testTrueWord('Aid')
     const chaos = testTrueWord('Chaos', { hasHeldEffect: true })
@@ -323,137 +331,118 @@ describe('hand summary', () => {
       },
     })
 
-    expect(stat('Eldeki kart')).toBe('5')
-    expect(stat('Aktif efekt')).toBe('3')
-    expect(stat('✦ True Words')).toBe('3')
-
-    const effects = within(summaryList('Aktif Efektler'))
-    expect(effects.getAllByRole('listitem').map((item) => item.textContent)).toEqual([
-      'Night OwlNight Owl text.',
-      '☠ Cursed: Visions of DeathHeld: Every hour draw.',
-      '✦ True Word: AbyssFree card.',
-    ])
-    // The active True Word's name glows purple; the cards' names do not.
-    expect(effects.getByText('Abyss')).toHaveClass('text-shadow-glow-word')
-    expect(effects.getByText('Night Owl')).not.toHaveClass('text-shadow-glow-word')
+    expect(stat('Kartlar')).toBe('5')
+    expect(stat('Cursed · TW')).toBe(cursedAndWords(1, 3))
   })
 
-  it('does not count Blessed cards as a set', () => {
+  it('shows both counts at 0, and does not count Blessed cards as a set', () => {
     renderHand([testHolding(halo, 'ayla', 1000)])
 
-    expect(stat('Farklı set')).toBe('0')
-    expect(within(summaryList('Eldeki setler')).getByText('Henüz set yok.')).toBeInTheDocument()
-    expect(within(summaryList('Aktif Efektler')).getByText('Aktif efekt yok.')).toBeInTheDocument()
+    expect(stat('Cursed · TW')).toBe(cursedAndWords(0, 0))
+    expect(setsList()).toHaveAccessibleName('Eldeki setler · 0 set')
+    expect(within(setsList()).getByText('Henüz set yok.')).toBeInTheDocument()
   })
 
-  it('colors the Cursed and True Words stats, and marks the stats that open a list', () => {
+  it('colors the counts, keeps the stats in one row, and marks the stat that opens a list', () => {
     renderHand([])
 
+    const summary = screen.getByLabelText('El özeti')
+    expect(summary).toHaveClass('grid-cols-3')
     const tile = (label: string) =>
-      within(screen.getByLabelText('El özeti'))
+      within(summary)
         .getAllByRole('term')
         .find((term) => term.textContent.startsWith(label))
         ?.closest('[data-tone]')
-    expect(tile('☠ Cursed kart')).toHaveAttribute('data-tone', 'cursed')
-    expect(tile('✦ True Words')).toHaveAttribute('data-tone', 'word')
-    expect(tile('Eldeki kart')).toHaveAttribute('data-tone', 'plain')
-    expect(tile('Aktif efekt')).toHaveTextContent('Aktif efekt ⓘ')
-    expect(tile('Farklı set')).toHaveTextContent('Farklı set ⓘ')
+    expect(tile('Cursed')).toHaveAttribute('data-tone', 'cursed-word')
+    expect(tile('Legend Point')).toHaveAttribute('data-tone', 'plain')
+    expect(tile('Kartlar')).toHaveAttribute('data-tone', 'plain')
+    expect(tile('Kartlar')).toHaveTextContent('Kartlar ⓘ')
+    expect(within(summary).getByText('Cursed kart:').parentElement).toHaveClass(
+      'text-stat-cursed-ink',
+      'text-shadow-glow-cursed',
+    )
+    expect(within(summary).getByText('True Words:').parentElement).toHaveClass(
+      'text-true-word',
+      'text-shadow-glow-word',
+    )
   })
 })
 
-describe('opening the summary lists', () => {
-  const isOpen = (name: string) => summaryList(name).hasAttribute('data-open')
+describe('opening the sets list', () => {
+  const isOpen = () => setsList().hasAttribute('data-open')
+  const trigger = () => listTrigger('Eldeki setler')
 
-  it('keeps both lists closed, as sr-only, until a stat is pointed at, focused or tapped', () => {
+  it('keeps the list closed, as sr-only, until the stat is pointed at, focused or tapped', () => {
     renderHand([testHolding(owl, 'ayla', 1000, { active: true })])
 
-    expect(summaryList('Aktif Efektler')).toHaveClass('sr-only')
-    expect(summaryList('Eldeki setler')).toHaveClass('sr-only')
+    expect(setsList()).toHaveClass('sr-only')
   })
 
-  it('opens a list while the mouse rests on its stat', () => {
+  it('opens the list while the mouse rests on the stat', () => {
     renderHand([testHolding(owl, 'ayla', 1000, { active: true })])
 
-    fireEvent.pointerEnter(listTrigger('Aktif efektler'), { pointerType: 'mouse' })
-    expect(isOpen('Aktif Efektler')).toBe(true)
-    expect(summaryList('Aktif Efektler')).not.toHaveClass('sr-only')
-    expect(isOpen('Eldeki setler')).toBe(false)
+    fireEvent.pointerEnter(trigger(), { pointerType: 'mouse' })
+    expect(isOpen()).toBe(true)
+    expect(setsList()).not.toHaveClass('sr-only')
 
-    fireEvent.pointerLeave(listTrigger('Aktif efektler'), { pointerType: 'mouse' })
-    expect(isOpen('Aktif Efektler')).toBe(false)
+    fireEvent.pointerLeave(trigger(), { pointerType: 'mouse' })
+    expect(isOpen()).toBe(false)
   })
 
   it('keeps a list the mouse opened open when the stat is clicked', () => {
     renderHand([testHolding(owl, 'ayla', 1000)])
-    const sets = listTrigger('Eldeki setler')
 
-    fireEvent.pointerEnter(sets, { pointerType: 'mouse' })
-    fireEvent.pointerDown(sets, { pointerType: 'mouse' })
-    fireEvent.click(sets, { detail: 1 })
+    fireEvent.pointerEnter(trigger(), { pointerType: 'mouse' })
+    fireEvent.pointerDown(trigger(), { pointerType: 'mouse' })
+    fireEvent.click(trigger(), { detail: 1 })
 
-    expect(isOpen('Eldeki setler')).toBe(true)
+    expect(isOpen()).toBe(true)
   })
 
-  it('ignores a touch resting on a stat, and toggles the list with taps', () => {
+  it('ignores a touch resting on the stat, and toggles the list with taps', () => {
     renderHand([testHolding(owl, 'ayla', 1000)])
-    const sets = listTrigger('Eldeki setler')
 
-    fireEvent.pointerEnter(sets, { pointerType: 'touch' })
-    expect(isOpen('Eldeki setler')).toBe(false)
+    fireEvent.pointerEnter(trigger(), { pointerType: 'touch' })
+    expect(isOpen()).toBe(false)
 
     // A tap may focus the button (Android) before its click: the click alone decides.
-    fireEvent.pointerDown(sets, { pointerType: 'touch' })
-    sets.focus()
-    expect(isOpen('Eldeki setler')).toBe(false)
-    fireEvent.click(sets, { detail: 1 })
-    expect(isOpen('Eldeki setler')).toBe(true)
+    fireEvent.pointerDown(trigger(), { pointerType: 'touch' })
+    act(() => trigger().focus())
+    expect(isOpen()).toBe(false)
+    fireEvent.click(trigger(), { detail: 1 })
+    expect(isOpen()).toBe(true)
 
-    fireEvent.pointerDown(sets, { pointerType: 'touch' })
-    fireEvent.click(sets, { detail: 1 })
-    expect(isOpen('Eldeki setler')).toBe(false)
+    fireEvent.pointerDown(trigger(), { pointerType: 'touch' })
+    fireEvent.click(trigger(), { detail: 1 })
+    expect(isOpen()).toBe(false)
   })
 
   it('closes a tapped list with a press elsewhere, or with Escape', () => {
     renderHand([testHolding(owl, 'ayla', 1000)])
-    const sets = listTrigger('Eldeki setler')
 
-    fireEvent.click(sets)
-    expect(isOpen('Eldeki setler')).toBe(true)
+    fireEvent.click(trigger())
+    expect(isOpen()).toBe(true)
     fireEvent.pointerDown(document.body, { pointerType: 'touch' })
-    expect(isOpen('Eldeki setler')).toBe(false)
+    expect(isOpen()).toBe(false)
 
-    fireEvent.click(sets)
-    expect(isOpen('Eldeki setler')).toBe(true)
+    fireEvent.click(trigger())
+    expect(isOpen()).toBe(true)
     fireEvent.keyDown(document, { key: 'Escape' })
-    expect(isOpen('Eldeki setler')).toBe(false)
+    expect(isOpen()).toBe(false)
   })
 
-  it('moves from one list to the other with a tap on the other stat', () => {
-    renderHand([testHolding(owl, 'ayla', 1000)])
-
-    fireEvent.click(listTrigger('Eldeki setler'))
-    fireEvent.pointerDown(listTrigger('Aktif efektler'), { pointerType: 'touch' })
-    fireEvent.click(listTrigger('Aktif efektler'), { detail: 1 })
-
-    expect(isOpen('Aktif Efektler')).toBe(true)
-    expect(isOpen('Eldeki setler')).toBe(false)
-  })
-
-  it('opens a list while its stat has the keyboard focus', async () => {
+  it('opens the list while the stat has the keyboard focus', async () => {
     const user = userEvent.setup()
     renderHand([testHolding(owl, 'ayla', 1000)])
-    const effects = listTrigger('Aktif efektler')
 
-    effects.focus()
+    act(() => trigger().focus())
     await user.tab({ shift: true })
     await user.tab()
-    expect(effects).toHaveFocus()
-    expect(isOpen('Aktif Efektler')).toBe(true)
+    expect(trigger()).toHaveFocus()
+    expect(isOpen()).toBe(true)
 
     await user.tab()
-    expect(isOpen('Aktif Efektler')).toBe(false)
-    expect(isOpen('Eldeki setler')).toBe(true)
+    expect(isOpen()).toBe(false)
   })
 })
 

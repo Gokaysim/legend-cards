@@ -226,8 +226,11 @@ function cut(text: string, max: number): string {
   return Array.from(text).slice(0, max).join('')
 }
 
-/** What a use's effect copies: the card's or word's name and visible text at the time, and whether it is Cursed. */
-export type UseEffectContent = { name: string; text: string; cursed: boolean }
+/**
+ * What a use's effect copies: the card's or word's name and visible text at the time, and whether it is Cursed or
+ * Blessed.
+ */
+export type UseEffectContent = { name: string; text: string; cursed: boolean; blessed: boolean }
 
 /**
  * Adds the effect of a use to the use's transaction (design D2 of add-character-effects), on the character the use
@@ -256,6 +259,7 @@ export function setUseEffect(
     name: cut(input.content.name, EFFECT_LIMITS.fromUse.name),
     text: cut(input.content.text, EFFECT_LIMITS.fromUse.text),
     cursed: input.source === 'card' && input.content.cursed,
+    blessed: input.source === 'card' && input.content.blessed,
     createdBy: input.by,
     createdAt: serverTimestamp(),
   })
@@ -288,6 +292,7 @@ export function addEffect(db: Firestore, input: AddEffectInput): Promise<void> {
     name,
     text,
     cursed: false,
+    blessed: false,
     createdBy: input.by,
     createdAt: serverTimestamp(),
   })

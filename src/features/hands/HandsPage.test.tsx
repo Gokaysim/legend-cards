@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type { BalanceActions } from '@/features/balances/balancesContext'
 import { testCard, testCursedCard } from '@/test/cardFixtures'
-import { testCharacter, testEffect } from '@/test/characterFixtures'
+import { testCharacter } from '@/test/characterFixtures'
 
 import { ready, testProfile, testUser } from '@/test/fixtures'
 import { testHolding } from '@/test/holdingFixtures'
@@ -116,7 +116,10 @@ describe('Legend Points on the hand', () => {
   const aylaWithLp = { ...ayla, lp: 7 }
   /** The value of a stat in the hand summary, by its label. */
   const stat = (label: string) =>
-    within(screen.getByLabelText('El özeti')).getByText(label).nextElementSibling?.textContent
+    within(screen.getByLabelText('El özeti'))
+      .getByText(label)
+      .closest('[data-tone]')
+      ?.querySelector('dd')?.textContent
 
   it("shows a player's LP as the first stat", () => {
     renderApp({ path: '/hands/ayla', users: { profiles: ready([aylaWithLp, me]) } })
@@ -230,8 +233,7 @@ describe('Legend Points on the hand', () => {
       users: { currentProfile: ready(dmWithLp), profiles: ready([dmWithLp]) },
       balances: { actions: { changeBalance } },
     })
-    // The stat's value cell also holds its control.
-    expect(stat('Legend Point')).toBe('3± LP')
+    expect(stat('Legend Point')).toBe('3')
     expect(main().queryByRole('button', { name: '− LP' })).not.toBeInTheDocument()
 
     await user.click(main().getByRole('button', { name: /LP'sini değiştir/ }))
@@ -255,66 +257,6 @@ describe('Legend Points on the hand', () => {
     })
     expect(stat('Legend Point')).toBe('3')
     expect(main().queryByRole('button', { name: /LP/ })).not.toBeInTheDocument()
-  })
-})
-
-describe('character effects in the hand summary', () => {
-  const stat = (label: string) =>
-    within(screen.getByLabelText('El özeti')).getByText(label).nextElementSibling?.textContent
-
-  it("counts and lists the stored effects of the player's active characters, not an archived one's", () => {
-    const owl = testCard('Night Owl', { hasHeldEffect: true })
-    const thorin = testCharacter('Thorin', 'ayla', { addedAtMillis: 1000 })
-    const kuzgun = testCharacter('Kuzgun', 'ayla', { addedAtMillis: 2000, archived: true })
-    renderApp({
-      path: '/hands/ayla',
-      users: { profiles: ready([ayla, me]) },
-      cards: { cards: ready([owl]) },
-      holdings: { openHoldings: ready([testHolding(owl, 'ayla', 1000, { active: true })]) },
-      characters: {
-        characters: ready([thorin, kuzgun]),
-        effects: ready([
-          testEffect('Kutsal su', thorin, { addedAtMillis: 3000 }),
-          testEffect('Kutsanmış kalkan', thorin, { addedAtMillis: 4000, source: 'dm' }),
-          testEffect('Unutulmuş', kuzgun),
-        ]),
-      },
-    })
-
-    expect(stat('Aktif efekt')).toBe('3')
-    const list = within(screen.getByRole('region', { name: 'Aktif Efektler' }))
-    expect(list.getByText('Night Owl')).toBeInTheDocument()
-    expect(list.getByText('Thorin')).toBeInTheDocument()
-    expect(list.getByText('Kutsanmış kalkan')).toBeInTheDocument()
-    expect(list.getByText('Kutsal su')).toBeInTheDocument()
-    expect(list.queryByText('Unutulmuş')).not.toBeInTheDocument()
-    expect(list.queryByText('Kuzgun')).not.toBeInTheDocument()
-  })
-})
-
-describe('active cards in the hand summary', () => {
-  const stat = (label: string) =>
-    within(screen.getByLabelText('El özeti')).getByText(label).nextElementSibling?.textContent
-
-  it('counts an active holding only while its card acts while held', () => {
-    const owl = testCard('Night Owl', { hasHeldEffect: true })
-    const pride = testCursedCard("Devil's Pride", { hasHeldEffect: false })
-    renderApp({
-      path: '/hands/ayla',
-      users: { profiles: ready([ayla, me]) },
-      cards: { cards: ready([owl, pride]) },
-      holdings: {
-        openHoldings: ready([
-          testHolding(owl, 'ayla', 1000, { active: true }),
-          testHolding(pride, 'ayla', 2000, { active: true }),
-        ]),
-      },
-    })
-
-    expect(stat('Aktif efekt')).toBe('1')
-    const list = within(screen.getByRole('region', { name: 'Aktif Efektler' }))
-    expect(list.getByText('Night Owl')).toBeInTheDocument()
-    expect(list.queryByText("Devil's Pride")).not.toBeInTheDocument()
   })
 })
 
@@ -509,7 +451,7 @@ describe('the notes on the hand', () => {
     )
   })
 
-  it('gives a player the Kartlar, True Words and Karakterler tabs only, and never reads a DM note', () => {
+  it('gives a player the Kartlar and True Words tabs and no DM notu tab, and never reads a DM note', () => {
     const onUseDmNote = vi.fn()
     renderApp({
       path: '/hands/ayla',
@@ -517,15 +459,11 @@ describe('the notes on the hand', () => {
       notes: { onUseDmNote },
     })
 
-    expect(tabs().map((tab) => tab.textContent)).toEqual([
-      '♠ Kartlar',
-      '✦ True Words',
-      '🧝 Karakterler',
-    ])
+    expect(tabs().map((tab) => tab.textContent)).toEqual(['♠ Kartlar', '✦ True Words'])
     expect(onUseDmNote).not.toHaveBeenCalled()
   })
 
-  it('gives the DM a fourth tab, "🔒 DM notu", after Karakterler, kept in the URL', async () => {
+  it('gives the DM a last tab, "🔒 DM notu", kept in the URL', async () => {
     const user = userEvent.setup()
     const { router } = renderApp({
       path: '/hands/ayla',
@@ -536,7 +474,6 @@ describe('the notes on the hand', () => {
     expect(tabs().map((tab) => tab.textContent)).toEqual([
       '♠ Kartlar',
       '✦ True Words',
-      '🧝 Karakterler',
       '🔒 DM notu',
     ])
 
@@ -602,8 +539,85 @@ describe('the notes on the hand', () => {
     expect(tabs().map((tab) => tab.textContent)).toEqual([
       '♠ Kartlar',
       '✦ True Words',
-      '🧝 Karakterler',
       '🔒 DM notu',
     ])
+  })
+})
+
+describe("the hand's tab row", () => {
+  const thorin = testCharacter('Thorin', 'ayla', { addedAtMillis: 1000 })
+  const mira = testCharacter('Mira', 'ayla', { addedAtMillis: 2000 })
+  const kuzgun = testCharacter('Kuzgun', 'ayla', { addedAtMillis: 3000, archived: true })
+  const aylaSelf = testProfile({ id: testUser.uid, displayName: 'Ayla' })
+  const own = (character: ReturnType<typeof testCharacter>) => ({ ...character, uid: testUser.uid })
+
+  /** A control's text without what is hidden from screen readers, such as a thumbnail's initial. */
+  const visibleName = (control: HTMLElement) => {
+    const copy = control.cloneNode(true) as HTMLElement
+    copy.querySelectorAll('[aria-hidden="true"]').forEach((hidden) => hidden.remove())
+    return control.getAttribute('aria-label') ?? copy.textContent
+  }
+  /** The row's tabs and buttons, in the order they show and the Tab key reaches them. */
+  const row = () =>
+    Array.from(
+      main()
+        .getByRole('tablist', { name: 'El' })
+        .parentElement!.querySelectorAll<HTMLElement>('button'),
+    ).map(visibleName)
+
+  it("shows a player's own row: Kartlar, True Words, their characters and +", () => {
+    renderApp({
+      path: `/hands/${testUser.uid}`,
+      users: { currentProfile: ready(aylaSelf), profiles: ready([aylaSelf]) },
+      characters: { characters: ready([own(thorin), own(mira)]) },
+    })
+
+    expect(row()).toEqual(['♠ Kartlar', '✦ True Words', 'Thorin', 'Mira', 'Karakter ekle'])
+    expect(main().getByRole('tab', { name: '♠ Kartlar' })).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('shows another player Arşiv but no + and no DM notu', () => {
+    renderApp({
+      path: '/hands/ayla',
+      users: { profiles: ready([me, ayla]) },
+      characters: { characters: ready([thorin, mira, kuzgun]) },
+    })
+
+    expect(row()).toEqual(['♠ Kartlar', '✦ True Words', 'Thorin', 'Mira', 'Arşiv (1)'])
+  })
+
+  it('shows the DM the whole row, with DM notu last and owned by the tablist', () => {
+    renderApp({
+      path: '/hands/ayla',
+      users: { currentProfile: ready(dmProfile), profiles: ready([ayla, dmProfile]) },
+      characters: { characters: ready([thorin, mira, kuzgun]) },
+    })
+
+    expect(row()).toEqual([
+      '♠ Kartlar',
+      '✦ True Words',
+      'Thorin',
+      'Mira',
+      'Karakter ekle',
+      'Arşiv (1)',
+      '🔒 DM notu',
+    ])
+    const tablist = main().getByRole('tablist', { name: 'El' })
+    const dmTab = main().getByRole('tab', { name: '🔒 DM notu' })
+    expect(tablist).toHaveAttribute('aria-owns', dmTab.id)
+  })
+
+  it('lies under the stats and wraps', () => {
+    renderApp({
+      path: '/hands/ayla',
+      users: { profiles: ready([me, ayla]) },
+      characters: { characters: ready([thorin, mira]) },
+    })
+
+    const summary = screen.getByLabelText('El özeti')
+    const tablist = main().getByRole('tablist', { name: 'El' })
+    expect(summary.compareDocumentPosition(tablist) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(tablist).toHaveClass('flex-wrap')
+    expect(tablist.parentElement).toHaveClass('flex-wrap')
   })
 })

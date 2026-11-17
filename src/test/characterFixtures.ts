@@ -56,6 +56,7 @@ export function testEffect(
     name,
     text: `${name} text.`,
     cursed: false,
+    blessed: false,
     createdBy: character.uid,
     createdAt: Timestamp.fromMillis(addedAtMillis),
     ...overrides,

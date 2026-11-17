@@ -46,11 +46,14 @@ function visibleText(element: HTMLElement): string {
   copy.querySelectorAll('[aria-hidden="true"]').forEach((hidden) => hidden.remove())
   return copy.textContent
 }
+/** The tabs of the hand's tab row that are not its fixed tabs. */
+const FIXED_TABS = ['♠ Kartlar', '✦ True Words', '🔒 DM notu']
 /** The character tabs' names, in order. */
 const tabs = () =>
-  within(main().getByRole('tablist', { name: 'Karakterler' }))
+  within(main().getByRole('tablist', { name: 'El' }))
     .queryAllByRole('tab')
     .map(visibleText)
+    .filter((name) => !FIXED_TABS.includes(name))
 const tab = (name: string) => main().getByRole('tab', { name: new RegExp(`^${name}`) })
 const addButton = () => main().queryByRole('button', { name: 'Karakter ekle' })
 /** The selected character's view, labelled by its tab. */
@@ -96,28 +99,34 @@ function setup({
   return { ...view, fakes, setList: (list: Character[]) => view.setCharacters(data(list)) }
 }
 
-describe('the Karakterler tab', () => {
-  it('opens from its URL, as after a reload, headed with whose characters they are', () => {
+describe("the character tabs in the hand's tab row", () => {
+  it('opens the first character from a link to the former Karakterler tab, with the player note', () => {
     setup()
 
-    expect(main().getByRole('tab', { name: '🧝 Karakterler' })).toHaveAttribute(
-      'aria-selected',
-      'true',
-    )
-    expect(main().getByRole('heading', { name: 'Ayla — Karakterler' })).toBeInTheDocument()
+    expect(tab('Thorin')).toHaveAttribute('aria-selected', 'true')
+    expect(view('Thorin').getByRole('heading', { name: 'Thorin' })).toBeInTheDocument()
     expect(main().getByRole('region', { name: 'Oyuncu notu' })).toBeInTheDocument()
+    expect(main().queryByRole('tab', { name: /Karakterler/ })).not.toBeInTheDocument()
   })
 
-  it('keeps the tab in the URL', async () => {
+  it('keeps the open character in the URL, and opens it again from there', async () => {
     const user = userEvent.setup()
     const { router } = renderApp({
       path: `/hands/${ayla.id}`,
       users: { currentProfile: ready(ayla), profiles: ready([ayla]) },
+      characters: { characters: ready([thorin, kuzgun]) },
     })
+    expect(main().getByRole('tab', { name: '♠ Kartlar' })).toHaveAttribute('aria-selected', 'true')
 
-    await user.click(main().getByRole('tab', { name: '🧝 Karakterler' }))
+    await user.click(tab('Kuzgun'))
+    expect(router.state.location.search).toBe(`?character=${kuzgun.id}`)
 
-    expect(router.state.location.search).toBe('?tab=characters')
+    await router.navigate(`/hands/${ayla.id}?character=${kuzgun.id}`)
+    expect(tab('Kuzgun')).toHaveAttribute('aria-selected', 'true')
+    expect(view('Kuzgun').getByRole('heading', { name: 'Kuzgun' })).toBeInTheDocument()
+
+    await user.click(main().getByRole('tab', { name: '♠ Kartlar' }))
+    expect(router.state.location.search).toBe('')
   })
 
   it("shows the hand's active characters as tabs in the order added, and Karakter ekle for their owner", () => {
@@ -130,7 +139,6 @@ describe('the Karakterler tab', () => {
   it("shows another player's characters without Karakter ekle", () => {
     setup({ hand: 'bora' })
 
-    expect(main().getByRole('heading', { name: 'Bora — Karakterler' })).toBeInTheDocument()
     expect(tabs()).toEqual(['Elara'])
     expect(addButton()).not.toBeInTheDocument()
   })
@@ -142,18 +150,18 @@ describe('the Karakterler tab', () => {
     expect(addButton()).toBeInTheDocument()
   })
 
-  it('says so when the hand has no characters, with no view', () => {
+  it('shows no character tab and opens the Kartlar tab when the hand has no characters', () => {
     setup({ hand: 'bora', characters: [thorin] })
 
-    expect(main().getByText('Henüz karakter yok.')).toBeInTheDocument()
-    expect(main().queryByRole('tablist', { name: 'Karakterler' })).not.toBeInTheDocument()
+    expect(tabs()).toEqual([])
+    expect(main().getByRole('tab', { name: '♠ Kartlar' })).toHaveAttribute('aria-selected', 'true')
     expect(main().queryByRole('tabpanel', { name: /^Thorin/ })).not.toBeInTheDocument()
   })
 
   it('offers Karakter ekle to the owner of a hand without characters', () => {
     setup({ characters: [] })
 
-    expect(main().getByText('Henüz karakter yok.')).toBeInTheDocument()
+    expect(tabs()).toEqual([])
     expect(addButton()).toBeInTheDocument()
   })
 
@@ -180,27 +188,52 @@ describe('the Karakterler tab', () => {
     expect(within(thorinTab).getByText('T')).toBeInTheDocument()
   })
 
-  it('lists the archived characters, collapsed, with Geri al for the owner', async () => {
+  it('cuts a long name short, and still reads it whole', () => {
+    const long = testCharacter('Thorin Demirsakal Ormanların Koruyucusu', ayla.id, {
+      addedAtMillis: 3000,
+    })
+    setup({ characters: [long] })
+
+    const name = within(tab('Thorin Demirsakal')).getByText(long.name)
+    expect(name).toHaveClass('truncate')
+    expect(tab('Thorin Demirsakal')).toHaveAccessibleName(long.name)
+  })
+
+  it('opens the archived characters in a dialog, with Geri al for the owner', async () => {
     const user = userEvent.setup()
     const { fakes } = setup()
 
-    const archived = main().getByText('Arşivlenen karakterler (1)')
-    await user.click(archived)
-    await user.click(main().getByRole('button', { name: 'Geri al' }))
+    await user.click(main().getByRole('button', { name: 'Arşiv (1)' }))
+    const dialog = within(screen.getByRole('dialog', { name: 'Arşivlenen karakterler' }))
+    expect(dialog.getByText('Old')).toBeInTheDocument()
+    await user.click(dialog.getByRole('button', { name: 'Geri al' }))
 
     expect(fakes.setCharacterArchived).toHaveBeenCalledWith(old.id, false)
   })
 
-  it('shows no archived list when nothing is archived, and no Geri al for another player', () => {
-    setup({ characters: [thorin] })
-    expect(main().queryByText(/Arşivlenen karakterler/)).not.toBeInTheDocument()
+  it('shows a character brought back among the tabs again, and no Arşiv once none is archived', () => {
+    const { setList } = setup()
+
+    setList([thorin, kuzgun, { ...old, archived: false }, elara])
+
+    expect(tabs()).toEqual(['Old', 'Thorin', 'Kuzgun'])
+    expect(main().queryByRole('button', { name: /^Arşiv \(/ })).not.toBeInTheDocument()
   })
 
-  it("offers no Geri al on another player's archived characters", () => {
+  it('shows no Arşiv when nothing is archived', () => {
+    setup({ characters: [thorin] })
+    expect(main().queryByRole('button', { name: /^Arşiv \(/ })).not.toBeInTheDocument()
+  })
+
+  it("shows another player's archived characters without Geri al", async () => {
+    const user = userEvent.setup()
     setup({ hand: 'bora', characters: [testCharacter('Gone', 'bora', { archived: true })] })
 
-    expect(main().getByText('Arşivlenen karakterler (1)')).toBeInTheDocument()
-    expect(main().queryByRole('button', { name: 'Geri al' })).not.toBeInTheDocument()
+    await user.click(main().getByRole('button', { name: 'Arşiv (1)' }))
+
+    const dialog = within(screen.getByRole('dialog', { name: 'Arşivlenen karakterler' }))
+    expect(dialog.getByText('Gone')).toBeInTheDocument()
+    expect(dialog.queryByRole('button', { name: 'Geri al' })).not.toBeInTheDocument()
   })
 })
 
@@ -265,6 +298,17 @@ describe("the selected character's view", () => {
     expect(tabs()).toEqual(['Thorin'])
     expect(tab('Thorin')).toHaveAttribute('aria-selected', 'true')
     expect(view('Thorin').getByRole('heading', { name: 'Thorin' })).toBeInTheDocument()
+  })
+
+  it('opens the Kartlar tab once the last character is archived', async () => {
+    const user = userEvent.setup()
+    const { setList } = setup({ characters: [thorin] })
+
+    await user.click(tab('Thorin'))
+    setList([{ ...thorin, archived: true }])
+
+    expect(tabs()).toEqual([])
+    expect(main().getByRole('tab', { name: '♠ Kartlar' })).toHaveAttribute('aria-selected', 'true')
   })
 
   describe('the sheet link', () => {

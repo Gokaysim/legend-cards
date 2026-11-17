@@ -2300,13 +2300,15 @@ service cloud.firestore {
           || (resource.data.source == 'dm' && isDm())
         );
 
-      // Exactly the stored fields. A use's effect names its use; one by hand names none. Only a card's is Cursed.
-      // Keep in step with src/features/characters/effects.ts.
+      // Exactly the stored fields, `blessed` optional: a page of the build before it existed writes none. A use's
+      // effect names its use; one by hand names none. Only a card's is Cursed or Blessed, never both. Keep in step
+      // with src/features/characters/effects.ts.
       function validEffect(data) {
         let fields = ['characterId', 'uid', 'source', 'sourceId', 'name', 'text', 'cursed', 'createdBy',
           'createdAt'];
         let fromUse = data.source == 'card' || data.source == 'word';
-        return data.keys().hasOnly(fields)
+        let blessed = data.get('blessed', false);
+        return data.keys().hasOnly(fields.concat(['blessed']))
           && data.keys().hasAll(fields)
           && data.characterId is string
           && data.uid is string
@@ -2316,7 +2318,9 @@ service cloud.firestore {
           && data.text is string
           && data.text.size() <= 2000
           && data.cursed is bool
-          && (data.source == 'card' || data.cursed == false);
+          && (data.source == 'card' || data.cursed == false)
+          && blessed is bool
+          && (blessed == false || (data.source == 'card' && data.cursed == false));
       }
 
       // An effect written by hand: a name of 1 to 60 characters and a text of 1 to 500.
@@ -2332,7 +2336,8 @@ service cloud.firestore {
 
       // A use in this same request, by the signed-in user, on this character, which belongs to the effect's `uid`: a
       // kept use's record (`uses`) when one is created now under this ID, otherwise a holding closed now as used. The
-      // source is 'word' for a True Word and 'card' otherwise, and only a Cursed card's effect is Cursed.
+      // source is 'word' for a True Word and 'card' otherwise, only a Cursed card's effect is Cursed, and only a Blessed
+      // card's may be Blessed.
       function followsUse(data) {
         return existsAfter(usePath(data.sourceId)) ? followsKeptUse(data) : followsClosedUse(data);
       }
@@ -2346,6 +2351,7 @@ service cloud.firestore {
           && after.returnedBy == request.auth.uid
           && after.get('usedOnCharacterId', null) == data.characterId
           && data.cursed == (after.cardKind == 'cursed')
+          && (data.get('blessed', false) == false || after.cardKind == 'blessed')
           && get(cardPath(after.cardId)).data.hasUseEffect == true
           && get(characterPath(data.characterId)).data.uid == data.uid;
       }
@@ -2358,6 +2364,7 @@ service cloud.firestore {
           && use.get('usedOnCharacterId', null) == data.characterId
           && (data.source == 'word') == (use.cardKind == 'trueWord')
           && data.cursed == (use.cardKind == 'cursed')
+          && (data.get('blessed', false) == false || use.cardKind == 'blessed')
           && get(cardPath(use.cardId)).data.hasUseEffect == true
           && get(characterPath(data.characterId)).data.uid == data.uid;
       }

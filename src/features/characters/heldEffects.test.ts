@@ -39,6 +39,7 @@ describe('heldEffects', () => {
         name: 'Devil’s Pride',
         text: 'Held: no Natural 20 .',
         cursed: true,
+        blessed: false,
       },
       {
         id: 'h3',
@@ -46,8 +47,16 @@ describe('heldEffects', () => {
         name: 'Second Wind',
         text: 'Second Wind text.',
         cursed: false,
+        blessed: true,
       },
-      { id: 'r1', kind: 'word', name: 'Abyss', text: 'Abyss word.', cursed: false },
+      {
+        id: 'r1',
+        kind: 'word',
+        name: 'Abyss',
+        text: 'Abyss word.',
+        cursed: false,
+        blessed: false,
+      },
     ])
   })
 

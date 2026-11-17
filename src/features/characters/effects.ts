@@ -41,6 +41,11 @@ export const characterEffectSchema = z
     text: z.string().max(EFFECT_LIMITS.fromUse.text),
     /** Only a Cursed card's effect: it shows in the Cursed color. */
     cursed: z.boolean(),
+    /**
+     * Only a Blessed card's effect: it shows in the Blessed color. Effects stored before the field existed have none and
+     * read as not Blessed (design D6 of redesign-hand-dashboard).
+     */
+    blessed: z.boolean().default(false),
     createdBy: id,
     createdAt: serverTime,
   })
@@ -53,6 +58,9 @@ export const characterEffectSchema = z
     }
     if (effect.cursed && effect.source !== 'card') {
       issue('cursed', 'only a card effect is Cursed')
+    }
+    if (effect.blessed && (effect.source !== 'card' || effect.cursed)) {
+      issue('blessed', 'only a card effect that is not Cursed is Blessed')
     }
     if (!isFromUse(effect.source)) {
       if (Array.from(effect.name).length > EFFECT_LIMITS.byHand.name) {
