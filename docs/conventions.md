@@ -164,6 +164,8 @@ src/
                         holdings, the table, packs, the log's and the statistics' records and draws, the notes,
                         the dice, fixtures)
 public/art/             the pictures that `npm run build-art` builds, with their manifest; committed
+public/favicon.svg      the site icon: a gold-framed ✦ card before a True Word card, drawn by hand
+public/apple-touch-icon.png  the icon at 180 px with square corners, rendered from favicon.svg with sharp
 scripts/                admin scripts on Node with the Admin SDK, and the picture build (see Scripts)
 data/                   the owner's CSV data and archive listing that the scripts and tests read; git-ignored,
                         only on the owner's machine, except its README (see data/README.md)

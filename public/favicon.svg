@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Legend Cards icon: a gold-framed card with a ✦ in front of a True Word card, on the app's canvas. -->
+  <defs>
+    <linearGradient id="face" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2a2f45" />
+      <stop offset="1" stop-color="#131a26" />
+    </linearGradient>
+    <linearGradient id="frame" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f9d777" />
+      <stop offset="0.55" stop-color="#e9b94c" />
+      <stop offset="1" stop-color="#8d5a17" />
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ffae41" stop-opacity="0.55" />
+      <stop offset="1" stop-color="#ffae41" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="#0c111a" />
+  <rect x="14" y="10" width="28" height="40" rx="4.5" fill="#2e274c" stroke="#a67bff" stroke-width="3"
+    transform="rotate(-14 28 30)" />
+  <g transform="rotate(9 36 34)">
+    <rect x="22" y="13" width="28" height="40" rx="4.5" fill="url(#face)" stroke="url(#frame)" stroke-width="3.5" />
+    <circle cx="36" cy="33" r="13" fill="url(#glow)" />
+    <path d="M36 21.5 Q37.6 31.4 45.5 33 Q37.6 34.6 36 44.5 Q34.4 34.6 26.5 33 Q34.4 31.4 36 21.5 Z" fill="#f9d777" />
+  </g>
+</svg>
