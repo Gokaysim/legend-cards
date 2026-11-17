@@ -19,14 +19,10 @@ import {
 } from './simulate'
 import { rememberedSimulation, rememberSimulation } from './simulationCache'
 
-/** How the camera frames the tray: the whole tray in a wide strip, or the dice up close in a small card. */
-export type StageVariant = 'strip' | 'card'
-
 export type DiceStageProps = {
   /** A roll with its content and motion. */
   roll: DiceRoll
   motion: DieMotion[]
-  variant: StageVariant
   /** Play the throw; otherwise the dice lie at their recorded rest at once. */
   playing: boolean
   /** A new value plays the throw again ("Tekrar izle"). */
@@ -44,7 +40,7 @@ const FIELD_OF_VIEW = 28
 const HALF_VIEW = Math.tan(((FIELD_OF_VIEW / 2) * Math.PI) / 180)
 /** The tray's outer half extents once turned a quarter so its long side runs across the screen. */
 const TRAY_HALF = { x: 1.04, z: 0.56 }
-/** The tray is turned a quarter about the vertical axis: Owlbear's tray is tall, the strip and the card are wide. */
+/** The tray is turned a quarter about the vertical axis: Owlbear's tray is tall, the strip is wide. */
 const TURN = new THREE.Euler(0, Math.PI / 2, 0)
 
 const simulations = new Map<string, Promise<Simulation>>()
@@ -100,45 +96,22 @@ function geometryOf(gltf: { scene: THREE.Object3D }): THREE.BufferGeometry {
   return geometry
 }
 
-/** Where the camera stands: above the centre of what it frames, high enough to see all of it. */
-function framing(variant: StageVariant, rests: readonly Transform[], aspect: number) {
-  let centreX = 0
-  let centreZ = 0
-  let halfX = TRAY_HALF.x
-  let halfZ = TRAY_HALF.z
-  if (variant === 'card' && rests.length > 0) {
-    const turned = rests.map(({ position }) =>
-      new THREE.Vector3(position.x, 0, position.z).applyEuler(TURN),
-    )
-    const xs = turned.map((point) => point.x)
-    const zs = turned.map((point) => point.z)
-    const [minX, maxX, minZ, maxZ] = [
-      Math.min(...xs),
-      Math.max(...xs),
-      Math.min(...zs),
-      Math.max(...zs),
-    ]
-    centreX = (minX + maxX) / 2
-    centreZ = (minZ + maxZ) / 2
-    halfX = Math.max((maxX - minX) / 2 + 0.2, 0.3)
-    halfZ = Math.max((maxZ - minZ) / 2 + 0.2, 0.3)
-  }
-  const height = Math.max(halfZ / HALF_VIEW, halfX / (HALF_VIEW * aspect))
-  return { centreX, centreZ, height }
+/** How high the camera stands above the tray's centre to see the whole tray. */
+function cameraHeight(aspect: number): number {
+  return Math.max(TRAY_HALF.z / HALF_VIEW, TRAY_HALF.x / (HALF_VIEW * aspect))
 }
 
-function Camera({ variant, rests }: { variant: StageVariant; rests: readonly Transform[] }) {
+function Camera() {
   const camera = useThree((state) => state.camera)
   const size = useThree((state) => state.size)
   const invalidate = useThree((state) => state.invalidate)
   useLayoutEffect(() => {
     const aspect = size.height > 0 ? size.width / size.height : 1
-    const { centreX, centreZ, height } = framing(variant, rests, aspect)
-    camera.position.set(centreX, height, centreZ)
+    camera.position.set(0, cameraHeight(aspect), 0)
     camera.rotation.set(-Math.PI / 2, 0, 0)
     camera.updateProjectionMatrix()
     invalidate()
-  }, [camera, size, variant, rests, invalidate])
+  }, [camera, size, invalidate])
   return null
 }
 
@@ -343,15 +316,7 @@ function Dice({
  * recorded, simulated once on this device. Loaded lazily with three.js, React Three Fiber and Rapier; nothing outside
  * `stage/` imports them.
  */
-export function DiceStage({
-  roll,
-  motion,
-  variant,
-  playing,
-  playKey,
-  sound,
-  onRest,
-}: DiceStageProps) {
+export function DiceStage({ roll, motion, playing, playKey, sound, onRest }: DiceStageProps) {
   const content = roll.content
   const simulation = use(simulationOf(roll, motion))
   const types = useMemo(() => content?.dice.map((die) => die.t) ?? [], [content])
@@ -382,7 +347,7 @@ export function DiceStage({
       aria-hidden="true"
     >
       <Suspense fallback={null}>
-        <Camera variant={variant} rests={rests} />
+        <Camera />
         <Environment />
         <directionalLight
           position={[0.6, 3, 0.4]}

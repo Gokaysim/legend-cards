@@ -6,7 +6,6 @@ import { useReducedMotion } from '@/lib/useReducedMotion'
 import { FlatDice, NaturalMarkLabel } from './FlatDice'
 import { rollView } from './rollView'
 import type { DiceRoll } from './schema'
-import type { StageVariant } from './stage/DiceStage'
 import { canDraw3d } from './webgl'
 
 const DiceStage = lazy(() =>
@@ -15,7 +14,6 @@ const DiceStage = lazy(() =>
 
 export type DiceViewProps = {
   roll: DiceRoll
-  variant: StageVariant
   /** Play the throw; otherwise show the dice at rest. */
   playing: boolean
   /** A new value plays the throw again. */
@@ -46,7 +44,7 @@ class StageBoundary extends Component<BoundaryProps, { failed: boolean }> {
 }
 
 /** The roll's results as numbers, for a device without 3D. Tells the caller at once that the dice are at rest. */
-function FlatStage({ roll, variant, onRest }: Pick<DiceViewProps, 'roll' | 'variant' | 'onRest'>) {
+function FlatStage({ roll, onRest }: Pick<DiceViewProps, 'roll' | 'onRest'>) {
   const onRestRef = useRef(onRest)
   useEffect(() => {
     onRestRef.current = onRest
@@ -61,7 +59,7 @@ function FlatStage({ roll, variant, onRest }: Pick<DiceViewProps, 'roll' | 'vari
       data-testid="flat-dice"
       className="flex size-full flex-wrap items-center justify-center gap-2 p-2"
     >
-      <FlatDice view={view} style={roll.content.style} size={variant === 'strip' ? 'lg' : 'sm'} />
+      <FlatDice view={view} style={roll.content.style} size="lg" />
       <NaturalMarkLabel view={view} />
     </div>
   )
@@ -73,7 +71,6 @@ function FlatStage({ roll, variant, onRest }: Pick<DiceViewProps, 'roll' | 'vari
  */
 export function DiceView({
   roll,
-  variant,
   playing,
   playKey = 0,
   sound = false,
@@ -82,7 +79,7 @@ export function DiceView({
 }: DiceViewProps) {
   const isReduced = useReducedMotion()
   const motion = roll.content?.motion ?? null
-  const flat = <FlatStage roll={roll} variant={variant} onRest={onRest} />
+  const flat = <FlatStage roll={roll} onRest={onRest} />
   return (
     <div className={cn('relative overflow-hidden', className)}>
       {motion && canDraw3d() ? (
@@ -91,7 +88,6 @@ export function DiceView({
             <DiceStage
               roll={roll}
               motion={motion}
-              variant={variant}
               playing={playing && !isReduced}
               playKey={playKey}
               sound={sound}

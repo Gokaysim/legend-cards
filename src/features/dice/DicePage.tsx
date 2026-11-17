@@ -26,6 +26,12 @@ type StripState = { roll: DiceRoll; playing: boolean; key: number }
 /** How close to the bottom the channel counts as scrolled to the end, in pixels. */
 const BOTTOM_SLACK = 48
 
+/**
+ * A new roll's result shows at the latest this long after it starts playing, even if the strip never reports its dice
+ * at rest (spec: dice-rolls, "When a hidden result shows"; design D1 of reveal-dice-results-after-the-throw).
+ */
+export const SETTLE_MAX_MS = 10_000
+
 function LiveMark() {
   return (
     <span className="flex items-center gap-1.5 text-xs text-green">
@@ -89,10 +95,24 @@ export function DicePage() {
   // The strip plays each fresh roll as it arrives, the user's own included; a newer roll replaces the one playing.
   const [strip, setStrip] = useState<StripState | null>(null)
   const [playedFresh, setPlayedFresh] = useState<string | null>(fresh?.id ?? null)
+  // The fresh roll whose dice still tumble in the strip: its channel entry hides its result until they rest (spec:
+  // "Results hidden until the dice rest"). "Tekrar izle" never sets it; a newer fresh roll replaces it.
+  const [settlingId, setSettlingId] = useState<string | null>(null)
   if (fresh && fresh.id !== playedFresh) {
     setPlayedFresh(fresh.id)
     setStrip({ roll: fresh, playing: true, key: (strip?.key ?? 0) + 1 })
+    setSettlingId(fresh.content ? fresh.id : null)
   }
+  const settle = (rollId: string) =>
+    setSettlingId((current) => (current === rollId ? null : current))
+  useEffect(() => {
+    if (settlingId === null) return
+    const timer = setTimeout(
+      () => setSettlingId((current) => (current === settlingId ? null : current)),
+      SETTLE_MAX_MS,
+    )
+    return () => clearTimeout(timer)
+  }, [settlingId])
   const shown: StripState | null =
     strip ?? (newestWithContent ? { roll: newestWithContent, playing: false, key: 0 } : null)
   const replay = (roll: DiceRoll) => setStrip({ roll, playing: true, key: (strip?.key ?? 0) + 1 })
@@ -121,7 +141,9 @@ export function DicePage() {
         const box = event.currentTarget
         isAtEnd.current = box.scrollHeight - box.scrollTop - box.clientHeight < BOTTOM_SLACK
       }}
-      className="max-h-120 overflow-y-auto lg:max-h-[calc(100dvh-13rem)]"
+      // `relative` keeps the entries' sr-only text inside the box: without it, that text escaped the scroll box and
+      // made the whole page scroll as far as the channel's content (spec: "The Zarlar screen").
+      className="relative max-h-120 overflow-y-auto lg:max-h-[calc(100dvh-13rem)]"
     >
       {rolls.status === 'loading' ? <Spinner /> : null}
       {rolls.status === 'error' ? (
@@ -141,7 +163,13 @@ export function DicePage() {
       ) : null}
       <ol aria-label="Atışlar" className="flex flex-col gap-0.5">
         {list.map((roll) => (
-          <RollEntry key={roll.id} roll={roll} roller={profileOf(roll.by)} onReplay={replay} />
+          <RollEntry
+            key={roll.id}
+            roll={roll}
+            roller={profileOf(roll.by)}
+            isSettling={roll.id === settlingId}
+            onReplay={replay}
+          />
         ))}
       </ol>
     </div>
@@ -161,10 +189,10 @@ export function DicePage() {
                 <DiceView
                   key={shown.roll.id}
                   roll={shown.roll}
-                  variant="strip"
                   playing={shown.playing}
                   playKey={shown.key}
                   sound={settings.sound}
+                  onRest={() => settle(shown.roll.id)}
                   className="size-full"
                 />
                 <span className="absolute top-3 left-3 rounded-full bg-canvas/75 px-2.5 py-1 text-xs text-ink-muted">

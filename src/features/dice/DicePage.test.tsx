@@ -337,6 +337,12 @@ describe('the channel', () => {
     expect(cem).toHaveTextContent('Toplam: 15')
   })
 
+  it('keeps its screen-reader text inside its own scroll box, so the page does not scroll with it', () => {
+    renderDice({ dice: { rolls: [testRoll()] } })
+    // jsdom has no layout: the box must be positioned, or its entries' sr-only spans make the whole page scroll.
+    expect(channel().parentElement).toHaveClass('relative', 'overflow-y-auto')
+  })
+
   it('marks a roll waiting to be sent, as offline', () => {
     renderDice({ dice: { rolls: [testRoll({ by: testUser.uid, at: null })] } })
     expect(within(channel()).getByRole('listitem', { name: 'Gökay atışı' })).toHaveTextContent(

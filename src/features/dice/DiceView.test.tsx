@@ -38,22 +38,20 @@ describe('DiceView', () => {
   it('shows the results as numbers when the 3D part fails to load, and reports the rest', async () => {
     webgl.available = true
     const onRest = vi.fn()
-    render(
-      <DiceView roll={testRoll({ content: { motion } })} variant="strip" playing onRest={onRest} />,
-    )
+    render(<DiceView roll={testRoll({ content: { motion } })} playing onRest={onRest} />)
     expect(await screen.findByTestId('flat-dice')).toHaveTextContent('17')
     expect(onRest).toHaveBeenCalled()
   })
 
   it('shows the dice flat without WebGL', () => {
-    render(<DiceView roll={testRoll({ content: { motion } })} variant="card" playing />)
+    render(<DiceView roll={testRoll({ content: { motion } })} playing />)
     expect(screen.getByTestId('flat-dice')).toBeInTheDocument()
   })
 
   it('shows a roll without motion flat', () => {
     webgl.available = true
     const onRest = vi.fn()
-    render(<DiceView roll={testRoll()} variant="strip" playing onRest={onRest} />)
+    render(<DiceView roll={testRoll()} playing onRest={onRest} />)
     expect(screen.getByTestId('flat-dice')).toHaveTextContent('4')
     expect(onRest).toHaveBeenCalledTimes(1)
   })

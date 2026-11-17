@@ -48,6 +48,31 @@ describe('a roll arrives on another screen', () => {
     ).toBeInTheDocument()
   })
 
+  it('shows the roll without dice: no tray, no throw', () => {
+    const roll = boraRoll()
+    renderShell({ dice: { rolls: [roll], fresh: roll } })
+    const notice = card() as HTMLElement
+    expect(within(notice).queryByTestId('flat-dice')).not.toBeInTheDocument()
+    expect(within(notice).queryByText('Zarlar yükleniyor')).not.toBeInTheDocument()
+    expect(within(notice).queryByRole('list', { name: 'Zarlar' })).not.toBeInTheDocument()
+  })
+
+  it('shows a long formula whole, with the fixed number as written', () => {
+    const roll = testRoll({
+      by: 'bora',
+      dice: [
+        ['d20', 12],
+        ['d4', 3],
+      ],
+      content: { modifier: 11, modifierSum: '5+10-4' },
+    })
+    renderShell({ dice: { rolls: [roll], fresh: roll } })
+    const line = within(card() as HTMLElement).getByText(/1d20 \+ 1d4 \+ 5 \+ 10 − 4/)
+    expect(line).toHaveTextContent('1d20 + 1d4 + 5 + 10 − 4 · 12 + 3 + 5 + 10 − 4')
+    expect(line).not.toHaveClass('truncate')
+    expect(card()).toHaveTextContent('Toplam: 26')
+  })
+
   it('sits at the bottom right of a wide window and at the top of a phone', () => {
     const roll = boraRoll()
     renderShell({ dice: { rolls: [roll], fresh: roll } })
@@ -98,7 +123,8 @@ describe('a roll arrives on another screen', () => {
 })
 
 describe('the notification card closes on its own', () => {
-  it('closes 4 seconds after its dice rest', () => {
+  it('closes 6 seconds after it appears', () => {
+    expect(NOTICE_MS).toBe(6000)
     vi.useFakeTimers()
     const roll = boraRoll()
     renderShell({ dice: { rolls: [roll], fresh: roll } })

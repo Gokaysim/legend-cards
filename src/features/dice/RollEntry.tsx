@@ -13,6 +13,11 @@ export type RollEntryProps = {
   roll: DiceRoll
   /** The roller's profile, when loaded. */
   roller: UserProfile | undefined
+  /**
+   * The roll's dice still tumble in the strip: the result is blurred and hidden from assistive technology until they
+   * rest (spec: dice-rolls, "Results hidden until the dice rest").
+   */
+  isSettling?: boolean
   /** Plays the roll's throw again in the strip; writes nothing. */
   onReplay: (roll: DiceRoll) => void
 }
@@ -38,7 +43,7 @@ function LockIcon() {
  * its result, the total and the natural marks, and "Tekrar izle". A hidden roll shows to a player as "DM gizli zar
  * attı" and to the DM in full, marked hidden. A roll still waiting to be sent says so.
  */
-export function RollEntry({ roll, roller, onReplay }: RollEntryProps) {
+export function RollEntry({ roll, roller, isSettling = false, onReplay }: RollEntryProps) {
   const name = roller ? profileName(roller) : 'Bilinmeyen oyuncu'
   const isPending = isPendingRoll(roll)
   const content = roll.content
@@ -83,19 +88,29 @@ export function RollEntry({ roll, roller, onReplay }: RollEntryProps) {
             <div
               className={cn(
                 'mt-1.5 inline-flex max-w-full flex-wrap items-center gap-1.5 rounded-xl border border-line bg-pane px-3 py-2',
-                view.mark === 'natural20' && 'border-gold',
-                view.mark === 'natural1' && 'border-cursed',
+                !isSettling && view.mark === 'natural20' && 'border-gold',
+                !isSettling && view.mark === 'natural1' && 'border-cursed',
               )}
             >
               <span className="mr-1 text-sm text-ink-muted">{view.formula}</span>
-              <FlatDice view={view} style={content.style} />
-              {view.modifier ? (
-                <span className="text-sm text-ink-muted">{view.modifier}</span>
-              ) : null}
-              <NaturalMarkLabel view={view} className="ml-1" />
-              <span className="ml-2 text-2xl font-extrabold text-gold">
-                <span className="sr-only">Toplam: </span>
-                {view.total}
+              {isSettling ? <span className="sr-only">sonuç bekleniyor</span> : null}
+              <span
+                data-testid="roll-result"
+                aria-hidden={isSettling || undefined}
+                className={cn(
+                  'inline-flex flex-wrap items-center gap-1.5 motion-safe:transition-[filter] motion-safe:duration-300',
+                  isSettling && 'blur-sm select-none',
+                )}
+              >
+                <FlatDice view={view} style={content.style} />
+                {view.modifier ? (
+                  <span className="text-sm text-ink-muted">{view.modifier}</span>
+                ) : null}
+                {isSettling ? null : <NaturalMarkLabel view={view} className="ml-1" />}
+                <span className="ml-2 text-2xl font-extrabold text-gold">
+                  <span className="sr-only">Toplam: </span>
+                  {view.total}
+                </span>
               </span>
             </div>
           </>

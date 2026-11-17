@@ -12,8 +12,8 @@ vi.mock('./webgl', () => ({ canDraw3d: () => true }))
 
 // The 3D part, reduced to the props it gets.
 vi.mock('./stage/DiceStage', () => ({
-  DiceStage: ({ playing, variant }: DiceStageProps) => (
-    <p data-testid="stage">{`${variant} ${playing ? 'plays' : 'at rest'}`}</p>
+  DiceStage: ({ playing }: DiceStageProps) => (
+    <p data-testid="stage">{playing ? 'plays' : 'at rest'}</p>
   ),
 }))
 
@@ -35,13 +35,13 @@ afterEach(() => {
 describe('dice without motion', () => {
   it('plays the throw on a device that allows motion', async () => {
     stubMedia()
-    render(<DiceView roll={testRoll({ content: { motion } })} variant="strip" playing />)
-    expect(await screen.findByTestId('stage')).toHaveTextContent('strip plays')
+    render(<DiceView roll={testRoll({ content: { motion } })} playing />)
+    expect(await screen.findByTestId('stage')).toHaveTextContent(/^plays$/)
   })
 
   it('shows the dice at rest at once with reduced motion', async () => {
     stubMedia('(prefers-reduced-motion: reduce)')
-    render(<DiceView roll={testRoll({ content: { motion } })} variant="card" playing />)
-    expect(await screen.findByTestId('stage')).toHaveTextContent('card at rest')
+    render(<DiceView roll={testRoll({ content: { motion } })} playing />)
+    expect(await screen.findByTestId('stage')).toHaveTextContent(/^at rest$/)
   })
 })
