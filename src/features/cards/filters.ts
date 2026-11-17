@@ -29,12 +29,14 @@ export type Facet = {
   key: FacetKey
   /** The facet's Turkish name on its pill. */
   name: string
-  /** The card's value as the facet compares it, or `null` when the card has none (it never matches a value). */
-  cardKey: (card: Card) => string | null
+  /**
+   * The card's or True Word's value as the facet compares it, or `null` when it has none (it never matches a value).
+   */
+  cardKey: (card: Definition) => string | null
   /** A chosen value as the facet compares it. */
   valueKey: (value: string) => string
   /** The values the cards have, each once, in the facet's order, with their labels. */
-  choices: (cards: readonly Card[]) => { value: string; label: string }[]
+  choices: (cards: readonly Definition[]) => { value: string; label: string }[]
   /** The label of a chosen value that the cards no longer have. */
   labelOf: (value: string) => string
 }
@@ -43,12 +45,18 @@ export type Facet = {
 export type FacetValues = Partial<Record<FacetKey, string | null>>
 
 /** A test every shown card must pass besides the facets: the keyword, or "Yalnızca havuzdakiler". */
-export type CardTest = (card: Card) => boolean
+export type CardTest<T extends Definition = Definition> = (card: T) => boolean
 
-const RARITY_LABELS = { common: 'Common', rare: 'Rare', blessed: 'Blessed', cursed: 'Cursed' }
+const RARITY_LABELS = {
+  common: 'Common',
+  rare: 'Rare',
+  blessed: 'Blessed',
+  cursed: 'Cursed',
+  trueWord: 'True Word',
+}
 
 /** The kinds "+ Kart ver" offers, in order. */
-export const GIVE_KINDS = ['common', 'rare', 'blessed', 'cursed'] as const
+export const GIVE_KINDS = ['common', 'rare', 'blessed', 'cursed', 'trueWord'] as const
 export type GiveKind = (typeof GIVE_KINDS)[number]
 
 /** The set facet: the sets in the shop order, by their official names, without "Blessed" (design D1). */
@@ -120,12 +128,13 @@ export const rarityFacet: Facet = {
   labelOf: (value) => RARITY_LABELS[value as GiveKind] ?? value,
 }
 
-/** The kind of a card as "+ Kart ver" filters it: its rarity, Blessed, or Cursed. */
-export function giveKind(card: Card): GiveKind | null {
+/** The kind of a card or True Word as "+ Kart ver" filters it: its rarity, Blessed, Cursed, or True Word. */
+export function giveKind(card: Definition): GiveKind | null {
+  if (card.kind === 'trueWord') return 'trueWord'
   return card.kind === 'cursed' ? 'cursed' : drawRarity(card)
 }
 
-/** The give dialog's kind facet: always Common, Rare, Blessed and Cursed. */
+/** The give dialog's kind facet: always Common, Rare, Blessed, Cursed and True Word. */
 export const kindFacet: Facet = {
   key: 'kind',
   name: 'Tür',
@@ -147,17 +156,17 @@ export function giveFacets(sets: SetLookup & Pick<SetIndex, 'setRank'>): Facet[]
 
 const chosen = (values: FacetValues, key: FacetKey) => values[key]?.trim() || null
 
-function passes(card: Card, facet: Facet, value: string | null): boolean {
+function passes(card: Definition, facet: Facet, value: string | null): boolean {
   return value === null || facet.cardKey(card) === facet.valueKey(value)
 }
 
-/** The cards that pass every chosen facet and the test. */
-export function applyFacets(
-  cards: readonly Card[],
+/** The cards (or cards and True Words) that pass every chosen facet and the test. */
+export function applyFacets<T extends Definition>(
+  cards: readonly T[],
   facets: readonly Facet[],
   values: FacetValues,
-  test: CardTest = () => true,
-): Card[] {
+  test: CardTest<T> = () => true,
+): T[] {
   return cards.filter(
     (card) => facets.every((facet) => passes(card, facet, chosen(values, facet.key))) && test(card),
   )
@@ -167,12 +176,12 @@ export function applyFacets(
  * One facet's choices: each value the cards have, in the facet's order, with how many cards match it together with
  * the other chosen facets and the test. A chosen value stays listed with 0 when the cards no longer have it.
  */
-export function facetChoices(
-  cards: readonly Card[],
+export function facetChoices<T extends Definition>(
+  cards: readonly T[],
   facets: readonly Facet[],
   values: FacetValues,
   key: FacetKey,
-  test: CardTest = () => true,
+  test: CardTest<T> = () => true,
 ): FacetChoice[] {
   const facet = facets.find((candidate) => candidate.key === key)
   if (!facet) return []

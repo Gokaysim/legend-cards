@@ -187,6 +187,14 @@ export function learnableWords(words: readonly TrueWord[], known: ReadonlySet<st
 }
 
 /**
+ * The words the DM can teach a player who knows `known`: active and not known, whatever their flags (spec:
+ * true-words, "The DM teaches a word"). A word kept out of drafts ("DM'e özel") is among them.
+ */
+export function teachableWords(words: readonly TrueWord[], known: ReadonlySet<string>): TrueWord[] {
+  return words.filter((word) => word.status === 'active' && !known.has(word.id))
+}
+
+/**
  * Starts a True Word draft, in one transaction that writes the open draft, points the player's state at it, and,
  * when paid, writes the ledger entry and the new LP, as the rules require. Returns the draft's ID.
  *

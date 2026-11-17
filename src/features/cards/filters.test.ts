@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 import { testSetIndex, testSetName } from '@/test/setFixtures'
+import { testTrueWord } from '@/test/trueWordFixtures'
 
 import {
   applyFacets,
@@ -14,7 +15,7 @@ import {
   keywordTest,
   mechanicPackFacet,
 } from './filters'
-import type { Card } from './schema'
+import type { Card, Definition } from './schema'
 
 const draw = drawFacets(testSetIndex)
 const give = giveFacets(testSetIndex)
@@ -52,8 +53,8 @@ const counts = (
   facets: typeof draw,
   values: FacetValues,
   key: FacetKey,
-  list: readonly Card[] = cards,
-  test?: (card: Card) => boolean,
+  list: readonly Definition[] = cards,
+  test?: (card: Definition) => boolean,
 ) =>
   Object.fromEntries(
     facetChoices(list, facets, values, key, test).map((choice) => [choice.label, choice.count]),
@@ -151,16 +152,54 @@ describe('facetChoices', () => {
 
   it("gives the give dialog's kinds, Cursed included, and a pool-only test", () => {
     const all = [...cards, cursed]
-    expect(counts(give, {}, 'kind', all)).toEqual({ Common: 1, Rare: 3, Blessed: 1, Cursed: 1 })
+    expect(counts(give, {}, 'kind', all)).toEqual({
+      Common: 1,
+      Rare: 3,
+      Blessed: 1,
+      Cursed: 1,
+      'True Word': 0,
+    })
     expect(applyFacets(all, give, { kind: 'cursed' })).toEqual([cursed])
     const inPool = new Set([kesqerRare.id, blessed.id])
-    const poolOnly = (card: Card) => inPool.has(card.id)
+    const poolOnly = (card: Definition) => inPool.has(card.id)
     expect(applyFacets(all, give, {}, poolOnly)).toEqual([kesqerRare, blessed])
     expect(counts(give, {}, 'kind', all, poolOnly)).toEqual({
       Common: 0,
       Rare: 1,
       Blessed: 1,
       Cursed: 0,
+      'True Word': 0,
     })
+  })
+})
+
+describe('True Words in the give facets', () => {
+  const ascend = testTrueWord('Ascend 3', { cost: '1', isInDraws: false })
+  const aid = testTrueWord('Aid', { cost: 'X' })
+  const all: Definition[] = [...cards, cursed, ascend, aid]
+
+  it('lists True Word as a kind and keeps only words under it', () => {
+    expect(counts(give, {}, 'kind', all)).toEqual({
+      Common: 1,
+      Rare: 3,
+      Blessed: 1,
+      Cursed: 1,
+      'True Word': 2,
+    })
+    expect(applyFacets(all, give, { kind: 'trueWord' })).toEqual([ascend, aid])
+  })
+
+  it('leaves the words out under a set or a mechanic pack', () => {
+    expect(applyFacets(all, give, { set: 'Kesqer' })).not.toContain(ascend)
+    expect(applyFacets(all, give, { mechanicPack: 'Risk & Reward' })).toEqual([kesqerRare, blessed])
+  })
+
+  it("matches a word's cost", () => {
+    expect(applyFacets(all, give, { cost: '1' })).toEqual([kesqerRare, kesqerCommon, ascend])
+    expect(counts(give, { kind: 'trueWord' }, 'cost', all)).toMatchObject({ '1': 1, X: 1 })
+  })
+
+  it("leaves the draw's facets for cards alone", () => {
+    expect(counts(draw, {}, 'rarity')).toEqual({ Common: 1, Rare: 3, Blessed: 1 })
   })
 })

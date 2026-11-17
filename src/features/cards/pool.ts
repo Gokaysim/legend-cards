@@ -102,7 +102,7 @@ export function cursedPool(cards: readonly Card[]): Card[] {
 }
 
 /** A card's rarity for the draw filter: its rarity, `blessed` for a Blessed card, and none for a Cursed card. */
-export function drawRarity(card: Card): DrawRarity | null {
+export function drawRarity(card: Pick<Definition, 'kind' | 'rarity'>): DrawRarity | null {
   return card.kind === 'blessed' ? 'blessed' : card.rarity
 }
 

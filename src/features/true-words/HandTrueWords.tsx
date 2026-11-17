@@ -4,6 +4,7 @@ import { Link } from 'react-router'
 import { libraryPath } from '@/app/screens'
 import { Button } from '@/components/ui/Button'
 import { Spinner } from '@/components/ui/Spinner'
+import { GiveCardDialog } from '@/features/hands/GiveCardDialog'
 import { TABLE_BUSY_NOTE } from '@/features/table/errors'
 import { useIsTableBusy } from '@/features/table/tableContext'
 import type { UserProfile } from '@/features/users/schema'
@@ -11,7 +12,6 @@ import { profileName, useIsDm } from '@/features/users/usersContext'
 
 import { OpenDraftPanel } from './OpenDraftPanel'
 import type { TrueWord } from './schema'
-import { TeachWordDialog } from './TeachWordDialog'
 import { TrueWordTile } from './TrueWordTile'
 import { type KnownWordEntry, useOpenDraft } from './trueWordsContext'
 
@@ -30,7 +30,8 @@ export type HandTrueWordsProps = {
 /**
  * A hand's True Words tab (v2.2.8's `trueWordsHand`): its heading, the player's open draft, live, their known words in
  * the order learned as their pictures with their active state (design D9), and a link to the draft on the Kütüphane's
- * True Words tab. Selecting a word opens its details. The DM also gets "+ True Word öğret".
+ * True Words tab. Selecting a word opens its details. The DM also gets "+ True Word öğret", which opens "+ Kart ver"
+ * with the kind "True Word" chosen.
  */
 export function HandTrueWords({
   profile,
@@ -47,7 +48,6 @@ export function HandTrueWords({
 
   const name = profileName(profile)
   const wordsById = useMemo(() => new Map(words.map((word) => [word.id, word])), [words])
-  const known = useMemo(() => new Set(entries.map((entry) => entry.record.wordId)), [entries])
   const draft = openDraft.status === 'ready' ? openDraft.data : null
 
   return (
@@ -124,11 +124,11 @@ export function HandTrueWords({
         </ol>
       )}
 
+      {/* "+ True Word öğret" is a shortcut to "+ Kart ver" on True Words (design D6 of give-true-words-with-cards). */}
       {isTeaching ? (
-        <TeachWordDialog
-          student={profile}
-          words={words}
-          known={known}
+        <GiveCardDialog
+          receiver={profile}
+          initialKind="trueWord"
           onClose={() => setIsTeaching(false)}
         />
       ) : null}

@@ -3,10 +3,14 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { Card } from '@/features/cards/schema'
+import { WordError } from '@/features/true-words/errors'
+import type { LearnedWord } from '@/features/true-words/schema'
+import type { TrueWordActions } from '@/features/true-words/trueWordsContext'
 import { ONLY_FROM_DM, testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 import { ready, testProfile, testUser } from '@/test/fixtures'
 import { testHolding } from '@/test/holdingFixtures'
 import { renderApp } from '@/test/renderApp'
+import { testLearnedWord, testTrueWord } from '@/test/trueWordFixtures'
 
 import { HoldingError } from './errors'
 import type { HoldingActions } from './holdingsContext'
@@ -297,5 +301,129 @@ describe('GiveCardDialog', () => {
     await user.click(dialog().getByRole('button', { name: '✕ Kapat' }))
 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+})
+
+describe('GiveCardDialog with True Words', () => {
+  const ascend = testTrueWord('Ascend 3', { isInDraws: false, isInLibrary: false })
+  const aid = testTrueWord('Aid')
+  const abyss = testTrueWord('Abyss')
+  const echo = testTrueWord('Echo')
+  const oldWord = testTrueWord('Old Word', { status: 'retired' })
+  const WORDS = [ascend, aid, abyss, echo, oldWord]
+  const aylaKnowsAbyss = testLearnedWord('r-abyss', abyss, 'ayla')
+  const boraKnowsAid = testLearnedWord('r-aid', aid, 'bora')
+
+  function setupWords({
+    teachWord,
+    initialRecords = [aylaKnowsAbyss, boraKnowsAid],
+  }: {
+    teachWord?: TrueWordActions['teachWord']
+    initialRecords?: LearnedWord[]
+  } = {}) {
+    const user = userEvent.setup()
+    const teach = vi.fn<TrueWordActions['teachWord']>(
+      teachWord ?? (() => Promise.resolve('test-record')),
+    )
+    const trueWords = (records: LearnedWord[]) => ({
+      words: ready(WORDS),
+      knownWords: ready(records),
+      actions: { teachWord: teach },
+    })
+    const view = renderApp({
+      path: '/hands/ayla',
+      users: { currentProfile: ready(dm), profiles: ready([ayla, bora, dm]) },
+      cards: { cards: ready([eyes, wish]) },
+      holdings: { openHoldings: ready([]) },
+      trueWords: trueWords(initialRecords),
+    })
+    return { user, teach, trueWords, ...view }
+  }
+
+  it('lists the active words with the cards, by name, with their badges', async () => {
+    const { user } = setupWords()
+    await open(user)
+
+    expect(count()).toHaveTextContent('6 kart')
+    expect(faces()).toEqual(["Aboleth's Eyes", 'Abyss', 'Aid', 'Ascend 3', 'Echo', 'The Last Wish'])
+    expect(badgeOf('Ascend 3')).toBe("DM'e özel")
+    expect(badgeOf('Aid')).toBe('Bora')
+    expect(badgeOf('Abyss')).toBe('Biliyor')
+    expect(badgeOf('Echo')).toBeUndefined()
+  })
+
+  it('finds a word by its name', async () => {
+    const { user } = setupWords()
+    await openAndSearch(user, 'ascend')
+
+    expect(faces()).toEqual(['Ascend 3'])
+  })
+
+  it("narrows to True Words and keeps the drafts' words in the pool", async () => {
+    const { user } = setupWords()
+    await open(user)
+
+    await choose(user, /^Tür/, 'True Word, 4 kart')
+    expect(faces()).toEqual(['Abyss', 'Aid', 'Ascend 3', 'Echo'])
+
+    await user.click(dialog().getByRole('button', { name: 'Yalnızca havuzdakiler' }))
+    expect(faces()).toEqual(['Abyss', 'Aid', 'Echo'])
+  })
+
+  it('teaches a word only the DM gives from the bar, and stays open', async () => {
+    const { user, teach, trueWords, setTrueWords } = setupWords()
+    await openAndSearch(user, 'ascend')
+
+    await select(user, 'Ascend 3')
+    expect(bar().getByText(/→ Ayla/)).toHaveTextContent('Ascend 3 → Ayla')
+    expect(bar().queryByText(/Ek kopya/)).not.toBeInTheDocument()
+    await user.click(bar().getByRole('button', { name: 'Öğret' }))
+
+    expect(teach).toHaveBeenCalledExactlyOnceWith({
+      uid: 'ayla',
+      wordId: ascend.id,
+      by: testUser.uid,
+    })
+    expect(dialog().getByRole('status')).toHaveTextContent('Öğretildi: Ascend 3 → Ayla')
+
+    setTrueWords(
+      trueWords([aylaKnowsAbyss, boraKnowsAid, testLearnedWord('r-ascend', ascend, 'ayla')]),
+    )
+    expect(badgeOf('Ascend 3')).toBe('Biliyor')
+    expect(dialog().queryByRole('button', { name: 'Ascend 3: seç' })).not.toBeInTheDocument()
+  })
+
+  it('does not let a word the receiver knows be selected', async () => {
+    const { user } = setupWords()
+    await open(user)
+
+    expect(dialog().queryByRole('button', { name: 'Abyss: seç' })).not.toBeInTheDocument()
+    await user.click(dialog().getByRole('article', { name: 'Abyss' }))
+    expect(dialog().queryByRole('region', { name: 'Seçili kart' })).not.toBeInTheDocument()
+  })
+
+  it('shows the word error when the teach fails', async () => {
+    const { user } = setupWords({
+      teachWord: () => Promise.reject(new WordError('word-known')),
+    })
+    await open(user)
+
+    await select(user, 'Echo')
+    await user.click(bar().getByRole('button', { name: 'Öğret' }))
+
+    expect(dialog().getByRole('alert')).toHaveTextContent("Ayla bu True Word'ü zaten biliyor.")
+    expect(dialog().queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  it('does not try to teach a word offline', async () => {
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+    const { user, teach } = setupWords()
+    await open(user)
+
+    await select(user, 'Echo')
+    await user.click(bar().getByRole('button', { name: 'Öğret' }))
+
+    expect(teach).not.toHaveBeenCalled()
+    expect(dialog().getByRole('alert')).toHaveTextContent('Bağlantı yok')
   })
 })

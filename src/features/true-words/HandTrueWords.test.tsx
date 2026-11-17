@@ -443,20 +443,27 @@ describe("the DM's word controls", () => {
     expect(within(screen.getByRole('dialog')).getByText(TABLE_BUSY_NOTE)).toBeVisible()
   })
 
-  it('teaches a word the player does not know, found by name or text', async () => {
+  it('opens "+ Kart ver" on True Words, and teaches a word found by its text', async () => {
     const { user, actions } = renderTab({ viewer: dm })
 
     await user.click(main().getByRole('button', { name: '+ True Word öğret' }))
-    const dialog = within(screen.getByRole('dialog', { name: "Ayla'ya True Word öğret" }))
-    expect(dialog.getAllByRole('article').map((tile) => tile.getAttribute('aria-label'))).toEqual([
-      'Chaos',
-      'Dragon',
-    ])
-    await user.type(dialog.getByLabelText('Ara'), 'fire')
-    expect(dialog.getAllByRole('article').map((tile) => tile.getAttribute('aria-label'))).toEqual([
-      'Dragon',
-    ])
-    await user.click(dialog.getByRole('button', { name: 'Dragon: öğret' }))
+    const dialog = within(screen.getByRole('dialog', { name: 'Kart ver: Ayla' }))
+    const faces = () =>
+      within(dialog.getByRole('list', { name: 'Kartlar' }))
+        .getAllByRole('article')
+        .map((face) => face.getAttribute('aria-label'))
+    // The kind "True Word" is chosen, so only the active words show; the ones Ayla knows cannot be selected.
+    expect(dialog.getByRole('button', { name: 'Tür filtresini kaldır' })).toBeInTheDocument()
+    expect(faces()).toEqual(['Abyss', 'Aid', 'Chaos', 'Dragon'])
+    expect(dialog.queryByRole('button', { name: 'Abyss: seç' })).toBeNull()
+    await user.type(dialog.getByRole('searchbox', { name: 'Kart ara' }), 'fire')
+    expect(faces()).toEqual(['Dragon'])
+    await user.click(dialog.getByRole('button', { name: 'Dragon: seç' }))
+    await user.click(
+      within(dialog.getByRole('region', { name: 'Seçili kart' })).getByRole('button', {
+        name: 'Öğret',
+      }),
+    )
 
     expect(actions.teachWord).toHaveBeenCalledWith({
       uid: 'ayla',

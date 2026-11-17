@@ -1,6 +1,5 @@
 import { createContext, useContext, useMemo } from 'react'
 
-import { compareLabels } from '@/features/cards/sort'
 import type { Subscription } from '@/lib/firestore/subscription'
 
 import type {
@@ -86,13 +85,6 @@ export function compareLearnOrder(a: LearnedWord, b: LearnedWord): number {
 /** One player's known words, in the order learned. A record being taken back right now is left out. */
 export function knownWordsOf(records: readonly LearnedWord[], uid: string): LearnedWord[] {
   return records.filter((record) => record.uid === uid && isKnown(record)).sort(compareLearnOrder)
-}
-
-/** The active words, sorted by name for the True Words screen and the teach dialog. */
-export function activeWordsSorted(words: readonly TrueWord[]): TrueWord[] {
-  return words
-    .filter((word) => word.status === 'active')
-    .sort((a, b) => compareLabels(a.name, b.name))
 }
 
 /** Every record of a word someone knows now, all players'. Must be used inside `<TrueWordsProvider>`. */

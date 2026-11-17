@@ -8,7 +8,6 @@ import { type TestTrueWords, TestTrueWordsProvider } from '@/test/TestTrueWordsP
 import { testLearnedWord, testTrueWord, testWordDraft } from '@/test/trueWordFixtures'
 
 import {
-  activeWordsSorted,
   knownWordEntries,
   knownWordsOf,
   useKnownWords,
@@ -20,7 +19,6 @@ const abyss = testTrueWord('Abyss')
 const aid = testTrueWord('Aid')
 const chaos = testTrueWord('Chaos')
 const old = testTrueWord('Old', { status: 'retired' })
-const echo = testTrueWord('Echo', { status: 'draft', cost: null, text: '' })
 
 const at = (millis: number) => ({ learnedAt: Timestamp.fromMillis(millis) })
 
@@ -70,16 +68,6 @@ describe('knownWordEntries', () => {
     expect(entries.map(({ word, record }) => [word.name, record.active])).toEqual([
       ['Justice', true],
       ['Abyss', false],
-    ])
-  })
-})
-
-describe('activeWordsSorted', () => {
-  it('keeps the active words, sorted by name', () => {
-    expect(activeWordsSorted([chaos, old, echo, abyss, aid]).map((word) => word.name)).toEqual([
-      'Abyss',
-      'Aid',
-      'Chaos',
     ])
   })
 })

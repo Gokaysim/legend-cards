@@ -1,4 +1,4 @@
-import { useDeferredValue, useId, useMemo, useState } from 'react'
+import { useCallback, useDeferredValue, useId, useMemo, useState } from 'react'
 
 import { Button } from '@/components/ui/Button'
 import { Dialog } from '@/components/ui/Dialog'
@@ -15,13 +15,21 @@ import {
   type FacetKey,
   type FacetValues,
   giveFacets,
+  type GiveKind,
 } from '@/features/cards/filters'
-import type { Card } from '@/features/cards/schema'
+import type { Definition, TrueWord } from '@/features/cards/schema'
 import { compareLabels } from '@/features/cards/sort'
 import { hasChannel } from '@/features/cards/pool'
 import { type CardStatus, DM_ONLY_LABEL } from '@/features/cards/status'
 import { searchTerms } from '@/features/cards/text'
 import { useSetIndex } from '@/features/sets/setsContext'
+import { toWordFailure, wordFailureMessage } from '@/features/true-words/errors'
+import {
+  useKnownWords,
+  useTrueWordActions,
+  useTrueWords,
+} from '@/features/true-words/trueWordsContext'
+import { useWordStatuses } from '@/features/true-words/wordStatus'
 import type { UserProfile } from '@/features/users/schema'
 import { profileName, useProfiles } from '@/features/users/usersContext'
 import { cn } from '@/lib/cn'
@@ -29,14 +37,17 @@ import { genitive } from '@/lib/turkish'
 import { useOnlineStatus } from '@/lib/useOnlineStatus'
 
 import { useCardStatuses } from './cardStatus'
-import { type HoldingFailure, holdingFailureMessage, toHoldingFailure } from './errors'
+import { holdingFailureMessage, toHoldingFailure } from './errors'
 import { useHoldingActions } from './holdingsContext'
 
 /** The grid shows this many more cards each time (spec: card-holdings, "Browsing the cards to give"). */
 const PAGE = 20
 
-/** The selected card, and for a held normal card the holder to name before an extra copy. */
-type Selection = { card: Card; holderName: string | null }
+/**
+ * The selected card or True Word, and for a held normal card the holder to name before an extra copy. A word never
+ * has one.
+ */
+type Selection = { card: Definition; holderName: string | null }
 
 type Badge = { text: string; tone: 'pool' | 'held' | 'dmOnly' | 'cursed' }
 
@@ -47,31 +58,48 @@ const BADGE_TONES: Record<Badge['tone'], string> = {
   cursed: 'border-cursed text-cursed-soft',
 }
 
-/** The badge on a face: "DM'e özel", the holders' names, "Havuzda", or "Cursed" for a Cursed card no one holds. */
-function badgeOf(card: Card, status: CardStatus | undefined): Badge | null {
+/**
+ * The badge on a face: "DM'e özel", the holders' names, "Havuzda", or "Cursed" for a Cursed card no one holds. A True
+ * Word shows "Biliyor" when the receiver knows it, then "DM'e özel" when it stays out of drafts, then the names of
+ * those who know it (spec: card-holdings, "Cards to give as faces").
+ */
+function badgeOf(
+  card: Definition,
+  status: CardStatus | undefined,
+  isKnownByReceiver: boolean,
+): Badge | null {
+  if (card.kind === 'trueWord' && isKnownByReceiver) return { text: 'Biliyor', tone: 'held' }
   if (!hasChannel(card)) return { text: DM_ONLY_LABEL, tone: 'dmOnly' }
   const names = status?.holderNames ?? []
   if (card.kind === 'cursed') {
     return { text: names.length > 0 ? names.join(', ') : 'Cursed', tone: 'cursed' }
   }
+  if (card.kind === 'trueWord')
+    return names.length > 0 ? { text: names.join(', '), tone: 'held' } : null
   if (names.length > 0) return { text: names.join(', '), tone: 'held' }
   return status?.inPool ? { text: 'Havuzda', tone: 'pool' } : null
 }
 
 export type GiveCardDialogProps = {
-  /** The player who gets the cards. */
+  /** The player who gets the cards and learns the words. */
   receiver: UserProfile
+  /** The kind chosen when the dialog opens: "+ True Word öğret" opens it on True Words. */
+  initialKind?: GiveKind
   onClose: () => void
 }
 
+/** The active words, the ones only the DM teaches included: the DM's device reads them all. */
+const activeWords = (words: readonly TrueWord[]) => words.filter((word) => word.status === 'active')
+
 /**
- * The DM's "+ Kart ver" (design D5 of `improve-draw-and-give-dialogs`): every active card of both decks as faces in a
- * grid, by name, 20 at a time, narrowed by the search (as the library's) and the filter pills, each face with its
- * status as a badge. Selecting a face selects the card; the bar at the bottom gives it, and for a held normal card
- * first asks whether to give an extra copy. The dialog stays open after a give, so the DM can give several cards in a
- * row.
+ * The DM's "+ Kart ver" (design D5 of `improve-draw-and-give-dialogs`): every active card of both decks and every
+ * active True Word as faces in a grid, by name, 20 at a time, narrowed by the search (as the library's) and the filter
+ * pills, each face with its status as a badge. Selecting a face selects the card or word; the bar at the bottom gives
+ * the card, and for a held normal card first asks whether to give an extra copy, or teaches the word (design D4 of
+ * `give-true-words-with-cards`). A word the receiver knows cannot be selected. The dialog stays open after a give, so
+ * the DM can give several in a row.
  */
-export function GiveCardDialog({ receiver, onClose }: GiveCardDialogProps) {
+export function GiveCardDialog({ receiver, initialKind, onClose }: GiveCardDialogProps) {
   const ids = useId()
   const auth = useAuth()
   const uid = auth.status === 'signedIn' ? auth.user.uid : null
@@ -80,37 +108,60 @@ export function GiveCardDialog({ receiver, onClose }: GiveCardDialogProps) {
   const profiles = useProfiles()
   const statuses = useCardStatuses()
   const actions = useHoldingActions()
+  const words = useTrueWords()
+  const knownWords = useKnownWords(receiver.id)
+  const wordStatuses = useWordStatuses()
+  const wordActions = useTrueWordActions()
   const isOnline = useOnlineStatus()
   const receiverName = profileName(receiver)
 
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
-  const [values, setValues] = useState<FacetValues>({})
+  const [values, setValues] = useState<FacetValues>(initialKind ? { kind: initialKind } : {})
   const [isPoolOnly, setIsPoolOnly] = useState(false)
   const [page, setPage] = useState({ key: '', limit: PAGE })
   const [selection, setSelection] = useState<Selection | null>(null)
   const [isBusy, setIsBusy] = useState(false)
-  const [failure, setFailure] = useState<HoldingFailure | null>(null)
+  const [failure, setFailure] = useState<string | null>(null)
   const [given, setGiven] = useState<string | null>(null)
 
   const facets = useMemo(() => giveFacets(sets), [sets])
-  const haystacks = useMemo(
+  // The cards and the active words, once all of them and the receiver's words have loaded (design D1).
+  const base = useMemo<Definition[] | null>(
     () =>
-      new Map(
-        cards.status === 'ready'
-          ? cards.data.map((card) => [card.id, cardHaystack(card, sets.setName)])
-          : [],
-      ),
-    [cards, sets],
+      cards.status === 'ready' && words.status === 'ready' && knownWords.status === 'ready'
+        ? [...cards.data, ...activeWords(words.data)]
+        : null,
+    [cards, words, knownWords],
+  )
+  const loadStatus =
+    cards.status === 'error' || words.status === 'error' || knownWords.status === 'error'
+      ? 'error'
+      : base === null
+        ? 'loading'
+        : 'ready'
+  const known = useMemo(
+    () =>
+      new Set(knownWords.status === 'ready' ? knownWords.data.map((record) => record.wordId) : []),
+    [knownWords],
+  )
+  const haystacks = useMemo(
+    () => new Map((base ?? []).map((card) => [card.id, cardHaystack(card, sets.setName)])),
+    [base, sets],
   )
   const hasQuery = searchTerms(deferredQuery).length > 0
+  // "Yalnızca havuzdakiler" keeps the cards in the pool and the words a draft can show (design D3).
+  const isInPool = useCallback(
+    (card: Definition) =>
+      card.kind === 'trueWord' ? hasChannel(card) : statuses?.get(card.id)?.inPool === true,
+    [statuses],
+  )
   const test = useMemo<CardTest>(
     () => (card) =>
-      (!isPoolOnly || statuses?.get(card.id)?.inPool === true) &&
+      (!isPoolOnly || isInPool(card)) &&
       (!hasQuery || cardMatchesQuery(haystacks.get(card.id) ?? '', deferredQuery)),
-    [isPoolOnly, statuses, hasQuery, haystacks, deferredQuery],
+    [isPoolOnly, isInPool, hasQuery, haystacks, deferredQuery],
   )
-  const base = cards.status === 'ready' ? cards.data : null
   const matches = useMemo(
     () =>
       base === null
@@ -137,8 +188,8 @@ export function GiveCardDialog({ receiver, onClose }: GiveCardDialogProps) {
   }
 
   // A held normal card gets an extra copy only after asking. A DM-only card is never in the pool, so its holder, not
-  // the pool, tells whether someone holds it.
-  const select = (card: Card) => {
+  // the pool, tells whether someone holds it. A word never asks.
+  const select = (card: Definition) => {
     setFailure(null)
     setGiven(null)
     const holderName =
@@ -148,33 +199,56 @@ export function GiveCardDialog({ receiver, onClose }: GiveCardDialogProps) {
     setSelection({ card, holderName })
   }
 
+  // A word is taught with the True Word step, without a draft and without LP (design D4).
+  const teach = async (word: Definition, by: string) => {
+    if (!isOnline) {
+      setFailure(wordFailureMessage({ kind: 'offline' }, receiverName))
+      return
+    }
+    setIsBusy(true)
+    try {
+      await wordActions.teachWord({ uid: receiver.id, wordId: word.id, by })
+      setSelection(null)
+      setGiven(`Öğretildi: ${word.name} → ${receiverName}`)
+    } catch (error) {
+      setFailure(wordFailureMessage(toWordFailure(error), receiverName))
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
   const give = async () => {
     if (uid === null || selection === null) return
     const { card, holderName } = selection
-    const allowExtraCopy = holderName !== null
     setFailure(null)
     setGiven(null)
+    if (card.kind === 'trueWord') {
+      await teach(card, uid)
+      return
+    }
+    const allowExtraCopy = holderName !== null
     if (!isOnline) {
-      setFailure({ kind: 'offline' })
+      setFailure(holdingFailureMessage({ kind: 'offline' }))
       return
     }
     setIsBusy(true)
     try {
       await actions.giveCard({ cardId: card.id, uid: receiver.id, by: uid, allowExtraCopy })
       setSelection(null)
-      setGiven(`${card.name} → ${receiverName}`)
+      setGiven(`Verildi: ${card.name} → ${receiverName}`)
     } catch (error) {
       const result = toHoldingFailure(error)
       if (result.kind === 'taken' && !allowExtraCopy) {
         // Someone took the card meanwhile: offer the extra copy instead.
         setSelection({ card, holderName: holderNameOf(result.holderUid) })
       } else {
-        setFailure(result)
+        setFailure(holdingFailureMessage(result))
       }
     } finally {
       setIsBusy(false)
     }
   }
+  const isWordSelected = selection?.card.kind === 'trueWord'
 
   return (
     <Dialog title={`Kart ver: ${receiverName}`} onClose={onClose} className="sm:max-w-5xl">
@@ -215,9 +289,9 @@ export function GiveCardDialog({ receiver, onClose }: GiveCardDialogProps) {
         </div>
       ) : null}
 
-      {cards.status === 'loading' ? (
+      {loadStatus === 'loading' ? (
         <Spinner label="Kartlar yükleniyor…" className="py-6" />
-      ) : cards.status === 'error' ? (
+      ) : loadStatus === 'error' ? (
         <p role="alert" className="text-sm text-danger-ink">
           Kartlar yüklenemedi.
         </p>
@@ -230,14 +304,19 @@ export function GiveCardDialog({ receiver, onClose }: GiveCardDialogProps) {
             className="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4 md:grid-cols-5"
           >
             {shown.map((card) => {
-              const badge = badgeOf(card, statuses?.get(card.id))
+              const isKnownByReceiver = card.kind === 'trueWord' && known.has(card.id)
+              const status =
+                card.kind === 'trueWord' ? wordStatuses?.get(card.id) : statuses?.get(card.id)
+              const badge = badgeOf(card, status, isKnownByReceiver)
               return (
                 <li key={card.id} className="relative min-w-0">
+                  {/* A word the receiver knows has no select control (spec: card-holdings, "Giving the selected
+                      card"). */}
                   <CardFace
                     card={card}
                     isSelected={selection?.card.id === card.id}
-                    onOpen={() => select(card)}
-                    openLabel={`${card.name}: seç`}
+                    onOpen={isKnownByReceiver ? undefined : () => select(card)}
+                    openLabel={isKnownByReceiver ? undefined : `${card.name}: seç`}
                   />
                   {badge ? (
                     <span
@@ -270,7 +349,7 @@ export function GiveCardDialog({ receiver, onClose }: GiveCardDialogProps) {
         <div className="sticky bottom-0 z-20 flex flex-col gap-2 bg-pane pt-2 shadow-[0_-12px_24px_var(--color-pane)]">
           {given ? (
             <p role="status" className="text-sm text-green">
-              ✓ Verildi: {given}
+              ✓ {given}
             </p>
           ) : null}
           {failure ? (
@@ -278,7 +357,7 @@ export function GiveCardDialog({ receiver, onClose }: GiveCardDialogProps) {
               role="alert"
               className="rounded-lg border border-danger-line bg-pane-raised p-3 text-sm text-danger-ink"
             >
-              {holdingFailureMessage(failure)}
+              {failure}
             </p>
           ) : null}
           {selection ? (
@@ -307,7 +386,15 @@ export function GiveCardDialog({ receiver, onClose }: GiveCardDialogProps) {
                 onClick={() => void give()}
                 className="h-11"
               >
-                {isBusy ? 'Veriliyor…' : selection.holderName !== null ? 'Ek kopya ver' : 'Ver'}
+                {isWordSelected
+                  ? isBusy
+                    ? 'Öğretiliyor…'
+                    : 'Öğret'
+                  : isBusy
+                    ? 'Veriliyor…'
+                    : selection.holderName !== null
+                      ? 'Ek kopya ver'
+                      : 'Ver'}
               </Button>
             </div>
           ) : null}
