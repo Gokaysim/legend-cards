@@ -500,7 +500,7 @@ When a player uses a card in their own hand, they SHALL pay its price from their
 - **THEN** the step shows 3 LP, and a confirmation that would pay the old price is not made
 
 ### Requirement: The DM chooses the amount of a use
-When the DM uses a card in a player's hand, the amount SHALL start at the price, or be empty when the user enters the price. The DM SHALL be able to set any whole number from 0 to that player's LP. The amount SHALL be taken from that player's LP, and with 0 the card SHALL be used for free. A card in the DM's own hand SHALL be used without a payment.
+When the DM uses a card in any hand, a DM's own included, the amount SHALL start at the price, or be empty when the user enters the price. The DM SHALL be able to set any whole number from 0 to the holder's LP. The amount SHALL be taken from the holder's LP, and with 0 the card SHALL be used for free.
 
 #### Scenario: The DM charges the price
 - **WHEN** the DM uses Ayla's 2-cost card and keeps the amount 2
@@ -519,8 +519,12 @@ When the DM uses a card in a player's hand, the amount SHALL start at the price,
 - **THEN** the amount is empty, and the DM must enter one to confirm
 
 #### Scenario: The DM's own hand
-- **WHEN** the DM uses a card in the DM's own hand
-- **THEN** no amount is asked, and no balance changes
+- **WHEN** the DM, who has 4 LP, uses a 2-cost card in the DM's own hand and keeps the amount 2
+- **THEN** the DM's LP drops to 2, recorded as a card use payment
+
+#### Scenario: The DM's own hand for free
+- **WHEN** the DM, who has 0 LP, uses a 3-cost card in the DM's own hand
+- **THEN** the amount can only be 0, and the card is used without a payment
 
 ### Requirement: The use step shows the payment
 The use step SHALL show the price and the holder's LP before and after the use. A price the user enters SHALL have its own field: "Zar sonucu (1–6)" for "d6", or "Kaç LP ödenecek?" for any other cost. The DM's field SHALL be labelled "Tutar (<name>'nın LP'sinden)" with the Turkish suffix that fits the name, and noted "0 = ücretsiz". The confirm control SHALL name the amount when it is more than 0, as "Kullanımı onayla (2 LP)".

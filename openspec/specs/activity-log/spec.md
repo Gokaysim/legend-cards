@@ -7,7 +7,7 @@ Shows what happened in the game on the İşlem Logu screen: the card movements a
 ## Requirements
 
 ### Requirement: One list of what happened
-The İşlem Logu screen SHALL list, newest first and live, every card given, drawn, used, discarded, and transferred, every pack opened, every True Word draft, every word the DM teaches or takes back, every use of a card or True Word that stays in the hand, every LP and GP change, every definition change, every set change, every change of the player draw mode, and every start and end of a fight. It SHALL be read from the holdings (the learned True Words among them), the draws, packs and True Word drafts, the use records, the ledger, the change records, the set change records, the table change records and the combat change records, so it never disagrees with them. Switching a card or a word active, notes, and cost overrides SHALL NOT be listed.
+The İşlem Logu screen SHALL list, newest first and live, every card given, drawn, used, discarded, and transferred, every pack opened, every True Word draft, every word the DM teaches or takes back, every use of a card or True Word that stays in the hand, every LP and GP change, every definition change, every set change, every change of the player draw mode, every DM role change made in the app, and every start and end of a fight. It SHALL be read from the holdings (the learned True Words among them), the draws, packs and True Word drafts, the use records, the ledger, the change records, the set change records, the table change records, the role change records and the combat change records, so it never disagrees with them. Switching a card or a word active, notes, and cost overrides SHALL NOT be listed.
 
 #### Scenario: Events from both sources
 - **WHEN** the DM gives Ayla a card and then adds 2 LP to Bora
@@ -40,6 +40,10 @@ The İşlem Logu screen SHALL list, newest first and live, every card given, dra
 #### Scenario: A mode change among the events
 - **WHEN** the DM adds 2 LP to Bora, and then sets the player draw mode to "Filtreli çekiş"
 - **THEN** the log shows the mode change first and the LP change below it
+
+#### Scenario: A role change among the events
+- **WHEN** the DM adds 2 LP to Bora, and then makes Ayla a DM
+- **THEN** the log shows the role change first and the LP change below it
 
 #### Scenario: A fight among the events
 - **WHEN** the DM adds 2 LP to Bora, and then starts a fight
@@ -136,7 +140,7 @@ The log SHALL first show the 50 most recent events. When there are older events,
 - **THEN** no "Daha fazla" control is shown
 
 ### Requirement: Player filter
-The log SHALL offer a filter for one user. With a user chosen, it SHALL list only the cards that user received, including the cards drawn into their hand and the packs opened for them, the cards that left their hand, their True Word drafts, the True Words the DM taught them or took back from them, the uses of their True Words, and the changes of their LP. Party purse changes, definition changes, player draw mode changes and fights SHALL be listed only without a filter.
+The log SHALL offer a filter for one user. With a user chosen, it SHALL list only the cards that user received, including the cards drawn into their hand and the packs opened for them, the cards that left their hand, their True Word drafts, the True Words the DM taught them or took back from them, the uses of their True Words, the changes of their LP, and the changes of their role. Party purse changes, definition changes, player draw mode changes and fights SHALL be listed only without a filter.
 
 #### Scenario: Filtering by a player
 - **WHEN** a user chooses Ayla in the filter
@@ -173,6 +177,10 @@ The log SHALL offer a filter for one user. With a user chosen, it SHALL list onl
 #### Scenario: Fights in the filter
 - **WHEN** a user chooses Ayla in the filter after a fight in which Ayla's "Thorn" took part
 - **THEN** the fight's start and end are not listed
+
+#### Scenario: Role changes in the filter
+- **WHEN** a DM made Ayla a DM and then took Bora's DM role, and a user chooses Ayla in the filter
+- **THEN** the change of Ayla's role is listed, and the change of Bora's role is not
 
 ### Requirement: Log states
 While the log is loading, the screen SHALL show a loading indicator. If it cannot be loaded, it SHALL show a Turkish error message. When there are no events, it SHALL say so in Turkish.
@@ -412,3 +420,22 @@ Each start and end of a fight SHALL be stored as one record, with the DM, the se
 #### Scenario: Changing a record
 - **WHEN** the DM tries to change the round count of an earlier fight's end
 - **THEN** the server denies it
+
+### Requirement: DM role changes are events
+Each role change made in the app (spec: dm-roles) SHALL appear as one event, visible to every signed-in user. It SHALL name the DM who made it and, in Turkish after that DM's name, what happened: "<name>'ı DM yaptı." for a grant, "<name>'ın DM'liğini aldı." for a role taken, and "DM'likten çıktı." for a DM stepping down, with the Turkish suffixes that fit the name. Role changes made by the admin script SHALL NOT appear.
+
+#### Scenario: Granting the role
+- **WHEN** Gökay makes Ayla a DM, and Bora opens the İşlem Logu
+- **THEN** he sees one event with Gökay's name marked as DM and "Ayla'yı DM yaptı."
+
+#### Scenario: Taking the role
+- **WHEN** Gökay takes the DM role from Ayla
+- **THEN** the log shows one event with Gökay's name and "Ayla'nın DM'liğini aldı."
+
+#### Scenario: Stepping down
+- **WHEN** Gökay steps down while Ayla is a DM
+- **THEN** the log shows one event with Gökay's name and "DM'likten çıktı."
+
+#### Scenario: The admin script
+- **WHEN** an admin makes Bora a DM with the role script
+- **THEN** the log shows no new event

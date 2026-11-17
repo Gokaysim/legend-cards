@@ -7,15 +7,19 @@ Tracks the players' Legend Points (LP) and the party's shared GP, and keeps a pe
 ## Requirements
 
 ### Requirement: Legend Points per player
-Every player SHALL have an LP balance, a whole number that starts at 0. The DM SHALL have no LP: it is not shown for the DM, and it cannot be changed.
+Every user, a DM included, SHALL have an LP balance, a whole number that starts at 0. A DM's LP SHALL follow the same rules as a player's, except where a rule names the DM's powers. A user's LP SHALL stay when their role changes.
 
 #### Scenario: A new player
 - **WHEN** a user signs in for the first time
 - **THEN** their LP is 0
 
 #### Scenario: The DM's LP
-- **WHEN** the DM tries to change the LP of a user whose role is DM
-- **THEN** the server denies the write
+- **WHEN** the DM, who never had LP, opens their own hand
+- **THEN** it shows 0 LP
+
+#### Scenario: A role change keeps LP
+- **WHEN** Ayla has 7 LP and is made a DM, and later a player again
+- **THEN** she has 7 LP throughout
 
 ### Requirement: Party purse
 The group SHALL share one GP balance, the party purse, a whole number that starts at 0.
@@ -36,11 +40,19 @@ Every signed-in user SHALL be able to read every LP balance, the party purse, an
 - **THEN** the server denies it
 
 ### Requirement: The DM changes balances by hand
-The DM SHALL be able to add a positive whole amount to, or subtract one from, any player's LP and the party purse. A single change SHALL be at most 1,000,000. Players SHALL NOT be able to change any balance, except as the exceptions below allow. The exceptions are a player's own change by hand that lowers their own LP (see "A player lowers their own LP"), a player's own payments from their LP (1 LP for a draw, their own pack's price, their own True Word draft's price, the price of using their own card or True Word), the payments and refunds of packs and True Word drafts, and the DM's payments for a player's card or True Word use, as the card-draws, pack-shop, card-holdings and true-words rules allow.
+The DM SHALL be able to add a positive whole amount to, or subtract one from, any user's LP, the DM's own and other DMs' included, and the party purse. A single change SHALL be at most 1,000,000. Players SHALL NOT be able to change any balance, except as the exceptions below allow. The exceptions are a player's own change by hand that lowers their own LP (see "A player lowers their own LP"), a player's own payments from their LP (1 LP for a draw, their own pack's price, their own True Word draft's price, the price of using their own card or True Word), the payments and refunds of packs and True Word drafts, and the DM's payments for a card or True Word use, as the card-draws, pack-shop, card-holdings and true-words rules allow.
 
 #### Scenario: The DM adds LP
 - **WHEN** the DM adds 2 LP to Ayla, who has 5 LP
 - **THEN** Ayla has 7 LP on every device
+
+#### Scenario: The DM gives themselves LP
+- **WHEN** the DM, who has 0 LP, adds 3 LP to their own LP with the reason "NPC ödülü"
+- **THEN** the DM has 3 LP on every device, and the ledger records the DM as both the account and the one who made the change
+
+#### Scenario: A DM changes another DM's LP
+- **WHEN** Gökay and Ayla are DMs, and Gökay subtracts 1 LP from Ayla, who has 4 LP
+- **THEN** Ayla has 3 LP
 
 #### Scenario: The DM subtracts GP
 - **WHEN** the DM subtracts 2,500 GP from a party purse of 12,500 GP
@@ -72,6 +84,10 @@ The DM SHALL be able to add a positive whole amount to, or subtract one from, an
 
 #### Scenario: A player pays for another player's use
 - **WHEN** Ayla lowers Bora's LP with a payment for the use of Bora's card
+- **THEN** the server denies the write
+
+#### Scenario: A player changes a DM's LP
+- **WHEN** Ayla, a player, writes a change by hand to the DM's LP
 - **THEN** the server denies the write
 
 #### Scenario: Not a positive whole amount
@@ -189,7 +205,7 @@ Changing a balance SHALL require a network connection. Offline, the application 
 - **THEN** a Turkish message says that a connection is needed, and the balance does not change
 
 ### Requirement: LP on the hand screen
-Above a player's hand, the first stat SHALL be their LP, labelled "Legend Point", live. The DM SHALL be able to open the LP change dialog from there with "± LP". On their own hand, a player SHALL be able to open the "Legend Point harca" dialog from there with "− LP". A player's "− LP" SHALL be disabled while they have 0 LP. The DM's own hand SHALL show no LP.
+Above a user's hand, the first stat SHALL be their LP, labelled "Legend Point", live, on a DM's hand too. The DM SHALL be able to open the LP change dialog from there with "± LP", on any hand, the DM's own included. On their own hand, a player SHALL be able to open the "Legend Point harca" dialog from there with "− LP". A player's "− LP" SHALL be disabled while they have 0 LP.
 
 #### Scenario: A player's hand
 - **WHEN** a user opens Ayla's hand while she has 7 LP
@@ -212,8 +228,12 @@ Above a player's hand, the first stat SHALL be their LP, labelled "Legend Point"
 - **THEN** no control to change LP is shown
 
 #### Scenario: The DM's own hand
-- **WHEN** a user opens the DM's hand
-- **THEN** no LP stat is shown
+- **WHEN** the DM opens their own hand while they have 3 LP
+- **THEN** the first stat is "Legend Point" with 3, with "± LP" and no "− LP"
+
+#### Scenario: A player looks at the DM's hand
+- **WHEN** Bora opens the DM's hand while the DM has 3 LP
+- **THEN** the "Legend Point" stat shows 3, and no control to change LP is shown
 
 ### Requirement: Party purse in the navigation
 The navigation area SHALL show the party purse, labelled "Grup kesesi", above the "Oyuncular" list, live, with Turkish digit grouping, for example "12.500 GP". The DM SHALL be able to open the GP change dialog from there.
