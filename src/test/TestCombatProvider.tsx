@@ -43,6 +43,7 @@ const SUCCEEDING: CombatActions = {
   next: succeed,
   back: succeed,
   endMyTurn: succeed,
+  delayMyTurn: succeed,
   move: succeed,
   remove: succeed,
   end: succeed,

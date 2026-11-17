@@ -23,12 +23,13 @@ import { firebaseCode } from '@/lib/firestore/errors'
 import { CombatChangedError, CombatOpenError } from './errors'
 import { groupLabel, type NpcGroup, npcNames } from './npcs'
 import {
+  delayTurn,
   moveItem,
   nextTurn,
   previousTurn,
+  type SeenTurn,
   turnAfterRemoval,
   turnAfterReorder,
-  type TurnState,
 } from './order'
 import {
   type Combat,
@@ -287,7 +288,7 @@ export async function startFight(
 export async function stepTurn(
   db: Firestore,
   direction: 'next' | 'back',
-  seen: TurnState,
+  seen: SeenTurn,
 ): Promise<void> {
   await droppedWhenMoved(db, seen, () => stepTurnFrom(db, direction, seen))
 }
@@ -295,14 +296,14 @@ export async function stepTurn(
 async function stepTurnFrom(
   db: Firestore,
   direction: 'next' | 'back',
-  seen: TurnState,
+  seen: SeenTurn,
 ): Promise<void> {
   await runTransaction(db, async (transaction) => {
     const current = (await transaction.get(combatRef(db))).data() ?? IDLE_COMBAT
     if (current.phase !== 'running' || !sameTurn(current, seen)) return
     const length = current.order.length
     const next = direction === 'next' ? nextTurn(current, length) : previousTurn(current, length)
-    if (sameTurn(current, next)) return
+    if (next.turn === current.turn && next.round === current.round) return
     transaction.update(doc(db, 'combat', 'main'), {
       turn: next.turn,
       round: next.round,
@@ -315,8 +316,17 @@ async function stepTurnFrom(
  * "Turumu bitirdim" (design D5): one place on, from the turn the player saw, only while the active combatant is
  * their own character. Anything else is dropped silently: the turn has moved on already.
  */
-export async function endMyTurn(db: Firestore, uid: string, seen: TurnState): Promise<void> {
+export async function endMyTurn(db: Firestore, uid: string, seen: SeenTurn): Promise<void> {
   await droppedWhenMoved(db, seen, () => endMyTurnFrom(db, uid, seen))
+}
+
+/**
+ * "Turumu beklet" (design D4 of delay-own-turn): the player's active character swaps places with the next combatant,
+ * which becomes active, from the turn the player saw. Dropped silently when the turn has moved on already, or when
+ * there is no one to delay behind.
+ */
+export async function delayMyTurn(db: Firestore, uid: string, seen: SeenTurn): Promise<void> {
+  await droppedWhenMoved(db, seen, () => delayMyTurnFrom(db, uid, seen))
 }
 
 /**
@@ -325,7 +335,7 @@ export async function endMyTurn(db: Firestore, uid: string, seen: TurnState): Pr
  */
 async function droppedWhenMoved(
   db: Firestore,
-  seen: TurnState,
+  seen: SeenTurn,
   step: () => Promise<void>,
 ): Promise<void> {
   try {
@@ -337,7 +347,7 @@ async function droppedWhenMoved(
   }
 }
 
-async function endMyTurnFrom(db: Firestore, uid: string, seen: TurnState): Promise<void> {
+async function endMyTurnFrom(db: Firestore, uid: string, seen: SeenTurn): Promise<void> {
   await runTransaction(db, async (transaction) => {
     const current = (await transaction.get(combatRef(db))).data() ?? IDLE_COMBAT
     if (current.phase !== 'running' || !sameTurn(current, seen)) return
@@ -354,8 +364,31 @@ async function endMyTurnFrom(db: Firestore, uid: string, seen: TurnState): Promi
   })
 }
 
-function sameTurn(a: TurnState, b: TurnState): boolean {
-  return a.turn === b.turn && a.round === b.round
+async function delayMyTurnFrom(db: Firestore, uid: string, seen: SeenTurn): Promise<void> {
+  await runTransaction(db, async (transaction) => {
+    const current = (await transaction.get(combatRef(db))).data() ?? IDLE_COMBAT
+    if (current.phase !== 'running' || !sameTurn(current, seen) || current.order.length < 2) return
+    const activeId = current.order[current.turn]
+    if (activeId === undefined) return
+    const active = (await transaction.get(doc(combatantsRef(db), activeId))).data()
+    if (!active || active.kind !== 'character' || active.uid !== uid) return
+    const next = delayTurn(current.order, current)
+    transaction.update(doc(db, 'combat', 'main'), {
+      order: next.order,
+      turn: next.turn,
+      round: next.round,
+      turnAt: serverTimestamp(),
+    })
+  })
+}
+
+/** Whether the stored combat is still at the turn the user saw, with the same combatant active (design D3). */
+function sameTurn(current: Combat, seen: SeenTurn): boolean {
+  return (
+    current.turn === seen.turn &&
+    current.round === seen.round &&
+    (current.order[current.turn] ?? null) === seen.activeId
+  )
 }
 
 /** Drags a combatant to a new place (design D5); the active combatant stays active. */

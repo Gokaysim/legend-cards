@@ -172,7 +172,7 @@ export function InitiativeTab() {
   const activeId = isRunning ? current.order[current.turn] : undefined
   const active = list.find((c) => c.id === activeId)
   const isMyTurn = active?.kind === 'character' && active.uid === uid
-  const seen = { turn: current.turn, round: current.round }
+  const seen = { turn: current.turn, round: current.round, activeId: activeId ?? null }
   const canAct = isOnline && !step.isBusy
 
   const nameOf = (id: string | number) =>
@@ -349,13 +349,21 @@ export function InitiativeTab() {
               </Button>
             </>
           ) : (
-            <Button
-              variant="primary"
-              disabled={!canAct}
-              onClick={() => step.run(() => actions.endMyTurn(seen))}
-            >
-              Turumu bitirdim
-            </Button>
+            <>
+              <Button
+                disabled={!canAct || current.order.length < 2}
+                onClick={() => step.run(() => actions.delayMyTurn(seen))}
+              >
+                Turumu beklet
+              </Button>
+              <Button
+                variant="primary"
+                disabled={!canAct}
+                onClick={() => step.run(() => actions.endMyTurn(seen))}
+              >
+                Turumu bitirdim
+              </Button>
+            </>
           )}
         </div>
       ) : null}

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   canStepBack,
+  delayTurn,
   initiativeOrder,
   moveItem,
   naturalMark,
@@ -165,5 +166,53 @@ describe('turnAfterReorder', () => {
     expect(after).toEqual(['a', 'c', 'd', 'b'])
     expect(turnAfterReorder(before, after, 1)).toBe(3)
     expect(turnAfterReorder(before, after, 2)).toBe(1)
+  })
+})
+
+describe('delayTurn', () => {
+  const order = ['a', 'b', 'c', 'd']
+
+  it('swaps the first place with the next one, which becomes active', () => {
+    expect(delayTurn(order, { turn: 0, round: 1 })).toEqual({
+      order: ['b', 'a', 'c', 'd'],
+      turn: 0,
+      round: 1,
+    })
+  })
+
+  it('swaps a middle place with the next one', () => {
+    expect(delayTurn(order, { turn: 1, round: 2 })).toEqual({
+      order: ['a', 'c', 'b', 'd'],
+      turn: 1,
+      round: 2,
+    })
+  })
+
+  it('swaps the second-to-last place with the last one', () => {
+    expect(delayTurn(order, { turn: 2, round: 2 })).toEqual({
+      order: ['a', 'b', 'd', 'c'],
+      turn: 2,
+      round: 2,
+    })
+  })
+
+  it('moves the last place behind the first one in the next round', () => {
+    expect(delayTurn(order, { turn: 3, round: 2 })).toEqual({
+      order: ['a', 'd', 'b', 'c'],
+      turn: 0,
+      round: 3,
+    })
+  })
+
+  it('keeps two combatants in place when the last one delays', () => {
+    expect(delayTurn(['a', 'b'], { turn: 1, round: 1 })).toEqual({
+      order: ['a', 'b'],
+      turn: 0,
+      round: 2,
+    })
+  })
+
+  it('changes nothing with one combatant', () => {
+    expect(delayTurn(['a'], { turn: 0, round: 3 })).toEqual({ order: ['a'], turn: 0, round: 3 })
   })
 })

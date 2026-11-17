@@ -7956,6 +7956,88 @@ describe('the combat (combat/main, combatants, dmCombatants and combatChanges)',
       await assertFails(step('ayla', change))
     })
 
+    it("lets the active character's owner delay from the first place", async () => {
+      await assertSucceeds(
+        step('ayla', { order: ['c-gob', 'c-thorn', 'c-elara'], turnAt: serverTimestamp() }),
+      )
+    })
+
+    it("lets the active character's owner delay from the middle", async () => {
+      await updateDocAsAdmin('combat/main', { order: ['c-gob', 'c-thorn', 'c-elara'], turn: 1 })
+      await assertSucceeds(
+        step('ayla', { order: ['c-gob', 'c-elara', 'c-thorn'], turnAt: serverTimestamp() }),
+      )
+    })
+
+    it("lets the last combatant's owner delay behind the first one into the next round", async () => {
+      await updateDocAsAdmin('combat/main', { turn: 2 })
+      await assertSucceeds(
+        step('bora', {
+          order: ['c-thorn', 'c-elara', 'c-gob'],
+          turn: 0,
+          round: 2,
+          turnAt: serverTimestamp(),
+        }),
+      )
+    })
+
+    it('lets the last of two combatants delay into the next round', async () => {
+      await updateDocAsAdmin('combat/main', { order: ['c-thorn', 'c-elara'], turn: 1 })
+      await assertSucceeds(
+        step('bora', {
+          order: ['c-thorn', 'c-elara'],
+          turn: 0,
+          round: 2,
+          turnAt: serverTimestamp(),
+        }),
+      )
+    })
+
+    it.each([
+      ['two places down', { order: ['c-gob', 'c-elara', 'c-thorn'], turnAt: serverTimestamp() }],
+      ['without the server time', { order: ['c-gob', 'c-thorn', 'c-elara'] }],
+      [
+        'with a new round in the middle',
+        { order: ['c-gob', 'c-thorn', 'c-elara'], round: 2, turnAt: serverTimestamp() },
+      ],
+      [
+        'with the turn moved on',
+        { order: ['c-gob', 'c-thorn', 'c-elara'], turn: 1, turnAt: serverTimestamp() },
+      ],
+      [
+        'as a swap of two others',
+        { order: ['c-thorn', 'c-elara', 'c-gob'], turnAt: serverTimestamp() },
+      ],
+      ['with a combatant dropped', { order: ['c-gob', 'c-thorn'], turnAt: serverTimestamp() }],
+    ])('denies the active owner a delay %s', async (_case, change) => {
+      await assertFails(step('ayla', change))
+    })
+
+    it('denies a delay of a character that is not theirs', async () => {
+      await assertFails(
+        step('bora', { order: ['c-gob', 'c-thorn', 'c-elara'], turnAt: serverTimestamp() }),
+      )
+    })
+
+    it('denies a delay of an NPC to a player', async () => {
+      await updateDocAsAdmin('combat/main', { turn: 1 })
+      await assertFails(
+        step('ayla', { order: ['c-thorn', 'c-elara', 'c-gob'], turnAt: serverTimestamp() }),
+      )
+    })
+
+    it('denies a delay with one combatant', async () => {
+      await updateDocAsAdmin('combat/main', { order: ['c-thorn'] })
+      await assertFails(
+        step('ayla', {
+          order: ['c-thorn', 'c-thorn'],
+          turn: 0,
+          round: 2,
+          turnAt: serverTimestamp(),
+        }),
+      )
+    })
+
     it('denies a player ending a turn that is not theirs', async () => {
       await assertFails(step('bora', { turn: 1, turnAt: serverTimestamp() }))
       await updateDocAsAdmin('combat/main', { turn: 1 })

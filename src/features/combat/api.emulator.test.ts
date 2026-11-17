@@ -3,7 +3,15 @@ import {
   type RulesTestContext,
   type RulesTestEnvironment,
 } from '@firebase/rules-unit-testing'
-import { doc, type Firestore, getDoc, getDocs, setDoc, Timestamp } from 'firebase/firestore'
+import {
+  doc,
+  type Firestore,
+  getDoc,
+  getDocs,
+  setDoc,
+  Timestamp,
+  updateDoc,
+} from 'firebase/firestore'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { memberContext, seedMembers } from '@/test/members'
@@ -17,6 +25,7 @@ import {
   combatantsRef,
   combatChangesRef,
   combatRef,
+  delayMyTurn,
   dmCombatantsRef,
   endCombat,
   endMyTurn,
@@ -237,6 +246,13 @@ describe('the fight', () => {
     return { ...opened, order, all }
   }
 
+  /** The turn a user saw: the place, the round and the combatant active there. */
+  const at = (order: readonly string[], turn: number, round: number) => ({
+    turn,
+    round,
+    activeId: order[turn] ?? null,
+  })
+
   const nameOf = (all: readonly Combatant[], id: string | undefined) => {
     const c = all.find((x) => x.id === id)
     return c?.name ?? c?.characterId ?? null
@@ -265,43 +281,124 @@ describe('the fight', () => {
   })
 
   it('steps turns as the DM, and a double press steps once', async () => {
-    await startedFight()
+    const { order } = await startedFight()
     const dm = as('dana')
     await Promise.all([
-      stepTurn(dm, 'next', { turn: 0, round: 1 }),
-      stepTurn(as('dana'), 'next', { turn: 0, round: 1 }),
+      stepTurn(dm, 'next', at(order, 0, 1)),
+      stepTurn(as('dana'), 'next', at(order, 0, 1)),
     ])
     expect((await getDoc(combatRef(dm))).data()).toMatchObject({ turn: 1, round: 1 })
-    await stepTurn(dm, 'back', { turn: 1, round: 1 })
-    await stepTurn(dm, 'back', { turn: 0, round: 1 })
+    await stepTurn(dm, 'back', at(order, 1, 1))
+    await stepTurn(dm, 'back', at(order, 0, 1))
     expect((await getDoc(combatRef(dm))).data()).toMatchObject({ turn: 0, round: 1 })
   })
 
   it("lets the active character's owner end their turn, and drops a press that is not theirs", async () => {
-    await startedFight()
+    const { order } = await startedFight()
     const dm = as('dana')
-    await stepTurn(dm, 'next', { turn: 0, round: 1 })
-    await endMyTurn(as('bora'), 'bora', { turn: 1, round: 1 })
+    await stepTurn(dm, 'next', at(order, 0, 1))
+    await endMyTurn(as('bora'), 'bora', at(order, 1, 1))
     expect((await getDoc(combatRef(dm))).data()).toMatchObject({ turn: 1 })
-    await endMyTurn(as('ayla'), 'ayla', { turn: 1, round: 1 })
+    await endMyTurn(as('ayla'), 'ayla', at(order, 1, 1))
     expect((await getDoc(combatRef(dm))).data()).toMatchObject({ turn: 2, round: 1 })
   })
 
   it("keeps one step when a player's turn end races the DM's step", async () => {
-    await startedFight()
+    const { order } = await startedFight()
     const dm = as('dana')
-    await stepTurn(dm, 'next', { turn: 0, round: 1 })
+    await stepTurn(dm, 'next', at(order, 0, 1))
     await Promise.all([
-      endMyTurn(as('ayla'), 'ayla', { turn: 1, round: 1 }),
-      stepTurn(dm, 'next', { turn: 1, round: 1 }),
+      endMyTurn(as('ayla'), 'ayla', at(order, 1, 1)),
+      stepTurn(dm, 'next', at(order, 1, 1)),
     ])
     expect((await getDoc(combatRef(dm))).data()).toMatchObject({ turn: 2, round: 1 })
+  })
+
+  /** Changes stored documents, bypassing the rules. */
+  async function asAdmin(changes: Record<string, Record<string, unknown>>) {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      for (const [path, data] of Object.entries(changes)) {
+        await updateDoc(doc(firestoreOf(admin), path), data)
+      }
+    })
+  }
+
+  const ids = (order: readonly string[], places: readonly number[]) =>
+    places.map((place) => order[place] ?? '')
+
+  it("lets the active character's owner delay behind the next one, and drops a delay that is not theirs", async () => {
+    const { order } = await startedFight()
+    const dm = as('dana')
+    await stepTurn(dm, 'next', at(order, 0, 1))
+    await delayMyTurn(as('bora'), 'bora', at(order, 1, 1))
+    expect((await getDoc(combatRef(dm))).data()).toMatchObject({ order, turn: 1 })
+    await delayMyTurn(as('ayla'), 'ayla', at(order, 1, 1))
+    expect((await getDoc(combatRef(dm))).data()).toMatchObject({
+      order: ids(order, [0, 2, 1, 3, 4, 5]),
+      turn: 1,
+      round: 1,
+    })
+  })
+
+  it('delays the last combatant behind the first one, into the next round', async () => {
+    const { order } = await startedFight()
+    await asAdmin({ 'combat/main': { turn: 5 } })
+    await delayMyTurn(as('bora'), 'bora', at(order, 5, 1))
+    expect((await getDoc(combatRef(as('dana')))).data()).toMatchObject({
+      order: ids(order, [0, 5, 1, 2, 3, 4]),
+      turn: 0,
+      round: 2,
+    })
+  })
+
+  it('delays once when a player who owns the next combatant too presses twice', async () => {
+    const { order, all } = await startedFight()
+    const elara = all.find((c) => c.characterId === 'elara')?.id ?? ''
+    const together = ids(order, [0, 1, 5, 2, 3, 4])
+    expect(together[2]).toBe(elara)
+    await asAdmin({
+      'combat/main': { order: together, turn: 1 },
+      [`combatants/${elara}`]: { uid: 'ayla' },
+    })
+    await Promise.all([
+      delayMyTurn(as('ayla'), 'ayla', at(together, 1, 1)),
+      delayMyTurn(as('ayla'), 'ayla', at(together, 1, 1)),
+    ])
+    expect((await getDoc(combatRef(as('dana')))).data()).toMatchObject({
+      order: ids(together, [0, 2, 1, 3, 4, 5]),
+      turn: 1,
+      round: 1,
+    })
+  })
+
+  it("keeps one step when a player's delay races the DM's step", async () => {
+    const { order } = await startedFight()
+    const dm = as('dana')
+    await stepTurn(dm, 'next', at(order, 0, 1))
+    await Promise.all([
+      delayMyTurn(as('ayla'), 'ayla', at(order, 1, 1)),
+      stepTurn(dm, 'next', at(order, 1, 1)),
+    ])
+    const combat = (await getDoc(combatRef(dm))).data()
+    expect(combat?.round).toBe(1)
+    expect(combat?.order[combat.turn]).toBe(order[2])
+  })
+
+  it("drops the DM's step from a turn whose active combatant was removed", async () => {
+    const { order } = await startedFight()
+    const dm = as('dana')
+    await stepTurn(dm, 'next', at(order, 0, 1))
+    await removeCombatant(dm, order[1] ?? '')
+    await stepTurn(dm, 'next', at(order, 1, 1))
+    const combat = (await getDoc(combatRef(dm))).data()
+    expect(combat).toMatchObject({ turn: 1, round: 1 })
+    expect(combat?.order[combat.turn]).toBe(order[2])
   })
 
   it('reorders with the active combatant kept active', async () => {
     const { order } = await startedFight()
     const dm = as('dana')
-    await stepTurn(dm, 'next', { turn: 0, round: 1 })
+    await stepTurn(dm, 'next', at(order, 0, 1))
     const thorn = order[1] ?? ''
     await moveCombatant(dm, thorn, 3)
     const combat = (await getDoc(combatRef(dm))).data()
@@ -312,7 +409,7 @@ describe('the fight', () => {
   it('removes the active combatant and makes the next one active', async () => {
     const { order } = await startedFight()
     const dm = as('dana')
-    await stepTurn(dm, 'next', { turn: 0, round: 1 })
+    await stepTurn(dm, 'next', at(order, 0, 1))
     await removeCombatant(dm, order[1] ?? '')
     const combat = (await getDoc(combatRef(dm))).data()
     expect(combat?.order).toEqual(order.filter((id) => id !== order[1]))
@@ -337,12 +434,12 @@ describe('the fight', () => {
   })
 
   it('ends the fight: empty collections, idle, and an end record with the round', async () => {
-    const { all } = await startedFight()
+    const { all, order } = await startedFight()
     const dm = as('dana')
-    await stepTurn(dm, 'back', { turn: 0, round: 1 })
+    await stepTurn(dm, 'back', at(order, 0, 1))
     for (let i = 0; i < 6; i++) {
       const c = (await getDoc(combatRef(dm))).data()
-      await stepTurn(dm, 'next', { turn: c?.turn ?? 0, round: c?.round ?? 1 })
+      await stepTurn(dm, 'next', at(c?.order ?? [], c?.turn ?? 0, c?.round ?? 1))
     }
     await endCombat(dm, { by: 'dana', combatantIds: all.map((c) => c.id) })
     expect((await getDoc(combatRef(dm))).data()).toMatchObject({ phase: 'idle', combatId: null })

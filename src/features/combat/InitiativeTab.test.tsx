@@ -329,12 +329,12 @@ describe('the fight', () => {
     const view = renderTab({ dm: true, combat: { ...fight(), actions: { next, back } } })
     expect(screen.getByRole('button', { name: '‹ Geri' })).toBeDisabled()
     await user.click(screen.getByRole('button', { name: 'Sıradaki ›' }))
-    expect(next).toHaveBeenCalledWith({ turn: 0, round: 1 })
+    expect(next).toHaveBeenCalledWith({ turn: 0, round: 1, activeId: goblin3.id })
 
     view.setCombat({ ...fight({ turn: 0, round: 3 }), actions: { next, back } })
     expect(screen.getByRole('heading', { name: 'Savaş · Tur 3' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '‹ Geri' }))
-    expect(back).toHaveBeenCalledWith({ turn: 0, round: 3 })
+    expect(back).toHaveBeenCalledWith({ turn: 0, round: 3, activeId: goblin3.id })
   })
 
   it("lets the active character's owner end their turn, and nobody else", async () => {
@@ -343,11 +343,47 @@ describe('the fight', () => {
     const view = renderTab({ combat: { ...fight({ turn: 1 }), actions: { endMyTurn } } })
     expect(row('Thorn')).toHaveAttribute('aria-current', 'step')
     await user.click(screen.getByRole('button', { name: 'Turumu bitirdim' }))
-    expect(endMyTurn).toHaveBeenCalledWith({ turn: 1, round: 1 })
+    expect(endMyTurn).toHaveBeenCalledWith({ turn: 1, round: 1, activeId: thorn.id })
 
     view.setCombat({ ...fight({ turn: 4 }), actions: { endMyTurn } })
     expect(screen.queryByRole('button', { name: 'Turumu bitirdim' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Sıradaki ›' })).not.toBeInTheDocument()
+  })
+
+  it("lets the active character's owner delay their turn, and nobody else", async () => {
+    const user = userEvent.setup()
+    const delayMyTurn = vi.fn<CombatActions['delayMyTurn']>(() => Promise.resolve())
+    const view = renderTab({
+      combat: { ...fight({ turn: 1, round: 2 }), actions: { delayMyTurn } },
+    })
+    const buttons = within(screen.getByRole('button', { name: 'Turumu beklet' }).parentElement!)
+      .getAllByRole('button')
+      .map((button) => button.textContent)
+    expect(buttons).toEqual(['Turumu beklet', 'Turumu bitirdim'])
+    await user.click(screen.getByRole('button', { name: 'Turumu beklet' }))
+    expect(delayMyTurn).toHaveBeenCalledWith({ turn: 1, round: 2, activeId: thorn.id })
+
+    view.setCombat({ ...fight({ turn: 4 }), actions: { delayMyTurn } })
+    expect(screen.queryByRole('button', { name: 'Turumu beklet' })).not.toBeInTheDocument()
+  })
+
+  it('gives the DM no "Turumu beklet"', () => {
+    renderTab({ dm: true, combat: fight({ turn: 1 }) })
+    expect(screen.queryByRole('button', { name: 'Turumu beklet' })).not.toBeInTheDocument()
+  })
+
+  it('disables "Turumu beklet" alone in the fight, and without a connection', () => {
+    const view = renderTab({
+      combat: { combat: testRunningCombat([thorn.id]), combatants: [thorn] },
+    })
+    expect(screen.getByRole('button', { name: 'Turumu beklet' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Turumu bitirdim' })).toBeEnabled()
+
+    view.setCombat(fight({ turn: 1 }))
+    expect(screen.getByRole('button', { name: 'Turumu beklet' })).toBeEnabled()
+    setNetwork(false)
+    expect(screen.getByRole('button', { name: 'Turumu beklet' })).toBeDisabled()
+    expect(screen.getByText(/Bağlantı yok/)).toBeInTheDocument()
   })
 
   it('gives players no controls to reorder, add or remove', () => {

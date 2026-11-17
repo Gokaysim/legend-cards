@@ -2,7 +2,7 @@ import { createContext, useContext } from 'react'
 
 import type { JoiningCharacter } from './api'
 import type { NpcGroup } from './npcs'
-import type { TurnState } from './order'
+import type { SeenTurn } from './order'
 import type { Combat, Combatant, DmCombatant } from './schema'
 
 /** The open combat and its combatants, live. */
@@ -34,11 +34,13 @@ export type CombatActions = {
   /** "Başlat": fixes the order with random ties. */
   start: () => Promise<void>
   /** "Sıradaki" as the DM, from the turn the DM saw. */
-  next: (seen: TurnState) => Promise<void>
+  next: (seen: SeenTurn) => Promise<void>
   /** "Geri", from the turn the DM saw. */
-  back: (seen: TurnState) => Promise<void>
+  back: (seen: SeenTurn) => Promise<void>
   /** "Turumu bitirdim", from the turn the player saw. */
-  endMyTurn: (seen: TurnState) => Promise<void>
+  endMyTurn: (seen: SeenTurn) => Promise<void>
+  /** "Turumu beklet", from the turn the player saw. */
+  delayMyTurn: (seen: SeenTurn) => Promise<void>
   /** Moves a combatant to a new place in the order. */
   move: (combatantId: string, toIndex: number) => Promise<void>
   remove: (combatantId: string) => Promise<void>

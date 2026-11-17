@@ -2421,8 +2421,9 @@ service cloud.firestore {
 
     // The one combat (spec: initiative-tracker; design D1, D5-D7 of add-initiative-tracker). Everyone signed in reads
     // it. Only the DM opens it (only from idle, so there is one combat at a time), starts the fight, changes the order,
-    // the turn and the round, and ends it. A player only moves the turn on by one place while the active combatant is
-    // their own character. Keep in step with src/features/combat/schema.ts and api.ts.
+    // the turn and the round, and ends it. While the active combatant is their own character, a player only moves the
+    // turn on by one place, or delays it by one place (design D2 of delay-own-turn). Keep in step with
+    // src/features/combat/schema.ts, order.ts and api.ts.
     match /combat/main {
       allow read: if isMember();
       allow create: if isMember() && validCombat(request.resource.data) && opensCombat(null) && isDm();
@@ -2433,7 +2434,8 @@ service cloud.firestore {
               || startsFight()
               || changesFight()
               || endsCombat()))
-          || endsOwnTurn());
+          || endsOwnTurn()
+          || delaysOwnTurn());
       allow delete: if false;
 
       function combatKeys() {
@@ -2527,6 +2529,37 @@ service cloud.firestore {
           && get(combatantPath(before.order[before.turn])).data.uid == request.auth.uid
           && ((next.turn == before.turn + 1 && next.turn < before.order.size() && next.round == before.round)
             || (before.turn == before.order.size() - 1 && next.turn == 0 && next.round == before.round + 1));
+      }
+
+      // "Turumu beklet": the active character's owner swaps it with the next combatant, which becomes active; from the
+      // last place it moves behind the first one, which opens the next round. Nothing else of the order changes. An
+      // empty slice is an evaluation error in the rules, so the empty ends skip their checks.
+      function delaysOwnTurn() {
+        let next = request.resource.data;
+        let before = resource.data;
+        let size = before.order.size();
+        let t = before.turn;
+        return before.phase == 'running'
+          && onlyChanges(['order', 'turn', 'round', 'turnAt'])
+          && next.turnAt == request.time
+          && size >= 2
+          && t < size
+          && next.order.size() == size
+          && get(combatantPath(before.order[t])).data.kind == 'character'
+          && get(combatantPath(before.order[t])).data.uid == request.auth.uid
+          && ((t < size - 1
+              && next.turn == t
+              && next.round == before.round
+              && next.order[t] == before.order[t + 1]
+              && next.order[t + 1] == before.order[t]
+              && (t == 0 || next.order[0:t] == before.order[0:t])
+              && (t + 2 == size || next.order[t + 2:size] == before.order[t + 2:size]))
+            || (t == size - 1
+              && next.turn == 0
+              && next.round == before.round + 1
+              && next.order[0] == before.order[0]
+              && next.order[1] == before.order[t]
+              && (size == 2 || next.order[2:size] == before.order[1:t])));
       }
     }
 

@@ -75,6 +75,12 @@ export function currentOrder(
 /** The active place and the round. */
 export type TurnState = { turn: number; round: number }
 
+/**
+ * The turn a user saw when they pressed a turn step: the place, the round and the combatant active there (design D3
+ * of delay-own-turn). A delay keeps the place and the round, so only the active combatant shows that it happened.
+ */
+export type SeenTurn = TurnState & { activeId: string | null }
+
 /** "Sıradaki": the next place, or the first in the next round after the last. */
 export function nextTurn(state: TurnState, length: number): TurnState {
   if (length === 0) return { turn: state.turn, round: state.round }
@@ -113,6 +119,23 @@ export function turnAfterRemoval(
   if (index < turn) return { order: rest, turn: turn - 1, round }
   if (index > turn || turn < rest.length) return { order: rest, turn, round }
   return { order: rest, turn: 0, round: round + 1 }
+}
+
+/**
+ * "Turumu beklet" (design D1 of delay-own-turn): the active combatant swaps places with the next one, which becomes
+ * active. From the last place, it moves to the second place and the first one opens the next round. With fewer than
+ * two combatants nothing changes.
+ */
+export function delayTurn(
+  order: readonly string[],
+  state: TurnState,
+): TurnState & { order: string[] } {
+  const { turn, round } = state
+  const length = order.length
+  const active = order[turn]
+  if (length < 2 || active === undefined) return { order: [...order], turn, round }
+  if (turn < length - 1) return { order: moveItem(order, turn, turn + 1), turn, round }
+  return { order: moveItem(order, turn, 1), turn: 0, round: round + 1 }
 }
 
 /** The active place after a reorder: wherever the active combatant went (design D5). */
