@@ -7,7 +7,7 @@ Shows what happened in the game on the İşlem Logu screen: the card movements a
 ## Requirements
 
 ### Requirement: One list of what happened
-The İşlem Logu screen SHALL list, newest first and live, every card given, drawn, used, discarded, and transferred, every pack opened, every True Word draft, every word the DM teaches or takes back, every use of a card or True Word that stays in the hand, every LP and GP change, every definition change, every set change, every change of the player draw mode, every reset of the dice channel, every DM role change made in the app, and every start and end of a fight. It SHALL be read from the holdings (the learned True Words among them), the draws, packs and True Word drafts, the use records, the ledger, the change records, the set change records, the table change records, the role change records and the combat change records, so it never disagrees with them. Switching a card or a word active, notes, and cost overrides SHALL NOT be listed.
+The İşlem Logu screen SHALL list, newest first and live, every card given, drawn, used, discarded, and transferred, every pack opened, every True Word draft, every word the DM teaches or takes back, every use of a card or True Word that stays in the hand, every LP and GP change, every set change, every change of the player draw mode, every reset of the dice channel, every DM role change made in the app, and every start and end of a fight. It SHALL be read from the holdings (the learned True Words among them), the draws, packs and True Word drafts, the use records, the ledger, the set change records, the table change records, the role change records and the combat change records, so it never disagrees with them. Switching a card or a word active, notes, cost overrides, definition changes and imports SHALL NOT be listed.
 
 #### Scenario: Events from both sources
 - **WHEN** the DM gives Ayla a card and then adds 2 LP to Bora
@@ -31,7 +31,7 @@ The İşlem Logu screen SHALL list, newest first and live, every card given, dra
 
 #### Scenario: A definition change among the events
 - **WHEN** the DM adds 2 LP to Bora, and then fixes the text of "Aboleth's Eyes"
-- **THEN** the log shows the text change first and the LP change below it
+- **THEN** the log shows the LP change at the top, and no event of the text change
 
 #### Scenario: A set change among the events
 - **WHEN** the DM adds 2 LP to Bora, and then renames the set "Ulagal"
@@ -66,15 +66,15 @@ The İşlem Logu screen SHALL list, newest first and live, every card given, dra
 - **THEN** the log shows that the DM taught Bora "Aid", and no event of a card given
 
 ### Requirement: Log readable by every signed-in user
-Every signed-in user SHALL see the whole log, including the events of other players. The one exception is the DM's work on drafts, which SHALL be listed for the DM only (spec: definition-editing, "Who reads the change records").
+Every signed-in user SHALL see the whole log, including the events of other players. The DM and the players SHALL see the same events.
 
 #### Scenario: A player reads the log
 - **WHEN** Ayla opens the İşlem Logu
 - **THEN** she sees the events of every player, including Bora's LP changes
 
 #### Scenario: Draft work in a player's log
-- **WHEN** the DM adds the draft "Bard's Encore", edits it, and then publishes it, and Ayla opens the İşlem Logu
-- **THEN** Ayla sees only the publish, and the DM sees all three events
+- **WHEN** the DM adds the draft "Bard's Encore", edits it, publishes it, and then gives it to Ayla, and both open the İşlem Logu
+- **THEN** both see the same events: the card given to Ayla, and nothing of the draft's add, edit or publish
 
 ### Requirement: Permanent history
 The log SHALL keep every event across sessions and devices. Reloading the application or signing in on another device SHALL show the same events.
@@ -144,7 +144,7 @@ The log SHALL first show the 50 most recent events. When there are older events,
 - **THEN** no "Daha fazla" control is shown
 
 ### Requirement: Player filter
-The log SHALL offer a filter for one user. With a user chosen, it SHALL list only the cards that user received, including the cards drawn into their hand and the packs opened for them, the cards that left their hand, their True Word drafts, the True Words the DM taught them or took back from them, the uses of their True Words, the changes of their LP, and the changes of their role. Party purse changes, definition changes, player draw mode changes, dice channel resets and fights SHALL be listed only without a filter.
+The log SHALL offer a filter for one user. With a user chosen, it SHALL list only the cards that user received, including the cards drawn into their hand and the packs opened for them, the cards that left their hand, their True Word drafts, the True Words the DM taught them or took back from them, the uses of their True Words, the changes of their LP, and the changes of their role. Party purse changes, player draw mode changes, dice channel resets and fights SHALL be listed only without a filter.
 
 #### Scenario: Filtering by a player
 - **WHEN** a user chooses Ayla in the filter
@@ -273,62 +273,6 @@ A True Word the DM teaches SHALL appear as one event naming the DM, the player, 
 - **WHEN** the DM takes back "Abyss" from Ayla
 - **THEN** the log shows an event that the DM took back "Abyss" from Ayla, and the event of how she learned it stays
 
-### Requirement: Definition changes are events
-Each definition change record SHALL appear as one event. It names who made the change (the DM, or "Import"), the card or word, and the step: added, edited, published, retired, brought back or deleted. An edit SHALL show each changed field before and after. A publish and an add straight to active SHALL show the definition. Events of the DM's work on drafts and on definitions whose "Listede görünür" is off SHALL be marked as visible to the DM only.
-
-#### Scenario: An edit
-- **WHEN** the DM changes the cost of "Aboleth's Eyes" from "2" to "3"
-- **THEN** the log shows one event naming the DM, "Aboleth's Eyes", and the cost "2 → 3"
-
-#### Scenario: A retire
-- **WHEN** the DM retires the True Word "Abyss"
-- **THEN** the log shows that the DM retired the True Word "Abyss"
-
-#### Scenario: Draft work in the DM's log
-- **WHEN** the DM adds the draft "Bard's Encore" and opens the İşlem Logu
-- **THEN** the event of adding it is marked as visible to the DM only
-
-#### Scenario: Work on a DM-only card
-- **WHEN** the DM changes the text of the active card "The Last Wish", whose "Listede görünür" is off
-- **THEN** the DM's log marks that event as visible to the DM only, and Ayla's log does not show it
-
-### Requirement: Text changes in the log
-An edit event SHALL show a text before and after by its visible part, without bracket text, as the card screens do. When only the bracket text changed, the event SHALL say in Turkish that the hidden part of the text changed.
-
-#### Scenario: A visible text change
-- **WHEN** the DM changes the text of "Aboleth's Eyes"
-- **THEN** the event shows the old and the new visible text
-
-#### Scenario: A bracket-only change
-- **WHEN** the DM changes "[Uno]" to "[Duo]" in the text of "Hrolf's Hornswaggle"
-- **THEN** the event says that the hidden part of the text changed, and shows no bracket text
-
-### Requirement: An import is one event
-An import's change record SHALL appear as one event naming "Import", whether cards or True Words were added or got pictures, how many, and their names. A player SHALL see only the event of the active additions, or of the active and retired definitions that got pictures, leaving out the definitions whose "Listede görünür" is off.
-
-#### Scenario: The first import
-- **WHEN** the repository card files were imported into empty emulators, and Ayla opens the İşlem Logu
-- **THEN** she sees one event that the import added 742 cards, and no event of the 3 drafts
-
-#### Scenario: A picture import
-- **WHEN** the picture import gave pictures to 700 active cards and to the draft "The Cartographer", and Ayla opens the İşlem Logu
-- **THEN** she sees one event that the import gave pictures to 700 cards, and no event of "The Cartographer"
-
-#### Scenario: A picture for a DM-only card
-- **WHEN** the picture import gave pictures to 700 active cards, one of them "The Last Wish", whose "Listede görünür" is off, and Ayla opens the İşlem Logu
-- **THEN** she sees one event that the import gave pictures to 699 cards, and the DM's log also shows a DM-only event naming "The Last Wish"
-
-### Requirement: Picture changes in the log
-An edit event SHALL name a picture change in Turkish as "Resim: eklendi" when a definition without a picture got one, "Resim: değişti" when its picture was replaced, and "Resim: kaldırıldı" when it was removed. It SHALL NOT show the picture's address. A publish or an add straight to active with a picture SHALL say that the definition has a picture.
-
-#### Scenario: A replaced picture
-- **WHEN** the DM saves a new picture for "Aboleth's Eyes"
-- **THEN** the log shows one event naming the DM, "Aboleth's Eyes", and "Resim: değişti"
-
-#### Scenario: A removed picture with another change
-- **WHEN** the DM removes the picture of "Aboleth's Eyes" and changes its cost from "2" to "3" in one save
-- **THEN** the event shows "Resim: kaldırıldı" and the cost "2 → 3"
-
 ### Requirement: Set changes are events
 Each set change record SHALL appear as one event, visible to every signed-in user. It names who made the change (the DM, or "Import"), the set by its official name, and the step: added, edited, moved or deleted. An edit SHALL name the changed fields in Turkish ("Ad", "Alias'lar", "Paketler", "Cardback", "Cardmaker"), without their values. An import SHALL name the sets it added and the sets that got pictures.
 
@@ -373,21 +317,6 @@ A True Word use SHALL appear as one event, at the time it was used. It names who
 #### Scenario: A use on a character
 - **WHEN** Ayla uses "Abyss" on "Thorin" for 5 LP
 - **THEN** the event reads "Abyss True Word'ünü Thorin üzerinde kullandı (−5 LP).", with Ayla as the user
-
-### Requirement: Behavior flags in the log
-An edit event that changes a behavior flag SHALL show it as a changed field, with the flag's label from the form and "evet" or "hayır" before and after, for example "Kart çekmede çıkar: evet → hayır". A player SHALL see that event when the definition is visible to players on either side of it (spec: definition-editing, "Who reads the change records").
-
-#### Scenario: A card kept out of draws
-- **WHEN** the DM turns off "Kart çekmede çıkar" of the active card "Aboleth's Eyes", and Ayla opens the İşlem Logu
-- **THEN** she sees one event naming the DM, "Aboleth's Eyes", and "Kart çekmede çıkar: evet → hayır"
-
-#### Scenario: Hiding a card
-- **WHEN** the DM turns off "Listede görünür" of the active card "Aboleth's Eyes", and Ayla opens the İşlem Logu
-- **THEN** she sees one event with "Listede görünür: evet → hayır"
-
-#### Scenario: A Cursed card's draw flag
-- **WHEN** the DM turns off the draw flag of the Cursed card "Visions of Death"
-- **THEN** the event shows "Cursed Deck'te çıkar: evet → hayır"
 
 ### Requirement: A kept card's use is one event
 A use of a card that stays in the hand SHALL appear as one event, at the time it was used, with the same text as a card that leaves the hand (spec: "Event rows"). Each use SHALL be its own event.
@@ -454,3 +383,22 @@ Each reset of the dice channel (spec: dice-rolls, "Resetting the dice channel") 
 #### Scenario: A reset in the log
 - **WHEN** the DM resets a dice channel of 142 rolls, and Ayla opens the İşlem Logu
 - **THEN** she sees one event with the DM's name marked as DM and "zar kanalını sıfırladı: 142 atış."
+
+### Requirement: The DM's definition work stays out of the log
+The İşlem Logu SHALL NOT list definition changes or imports, for the DM or for a player. This covers adding, editing, publishing, retiring, bringing back and deleting a card or a True Word, and the card, word and picture imports. Their change records SHALL still be written and kept as before (spec: definition-editing, "Change records"). The log SHALL NOT read them.
+
+#### Scenario: An edit
+- **WHEN** the DM changes the text of "Aboleth's Eyes", and the DM opens the İşlem Logu
+- **THEN** the log shows no event for it, and its change record is stored
+
+#### Scenario: A publish
+- **WHEN** the DM publishes the draft "Bard's Encore", and Ayla opens the İşlem Logu
+- **THEN** the log shows no event for it
+
+#### Scenario: An import
+- **WHEN** the picture import gives pictures to 700 cards
+- **THEN** the log shows no event for it
+
+#### Scenario: Game events stay
+- **WHEN** the DM edits "Aboleth's Eyes", and then Ahmet uses it and discards another card
+- **THEN** the log shows Ahmet's use and discard, and no event of the edit

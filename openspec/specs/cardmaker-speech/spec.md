@@ -7,7 +7,7 @@ The Cardmaker's speech bubbles in the shops, following the legacy app v2.2.8. Re
 ## Requirements
 
 ### Requirement: Where the Cardmaker speaks
-The Cardmaker SHALL speak only where she stands in the bottom-right corner (spec: card-images). These tiles make her speak:
+The Cardmaker SHALL speak only where she stands in the bottom-right corner (spec: card-images), and only while she is not gone after the pointer reached her. These tiles make her speak:
 - on the Shops screen: "Pack Shop" and "Elixir Shop"
 - in the Pack Shop's main view: each Mechanic Pack that has a line, and the Golden Packs tile
 
@@ -24,6 +24,10 @@ Nothing else SHALL make her speak. The bubble opens at her left, near the bottom
 #### Scenario: A phone
 - **WHEN** a user touches the Blood & Battle Mechanic Pack on a phone
 - **THEN** no bubble opens, and the pack's confirmation opens as before
+
+#### Scenario: After she went
+- **WHEN** the pointer made the Cardmaker go in the Pack Shop, and the user rests the pointer on the Blood & Battle Mechanic Pack
+- **THEN** no bubble opens
 
 ### Requirement: What a bubble says
 A bubble SHALL show three lines in v2.2.8's Turkish words:
