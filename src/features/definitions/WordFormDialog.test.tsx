@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { TrueWord } from '@/features/true-words/schema'
 import { testPicturePath, testPictureUrl } from '@/test/artFixtures'
-import { ready, testUser } from '@/test/fixtures'
+import { ready, signedInAs, testUser } from '@/test/fixtures'
 import { TestArtProvider } from '@/test/TestArtProvider'
 import { TestAuthProvider } from '@/test/TestAuthProvider'
 import { TestDefinitionsProvider } from '@/test/TestDefinitionsProvider'
@@ -54,7 +54,7 @@ function setup(wordId: string | null) {
     saveWord: vi.fn<DefinitionActions['saveWord']>(() => Promise.resolve()),
   }
   render(
-    <TestAuthProvider state={{ status: 'signedIn', user: testUser }}>
+    <TestAuthProvider state={signedInAs(testUser)}>
       <TestArtProvider>
         <TestTrueWordsProvider words={ready(WORDS)}>
           <TestTableProvider openPackId={null}>

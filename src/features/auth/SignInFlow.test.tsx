@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import { describe, expect, it, vi } from 'vitest'
 
-import { testUser } from '@/test/fixtures'
+import { signedInAs, testUser } from '@/test/fixtures'
 import { TestAuthProvider } from '@/test/TestAuthProvider'
 
 import type { AuthState } from './authContext'
@@ -75,14 +75,14 @@ describe('sign-in flow', () => {
 
     await user.click(signInButton())
     expect(signIn).toHaveBeenCalledTimes(1)
-    setAuth({ status: 'signedIn', user: testUser })
+    setAuth(signedInAs(testUser))
 
     expect(await screen.findByText('Kütüphane ekranı')).toBeInTheDocument()
     expect(router.state.location.pathname).toBe('/library')
   })
 
   it('sends a signed-in user who opens the sign-in screen to the default screen', async () => {
-    const { router } = renderAt('/sign-in', { status: 'signedIn', user: testUser })
+    const { router } = renderAt('/sign-in', signedInAs(testUser))
 
     expect(await screen.findByText('Oyuncu elleri ekranı')).toBeInTheDocument()
     expect(router.state.location.pathname).toBe('/hands')
@@ -143,7 +143,7 @@ describe('accounts that are not on the access list', () => {
     expect(otherAccountButton()).toBeInTheDocument()
     expect(router.state.location.pathname).toBe('/sign-in')
 
-    setAuth({ status: 'signedIn', user: testUser })
+    setAuth(signedInAs(testUser))
     expect(await screen.findByText('Kütüphane ekranı')).toBeInTheDocument()
     expect(router.state.location.pathname).toBe('/library')
   })
@@ -151,12 +151,12 @@ describe('accounts that are not on the access list', () => {
   it('enters without a reload when the DM adds the address while the screen is open', async () => {
     const { setAuth } = renderAt('/library', noAccess)
 
-    setAuth({ status: 'signedIn', user: testUser })
+    setAuth(signedInAs(testUser))
     expect(await screen.findByText('Kütüphane ekranı')).toBeInTheDocument()
   })
 
   it('moves a player whose address is removed to the screen, with no error message', () => {
-    const { setAuth } = renderAt('/library', { status: 'signedIn', user: testUser })
+    const { setAuth } = renderAt('/library', signedInAs(testUser))
     expect(screen.getByText('Kütüphane ekranı')).toBeInTheDocument()
 
     setAuth(noAccess)
@@ -172,7 +172,7 @@ describe('accounts that are not on the access list', () => {
 
     await user.click(otherAccountButton())
     expect(signIn).toHaveBeenCalledTimes(1)
-    setAuth({ status: 'signedIn', user: { ...testUser, email: 'other@example.com' } })
+    setAuth(signedInAs({ ...testUser, email: 'other@example.com' }))
     expect(await screen.findByText('Kütüphane ekranı')).toBeInTheDocument()
   })
 
@@ -241,7 +241,7 @@ describe('a failed access check', () => {
     setAuth({ status: 'checking', user: testUser })
     expect(screen.getByRole('status')).toHaveTextContent('Yükleniyor')
 
-    setAuth({ status: 'signedIn', user: testUser })
+    setAuth(signedInAs(testUser))
     expect(await screen.findByText('Kütüphane ekranı')).toBeInTheDocument()
     expect(router.state.location.pathname).toBe('/library')
   })

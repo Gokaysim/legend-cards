@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ChangeRoleInput } from '@/features/users/api'
 import type { UserProfile } from '@/features/users/schema'
 import type { Subscription } from '@/lib/firestore/subscription'
-import { ready, testProfile, testUser } from '@/test/fixtures'
+import { ready, signedInAs, testProfile, testUser } from '@/test/fixtures'
 import { TestAccessProvider } from '@/test/TestAccessProvider'
 import { TestAuthProvider } from '@/test/TestAuthProvider'
 import { TestUsersProvider } from '@/test/TestUsersProvider'
@@ -43,7 +43,7 @@ function renderSection({
 }: { asDm?: boolean; profiles?: UserProfile[]; entries?: Subscription<AccessEntry[]> } = {}) {
   const user = userEvent.setup()
   const tree = (currentProfiles: UserProfile[], currentEntries: Subscription<AccessEntry[]>) => (
-    <TestAuthProvider state={{ status: 'signedIn', user: testUser }}>
+    <TestAuthProvider state={signedInAs(testUser)}>
       <TestUsersProvider
         currentProfile={ready(asDm ? DM : testProfile())}
         profiles={ready(currentProfiles)}

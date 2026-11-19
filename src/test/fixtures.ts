@@ -1,6 +1,6 @@
 import { Timestamp } from 'firebase/firestore'
 
-import type { AuthUser } from '@/features/auth/authContext'
+import type { AuthState, AuthUser } from '@/features/auth/authContext'
 import type { UserProfile } from '@/features/users/schema'
 import type { Subscription } from '@/lib/firestore/subscription'
 
@@ -10,6 +10,15 @@ export const testUser: AuthUser = {
   displayName: 'Gökay',
   email: 'player@example.com',
   photoURL: null,
+}
+
+/** The `signedIn` state of `user`, with an own access-list entry linked to it, added at time zero. */
+export function signedInAs(user: AuthUser): Extract<AuthState, { status: 'signedIn' }> {
+  return {
+    status: 'signedIn',
+    user,
+    ownEntry: { email: user.email ?? '', uid: user.uid, addedAt: Timestamp.fromMillis(0) },
+  }
 }
 
 /** A profile for tests: `testUser` as a player unless overridden. */

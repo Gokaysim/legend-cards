@@ -8,7 +8,7 @@ import { testPicturePath, testPictureUrl } from '@/test/artFixtures'
 import { startingFlags } from '@/features/definitions/flags'
 import { TABLE_BUSY_NOTE } from '@/features/table/errors'
 import { ONLY_FROM_DM, testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
-import { ready, testUser } from '@/test/fixtures'
+import { ready, signedInAs, testUser } from '@/test/fixtures'
 import { TestArtProvider } from '@/test/TestArtProvider'
 import { TestAuthProvider } from '@/test/TestAuthProvider'
 import { TestCardsProvider } from '@/test/TestCardsProvider'
@@ -89,7 +89,7 @@ function setup({
   }
   const onClose = vi.fn()
   const tree = (current: Card[], packId: string | null = openPackId) => (
-    <TestAuthProvider state={{ status: 'signedIn', user: testUser }}>
+    <TestAuthProvider state={signedInAs(testUser)}>
       <TestArtProvider>
         <TestSetsProvider sets={ready([...sets])}>
           <TestCardsProvider cards={ready(current)}>

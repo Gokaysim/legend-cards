@@ -5,7 +5,7 @@ import { routes } from '@/app/routes'
 import type { ArtManifest } from '@/features/art/schema'
 import type { AuthState } from '@/features/auth/authContext'
 
-import { testUser } from './fixtures'
+import { signedInAs, testUser } from './fixtures'
 import { type TestAccess, TestAccessProvider } from './TestAccessProvider'
 import { type TestActivityLog, TestActivityLogProvider } from './TestActivityLogProvider'
 import { TestArtProvider } from './TestArtProvider'
@@ -104,7 +104,7 @@ type Data = {
  */
 export function renderApp({
   path = '/',
-  state = { status: 'signedIn', user: testUser },
+  state = signedInAs(testUser),
   signOut,
   users = {},
   access = {},

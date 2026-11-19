@@ -1,7 +1,7 @@
 import { render } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { ready, testProfile, testUser } from '@/test/fixtures'
+import { ready, signedInAs, testProfile, testUser } from '@/test/fixtures'
 import { TestAuthProvider } from '@/test/TestAuthProvider'
 import { TestDiceProvider } from '@/test/TestDiceProvider'
 import { TestUsersProvider } from '@/test/TestUsersProvider'
@@ -33,7 +33,7 @@ vi.mock('@/lib/firestore/useCollection', () => ({
 
 function renderAs(role: 'player' | 'dm') {
   render(
-    <TestAuthProvider state={{ status: 'signedIn', user: testUser }}>
+    <TestAuthProvider state={signedInAs(testUser)}>
       <TestUsersProvider currentProfile={ready(testProfile({ role }))}>
         <TestDiceProvider>
           <CombatProvider>

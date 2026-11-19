@@ -3,14 +3,18 @@ import {
   type CollectionReference,
   deleteDoc,
   doc,
+  documentId,
   type DocumentReference,
   type Firestore,
-  getDocFromServer,
+  query,
+  type Query,
   runTransaction,
   serverTimestamp,
   setDoc,
+  where,
 } from 'firebase/firestore'
 
+import { existsOnServer } from '@/lib/firebase/firestoreLite'
 import { firebaseCode } from '@/lib/firestore/errors'
 
 import type { ServerRead } from './accessDiagnosis'
@@ -22,6 +26,15 @@ export const ALLOWED_EMAILS_COLLECTION = 'allowedEmails'
 /** The whole access list, validated, with each address as `email`. Only the DM reads it. */
 export function accessEntriesRef(db: Firestore): CollectionReference<AccessEntry> {
   return collection(db, ALLOWED_EMAILS_COLLECTION).withConverter(accessEntryConverter)
+}
+
+/**
+ * The access list without one normalized address, the DM's own (design D3 of drop-persistent-cache-and-dm-own-entry-query).
+ * The DM's own entry is followed by the access check alone: in a query it could go into limbo, and the SDK writes a
+ * rejected limbo resolution into the cache as a deleted document, which would throw the DM out of the app.
+ */
+export function accessEntriesExceptRef(db: Firestore, email: string): Query<AccessEntry> {
+  return query(accessEntriesRef(db), where(documentId(), '!=', email))
 }
 
 /** The entry of one normalized address. Any account with a verified address reads its own, missing or not. */
@@ -67,13 +80,13 @@ export async function linkOwnEntry(
 }
 
 /**
- * Reads the own entry once, straight from the server, past the listener and the cache (design D2 of
- * diagnose-no-access). It only reports what it found and never throws.
+ * Reads the own entry once, straight from the server (design D2 of diagnose-no-access). It goes through Firestore Lite,
+ * which has no cache and no listeners (design D4 of drop-persistent-cache-and-dm-own-entry-query): `getDocFromServer`
+ * would join the listener already open on the entry and read its view. It only reports what it found and never throws.
  */
-export async function readEntryFromServer(db: Firestore, email: string): Promise<ServerRead> {
+export async function readEntryFromServer(email: string): Promise<ServerRead> {
   try {
-    const snapshot = await getDocFromServer(accessEntryRef(db, email))
-    return snapshot.exists() ? 'exists' : 'missing'
+    return (await existsOnServer(ALLOWED_EMAILS_COLLECTION, email)) ? 'exists' : 'missing'
   } catch (error) {
     return `error:${firebaseCode(error) ?? 'unknown'}`
   }

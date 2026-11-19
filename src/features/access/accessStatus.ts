@@ -8,8 +8,9 @@ export type AccessStatus = 'checking' | 'member' | 'noAccess'
 /**
  * Reads the subscription to the account's own entry (design D4 of invite-only-sign-in):
  * - no answer yet: `checking`
- * - an entry, from the server or the cache: `member`, so a member opens the app offline
- * - no entry, from the cache only: still `checking`, so a fresh device offline does not show "ekli değil" by mistake
+ * - an entry, from the server or the cache: `member`, so a member stays in the app when the connection drops
+ * - no entry, from the cache only: still `checking`, so an app opened offline, whose in-memory cache starts empty,
+ *   does not show "ekli değil" by mistake
  * - no entry, as the server has it: `noAccess`
  * - an error: still `checking`. The rules let an account with a verified address read its own entry, so a failed
  *   read is never an answer (design D2 of retry-own-access-check). `useOwnAccessCheck` retries it and never passes an

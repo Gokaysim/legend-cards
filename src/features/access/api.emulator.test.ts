@@ -9,7 +9,14 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { memberContext, memberEmail, seedMembers } from '@/test/members'
 
 import firestoreRules from '../../../firestore.rules?raw'
-import { accessEntriesRef, accessEntryRef, addEmail, linkOwnEntry, removeEmail } from './api'
+import {
+  accessEntriesExceptRef,
+  accessEntriesRef,
+  accessEntryRef,
+  addEmail,
+  linkOwnEntry,
+  removeEmail,
+} from './api'
 
 let testEnv: RulesTestEnvironment
 
@@ -79,6 +86,28 @@ describe('the DM manages the list under the real rules', () => {
   it('lists every entry with its address', async () => {
     const snapshot = await getDocs(accessEntriesRef(as('dana')))
     expect(snapshot.docs.map((entry) => entry.data().email).sort()).toContain('eren@example.com')
+  })
+
+  it("lists every entry but the DM's own, for the section (design D3 of drop-persistent-cache-and-dm-own-entry-query)", async () => {
+    const all = await getDocs(accessEntriesRef(as('dana')))
+    const others = await getDocs(accessEntriesExceptRef(as('dana'), memberEmail('dana')))
+    const emails = others.docs.map((entry) => entry.data().email).sort()
+    expect(emails).not.toContain(memberEmail('dana'))
+    expect(emails).toEqual(
+      all.docs
+        .map((entry) => entry.data().email)
+        .filter((email) => email !== memberEmail('dana'))
+        .sort(),
+    )
+    expect(emails).toContain('eren@example.com')
+  })
+
+  it('does not let a player list the entries but their own', async () => {
+    await expect(
+      getDocs(accessEntriesExceptRef(as('ayla'), memberEmail('ayla'))),
+    ).rejects.toMatchObject({
+      code: 'permission-denied',
+    })
   })
 
   it('does not let a player add an address', async () => {

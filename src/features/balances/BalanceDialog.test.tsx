@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { testUser } from '@/test/fixtures'
+import { signedInAs, testUser } from '@/test/fixtures'
 import { TestAuthProvider } from '@/test/TestAuthProvider'
 import { TestBalancesProvider } from '@/test/TestBalancesProvider'
 
@@ -32,7 +32,7 @@ function setup(
   )
   const onClose = vi.fn()
   render(
-    <TestAuthProvider state={{ status: 'signedIn', user: testUser }}>
+    <TestAuthProvider state={signedInAs(testUser)}>
       <TestBalancesProvider actions={{ changeBalance: change }}>
         <BalanceDialog {...({ ...aylaLp, ...props, onClose } as BalanceDialogProps)} />
       </TestBalancesProvider>

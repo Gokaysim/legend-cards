@@ -15,6 +15,7 @@ import type {
 } from '@/features/access/accessDiagnosis'
 import { linkOwnEntry, readEntryFromServer } from '@/features/access/api'
 import { normalizeEmail } from '@/features/access/email'
+import type { AccessEntry } from '@/features/access/schema'
 import { useOwnAccessCheck } from '@/features/access/useOwnAccessCheck'
 import { auth } from '@/lib/firebase/auth'
 import { db } from '@/lib/firebase/firestore'
@@ -39,6 +40,18 @@ async function signInWithGoogle(): Promise<void> {
 
 async function signOut(): Promise<void> {
   await firebaseSignOut(auth)
+}
+
+/** Whether two access-list entries say the same, whatever the snapshot they came from. */
+function sameEntry(a: AccessEntry | null, b: AccessEntry | null): boolean {
+  if (a === null || b === null) return a === b
+  return (
+    a.email === b.email &&
+    a.uid === b.uid &&
+    (a.addedAt === null || b.addedAt === null
+      ? a.addedAt === b.addedAt
+      : a.addedAt.isEqual(b.addedAt))
+  )
 }
 
 /**
@@ -81,6 +94,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // The state changes only when the access status does, not on every snapshot of the entry.
   const access = email ? (failed ? 'checkFailed' : accessStatusOf(entry)) : 'noAccess'
 
+  // The own entry for the `signedIn` state, kept while its content stays the same, so a snapshot that changes only
+  // metadata does not change the state (design D3 of drop-persistent-cache-and-dm-own-entry-query).
+  const latestEntry = entry.status === 'ready' ? entry.data : null
+  const [ownEntry, setOwnEntry] = useState<AccessEntry | null>(latestEntry)
+  if (!sameEntry(ownEntry, latestEntry)) {
+    // Adjusting state during render: the entry's content changed.
+    setOwnEntry(latestEntry)
+  }
+
   // Why a signed-in account is not on the list, for the diagnostic line (design D1, D2 of diagnose-no-access). After a
   // "missing" answer from the subscription, the entry is read once straight from the server, as a cross-check.
   let reason: AccessDiagnosisReason | null = null
@@ -95,7 +117,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (readFor === null || alreadyRead) return
     let active = true
-    void readEntryFromServer(db, readFor).then((read) => {
+    void readEntryFromServer(readFor).then((read) => {
       if (active) setServerRead({ email: readFor, read })
     })
     return () => {
@@ -125,9 +147,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       case 'checkFailed':
         return { status: 'checkFailed', user: session.user }
       case 'member':
-        return { status: 'signedIn', user: session.user }
+        // `member` needs an entry, so `ownEntry` is set here; the fallback only satisfies the types.
+        return ownEntry
+          ? { status: 'signedIn', user: session.user, ownEntry }
+          : { status: 'checking', user: session.user }
     }
-  }, [session, access, diagnosis])
+  }, [session, access, diagnosis, ownEntry])
 
   // Every access decision, for diagnosing a wrong one (design D5 of diagnose-no-access).
   useEffect(() => {

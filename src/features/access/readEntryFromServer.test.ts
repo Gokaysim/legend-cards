@@ -1,42 +1,37 @@
-import type * as Firestore from 'firebase/firestore'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { readEntryFromServer } from './api'
 
-// Design D2 of diagnose-no-access: the direct read reports what it found and never throws.
+// Design D2 of diagnose-no-access: the direct read reports what it found and never throws. Design D4 of
+// drop-persistent-cache-and-dm-own-entry-query: it goes through Firestore Lite, past the main instance's cache and
+// listeners.
 
-const getDocFromServer = vi.hoisted(() => vi.fn())
+const lite = vi.hoisted(() => ({ existsOnServer: vi.fn() }))
 
-vi.mock('firebase/firestore', async (importOriginal) => ({
-  ...(await importOriginal<typeof Firestore>()),
-  collection: () => ({ withConverter: () => ({ path: 'allowedEmails' }) }),
-  doc: (_parent: unknown, id: string) => ({ path: `allowedEmails/${id}` }),
-  getDocFromServer,
-}))
-
-const db = {} as Parameters<typeof readEntryFromServer>[0]
+vi.mock('@/lib/firebase/firestore', () => ({ db: { name: 'test-db' } }))
+vi.mock('@/lib/firebase/firestoreLite', () => ({ existsOnServer: lite.existsOnServer }))
 
 describe('readEntryFromServer', () => {
   beforeEach(() => {
-    getDocFromServer.mockReset()
+    lite.existsOnServer.mockReset()
   })
 
   it('reports an entry the server has, and one it does not have', async () => {
-    getDocFromServer.mockResolvedValueOnce({ exists: () => true })
-    getDocFromServer.mockResolvedValueOnce({ exists: () => false })
+    lite.existsOnServer.mockResolvedValueOnce(true)
+    lite.existsOnServer.mockResolvedValueOnce(false)
 
-    expect(await readEntryFromServer(db, 'cem@gmail.com')).toBe('exists')
-    expect(await readEntryFromServer(db, 'cem@gmail.com')).toBe('missing')
-    expect(getDocFromServer).toHaveBeenCalledWith({ path: 'allowedEmails/cem@gmail.com' })
+    expect(await readEntryFromServer('cem@gmail.com')).toBe('exists')
+    expect(await readEntryFromServer('cem@gmail.com')).toBe('missing')
+    expect(lite.existsOnServer).toHaveBeenCalledWith('allowedEmails', 'cem@gmail.com')
   })
 
   it('reports a failed read by its code instead of throwing', async () => {
-    getDocFromServer.mockRejectedValueOnce(
+    lite.existsOnServer.mockRejectedValueOnce(
       Object.assign(new Error('denied'), { code: 'permission-denied' }),
     )
-    getDocFromServer.mockRejectedValueOnce(new Error('odd'))
+    lite.existsOnServer.mockRejectedValueOnce(new Error('odd'))
 
-    expect(await readEntryFromServer(db, 'cem@gmail.com')).toBe('error:permission-denied')
-    expect(await readEntryFromServer(db, 'cem@gmail.com')).toBe('error:unknown')
+    expect(await readEntryFromServer('cem@gmail.com')).toBe('error:permission-denied')
+    expect(await readEntryFromServer('cem@gmail.com')).toBe('error:unknown')
   })
 })

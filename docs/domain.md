@@ -23,7 +23,7 @@ It does not enforce D&D rules or the table rules, and it never spends LP on its 
 
 The app also has a **dice channel** (`dice-channel`): the table rolls its dice in the app, and every device watches the same 3D throw. Rolls are shared moments, not game actions: they make no log event and no payment. The DM can clear the whole channel from Ayarlar (`release-1-0-0`); that reset is one log event, and it touches nothing but the rolls. Card rules that use dice (a `d6` cost, advantage bought with LP, the Cursed bargain) are left for a later change, `dice-card-rules`.
 
-The original app was a single offline HTML file used on one computer. The new app is online and real-time, so the DM and the players can use it together from their own devices.
+The original app was a single offline HTML file used on one computer. The new app is online and real-time, so the DM and the players can use it together from their own devices. It is used at the table, online: since `drop-persistent-cache-and-dm-own-entry-query` (2026-11-19, the owner's choice), it keeps no data on the device between visits. A dropped connection is fine while the app stays open: loaded data stays visible, and dice rolls, notes and character edits wait and are sent when the connection returns. Opening the app without a connection shows only the loading screen. Closing it while offline loses the changes that were still waiting.
 
 ### Actors
 

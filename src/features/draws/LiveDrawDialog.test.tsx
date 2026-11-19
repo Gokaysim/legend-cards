@@ -7,7 +7,7 @@ import type { UserProfile } from '@/features/users/schema'
 import { testArt } from '@/test/artFixtures'
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 import { testSession } from '@/test/drawFixtures'
-import { ready, testProfile, testUser } from '@/test/fixtures'
+import { ready, signedInAs, testProfile, testUser } from '@/test/fixtures'
 import { TestArtProvider } from '@/test/TestArtProvider'
 import { TestAuthProvider } from '@/test/TestAuthProvider'
 import { TestCardsProvider } from '@/test/TestCardsProvider'
@@ -47,7 +47,7 @@ function setup({ session, viewer = bora, state = 'open', art }: Setup) {
   const onClose = vi.fn()
   const tree = (current: DrawSession, currentState: SessionState) => (
     <TestArtProvider manifest={art}>
-      <TestAuthProvider state={{ status: 'signedIn', user: { ...testUser, uid: viewer.id } }}>
+      <TestAuthProvider state={signedInAs({ ...testUser, uid: viewer.id })}>
         <TestUsersProvider currentProfile={ready(viewer)} profiles={ready(PROFILES)}>
           <TestCardsProvider cards={ready(CARDS)}>
             <TestDrawsProvider actions={{ turnDrawCard, endDrawSession }}>

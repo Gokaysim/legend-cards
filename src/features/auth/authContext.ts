@@ -1,6 +1,7 @@
 import { createContext, useContext } from 'react'
 
 import type { AccessDiagnosis } from '@/features/access/accessDiagnosis'
+import type { AccessEntry } from '@/features/access/schema'
 
 /** The signed-in user, as the app sees it. Kept free of Firebase types on purpose. */
 export type AuthUser = {
@@ -18,7 +19,9 @@ export type AuthUser = {
  * - `noAccess`: signed in to Google with an account that is not on the access list; the app reads no table data
  * - `checkFailed`: every try to check the access list failed (design D4 of retry-own-access-check); the app reads no
  *   table data
- * - `signedIn`: signed in with an account on the access list. Only this state lets the app read table data.
+ * - `signedIn`: signed in with an account on the access list. Only this state lets the app read table data. It carries
+ *   the account's own entry, live, for the DM's "Masaya erişim" section, whose list query leaves that entry out
+ *   (design D3 of drop-persistent-cache-and-dm-own-entry-query).
  */
 export type AuthState =
   | { status: 'loading' }
@@ -31,7 +34,7 @@ export type AuthState =
       diagnosis?: AccessDiagnosis
     }
   | { status: 'checkFailed'; user: AuthUser }
-  | { status: 'signedIn'; user: AuthUser }
+  | { status: 'signedIn'; user: AuthUser; ownEntry: AccessEntry }
 
 export type AuthActions = {
   /** Opens Google's account chooser in a popup. Rejects with the Firebase error if sign-in fails. */

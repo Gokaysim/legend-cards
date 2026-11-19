@@ -2,7 +2,7 @@ import { act, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { ready, testProfile, testUser } from '@/test/fixtures'
+import { ready, signedInAs, testProfile, testUser } from '@/test/fixtures'
 import { renderApp } from '@/test/renderApp'
 
 afterEach(() => {
@@ -34,7 +34,7 @@ describe('AppShell', () => {
     const photoURL = 'https://example.com/avatar.png'
     const { container } = renderApp({
       path: '/hands',
-      state: { status: 'signedIn', user: { ...testUser, photoURL } },
+      state: signedInAs({ ...testUser, photoURL }),
     })
 
     expect(within(userBadge()).getByText('Gökay')).toBeInTheDocument()
@@ -157,7 +157,8 @@ describe('AppShell', () => {
 
   it('shows the offline banner while offline and hides it when back online', () => {
     renderApp({ path: '/hands' })
-    const bannerText = 'Çevrimdışısın — değişiklikler bağlantı gelince eşitlenecek.'
+    const bannerText =
+      'Çevrimdışısın — değişiklikler bağlantı gelince eşitlenecek. O zamana kadar uygulamayı kapatma.'
     expect(screen.queryByText(bannerText)).not.toBeInTheDocument()
 
     setNetwork(false)

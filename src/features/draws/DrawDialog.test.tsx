@@ -10,7 +10,7 @@ import type { PlayerDrawMode } from '@/features/table/playerDraw'
 import { testArt, testPicturePath, testPictureUrl } from '@/test/artFixtures'
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 import { testSession } from '@/test/drawFixtures'
-import { ready, testProfile, testUser } from '@/test/fixtures'
+import { ready, signedInAs, testProfile, testUser } from '@/test/fixtures'
 import { TEST_SETS, TEST_SETS_WITH_PICTURES } from '@/test/setFixtures'
 import { TestArtProvider } from '@/test/TestArtProvider'
 import { TestAuthProvider } from '@/test/TestAuthProvider'
@@ -92,7 +92,7 @@ function setup({
   const tree = (current: UserProfile) => (
     <TestTableProvider playerDraw={currentMode}>
       <TestArtProvider manifest={art}>
-        <TestAuthProvider state={{ status: 'signedIn', user: testUser }}>
+        <TestAuthProvider state={signedInAs(testUser)}>
           <TestUsersProvider currentProfile={ready(asDm ? dm : me)}>
             <TestSetsProvider sets={setsReady}>
               <TestCardsProvider cards={ready(cards)}>

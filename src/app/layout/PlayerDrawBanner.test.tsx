@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { PlayerDrawMode } from '@/features/table/playerDraw'
 import type { TableActions } from '@/features/table/tableContext'
-import { ready, testProfile, testUser } from '@/test/fixtures'
+import { ready, signedInAs, testProfile, testUser } from '@/test/fixtures'
 import { TestAuthProvider } from '@/test/TestAuthProvider'
 import { TestTableProvider } from '@/test/TestTableProvider'
 import { TestUsersProvider } from '@/test/TestUsersProvider'
@@ -19,7 +19,7 @@ function setup({ asDm = false, playerDraw }: { asDm?: boolean; playerDraw: Playe
   const user = userEvent.setup()
   const change = vi.fn<TableActions['setPlayerDrawMode']>(() => Promise.resolve())
   const { container } = render(
-    <TestAuthProvider state={{ status: 'signedIn', user: testUser }}>
+    <TestAuthProvider state={signedInAs(testUser)}>
       <TestUsersProvider currentProfile={ready(testProfile({ role: asDm ? 'dm' : 'player' }))}>
         <TestTableProvider playerDraw={playerDraw} actions={{ setPlayerDrawMode: change }}>
           <PlayerDrawBanner />

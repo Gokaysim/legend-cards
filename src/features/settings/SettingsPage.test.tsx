@@ -11,7 +11,7 @@ import type { PlayerDrawMode } from '@/features/table/playerDraw'
 import type { TableActions } from '@/features/table/tableContext'
 import { testCombat } from '@/test/combatFixtures'
 import { testRoll } from '@/test/diceFixtures'
-import { ready, testProfile, testUser } from '@/test/fixtures'
+import { ready, signedInAs, testProfile, testUser } from '@/test/fixtures'
 import { TestAccessProvider } from '@/test/TestAccessProvider'
 import { TestAuthProvider } from '@/test/TestAuthProvider'
 import { TestCombatProvider } from '@/test/TestCombatProvider'
@@ -56,7 +56,7 @@ function setup({
   const count = vi.fn<DiceActions['countRolls']>(countRolls)
   const reset = vi.fn<DiceActions['resetChannel']>(resetChannel)
   render(
-    <TestAuthProvider state={{ status: 'signedIn', user: testUser }}>
+    <TestAuthProvider state={signedInAs(testUser)}>
       <TestUsersProvider currentProfile={ready(asDm ? dm : player)}>
         <TestAccessProvider entries={ready(ENTRIES)}>
           <TestTableProvider playerDraw={playerDraw} actions={{ setPlayerDrawMode: change }}>

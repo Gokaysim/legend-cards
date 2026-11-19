@@ -2,7 +2,7 @@ import { render } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { AuthState } from '@/features/auth/authContext'
-import { testUser } from '@/test/fixtures'
+import { signedInAs, testUser } from '@/test/fixtures'
 import { TestAuthProvider } from '@/test/TestAuthProvider'
 
 import { UsersProvider } from './UsersProvider'
@@ -49,7 +49,7 @@ beforeEach(() => {
 // Spec: user-profiles, "Player profile at first sign-in"; user-auth, "The 'ekli değil' screen".
 describe('UsersProvider', () => {
   it('makes sure a signed-in member has a profile, and follows the profiles', () => {
-    renderWith({ status: 'signedIn', user: testUser })
+    renderWith(signedInAs(testUser))
     expect(users.ensureProfile).toHaveBeenCalledTimes(1)
     expect(users.subscribed.filter(Boolean)).not.toHaveLength(0)
   })

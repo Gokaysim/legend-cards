@@ -39,9 +39,7 @@ const access = vi.hoisted(() => {
     linkOwnEntry: vi.fn((_db: unknown, _user: { uid: string; email: string }) =>
       Promise.resolve('linked' as const),
     ),
-    readEntryFromServer: vi.fn((_db: unknown, _email: string) =>
-      Promise.resolve('exists' as string),
-    ),
+    readEntryFromServer: vi.fn((_email: string) => Promise.resolve('exists' as string)),
   }
 })
 
@@ -154,6 +152,22 @@ describe('AuthProvider', () => {
 
     emitUser(GOKAY)
     expect(screen.getByText('signedIn:Gökay')).toBeInTheDocument()
+  })
+
+  it('carries the own entry while signed in, and follows it (design D3 of drop-persistent-cache-and-dm-own-entry-query)', () => {
+    const { result } = renderHook(() => useAuth(), { wrapper: AuthProvider })
+    setEntry(fromServer(entry()))
+    emitUser(GOKAY)
+    expect(result.current).toMatchObject({ status: 'signedIn', ownEntry: entry() })
+
+    // A snapshot that changes only metadata keeps the same entry object, so the state does not change.
+    const before = result.current.status === 'signedIn' ? result.current.ownEntry : null
+    setEntry({ status: 'ready', data: entry(), fromCache: true, hasPendingWrites: false })
+    expect(result.current.status === 'signedIn' && result.current.ownEntry).toBe(before)
+
+    // Linking the entry to the account shows in the state.
+    setEntry(fromServer(entry('u1')))
+    expect(result.current).toMatchObject({ status: 'signedIn', ownEntry: entry('u1') })
   })
 
   it('follows the entry of the account’s address in lowercase', () => {
@@ -351,10 +365,7 @@ describe('AuthProvider', () => {
       )
       setEntry(fromServer(null))
       expect(access.readEntryFromServer).toHaveBeenCalledTimes(1)
-      expect(access.readEntryFromServer).toHaveBeenCalledWith(
-        { name: 'test-db' },
-        'gokay@example.com',
-      )
+      expect(access.readEntryFromServer).toHaveBeenCalledWith('gokay@example.com')
     })
 
     it('makes no read for an account without a verified address, or without an address', () => {
