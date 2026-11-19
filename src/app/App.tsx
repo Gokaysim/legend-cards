@@ -13,6 +13,7 @@ import { DiceProvider } from '@/features/dice/DiceProvider'
 import { DrawsProvider } from '@/features/draws/DrawsProvider'
 import { HoldingsProvider } from '@/features/hands/HoldingsProvider'
 import { PacksProvider } from '@/features/packs/PacksProvider'
+import { LoreProvider } from '@/features/lore/LoreProvider'
 import { PlayerNotesProvider } from '@/features/player-notes/PlayerNotesProvider'
 import { SetsProvider } from '@/features/sets/SetsProvider'
 import { StatsProvider } from '@/features/stats/StatsProvider'
@@ -28,7 +29,7 @@ const router = createBrowserRouter(routes)
  * Composition root: the built pictures, the auth session (with the access list check), then the user profiles, the
  * DM's access list, the characters, the party purse, the sets (with their pictures), the cards, the open holdings,
  * the table's lock, the open pack, the record sources of the log and the statistics, the draws, the True Words, the
- * notes' source, the DM's definition steps and the dice channel, then the router.
+ * notes' source, the cards' lore, the DM's definition steps and the dice channel, then the router.
  */
 export function App() {
   return (
@@ -48,13 +49,15 @@ export function App() {
                               <DrawsProvider>
                                 <TrueWordsProvider>
                                   <PlayerNotesProvider>
-                                    <DefinitionsProvider>
-                                      <DiceProvider>
-                                        <CombatProvider>
-                                          <RouterProvider router={router} />
-                                        </CombatProvider>
-                                      </DiceProvider>
-                                    </DefinitionsProvider>
+                                    <LoreProvider>
+                                      <DefinitionsProvider>
+                                        <DiceProvider>
+                                          <CombatProvider>
+                                            <RouterProvider router={router} />
+                                          </CombatProvider>
+                                        </DiceProvider>
+                                      </DefinitionsProvider>
+                                    </LoreProvider>
                                   </PlayerNotesProvider>
                                 </TrueWordsProvider>
                               </DrawsProvider>

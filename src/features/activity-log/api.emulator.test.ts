@@ -106,7 +106,7 @@ beforeEach(async () => {
 /** Runs the four card and balance queries as a signed-in player and returns the document IDs of each, in order. */
 async function ids(uid: string | null, n: number) {
   const db = firestoreOf(memberContext(testEnv, 'ayla'))
-  const queries = logQueries(db, uid, n, false)
+  const queries = logQueries(db, uid, n)
   const idsOf = async <T>(query: Query<T>) =>
     (await getDocs(query)).docs.map((document) => document.id)
   return {
@@ -353,7 +353,7 @@ describe('the log queries of uses and their payments', () => {
 
   async function useIds(uid: string | null, n: number) {
     const db = firestoreOf(memberContext(testEnv, 'ayla'))
-    const queries = logQueries(db, uid, n, false)
+    const queries = logQueries(db, uid, n)
     const idsOf = async <T>(query: Query<T>) =>
       (await getDocs(query)).docs.map((document) => document.id)
     return {
@@ -381,50 +381,23 @@ describe('the log queries of uses and their payments', () => {
   })
 })
 
-describe('the definition changes query', () => {
-  const record = (step: string, isPublic: boolean, millis: number) => ({
-    target: 'card',
-    targetId: 'legend-bardsencore',
-    name: "Bard's Encore",
-    step,
-    before: null,
-    after: null,
-    public: isPublic,
-    by: 'dana',
-    at: at(millis),
-  })
+describe('the definition changes', () => {
+  it('are not among the queries, for a player or with a user filter', () => {
+    const db = firestoreOf(memberContext(testEnv, 'ayla'))
+    const sources = (uid: string | null) => Object.keys(logQueries(db, uid, 50)).sort()
 
-  beforeEach(async () => {
-    await testEnv.withSecurityRulesDisabled(async (admin) => {
-      const db = firestoreOf(admin)
-      const profile = (role: string) => ({
-        displayName: role,
-        photoURL: null,
-        role,
-        createdAt: Timestamp.fromMillis(0),
-      })
-      await setDoc(doc(db, 'users/ayla'), profile('player'))
-      await setDoc(doc(db, 'users/dana'), profile('dm'))
-      await setDoc(doc(db, 'definitionChanges/c-added'), record('added', false, 1000))
-      await setDoc(doc(db, 'definitionChanges/c-edited'), record('edited', false, 2000))
-      await setDoc(doc(db, 'definitionChanges/c-published'), record('published', true, 3000))
-    })
-  })
-
-  const changeIds = async (viewer: string, isDm: boolean, uid: string | null = null) => {
-    const queries = logQueries(firestoreOf(memberContext(testEnv, viewer)), uid, 50, isDm)
-    return queries.changes === null
-      ? null
-      : (await getDocs(queries.changes)).docs.map((document) => document.id)
-  }
-
-  it('gives a player only the public changes, newest first, and the DM all of them', async () => {
-    expect(await changeIds('ayla', false)).toEqual(['c-published'])
-    expect(await changeIds('dana', true)).toEqual(['c-published', 'c-edited', 'c-added'])
-  })
-
-  it('leaves the changes out with a user filter', async () => {
-    expect(await changeIds('dana', true, 'ayla')).toBeNull()
+    expect(sources(null)).toEqual([
+      'closed',
+      'combatChanges',
+      'draws',
+      'entries',
+      'given',
+      'roleChanges',
+      'setChanges',
+      'tableChanges',
+      'uses',
+    ])
+    expect(sources('ayla')).not.toContain('changes')
   })
 })
 
@@ -452,7 +425,7 @@ describe('the table changes query', () => {
   })
 
   const tableChangeIds = async (viewer: string, uid: string | null = null) => {
-    const queries = logQueries(firestoreOf(memberContext(testEnv, viewer)), uid, 50, false)
+    const queries = logQueries(firestoreOf(memberContext(testEnv, viewer)), uid, 50)
     return queries.tableChanges === null
       ? null
       : (await getDocs(queries.tableChanges)).docs.map((document) => document.id)
@@ -487,7 +460,7 @@ describe('the fight records query', () => {
   })
 
   const fightIds = async (viewer: string, uid: string | null = null) => {
-    const queries = logQueries(firestoreOf(memberContext(testEnv, viewer)), uid, 50, false)
+    const queries = logQueries(firestoreOf(memberContext(testEnv, viewer)), uid, 50)
     return queries.combatChanges === null
       ? null
       : (await getDocs(queries.combatChanges)).docs.map((document) => document.id)
@@ -519,7 +492,7 @@ describe('the role changes query', () => {
   })
 
   const roleChangeIds = async (viewer: string, uid: string | null = null) => {
-    const queries = logQueries(firestoreOf(memberContext(testEnv, viewer)), uid, 50, false)
+    const queries = logQueries(firestoreOf(memberContext(testEnv, viewer)), uid, 50)
     return (await getDocs(queries.roleChanges)).docs.map((document) => document.id)
   }
 

@@ -4,15 +4,13 @@ import {
   doc,
   type DocumentData,
   type Firestore,
-  type Query,
-  query,
   runTransaction,
   serverTimestamp,
   type Transaction,
-  where,
 } from 'firebase/firestore'
 
 import { CARDS_COLLECTION } from '@/features/cards/api'
+import { deleteLore } from '@/features/lore/api'
 import {
   type Card,
   type CardKind,
@@ -44,14 +42,12 @@ import type { DefinitionStatus } from './status'
 /** Keep in step with `firestore.rules` and `scripts/lib/importCards.ts`. */
 export const DEFINITION_CHANGES_COLLECTION = 'definitionChanges'
 
-/** Every change record, validated. Only the DM may read them all; players read `publicChangesQuery`. */
+/**
+ * Every change record, validated. The app writes them with each step and reads none: the İşlem Logu leaves them out
+ * (spec: activity-log, "The DM's definition work stays out of the log"). The rules still let players read the public ones.
+ */
 export function definitionChangesRef(db: Firestore): CollectionReference<DefinitionChange> {
   return collection(db, DEFINITION_CHANGES_COLLECTION).withConverter(definitionChangeConverter)
-}
-
-/** The change records players may read: the steps they can see (spec: "Who reads the change records"). */
-export function publicChangesQuery(db: Firestore): Query<DefinitionChange> {
-  return query(definitionChangesRef(db), where('public', '==', true))
 }
 
 /**
@@ -467,8 +463,9 @@ export async function setCardStatus(db: Firestore, input: SetCardStatusInput): P
 }
 
 /**
- * Deletes a draft card ("Sil") and its picture file; its records stay. Throws `DefinitionChangedError` and
- * `TableBusyError`.
+ * Deletes a draft card ("Sil"), its picture file and its lore; its records stay. The lore goes after the step, as the
+ * picture does, and a failure to delete it is ignored: no player can read a missing card's lore (design D4 of
+ * polish-sidebar-mascots-and-lore). Throws `DefinitionChangedError` and `TableBusyError`.
  */
 export async function deleteCard(
   db: Firestore,
@@ -488,6 +485,7 @@ export async function deleteCard(
     },
     input.card.picture,
   )
+  await forget(deleteLore(db, input.card.id))
 }
 
 export type AddWordInput = {

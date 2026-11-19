@@ -6,10 +6,13 @@ import { useArt } from './artContext'
 import { type SpeechLine, useSpokenLine } from './cardmakerSpeech'
 import { Mascot } from './Mascot'
 
-/** v2.2.8's sizes (design D3): a shop's Cardmaker, and the Golden Packs' larger one. */
+/**
+ * A shop's Cardmaker, and the Golden Packs' larger one: v2.2.8's sizes (design D3 of `align-pack-shop-with-v2-2-8`)
+ * at 60 % (design D6 of `polish-sidebar-mascots-and-lore`). The speech bubble's place follows the `shop` width.
+ */
 const SIZES = {
-  shop: 'h-[min(440px,62vh)] w-[min(430px,39vw)]',
-  gold: 'h-[min(620px,80vh)] w-[min(625px,62vw)]',
+  shop: 'h-[min(264px,37vh)] w-[min(258px,23.4vw)]',
+  gold: 'h-[min(372px,48vh)] w-[min(375px,37.2vw)]',
 } as const
 
 export type CornerCardmakerSize = keyof typeof SIZES
@@ -29,19 +32,23 @@ const overlaps = (a: DOMRect, b: DOMRect) =>
 /**
  * The shops' Cardmaker, fixed in the window's bottom-right corner as in v2.2.8 (spec: card-images, design D3). A
  * screen shows it in place of the Cardmaker by its title while `useWideHover()` holds. She is decoration: she never
- * takes the pointer, so the tiles under her stay clickable. She fades out while the mouse pointer is over her box, or
- * while the keyboard focus is on something under her, so what she covers stays readable. Inside a
- * `<CardmakerSpeechProvider>`, her speech bubble opens at her left while a tile makes her speak. Without her picture,
- * nothing is shown.
+ * takes the pointer, so the tiles under her stay clickable. The first time the mouse pointer reaches her box, she
+ * fades out and stays gone until another `stem` stands here or the screen unmounts her (design D6 of
+ * `polish-sidebar-mascots-and-lore`). While the keyboard focus is on something under her, she fades out only until it
+ * moves away. Inside a `<CardmakerSpeechProvider>`, her speech bubble opens at her left while a tile makes her speak,
+ * unless she is gone. Without her picture, nothing is shown.
  */
 export function CornerCardmaker({ stem, size = 'shop' }: CornerCardmakerProps) {
   const hasPicture = useArt().mascotUrl(stem) !== null
   const line = useSpokenLine()
   const box = useRef<HTMLDivElement>(null)
-  const [isDismissed, setIsDismissed] = useState(false)
+  // Gone for this stem once the pointer reached her: a new stem brings her back without a remount.
+  const [goneStem, setGoneStem] = useState<string | null>(null)
+  const [isFocusUnder, setIsFocusUnder] = useState(false)
+  const isGone = goneStem === stem
 
   useEffect(() => {
-    if (!hasPicture) return
+    if (!hasPicture || isGone) return
     let isScheduled = false
     let frame = 0
     let pointer: { x: number; y: number } | null = null
@@ -53,13 +60,16 @@ export function CornerCardmaker({ stem, size = 'shop' }: CornerCardmakerProps) {
       if (element === null) return
       const rect = element.getBoundingClientRect()
       const focused = document.activeElement
-      const isPointerOver = pointer !== null && isInside(rect, pointer.x, pointer.y)
-      const isFocusUnder =
+      if (pointer !== null && isInside(rect, pointer.x, pointer.y)) {
+        setGoneStem(stem)
+        return
+      }
+      setIsFocusUnder(
         focused instanceof HTMLElement &&
-        focused !== document.body &&
-        !element.contains(focused) &&
-        overlaps(rect, focused.getBoundingClientRect())
-      setIsDismissed(isPointerOver || isFocusUnder)
+          focused !== document.body &&
+          !element.contains(focused) &&
+          overlaps(rect, focused.getBoundingClientRect()),
+      )
     }
     const schedule = () => {
       if (isScheduled) return
@@ -92,9 +102,10 @@ export function CornerCardmaker({ stem, size = 'shop' }: CornerCardmakerProps) {
       document.removeEventListener('scroll', schedule, { capture: true })
       if (isScheduled) cancelAnimationFrame(frame)
     }
-  }, [hasPicture])
+  }, [hasPicture, isGone, stem])
 
   if (!hasPicture) return null
+  const isDismissed = isGone || isFocusUnder
   return (
     <>
       <div
@@ -103,6 +114,7 @@ export function CornerCardmaker({ stem, size = 'shop' }: CornerCardmakerProps) {
         data-corner-cardmaker={stem}
         data-size={size}
         data-dismissed={isDismissed ? '' : undefined}
+        data-gone={isGone ? '' : undefined}
         className={cn(
           'pointer-events-none fixed right-4.5 bottom-3 z-20 flex items-end justify-end transition-opacity motion-reduce:transition-none',
           SIZES[size],
@@ -111,7 +123,7 @@ export function CornerCardmaker({ stem, size = 'shop' }: CornerCardmakerProps) {
       >
         <Mascot stem={stem} className="h-full w-full object-right-bottom" />
       </div>
-      {line === null ? null : <SpeechBubble key={line.title} line={line} />}
+      {line === null || isGone ? null : <SpeechBubble key={line.title} line={line} />}
     </>
   )
 }
@@ -128,7 +140,7 @@ function SpeechBubble({ line }: { line: SpeechLine }) {
     <div
       aria-hidden="true"
       data-speech-bubble
-      className="pointer-events-none speech-bubble-tail fixed right-[calc(18px_+_min(430px,39vw)_+_20px)] bottom-9.5 z-20 w-[min(470px,calc(100vw_-_16rem_-_min(430px,39vw)_-_4.5rem))] rounded-[18px] border-2 border-bubble-line bg-linear-160 from-bubble to-bubble-deep px-4.25 pt-3.5 pb-3.75 text-bubble-ink shadow-2xl motion-safe:animate-bubble-in"
+      className="pointer-events-none speech-bubble-tail fixed right-[calc(18px_+_min(258px,23.4vw)_+_20px)] bottom-9.5 z-20 w-[min(470px,calc(100vw_-_16rem_-_min(258px,23.4vw)_-_4.5rem))] rounded-[18px] border-2 border-bubble-line bg-linear-160 from-bubble to-bubble-deep px-4.25 pt-3.5 pb-3.75 text-bubble-ink shadow-2xl motion-safe:animate-bubble-in"
     >
       <p className="mb-1.5 text-sm font-extrabold text-bubble-title">{line.title}</p>
       <p className="mb-2 text-[13px] leading-normal font-extrabold text-bubble-ink">

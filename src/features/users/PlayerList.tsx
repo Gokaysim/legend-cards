@@ -5,6 +5,7 @@ import { handPath } from '@/app/screens'
 import { Avatar } from '@/components/ui/Avatar'
 import { formatAmount } from '@/features/balances/format'
 import { cn } from '@/lib/cn'
+import { useDeviceFlag } from '@/lib/deviceSetting'
 import type { Subscription } from '@/lib/firestore/subscription'
 
 import { RoleTag } from './RoleTag'
@@ -18,22 +19,50 @@ export type PlayerListProps = {
   onNavigate?: () => void
 }
 
+/** Whether the list is open on this device, shared by the sidebar and the mobile menu. Keep it stable. */
+export const PLAYERS_OPEN_KEY = 'lcm.players.open'
+
 /**
  * The "Oyuncular" list: everyone who has signed up, with the DM marked. Each name opens that user's hand, and the
  * user whose hand is shown is marked (`aria-current`). Each player's LP stands next to the name, outside the
- * link, so the link is named by the player alone. The DM has no LP.
+ * link, so the link is named by the player alone. The DM has no LP. The heading opens and closes the list, with the
+ * number of users next to it; the device remembers the choice (spec: user-profiles, "Collapsing the player list").
  */
 export function PlayerList({ profiles, onNavigate }: PlayerListProps) {
-  const headingId = useId()
+  const listId = `${useId()}-list`
+  const [isOpen, setIsOpen] = useDeviceFlag(PLAYERS_OPEN_KEY, true)
 
   return (
-    <section aria-labelledby={headingId} className="flex flex-col gap-2">
-      <h2
-        id={headingId}
-        className="px-3 text-xs font-semibold tracking-wide text-ink-muted uppercase"
-      >
-        Oyuncular
+    // Named "Oyuncular" without the count, so the region keeps its name as players come and go.
+    <section aria-label="Oyuncular" className="flex flex-col gap-2">
+      <h2>
+        <button
+          type="button"
+          aria-expanded={isOpen}
+          aria-controls={listId}
+          onClick={() => setIsOpen(!isOpen)}
+          className="flex w-full items-center gap-1.5 rounded-lg px-3 py-0.5 text-xs font-semibold tracking-wide text-ink-muted uppercase transition-colors hover:bg-pane-raised hover:text-ink"
+        >
+          <span aria-hidden="true" className="w-3 text-center">
+            {isOpen ? '▾' : '▸'}
+          </span>
+          Oyuncular
+          {profiles.status === 'ready' ? (
+            <span className="font-normal tabular-nums">({profiles.data.length})</span>
+          ) : null}
+        </button>
       </h2>
+      <div id={listId} hidden={!isOpen} className="flex flex-col gap-2">
+        {isOpen ? <PlayerEntries profiles={profiles} onNavigate={onNavigate} /> : null}
+      </div>
+    </section>
+  )
+}
+
+/** The list's content, rendered only while the list is open. */
+function PlayerEntries({ profiles, onNavigate }: PlayerListProps) {
+  return (
+    <>
       {profiles.status === 'loading' ? (
         <p role="status" className="px-3 text-sm text-ink-muted">
           Oyuncular yükleniyor…
@@ -70,6 +99,6 @@ export function PlayerList({ profiles, onNavigate }: PlayerListProps) {
           ))}
         </ul>
       )}
-    </section>
+    </>
   )
 }

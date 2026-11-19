@@ -9,8 +9,10 @@ import {
   type Firestore,
   getDoc,
   getDocs,
+  query,
   setDoc,
   Timestamp,
+  where,
 } from 'firebase/firestore'
 import { type FirebaseStorage, getBytes, getMetadata, ref, uploadBytes } from 'firebase/storage'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
@@ -31,8 +33,8 @@ import {
   addWord,
   type CardFields,
   deleteCard,
+  definitionChangesRef,
   deleteWord,
-  publicChangesQuery,
   saveCard,
   saveWord,
   setCardStatus,
@@ -40,6 +42,10 @@ import {
 } from './api'
 import { DefinitionChangedError, IncompleteDefinitionError, NameTakenError } from './errors'
 import { cloudPictureStore, type PictureStore } from './pictureStore'
+
+/** The change records a player may read (spec: definition-editing, "Who reads the change records"). */
+const publicChanges = (db: Firestore) =>
+  query(definitionChangesRef(db), where('public', '==', true))
 
 let testEnv: RulesTestEnvironment
 
@@ -212,7 +218,7 @@ describe('card steps under the real rules', () => {
     })
 
     expect(id).toBe('cursed-hollowbones')
-    const visible = await getDocs(publicChangesQuery(as('ayla')))
+    const visible = await getDocs(publicChanges(as('ayla')))
     expect(visible.docs.map((entry) => entry.data().step)).toEqual(['added'])
   })
 
@@ -303,6 +309,23 @@ describe('card steps under the real rules', () => {
     ])
   })
 
+  it('deletes a draft together with its lore, keeping its record', async () => {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(firestoreOf(admin), `cardLore/${ENCORE.id}`), {
+        text: 'Bir ozanın son şarkısı.',
+        updatedBy: 'dana',
+        updatedAt: Timestamp.fromMillis(0),
+      })
+    })
+
+    await deleteCard(as('dana'), { card: ENCORE, by: 'dana' })
+
+    expect(await readAsAdmin(`cardLore/${ENCORE.id}`)).toBeUndefined()
+    expect(await records()).toEqual([
+      expect.objectContaining({ id: `del-${ENCORE.id}-c-encore`, step: 'deleted' }),
+    ])
+  })
+
   it('refuses a status step while a pack is open, but saves a text fix', async () => {
     await openPack()
 
@@ -372,7 +395,7 @@ describe('behavior flags under the real rules', () => {
 
   /** The flag before and after in each card record a player can read. */
   async function publicFlag(flag: keyof BehaviorFlags) {
-    const visible = await getDocs(publicChangesQuery(as('ayla')))
+    const visible = await getDocs(publicChanges(as('ayla')))
     return visible.docs.flatMap((entry) => {
       const record = entry.data()
       return record.step === 'imported' ? [] : [[record.before?.[flag], record.after?.[flag]]]

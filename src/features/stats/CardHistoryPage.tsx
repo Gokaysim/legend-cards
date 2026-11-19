@@ -12,6 +12,7 @@ import { statusLabel } from '@/features/cards/status'
 import { STATUS_LABELS } from '@/features/definitions/status'
 import { useCardStatuses } from '@/features/hands/cardStatus'
 import { holdingInfo } from '@/features/hands/holdingInfo'
+import { CardLoreSection } from '@/features/lore/CardLoreSection'
 import { useOpenHoldings } from '@/features/hands/holdingsContext'
 import { useSetIndex } from '@/features/sets/setsContext'
 import { useIsDm } from '@/features/users/usersContext'
@@ -113,6 +114,8 @@ function CardHistory({ card, records, now }: CardHistoryProps) {
             ))}
           </ul>
         </div>
+
+        <CardLoreSection cardId={card.id} />
 
         <StatsTiles label="Kart istatistikleri">
           <StatsTile

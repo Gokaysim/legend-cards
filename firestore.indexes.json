@@ -15,20 +15,6 @@
       ]
     },
     {
-      "collectionGroup": "definitionChanges",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "public",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "at",
-          "order": "DESCENDING"
-        }
-      ]
-    },
-    {
       "collectionGroup": "userCards",
       "queryScope": "COLLECTION",
       "fields": [

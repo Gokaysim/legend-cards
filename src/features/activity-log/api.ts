@@ -10,8 +10,6 @@ import {
 } from 'firebase/firestore'
 
 import { ledgerRef } from '@/features/balances/api'
-import { definitionChangesRef, publicChangesQuery } from '@/features/definitions/api'
-import type { DefinitionChange } from '@/features/definitions/schema'
 import type { LedgerEntry } from '@/features/balances/schema'
 import { drawsRef } from '@/features/draws/api'
 import type { Draw } from '@/features/draws/schema'
@@ -27,12 +25,13 @@ import { combatChangesRef } from '@/features/combat/api'
 import type { CombatChange } from '@/features/combat/schema'
 
 /**
- * The nine queries of the İşlem Logu's sources (holdings, draws, the ledger, kept uses, the definition changes, the
- * set changes, the table setting changes and the fight records), each newest first and limited to `n` (design D10 of unify-cards-and-true-words). With a user, each keeps
+ * The nine queries of the İşlem Logu's sources (the given and the closed holdings, draws, the ledger, kept uses, the set
+ * changes, the table setting changes, the fight records and the role changes), each newest first and limited to `n`
+ * (design D10 of unify-cards-and-true-words). The definition changes are not among them (design D5 of
+ * polish-sidebar-mascots-and-lore): their records are kept, but the log does not show them. With a user, each keeps
  * only that user's records: their holdings (the words taught to them or taken back from them among them), the draws,
  * packs and drafts into their hand, their LP entries, and the uses of their cards and words. Party entries never match
- * a user, and definition, set and table setting changes and fight records are left out (`null`). A player's device asks only for the public changes,
- * which the rules let it read; the DM's for all of them.
+ * a user, and set and table setting changes and fight records are left out (`null`).
  *
  * The holdings a draw, a pack or a draft opened, and the entries that paid for or refunded them, are part of their
  * draw's, pack's or draft's event, so the queries leave them out: given holdings are only the DM's gives, teachings and
@@ -49,8 +48,7 @@ export type LogQueries = {
   draws: Query<Draw>
   entries: Query<LedgerEntry>
   uses: Query<KeptUse>
-  changes: Query<DefinitionChange> | null
-  /** Every set change; left out with a user, as the definition changes are. */
+  /** Every set change; left out with a user. */
   setChanges: Query<SetChange> | null
   /** Every table setting change; left out with a user, as the set changes are. */
   tableChanges: Query<TableChange> | null
@@ -66,12 +64,7 @@ export type LogQueries = {
  */
 const LOGGED_WAYS: GivenVia[] = ['dm', 'transfer']
 
-export function logQueries(
-  db: Firestore,
-  uid: string | null,
-  n: number,
-  isDm: boolean,
-): LogQueries {
+export function logQueries(db: Firestore, uid: string | null, n: number): LogQueries {
   const byHolder: QueryConstraint[] = uid === null ? [] : [where('uid', '==', uid)]
   const byAccount: QueryConstraint[] = uid === null ? [] : [where('account', '==', uid)]
   return {
@@ -98,14 +91,6 @@ export function logQueries(
       limit(n),
     ),
     uses: query(usesRef(db), ...byHolder, orderBy('at', 'desc'), limit(n)),
-    changes:
-      uid !== null
-        ? null
-        : query(
-            isDm ? definitionChangesRef(db) : publicChangesQuery(db),
-            orderBy('at', 'desc'),
-            limit(n),
-          ),
     setChanges: uid !== null ? null : query(setChangesRef(db), orderBy('at', 'desc'), limit(n)),
     tableChanges: uid !== null ? null : query(tableChangesRef(db), orderBy('at', 'desc'), limit(n)),
     combatChanges:

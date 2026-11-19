@@ -18,6 +18,7 @@ import { type TestDefinitions, TestDefinitionsProvider } from './TestDefinitions
 import { type TestDice, TestDiceProvider } from './TestDiceProvider'
 import { type TestDraws, TestDrawsProvider } from './TestDrawsProvider'
 import { type TestHoldings, TestHoldingsProvider } from './TestHoldingsProvider'
+import { type TestLore, TestLoreProvider } from './TestLoreProvider'
 import { type TestPacks, TestPacksProvider } from './TestPacksProvider'
 import { type TestSets, TestSetsProvider } from './TestSetsProvider'
 import { type TestStats, TestStatsProvider } from './TestStatsProvider'
@@ -58,6 +59,8 @@ export type RenderAppOptions = {
   trueWords?: TestTrueWords
   /** The player notes and DM notes, and fake saves. Defaults to no notes, and saves that succeed. */
   notes?: TestNotes
+  /** The cards' lore and a fake save. Defaults to no lore, and saves that succeed. */
+  lore?: TestLore
   /** Fake definition steps. Defaults to steps that succeed. */
   definitions?: TestDefinitions
   /** The dice channel, the roll to play and fake dice steps. Defaults to no rolls, and steps that succeed. */
@@ -83,6 +86,7 @@ type Data = {
   packs: TestPacks
   trueWords: TestTrueWords
   notes: TestNotes
+  lore: TestLore
   definitions: TestDefinitions
   dice: TestDice
   combat: TestCombat
@@ -94,7 +98,7 @@ type Data = {
  * sets, cards, open holdings, party purse, table lock, open pack, True Words, notes, log and statistics records and
  * pictures, the DM's access list, and fake draws, pack, set, character, access-list and True Word steps and note
  * saves. `setUsers`, `setAccess`, `setCharacters`,
- * `setSets`, `setCards`, `setHoldings`, `setBalances`, `setTable`, `setPacks`, `setTrueWords`, `setNotes`,
+ * `setSets`, `setCards`, `setHoldings`, `setBalances`, `setTable`, `setPacks`, `setTrueWords`, `setNotes`, `setLore`,
  * `setActivityLog`, `setStats`, `setDraws`, `setDice` and `setCombat` re-render the same app with other data, as a real-time update would, without
  * remounting.
  */
@@ -116,6 +120,7 @@ export function renderApp({
   packs = {},
   trueWords = {},
   notes = {},
+  lore = {},
   definitions = {},
   dice = {},
   combat = {},
@@ -137,6 +142,7 @@ export function renderApp({
     packs,
     trueWords,
     notes,
+    lore,
     definitions,
     dice,
     combat,
@@ -159,13 +165,15 @@ export function renderApp({
                               <TestDrawsProvider {...data.draws}>
                                 <TestTrueWordsProvider {...data.trueWords}>
                                   <TestPlayerNotesProvider {...data.notes}>
-                                    <TestDefinitionsProvider {...data.definitions}>
-                                      <TestDiceProvider {...data.dice}>
-                                        <TestCombatProvider {...data.combat}>
-                                          <RouterProvider router={router} />
-                                        </TestCombatProvider>
-                                      </TestDiceProvider>
-                                    </TestDefinitionsProvider>
+                                    <TestLoreProvider {...data.lore}>
+                                      <TestDefinitionsProvider {...data.definitions}>
+                                        <TestDiceProvider {...data.dice}>
+                                          <TestCombatProvider {...data.combat}>
+                                            <RouterProvider router={router} />
+                                          </TestCombatProvider>
+                                        </TestDiceProvider>
+                                      </TestDefinitionsProvider>
+                                    </TestLoreProvider>
                                   </TestPlayerNotesProvider>
                                 </TestTrueWordsProvider>
                               </TestDrawsProvider>
@@ -204,6 +212,7 @@ export function renderApp({
     setPacks: (next: TestPacks) => update({ packs: next }),
     setTrueWords: (next: TestTrueWords) => update({ trueWords: next }),
     setNotes: (next: TestNotes) => update({ notes: next }),
+    setLore: (next: TestLore) => update({ lore: next }),
     setDraws: (next: TestDraws) => update({ draws: next }),
     setDice: (next: TestDice) => update({ dice: next }),
     setCombat: (next: TestCombat) => update({ combat: next }),

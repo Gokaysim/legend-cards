@@ -22,9 +22,8 @@ export type LogEventRowProps = {
 /**
  * One event: its time ("şimdi" while the server time is pending), who did it with the DM marked, and the Turkish
  * sentence, card names marked as English. A transfer with one side missing from the records reads that side. A
- * pack also lists the cards it showed, and a True Word draft the words it showed. A definition change lists its
- * changed fields or the published definition, an import the names it added, and the DM's work on drafts is marked as
- * visible to the DM only.
+ * pack also lists the cards it showed, and a True Word draft the words it showed. A set edit lists its changed fields,
+ * and a set import the names it added.
  */
 export function LogEventRow({ event, nameOf, actor }: LogEventRowProps) {
   const other = useHolding(event.kind === 'transferred' ? event.missingHoldingId : null)
@@ -45,7 +44,6 @@ export function LogEventRow({ event, nameOf, actor }: LogEventRowProps) {
             (wordId) => words.data.find((word) => word.id === wordId)?.name ?? wordId,
           )
         : []
-  const isDmOnly = (event.kind === 'definition' || event.kind === 'import') && !event.change.public
 
   return (
     <li className="flex gap-3 py-2 text-sm">
@@ -60,9 +58,6 @@ export function LogEventRow({ event, nameOf, actor }: LogEventRowProps) {
         <p className="flex flex-wrap items-baseline gap-x-2 font-semibold text-ink">
           <span className="break-words">{event.by === null ? IMPORT_ACTOR : nameOf(event.by)}</span>
           {actor?.role === 'dm' ? <RoleTag role="dm" /> : null}
-          {isDmOnly ? (
-            <span className="text-xs font-normal text-ink-muted">🔒 Yalnızca DM</span>
-          ) : null}
         </p>
         <p className="break-words text-ink">
           {sentence.parts.map((part, index) =>
@@ -79,11 +74,7 @@ export function LogEventRow({ event, nameOf, actor }: LogEventRowProps) {
           ) : null}
         </p>
         {sentence.lines?.map((line, index) => (
-          <p
-            key={index}
-            lang={index === 0 ? undefined : 'en'}
-            className="text-xs break-words whitespace-pre-line text-ink-muted"
-          >
+          <p key={index} className="text-xs break-words whitespace-pre-line text-ink-muted">
             {line}
           </p>
         ))}

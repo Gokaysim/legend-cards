@@ -2,7 +2,6 @@ import { Timestamp } from 'firebase/firestore'
 import { describe, expect, it } from 'vitest'
 
 import { testCard, testCursedCard } from '@/test/cardFixtures'
-import { testCardChange, testCardSnapshot, testImportRecord } from '@/test/definitionFixtures'
 import { testDmDraw, testDraw } from '@/test/drawFixtures'
 import { testHolding } from '@/test/holdingFixtures'
 import { testGpEntry, testLedgerEntry } from '@/test/ledgerFixtures'
@@ -355,48 +354,7 @@ describe('True Word events', () => {
 })
 
 describe('definition changes', () => {
-  const eyes = testCardSnapshot("Aboleth's Eyes")
-
-  it('makes one event of each change record, by the DM, and of an import, by no user', () => {
-    const edit = testCardChange(
-      'c1',
-      eyes,
-      { ...eyes, cost: '3' },
-      { at: Timestamp.fromMillis(3000) },
-    )
-    const imported = testImportRecord('i1', 742, { at: Timestamp.fromMillis(2000) })
-    const events = deriveEvents(records({ changes: [edit, imported] }))
-    expect(events.map((event) => [event.kind, event.key, event.by])).toEqual([
-      ['definition', 'definition:c1', 'dana'],
-      ['import', 'definition:i1', null],
-    ])
-  })
-
-  it('makes one import event of each picture import record, public or DM-only', () => {
-    const shown = testImportRecord('p1', 700, { what: 'pictures', at: Timestamp.fromMillis(2000) })
-    const drafts = testImportRecord('p2', 1, {
-      what: 'pictures',
-      public: false,
-      items: [
-        {
-          id: 'legend-thecartographer',
-          name: 'The Cartographer',
-          status: 'draft',
-          isInLibrary: true,
-        },
-      ],
-      at: Timestamp.fromMillis(2000),
-    })
-    const events = deriveEvents(records({ changes: [shown, drafts] }))
-    expect(events.map((event) => [event.kind, event.key, event.by])).toEqual([
-      ['import', 'definition:p1', null],
-      ['import', 'definition:p2', null],
-    ])
-  })
-
-  it('counts the changes when deciding whether older events may exist', () => {
-    const changes = [testCardChange('c1', eyes, eyes), testCardChange('c2', eyes, eyes)]
-    expect(newestEvents(records({ changes }), 2).mayHaveMore).toBe(true)
-    expect(newestEvents(records({ changes }), 3).mayHaveMore).toBe(false)
+  it('are not among the records the log reads, so they make no events', () => {
+    expect(Object.keys(EMPTY_LOG_RECORDS)).not.toContain('changes')
   })
 })

@@ -2398,6 +2398,32 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // A card's lore (spec: card-lore; design D1-D2 of polish-sidebar-mascots-and-lore): the DM's story of the character
+    // on the card, apart from its definition, so it needs no change record and the cards list never reads it. A member
+    // reads the lore of an active or retired card, as the card itself; only the DM reads a draft's, and the lore of a
+    // card that no longer exists (the `get()` fails, and `||` lets the DM through). Only the DM writes it, for a
+    // stored card that is not a True Word: exactly its text (1 to 10000 characters; keep in step with LORE_LIMIT in
+    // src/features/lore/schema.ts), the DM as its last editor, and the server time. A delete needs no card, so a
+    // deleted draft's lore can still go. Lore is not a table action, so an open pack does not stop it.
+    function validLore(cardId) {
+      let data = request.resource.data;
+      return data.keys().hasOnly(['text', 'updatedBy', 'updatedAt'])
+        && data.keys().hasAll(['text', 'updatedBy', 'updatedAt'])
+        && data.text is string
+        && data.text.size() >= 1
+        && data.text.size() <= 10000
+        && data.updatedBy == request.auth.uid
+        && data.updatedAt == request.time
+        && exists(cardPath(cardId))
+        && get(cardPath(cardId)).data.kind != 'trueWord';
+    }
+
+    match /cardLore/{cardId} {
+      allow read: if isMember() && (playerVisible(get(cardPath(cardId)).data.status) || isDm());
+      allow create, update: if isMember() && validLore(cardId) && isDm();
+      allow delete: if isMember() && isDm();
+    }
+
     // The dice styles (DICE_STYLES in src/features/dice/schema.ts).
     function diceStyles() {
       return ['galaxy', 'gemstone', 'glass', 'iron', 'nebula', 'sunrise', 'sunset', 'walnut'];

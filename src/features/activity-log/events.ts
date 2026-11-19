@@ -1,5 +1,4 @@
 import type { LedgerEntry } from '@/features/balances/schema'
-import type { DefinitionStepRecord, ImportRecord } from '@/features/definitions/schema'
 import type { CardDraw, Draw, PackOpening } from '@/features/draws/schema'
 import type { Holding, KeptUse } from '@/features/hands/schema'
 import type { SetChange } from '@/features/sets/schema'
@@ -15,10 +14,10 @@ export type EventTime = Holding['givenAt']
  * The records the log is read from, each source newest first and limited to the same `n` (design D10 of
  * unify-cards-and-true-words): the holdings the DM gave or transferred, the words the DM taught among them, by the time
  * they were given; closed holdings, the words the DM took back among them, by the time they were closed; draws, pack
- * openings and True Word drafts; the ledger's changes by hand; the uses of cards and words kept on use; the definition
- * changes this device may read; the set changes; the table setting changes; the fights' starts and ends; and the DM
+ * openings and True Word drafts; the ledger's changes by hand; the uses of cards and words kept on use; the set changes; the table setting changes; the fights' starts and ends; and the DM
  * role changes. The holdings and entries of draws, packs and drafts, the entries of
- * uses, and the words learned from drafts, are not among them.
+ * uses, and the words learned from drafts, are not among them, and neither are the definition changes and imports
+ * (spec: activity-log, "The DM's definition work stays out of the log").
  */
 export type LogRecords = {
   given: readonly Holding[]
@@ -26,7 +25,6 @@ export type LogRecords = {
   draws: readonly Draw[]
   entries: readonly LedgerEntry[]
   uses: readonly KeptUse[]
-  changes: readonly (DefinitionStepRecord | ImportRecord)[]
   /** Every user reads every set change (spec: activity-log, "Set changes are events"). */
   setChanges: readonly SetChange[]
   /** Every user reads every table setting change (spec: activity-log, "Player draw mode changes are events"). */
@@ -44,7 +42,6 @@ export const EMPTY_LOG_RECORDS: LogRecords = {
   draws: [],
   entries: [],
   uses: [],
-  changes: [],
   setChanges: [],
   tableChanges: [],
   combatChanges: [],
@@ -55,7 +52,7 @@ type EventBase = {
   /** Unique and stable: React key and tie-breaker. */
   key: string
   at: EventTime
-  /** The uid of the user who did it, or `null` for an import, which no user made. */
+  /** The uid of the user who did it, or `null` for a set import, which no user made. */
   by: string | null
 }
 
@@ -66,8 +63,8 @@ type EventBase = {
  * holding and its payment. A pack opening is one event for the pack, its holdings, its payment and its refund, at
  * the time it was opened; it changes as the pack goes on. A True Word draft is likewise one event for the draft, its
  * learned word, its payment and its refund. A word the DM teaches, and a word the DM takes back, are events too, and
- * so is each use of a word or a card kept on use, with its payment. So is each definition change record: a DM step on a
- * card or a word, or an import's additions. And so is each change of a table setting by the DM.
+ * so is each use of a word or a card kept on use, with its payment. So is each set change, and each change of a table
+ * setting by the DM.
  */
 export type LogEvent =
   | (EventBase & { kind: 'given' | 'used' | 'discarded'; holding: Holding })
@@ -86,8 +83,6 @@ export type LogEvent =
   | (EventBase & { kind: 'wordDraft'; draft: WordDraft })
   | (EventBase & { kind: 'wordTaught' | 'wordTakenBack'; record: LearnedWord })
   | (EventBase & { kind: 'wordUsed' | 'keptUsed'; use: KeptUse })
-  | (EventBase & { kind: 'definition'; change: DefinitionStepRecord })
-  | (EventBase & { kind: 'import'; change: ImportRecord })
   | (EventBase & { kind: 'set'; change: SetChange })
   | (EventBase & { kind: 'tableSetting'; change: TableChange })
   | (EventBase & { kind: 'fight'; change: CombatChange })
@@ -187,15 +182,6 @@ export function deriveEvents(records: LogRecords): LogEvent[] {
     const key = `${kind}:${use.id}`
     events.set(key, { kind, key, at: use.at, by: use.by, use })
   }
-  for (const change of records.changes) {
-    const key = `definition:${change.id}`
-    events.set(
-      key,
-      change.step === 'imported'
-        ? { kind: 'import', key, at: change.at, by: null, change }
-        : { kind: 'definition', key, at: change.at, by: change.by, change },
-    )
-  }
   for (const change of records.setChanges) {
     const key = `set:${change.id}`
     events.set(key, { kind: 'set', key, at: change.at, by: change.by, change })
@@ -265,7 +251,6 @@ export function newestEvents(
     records.draws.length >= limit ||
     records.entries.length >= limit ||
     records.uses.length >= limit ||
-    records.changes.length >= limit ||
     records.setChanges.length >= limit ||
     records.tableChanges.length >= limit ||
     records.combatChanges.length >= limit ||

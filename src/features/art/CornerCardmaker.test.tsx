@@ -54,7 +54,7 @@ describe('CornerCardmaker', () => {
     expect(corner()).toHaveAttribute('aria-hidden', 'true')
     expect(corner()).toHaveClass('pointer-events-none', 'fixed', 'right-4.5', 'bottom-3')
     expect(corner()).toHaveAttribute('data-size', 'shop')
-    expect(corner()).toHaveClass('w-[min(430px,39vw)]')
+    expect(corner()).toHaveClass('h-[min(264px,37vh)]', 'w-[min(258px,23.4vw)]')
     expect(corner()?.querySelector('img')).toHaveAttribute(
       'src',
       '/art/mascots/cardmaker_shop.0123456789.webp',
@@ -66,19 +66,58 @@ describe('CornerCardmaker', () => {
     renderCorner(<CornerCardmaker stem="cardmaker_gold" size="gold" />)
 
     expect(corner()).toHaveAttribute('data-size', 'gold')
-    expect(corner()).toHaveClass('w-[min(625px,62vw)]')
+    expect(corner()).toHaveClass('h-[min(372px,48vh)]', 'w-[min(375px,37.2vw)]')
   })
 
-  it('fades out while the mouse pointer is over her, and comes back when it leaves', () => {
+  it('fades out the first time the mouse pointer reaches her, and stays gone', () => {
     renderCorner()
 
     fireEvent.pointerMove(document, { pointerType: 'mouse', clientX: 1000, clientY: 600 })
     expect(corner()).toHaveAttribute('data-dismissed')
+    expect(corner()).toHaveAttribute('data-gone')
     expect(corner()).toHaveClass('opacity-0')
 
     fireEvent.pointerMove(document, { pointerType: 'mouse', clientX: 300, clientY: 200 })
+    fireEvent.scroll(document)
+    expect(corner()).toHaveAttribute('data-gone')
+    expect(corner()).toHaveClass('opacity-0')
+  })
+
+  it('stops listening once she is gone', () => {
+    renderCorner()
+    const removed = vi.spyOn(document, 'removeEventListener')
+
+    fireEvent.pointerMove(document, { pointerType: 'mouse', clientX: 1000, clientY: 600 })
+
+    expect(removed.mock.calls.map(([type]) => type)).toEqual(
+      expect.arrayContaining(['pointermove', 'focusin', 'focusout', 'scroll']),
+    )
+  })
+
+  it('comes back for another stem, as on a tab switch', () => {
+    const { rerender } = renderCorner()
+    fireEvent.pointerMove(document, { pointerType: 'mouse', clientX: 1000, clientY: 600 })
+    expect(corner()).toHaveAttribute('data-gone')
+
+    rerender(
+      <TestArtProvider manifest={ART}>
+        <CornerCardmaker stem="cardmaker_gold" />
+      </TestArtProvider>,
+    )
+
+    expect(corner()).toHaveAttribute('data-corner-cardmaker', 'cardmaker_gold')
     expect(corner()).not.toHaveAttribute('data-dismissed')
     expect(corner()).toHaveClass('opacity-100')
+  })
+
+  it('comes back when the screen shows her again', () => {
+    const { unmount } = renderCorner()
+    fireEvent.pointerMove(document, { pointerType: 'mouse', clientX: 1000, clientY: 600 })
+    unmount()
+
+    renderCorner()
+
+    expect(corner()).not.toHaveAttribute('data-dismissed')
   })
 
   it('does not fade for a touch', () => {
@@ -88,7 +127,7 @@ describe('CornerCardmaker', () => {
     expect(corner()).not.toHaveAttribute('data-dismissed')
   })
 
-  it('fades out while the keyboard focus is on something under her', () => {
+  it('fades out only while the keyboard focus is on something under her', () => {
     renderCorner(
       <>
         <button type="button" data-under>
@@ -102,6 +141,8 @@ describe('CornerCardmaker', () => {
 
     act(() => under?.focus())
     expect(corner()).toHaveAttribute('data-dismissed')
+
+    expect(corner()).not.toHaveAttribute('data-gone')
 
     act(() => elsewhere?.focus())
     expect(corner()).not.toHaveAttribute('data-dismissed')
@@ -151,6 +192,16 @@ describe('CornerCardmaker', () => {
 
       expect(bubble()).toHaveClass('pointer-events-none')
       expect(bubble()).toHaveAttribute('aria-hidden', 'true')
+    })
+
+    it('is not there once she is gone, though a line is spoken', () => {
+      renderCorner(speaking(LINE))
+      expect(bubble()).not.toBeNull()
+
+      fireEvent.pointerMove(document, { pointerType: 'mouse', clientX: 1000, clientY: 600 })
+
+      expect(corner()).toHaveAttribute('data-gone')
+      expect(bubble()).toBeNull()
     })
 
     it('is not there while she says nothing', () => {
