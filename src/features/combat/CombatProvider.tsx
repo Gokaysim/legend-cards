@@ -34,6 +34,7 @@ import {
   type CombatContextValue,
   type CombatView,
 } from './combatContext'
+import { CombatPartlyAddedError } from './errors'
 import { currentOrder } from './order'
 import { type DmCombatant, IDLE_COMBAT } from './schema'
 
@@ -100,8 +101,10 @@ export function CombatProvider({ children }: { children: ReactNode }) {
     return {
       open: async (joining) => {
         const opened = await openCombat(db, { by: me(), ...joining })
-        // One group after another: each throws on the DM's tray.
+        // One group after another: each throws on the DM's tray. The NPCs are in even when some characters were left
+        // out, so they roll first (design D3 of open-large-combats).
         for (const group of opened.npcGroups) await rollGroup(group, opened.combatId)
+        if (opened.leftOut.length > 0) throw new CombatPartlyAddedError('open', opened.leftOut)
       },
       rollInitiative: async (combatant, characterName, modifier) => {
         const { written } = await dice.rollWith(
@@ -122,6 +125,7 @@ export function CombatProvider({ children }: { children: ReactNode }) {
           await rollGroup(group, combatId, { dmUid: me(), firstSeq: seq })
           seq += group.ids.length
         }
+        if (added.leftOut.length > 0) throw new CombatPartlyAddedError('add', added.leftOut)
       },
       clearRoll: (combatant) => clearRoll(db, combatant),
       start: async () => {

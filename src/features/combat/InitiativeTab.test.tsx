@@ -15,6 +15,7 @@ import { renderApp, type RenderAppOptions } from '@/test/renderApp'
 
 import { resetSwitchMemory } from './asking'
 import type { CombatActions } from './combatContext'
+import { CombatPartlyAddedError } from './errors'
 import type { Combatant } from './schema'
 
 const ME = testProfile({ displayName: 'Ayla' })
@@ -138,6 +139,39 @@ describe('setting up a combat', () => {
     )
     await user.click(within(dialog).getByRole('button', { name: 'Modifier iste' }))
     expect(within(dialog).getByRole('alert')).toHaveTextContent('Kaydedilemedi')
+  })
+
+  // Spec: initiative-tracker, "A setup that is cut short" (open-large-combats).
+  it('closes the setup and names the characters left out, which "+ Ekle" then offers', async () => {
+    const user = userEvent.setup()
+    const leftOut = [
+      { characterId: KUZGUN.id, uid: testUser.uid },
+      { characterId: ELARA.id, uid: 'bora' },
+    ]
+    const open = vi.fn<CombatActions['open']>(() =>
+      Promise.reject(new CombatPartlyAddedError('open', leftOut)),
+    )
+    const view = renderTab({ dm: true, combat: { actions: { open } } })
+    await user.click(screen.getByRole('button', { name: 'Savaş başlat' }))
+    const dialog = screen.getByRole('dialog', { name: 'Savaş başlat' })
+    await user.click(within(dialog).getByRole('button', { name: 'Modifier iste' }))
+    expect(screen.queryByRole('dialog', { name: 'Savaş başlat' })).not.toBeInTheDocument()
+
+    // The combat opened with Thorn only.
+    view.setCombat({
+      combat: testCombat(),
+      combatants: [testCharacterCombatant(THORN, 0)],
+      actions: { open },
+    })
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Savaş açıldı ama şu karakterler eklenemedi: Kuzgun, Elara. «+ Ekle» ile ekleyebilirsin.',
+    )
+
+    await user.click(screen.getByRole('button', { name: '+ Ekle' }))
+    const add = screen.getByRole('dialog', { name: 'Savaşa ekle' })
+    expect(within(add).getByRole('checkbox', { name: 'Kuzgun' })).toBeInTheDocument()
+    expect(within(add).getByRole('checkbox', { name: 'Elara' })).toBeInTheDocument()
+    expect(screen.queryByText(/eklenemedi/)).not.toBeInTheDocument()
   })
 })
 

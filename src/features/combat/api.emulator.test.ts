@@ -142,6 +142,27 @@ async function rollFor(uid: string, characterId: string, name: string, die: numb
   return written
 }
 
+/** Seeds `count` of Ayla's characters, `hero0` to `hero<count-1>`, and returns them as joining characters. */
+async function seedHeroes(count: number, from = 0) {
+  await testEnv.withSecurityRulesDisabled(async (admin) => {
+    const db = firestoreOf(admin)
+    for (let i = from; i < from + count; i++) {
+      await setDoc(doc(db, `characters/hero${String(i)}`), {
+        uid: 'ayla',
+        name: `Hero ${String(i)}`,
+        picture: null,
+        archived: false,
+        createdAt: Timestamp.fromMillis(1),
+        createdBy: 'ayla',
+      })
+    }
+  })
+  return Array.from({ length: count }, (_, i) => ({
+    characterId: `hero${String(from + i)}`,
+    uid: 'ayla',
+  }))
+}
+
 describe('opening and rolling', () => {
   it('opens a combat, rolls the goblins hidden and a player character in the channel', async () => {
     const { combatId, goblins } = await openWithGoblins()
@@ -433,6 +454,30 @@ describe('the fight', () => {
     expect(wolves.every((w) => w.manual && !w.rolled)).toBe(true)
   })
 
+  it('adds ten characters and two wolves during the fight, last and in the chosen order', async () => {
+    const { combatId, order } = await startedFight()
+    const heroes = await seedHeroes(10)
+    const added = await addCombatants(as('dana'), {
+      by: 'dana',
+      combatId,
+      firstSeq: 10,
+      characters: heroes,
+      npcGroups: [{ name: 'Kurt', count: 2, modifier: 0 }],
+    })
+    expect(added).toEqual({ npcGroups: [], leftOut: [] })
+    const combat = (await getDoc(combatRef(as('dana')))).data()
+    const all = await combatants()
+    const byId = new Map(all.map((c) => [c.id, c]))
+    const tail = (combat?.order ?? []).slice(order.length).map((id) => byId.get(id))
+    expect(combat?.order.slice(0, order.length)).toEqual(order)
+    expect(tail.map((c) => c?.characterId ?? c?.name)).toEqual([
+      ...heroes.map((h) => h.characterId),
+      'Kurt 1',
+      'Kurt 2',
+    ])
+    expect(tail.every((c) => c?.manual === true && !c.rolled)).toBe(true)
+  })
+
   it('ends the fight: empty collections, idle, and an end record with the round', async () => {
     const { all, order } = await startedFight()
     const dm = as('dana')
@@ -455,5 +500,130 @@ describe('the fight', () => {
     await endCombat(dm, { by: 'dana', combatantIds: (await combatants()).map((c) => c.id) })
     expect((await getDoc(combatRef(dm))).data()).toMatchObject({ phase: 'idle' })
     expect((await getDocs(combatChangesRef(dm))).empty).toBe(true)
+  })
+})
+
+describe('large combats', () => {
+  it('opens a combat with 12 characters and six goblins, in the chosen order', async () => {
+    const heroes = await seedHeroes(12)
+    const opened = await openCombat(as('dana'), {
+      by: 'dana',
+      characters: heroes,
+      npcGroups: [{ name: 'Goblin', count: 6, modifier: 1 }],
+    })
+    expect(opened.leftOut).toEqual([])
+    const all = (await combatants()).sort((a, b) => a.seq - b.seq)
+    expect(all.map((c) => c.seq)).toEqual(Array.from({ length: 18 }, (_, i) => i))
+    expect(all.map((c) => c.characterId ?? c.name)).toEqual([
+      ...heroes.map((h) => h.characterId),
+      ...Array.from({ length: 6 }, (_, i) => `Goblin ${String(i + 1)}`),
+    ])
+    expect((await getDoc(combatRef(as('dana')))).data()).toMatchObject({
+      phase: 'gathering',
+      combatId: opened.combatId,
+    })
+  })
+
+  it('adds ten characters while the rolls come in', async () => {
+    const { combatId } = await openWithGoblins()
+    const heroes = await seedHeroes(10)
+    const added = await addCombatants(as('dana'), {
+      by: 'dana',
+      combatId,
+      firstSeq: 6,
+      characters: heroes,
+      npcGroups: [],
+    })
+    expect(added).toEqual({ npcGroups: [], leftOut: [] })
+    const all = await combatants()
+    const joined = heroes.map((h) => all.find((c) => c.characterId === h.characterId))
+    expect(joined.map((c) => c?.seq)).toEqual(Array.from({ length: 10 }, (_, i) => 6 + i))
+    expect(joined.every((c) => c?.manual === false && !c.rolled)).toBe(true)
+  })
+
+  it('opens a combat with 50 combatants and rolls both NPC groups', async () => {
+    const heroes = await seedHeroes(26)
+    const dm = as('dana')
+    const opened = await openCombat(dm, {
+      by: 'dana',
+      characters: heroes,
+      npcGroups: [
+        { name: 'Goblin', count: 12, modifier: 1 },
+        { name: 'Kurt', count: 12, modifier: 0 },
+      ],
+    })
+    expect(opened.leftOut).toEqual([])
+    for (const group of opened.npcGroups) {
+      const { written } = await rollDice(
+        dm,
+        { ...npcGroupRequest(group), by: 'dana', style: 'galaxy' },
+        fixed(...group.ids.map((_, i) => 1 + i)),
+        npcGroupWrites(dm, group, opened.combatId),
+      )
+      await written
+    }
+    const all = await combatants()
+    expect(all).toHaveLength(50)
+    expect(all.filter((c) => c.kind === 'npc').every((c) => c.rolled)).toBe(true)
+    expect((await getDocs(dmCombatantsRef(dm))).size).toBe(24)
+  })
+
+  it('keeps a combat cut short open and returns the characters left out', async () => {
+    const heroes = await seedHeroes(12)
+    // A character without a record in the second group: the rules deny that write.
+    const chosen = heroes.map((h, i) => (i === 7 ? { characterId: 'ghost', uid: 'ayla' } : h))
+    const opened = await openCombat(as('dana'), {
+      by: 'dana',
+      characters: chosen,
+      npcGroups: [{ name: 'Goblin', count: 4, modifier: 1 }],
+    })
+    expect(opened.leftOut).toEqual(chosen.slice(6))
+    expect((await getDoc(combatRef(as('dana')))).data()).toMatchObject({ phase: 'gathering' })
+    const all = await combatants()
+    expect(all.filter((c) => c.kind === 'character').map((c) => c.characterId)).toEqual(
+      expect.arrayContaining(chosen.slice(0, 6).map((h) => h.characterId)),
+    )
+    expect(all).toHaveLength(10)
+  })
+
+  it('throws and opens nothing when the first group fails', async () => {
+    const heroes = await seedHeroes(12)
+    const chosen = heroes.map((h, i) => (i === 2 ? { characterId: 'ghost', uid: 'ayla' } : h))
+    await expect(
+      openCombat(as('dana'), { by: 'dana', characters: chosen, npcGroups: [] }),
+    ).rejects.toThrow()
+    expect((await getDoc(combatRef(as('dana')))).data()?.phase ?? 'idle').toBe('idle')
+    expect(await combatants()).toEqual([])
+  })
+
+  it('returns the characters left out when adding is cut short, and throws when the first group fails', async () => {
+    const { combatId } = await openWithGoblins()
+    const heroes = await seedHeroes(12)
+    const dm = as('dana')
+    const withGhostAt = (at: number) =>
+      heroes.map((h, i) => (i === at ? { characterId: 'ghost', uid: 'ayla' } : h))
+
+    await expect(
+      addCombatants(dm, {
+        by: 'dana',
+        combatId,
+        firstSeq: 6,
+        characters: withGhostAt(1),
+        npcGroups: [],
+      }),
+    ).rejects.toThrow()
+    expect(await combatants()).toHaveLength(6)
+
+    const chosen = withGhostAt(9)
+    const added = await addCombatants(dm, {
+      by: 'dana',
+      combatId,
+      firstSeq: 6,
+      characters: chosen,
+      npcGroups: [{ name: 'Ogre', count: 1, modifier: 2 }],
+    })
+    expect(added.leftOut).toEqual(chosen.slice(6))
+    expect(added.npcGroups).toHaveLength(1)
+    expect(await combatants()).toHaveLength(12)
   })
 })

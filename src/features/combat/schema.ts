@@ -12,6 +12,12 @@ export const COMBAT_LIMITS = {
   combatants: 50,
   /** NPCs added at once ("Typed NPCs"), rolled as one hidden roll of that many d20 (design D4). */
   npcCount: 12,
+  /**
+   * Characters written in one transaction (design D1 of open-large-combats). The combatant rule reads each
+   * character's record (`exists()` and `get()`, both counted), and the rules may read at most 20 documents per
+   * request, so one write carried at most 8 characters on the emulator. 6 leaves a margin for future rules.
+   */
+  charactersPerWrite: 6,
   /** A typed NPC name. */
   name: 40,
   /** A stored NPC name: the typed name with " 12" at most. */

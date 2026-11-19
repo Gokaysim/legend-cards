@@ -11,6 +11,7 @@ import {
   type Query,
   runTransaction,
   serverTimestamp,
+  type Transaction,
   writeBatch,
 } from 'firebase/firestore'
 
@@ -103,19 +104,108 @@ function countOf(characters: readonly JoiningCharacter[], groups: readonly NpcGr
 }
 
 /**
- * "Modifier iste" (design D6): opens a combat from idle with the chosen characters and NPCs, none of them rolled.
- * Returns the NPC groups for `npcGroupRoll`. Throws `CombatOpenError` when a combat is already open.
+ * A combatant to create, with its ID and join number fixed before anything is written, so the join order does not
+ * depend on which write carries it (design D2 of open-large-combats). `joining` is set for a character.
+ */
+type PlannedCombatant = {
+  id: string
+  seq: number
+  draft: CombatantDraft
+  joining: JoiningCharacter | null
+}
+
+function plannedCharacters(
+  db: Firestore,
+  characters: readonly JoiningCharacter[],
+  firstSeq: number,
+): PlannedCombatant[] {
+  return characters.map((joining, index) => ({
+    id: newId(db),
+    seq: firstSeq + index,
+    draft: characterDraft(joining),
+    joining,
+  }))
+}
+
+function plannedNpcs(
+  db: Firestore,
+  group: NpcGroup,
+  dmUid: string,
+  firstSeq: number,
+): PlannedCombatant[] {
+  return npcDrafts(group, dmUid).map((draft, index) => ({
+    id: newId(db),
+    seq: firstSeq + index,
+    draft,
+    joining: null,
+  }))
+}
+
+/**
+ * Splits `planned` into consecutive slices with at most `COMBAT_LIMITS.charactersPerWrite` characters each; NPCs ride
+ * in the slice they fall into (design D1 and D2 of open-large-combats). Always returns at least one slice.
+ */
+function characterSlices(planned: readonly PlannedCombatant[]): PlannedCombatant[][] {
+  const slices: PlannedCombatant[][] = [[]]
+  let characters = 0
+  for (const item of planned) {
+    if (item.joining !== null && characters === COMBAT_LIMITS.charactersPerWrite) {
+      slices.push([])
+      characters = 0
+    }
+    slices[slices.length - 1]?.push(item)
+    if (item.joining !== null) characters++
+  }
+  return slices
+}
+
+/** The characters of `slices`, in order: the ones left out when the first of them failed. */
+function charactersOf(slices: readonly PlannedCombatant[][]): JoiningCharacter[] {
+  return slices.flat().flatMap((item) => (item.joining === null ? [] : [item.joining]))
+}
+
+function writeCombatant(
+  transaction: Transaction,
+  db: Firestore,
+  combatId: string,
+  item: PlannedCombatant,
+  manual: boolean,
+): void {
+  transaction.set(rawCombatant(db, item.id), {
+    ...item.draft,
+    combatId,
+    seq: item.seq,
+    manual,
+    rolled: false,
+    roll: null,
+  })
+}
+
+/**
+ * "Modifier iste" (design D6 of add-initiative-tracker, D1 to D3 of open-large-combats): opens a combat from idle
+ * with the chosen characters and NPCs, none of them rolled. The first write opens the combat with the first group of
+ * characters and every NPC; each later write adds the next group of characters while the combat is still the same
+ * and gathering. Returns the NPC groups for their roll, and the characters left out when a later write failed.
+ * Throws when the first write fails, `CombatOpenError` when a combat is already open.
  */
 export async function openCombat(
   db: Firestore,
   input: { by: string; characters: readonly JoiningCharacter[]; npcGroups: readonly NpcGroup[] },
-): Promise<{ combatId: string; npcGroups: CreatedNpcGroup[] }> {
+): Promise<{ combatId: string; npcGroups: CreatedNpcGroup[]; leftOut: JoiningCharacter[] }> {
   const total = countOf(input.characters, input.npcGroups)
   if (total === 0) throw new Error('A combat needs a combatant')
   if (total > COMBAT_LIMITS.combatants) throw new Error('Too many combatants')
-  const combatId = doc(collection(db, COMBATANTS_COLLECTION)).id
+  const combatId = newId(db)
 
-  return runTransaction(db, async (transaction) => {
+  const [first = [], ...later] = characterSlices(plannedCharacters(db, input.characters, 0))
+  let seq = input.characters.length
+  const npcs = input.npcGroups.map((group) => {
+    const planned = plannedNpcs(db, group, input.by, seq)
+    seq += planned.length
+    return { planned, modifier: group.modifier }
+  })
+
+  await runTransaction(db, async (transaction) => {
     const current = (await transaction.get(combatRef(db))).data() ?? IDLE_COMBAT
     if (current.phase !== 'idle') throw new CombatOpenError()
     transaction.set(doc(db, 'combat', 'main'), {
@@ -125,36 +215,31 @@ export async function openCombat(
       askedAt: serverTimestamp(),
       changeId: current.changeId,
     })
-
-    let seq = 0
-    for (const character of input.characters) {
-      transaction.set(rawCombatant(db, newId(db)), {
-        ...characterDraft(character),
-        combatId,
-        seq: seq++,
-        manual: false,
-        rolled: false,
-        roll: null,
-      })
+    for (const item of first) writeCombatant(transaction, db, combatId, item, false)
+    for (const { planned } of npcs) {
+      for (const item of planned) writeCombatant(transaction, db, combatId, item, false)
     }
-    const npcGroups = input.npcGroups.map((group) => {
-      const drafts = npcDrafts(group, input.by)
-      const ids = drafts.map((draft) => {
-        const id = newId(db)
-        transaction.set(rawCombatant(db, id), {
-          ...draft,
-          combatId,
-          seq: seq++,
-          manual: false,
-          rolled: false,
-          roll: null,
-        })
-        return id
-      })
-      return { ids, names: drafts.map((d) => d.name ?? ''), modifier: group.modifier }
-    })
-    return { combatId, npcGroups }
   })
+
+  const npcGroups = npcs.map(({ planned, modifier }) => ({
+    ids: planned.map((item) => item.id),
+    names: planned.map((item) => item.draft.name ?? ''),
+    modifier,
+  }))
+  for (const [index, slice] of later.entries()) {
+    try {
+      await runTransaction(db, async (transaction) => {
+        const current = (await transaction.get(combatRef(db))).data() ?? IDLE_COMBAT
+        if (current.phase !== 'gathering' || current.combatId !== combatId) {
+          throw new CombatChangedError()
+        }
+        for (const item of slice) writeCombatant(transaction, db, combatId, item, false)
+      })
+    } catch {
+      return { combatId, npcGroups, leftOut: charactersOf(later.slice(index)) }
+    }
+  }
+  return { combatId, npcGroups, leftOut: [] }
 }
 
 function newId(db: Firestore): string {
@@ -408,10 +493,16 @@ export async function moveCombatant(db: Firestore, id: string, toIndex: number):
   })
 }
 
+/** The phase `addCombatants` found in its first write, and its slices (design D2 of open-large-combats). */
+type AddPlan = { phase: 'gathering' | 'running'; slices: PlannedCombatant[][] }
+
 /**
  * Adds combatants after the setup (spec: "Adding during the fight"). While gathering, characters join without a roll
  * and NPC groups are returned for their roll, which creates them; while the fight runs, everyone joins last, by hand,
- * without a roll.
+ * without a roll, in the order given. The characters are written in groups (design D1 and D2 of open-large-combats):
+ * each write checks that the combat is the same and in the same phase, and while the fight runs appends exactly its
+ * own combatants to the order. Returns the characters left out when a write after the first failed; throws when the
+ * first write fails.
  */
 export async function addCombatants(
   db: Firestore,
@@ -422,42 +513,56 @@ export async function addCombatants(
     characters: readonly JoiningCharacter[]
     npcGroups: readonly NpcGroup[]
   },
-): Promise<{ npcGroups: CreatedNpcGroup[] }> {
-  return runTransaction(db, async (transaction) => {
-    const current = (await transaction.get(combatRef(db))).data() ?? IDLE_COMBAT
-    if (current.phase === 'idle' || current.combatId !== input.combatId) {
-      throw new CombatChangedError()
-    }
-    const running = current.phase === 'running'
-    const drafts = running
-      ? [
-          ...input.characters.map(characterDraft),
-          ...input.npcGroups.flatMap((g) => npcDrafts(g, input.by)),
-        ]
-      : input.characters.map(characterDraft)
-    if (current.order.length + drafts.length > COMBAT_LIMITS.combatants) {
-      throw new Error('Too many combatants')
-    }
-
-    let seq = input.firstSeq
-    const ids = drafts.map((draft) => {
-      const id = newId(db)
-      transaction.set(rawCombatant(db, id), {
-        ...draft,
-        combatId: input.combatId,
-        seq: seq++,
-        manual: running,
-        rolled: false,
-        roll: null,
-      })
-      return id
-    })
-    if (running) {
-      transaction.update(doc(db, 'combat', 'main'), { order: [...current.order, ...ids] })
-      return { npcGroups: [] }
-    }
-    return { npcGroups: input.npcGroups.map((group) => prepareNpcGroup(db, group)) }
+): Promise<{ npcGroups: CreatedNpcGroup[]; leftOut: JoiningCharacter[] }> {
+  const characters = plannedCharacters(db, input.characters, input.firstSeq)
+  let seq = input.firstSeq + characters.length
+  const npcs = input.npcGroups.flatMap((group) => {
+    const planned = plannedNpcs(db, group, input.by, seq)
+    seq += planned.length
+    return planned
   })
+  const step = (index: number, fixed: AddPlan | null) =>
+    runTransaction(db, async (transaction): Promise<AddPlan> => {
+      const current = (await transaction.get(combatRef(db))).data() ?? IDLE_COMBAT
+      if (
+        current.phase === 'idle' ||
+        current.combatId !== input.combatId ||
+        (fixed !== null && current.phase !== fixed.phase)
+      ) {
+        throw new CombatChangedError()
+      }
+      const running = current.phase === 'running'
+      const plan = fixed ?? {
+        phase: current.phase,
+        slices: characterSlices(running ? [...characters, ...npcs] : characters),
+      }
+      if (
+        fixed === null &&
+        current.order.length + plan.slices.flat().length > COMBAT_LIMITS.combatants
+      ) {
+        throw new Error('Too many combatants')
+      }
+      const slice = plan.slices[index] ?? []
+      for (const item of slice) writeCombatant(transaction, db, input.combatId, item, running)
+      if (running && slice.length > 0) {
+        transaction.update(doc(db, 'combat', 'main'), {
+          order: [...current.order, ...slice.map((item) => item.id)],
+        })
+      }
+      return plan
+    })
+
+  const plan = await step(0, null)
+  const npcGroups =
+    plan.phase === 'running' ? [] : input.npcGroups.map((group) => prepareNpcGroup(db, group))
+  for (let index = 1; index < plan.slices.length; index++) {
+    try {
+      await step(index, plan)
+    } catch {
+      return { npcGroups, leftOut: charactersOf(plan.slices.slice(index)) }
+    }
+  }
+  return { npcGroups, leftOut: [] }
 }
 
 /**

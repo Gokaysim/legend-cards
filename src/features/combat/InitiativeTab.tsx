@@ -28,9 +28,9 @@ import { profileName, sortProfiles, useIsDm, useProfiles } from '@/features/user
 import type { Subscription } from '@/lib/firestore/subscription'
 import { useOnlineStatus } from '@/lib/useOnlineStatus'
 
-import { useCombat, useCombatActions, useDmCombatants } from './combatContext'
+import { type Joining, useCombat, useCombatActions, useDmCombatants } from './combatContext'
 import { CombatantRow } from './CombatantRow'
-import { COMBAT_OFFLINE_NOTE, combatFailureMessage } from './errors'
+import { COMBAT_OFFLINE_NOTE, CombatPartlyAddedError, combatFailureMessage } from './errors'
 import { JoinCombatDialog, type JoinGroup } from './JoinCombatDialog'
 import { canStepBack, moveItem, turnAfterReorder } from './order'
 import { RollControl } from './RollControl'
@@ -103,6 +103,7 @@ export function InitiativeTab() {
   const [isSetupOpen, setIsSetupOpen] = useState(false)
   const [isAddOpen, setIsAddOpen] = useState(false)
   const [confirming, setConfirming] = useState<Confirming>(null)
+  const [leftOutNote, setLeftOutNote] = useState<string | null>(null)
   const [pending, setPending] = useState<{
     base: readonly string[]
     order: string[]
@@ -115,6 +116,15 @@ export function InitiativeTab() {
     () => new Map(characterList.map((c) => [c.id, c] as const)),
     [characterList],
   )
+  // A setup cut short (design D3 and D4 of open-large-combats): the combat is open, so the dialog closes, and the tab
+  // names the characters left out.
+  const reportingLeftOut =
+    (action: (joining: Joining) => Promise<void>) =>
+    (joining: Joining): Promise<void> =>
+      action(joining).catch((failure: unknown) => {
+        if (!(failure instanceof CombatPartlyAddedError)) throw failure
+        setLeftOutNote(combatFailureMessage(failure, (id) => characterMap.get(id)?.name))
+      })
   const profileMap = useMemo(
     () => new Map(profileList.map((p) => [p.id, p] as const)),
     [profileList],
@@ -148,7 +158,14 @@ export function InitiativeTab() {
           <p className="text-sm text-ink-muted">Açık bir savaş yok.</p>
           {isDm ? (
             <>
-              <Button variant="primary" disabled={!isOnline} onClick={() => setIsSetupOpen(true)}>
+              <Button
+                variant="primary"
+                disabled={!isOnline}
+                onClick={() => {
+                  setLeftOutNote(null)
+                  setIsSetupOpen(true)
+                }}
+              >
                 <span aria-hidden="true">⚔</span> Savaş başlat
               </Button>
               {!isOnline ? <p className="text-xs text-ink-muted">{COMBAT_OFFLINE_NOTE}</p> : null}
@@ -163,7 +180,7 @@ export function InitiativeTab() {
             // Read once, when the dialog opens: a player who comes or goes later changes no checkbox.
             initiallyChecked={initialCombatChoice(characterList, profileList, online)}
             remaining={COMBAT_LIMITS.combatants}
-            onSubmit={actions.open}
+            onSubmit={reportingLeftOut(actions.open)}
             onClose={() => setIsSetupOpen(false)}
           />
         ) : null}
@@ -332,6 +349,11 @@ export function InitiativeTab() {
           {step.error}
         </p>
       ) : null}
+      {leftOutNote ? (
+        <p role="alert" className="text-sm text-danger-ink">
+          {leftOutNote}
+        </p>
+      ) : null}
       {!isOnline ? <p className="text-xs text-ink-muted">{COMBAT_OFFLINE_NOTE}</p> : null}
 
       {isRunning && (isDm || isMyTurn) ? (
@@ -374,7 +396,13 @@ export function InitiativeTab() {
 
       {isDm ? (
         <div className="flex flex-wrap items-center gap-2 border-t border-line pt-3">
-          <Button disabled={!canAct} onClick={() => setIsAddOpen(true)}>
+          <Button
+            disabled={!canAct}
+            onClick={() => {
+              setLeftOutNote(null)
+              setIsAddOpen(true)
+            }}
+          >
             + Ekle
           </Button>
           {current.phase === 'gathering' ? (
@@ -409,7 +437,7 @@ export function InitiativeTab() {
               ? 'Eklenenler zar atmaz: listenin sonuna eklenir, yerlerini sen seçersin.'
               : 'Karakterlerin sahipleri zar atar; NPC’ler hemen gizli atılır.'
           }
-          onSubmit={actions.add}
+          onSubmit={reportingLeftOut(actions.add)}
           onClose={() => setIsAddOpen(false)}
         />
       ) : null}
