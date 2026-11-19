@@ -4,10 +4,11 @@ import type { ReactElement, ReactNode } from 'react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { handPath } from '@/app/screens'
 import { resetDeviceSettingsMemory } from '@/lib/deviceSetting'
 import { ready, testProfile } from '@/test/fixtures'
 
-import { PLAYERS_OPEN_KEY, PlayerList } from './PlayerList'
+import { PLAYERS_HIDE_OFFLINE_KEY, PLAYERS_OPEN_KEY, PlayerList } from './PlayerList'
 import { sortProfiles } from './usersContext'
 
 /** Shows the current path, so a test can see where a link went. */
@@ -238,5 +239,149 @@ describe('collapsing the list', () => {
     )
 
     expect(toggle()).toHaveTextContent('(6)')
+  })
+})
+
+// Spec: user-profiles, "Player list", "Online mark in the player list", "Online count next to the heading" and
+// "Hiding offline users" (show-online-players).
+describe('online users', () => {
+  const PEOPLE = ['Ayla', 'Bora', 'Can', 'Deniz', 'Gökay'].map((name) =>
+    testProfile({ id: name.toLowerCase(), displayName: name }),
+  )
+  const online = (...uids: string[]) => ready<ReadonlySet<string>>(new Set(uids))
+  const toggle = () => screen.getByRole('button', { name: /Oyuncular/ })
+  const hideButton = () => screen.getByRole('button', { name: 'Çevrimdışıları gizle' })
+  const names = () =>
+    within(list())
+      .getAllByRole('link')
+      .map((link) => link.textContent?.slice(1))
+  const entry = (name: string) =>
+    within(list())
+      .getAllByRole('listitem')
+      .find((item) => within(item).queryByRole('link', { name }))!
+  const isMarked = (name: string) =>
+    within(entry(name)).queryByTestId('online-dot') !== null &&
+    within(entry(name)).queryByText('çevrimiçi') !== null
+
+  it('shows the online users first, each group in name order', () => {
+    renderList(<PlayerList profiles={ready(PEOPLE)} online={online('can', 'gökay')} />)
+
+    expect(names()).toEqual(['Can', 'Gökay', 'Ayla', 'Bora', 'Deniz'])
+  })
+
+  it('moves a user who comes online into the online group, without a reload', () => {
+    const { rerender } = renderList(<PlayerList profiles={ready(PEOPLE)} online={online('can')} />)
+
+    rerender(<PlayerList profiles={ready(PEOPLE)} online={online('can', 'deniz')} />)
+
+    expect(names()).toEqual(['Can', 'Deniz', 'Ayla', 'Bora', 'Gökay'])
+  })
+
+  it('keeps the name order and marks only the signed-in user before presence has loaded', () => {
+    renderList(<PlayerList profiles={ready(PEOPLE)} selfUid="deniz" />)
+
+    expect(names()).toEqual(['Ayla', 'Bora', 'Can', 'Deniz', 'Gökay'])
+    expect(PEOPLE.filter((p) => isMarked(p.displayName ?? '')).map((p) => p.id)).toEqual(['deniz'])
+    expect(toggle()).toHaveTextContent('Oyuncular(5)')
+  })
+
+  it('marks an online user for the eye and for screen readers, and keeps the link named by the user alone', () => {
+    renderList(<PlayerList profiles={ready(PEOPLE)} online={online('ayla')} />)
+
+    expect(isMarked('Ayla')).toBe(true)
+    expect(within(list()).getByRole('link', { name: 'Ayla' })).toBeInTheDocument()
+    expect(isMarked('Can')).toBe(false)
+    expect(within(entry('Can')).queryByTestId('online-dot')).toBeNull()
+  })
+
+  it('takes the mark away when a user goes offline, without a reload', () => {
+    const { rerender } = renderList(<PlayerList profiles={ready(PEOPLE)} online={online('ayla')} />)
+
+    rerender(<PlayerList profiles={ready(PEOPLE)} online={online()} />)
+
+    expect(isMarked('Ayla')).toBe(false)
+  })
+
+  it('counts the online users next to the heading, open or closed', async () => {
+    const user = userEvent.setup()
+    const { rerender } = renderList(
+      <PlayerList profiles={ready(PEOPLE.slice(0, 4))} online={online('ayla', 'bora', 'can')} />,
+    )
+    expect(toggle()).toHaveTextContent('Oyuncular(4 · 3 çevrimiçi)')
+
+    await user.click(toggle())
+    rerender(
+      <PlayerList
+        profiles={ready(PEOPLE.slice(0, 4))}
+        online={online('ayla', 'bora', 'can', 'deniz')}
+      />,
+    )
+    expect(toggle()).toHaveTextContent('(4 · 4 çevrimiçi)')
+  })
+
+  it('hides the offline users and shows them again, with the same count', async () => {
+    const user = userEvent.setup()
+    const four = PEOPLE.filter((p) => p.id !== 'deniz')
+    renderList(<PlayerList profiles={ready(four)} online={online('ayla', 'gökay')} />)
+    expect(hideButton()).toHaveAttribute('aria-pressed', 'false')
+
+    await user.click(hideButton())
+    expect(hideButton()).toHaveAttribute('aria-pressed', 'true')
+    expect(names()).toEqual(['Ayla', 'Gökay'])
+    expect(toggle()).toHaveTextContent('Oyuncular(4 · 2 çevrimiçi)')
+
+    await user.click(hideButton())
+    expect(names()).toEqual(['Ayla', 'Gökay', 'Bora', 'Can'])
+  })
+
+  it('shows a user who comes online while offline users are hidden', async () => {
+    const user = userEvent.setup()
+    const { rerender } = renderList(<PlayerList profiles={ready(PEOPLE)} online={online('ayla')} />)
+    await user.click(hideButton())
+
+    rerender(<PlayerList profiles={ready(PEOPLE)} online={online('ayla', 'bora')} />)
+
+    expect(names()).toEqual(['Ayla', 'Bora'])
+  })
+
+  it('keeps the user whose hand is shown while offline users are hidden', async () => {
+    const user = userEvent.setup()
+    renderList(<PlayerList profiles={ready(PEOPLE)} online={online('ayla')} />, handPath('can'))
+    await user.click(hideButton())
+
+    expect(names()).toEqual(['Ayla', 'Can'])
+    expect(within(list()).getByRole('link', { name: 'Can' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    )
+    expect(isMarked('Can')).toBe(false)
+  })
+
+  it('remembers the choice on the device, for the sidebar and the mobile menu alike', async () => {
+    const user = userEvent.setup()
+    const { unmount } = renderList(<PlayerList profiles={ready(PEOPLE)} online={online('ayla')} />)
+    await user.click(hideButton())
+    unmount()
+
+    expect(window.localStorage.getItem(PLAYERS_HIDE_OFFLINE_KEY)).toBe('1')
+    renderList(<PlayerList profiles={ready(PEOPLE)} online={online('ayla')} />)
+    expect(hideButton()).toHaveAttribute('aria-pressed', 'true')
+    expect(names()).toEqual(['Ayla'])
+  })
+
+  it('shows no hide button while the list is closed', async () => {
+    const user = userEvent.setup()
+    renderList(<PlayerList profiles={ready(PEOPLE)} online={online('ayla')} />)
+
+    await user.click(toggle())
+
+    expect(screen.queryByRole('button', { name: 'Çevrimdışıları gizle' })).toBeNull()
+  })
+
+  it('shows everyone while presence is loading, even with offline users hidden', () => {
+    window.localStorage.setItem(PLAYERS_HIDE_OFFLINE_KEY, '1')
+    renderList(<PlayerList profiles={ready(PEOPLE)} />)
+
+    expect(names()).toEqual(['Ayla', 'Bora', 'Can', 'Deniz', 'Gökay'])
   })
 })

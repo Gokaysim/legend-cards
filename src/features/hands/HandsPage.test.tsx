@@ -47,6 +47,22 @@ describe('the "Oyuncu elleri" entry', () => {
     expect(handHeading()).toHaveTextContent('Ayla — Kart Eli')
   })
 
+  // Spec: user-profiles, "Player list", scenario "Other lists keep the name order" (show-online-players).
+  it('keeps the name order when Bora is online and Ayla is not, while the sidebar puts Bora first', () => {
+    const { router } = renderApp({
+      path: '/hands',
+      users: { currentProfile: ready(dmProfile), profiles: ready([ayla, bora, dmProfile]) },
+      presence: { online: ready<ReadonlySet<string>>(new Set(['bora', dmProfile.id])) },
+    })
+
+    expect(router.state.location.pathname).toBe('/hands/ayla')
+    const sidebar = within(screen.getByRole('complementary'))
+    const sidebarNames = within(sidebar.getByRole('region', { name: 'Oyuncular' }))
+      .getAllByRole('link')
+      .map((link) => link.textContent?.slice(1))
+    expect(sidebarNames.slice(0, 2)).toEqual(['Bora', 'GökayDM'])
+  })
+
   it("opens the DM's own hand when there is no other player", () => {
     const { router } = renderApp({
       path: '/hands',

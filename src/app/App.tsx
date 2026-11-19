@@ -15,6 +15,7 @@ import { HoldingsProvider } from '@/features/hands/HoldingsProvider'
 import { PacksProvider } from '@/features/packs/PacksProvider'
 import { LoreProvider } from '@/features/lore/LoreProvider'
 import { PlayerNotesProvider } from '@/features/player-notes/PlayerNotesProvider'
+import { PresenceProvider } from '@/features/presence/PresenceProvider'
 import { SetsProvider } from '@/features/sets/SetsProvider'
 import { StatsProvider } from '@/features/stats/StatsProvider'
 import { TableProvider } from '@/features/table/TableProvider'
@@ -26,51 +27,54 @@ import { routes } from './routes'
 const router = createBrowserRouter(routes)
 
 /**
- * Composition root: the built pictures, the auth session (with the access list check), then the user profiles, the
- * DM's access list, the characters, the party purse, the sets (with their pictures), the cards, the open holdings,
- * the table's lock, the open pack, the record sources of the log and the statistics, the draws, the True Words, the
- * notes' source, the cards' lore, the DM's definition steps and the dice channel, then the router.
+ * Composition root: the built pictures, the auth session (with the access list check), then the user profiles, who is
+ * online (with this device's presence reports), the DM's access list, the characters, the party purse, the sets (with
+ * their pictures), the cards, the open holdings, the table's lock, the open pack, the record sources of the log and the
+ * statistics, the draws, the True Words, the notes' source, the cards' lore, the DM's definition steps and the dice
+ * channel, then the router.
  */
 export function App() {
   return (
     <ArtProvider>
       <AuthProvider>
         <UsersProvider>
-          <AccessProvider>
-            <CharactersProvider>
-              <BalancesProvider>
-                <SetsProvider>
-                  <CardsProvider>
-                    <HoldingsProvider>
-                      <TableProvider>
-                        <PacksProvider>
-                          <ActivityLogProvider>
-                            <StatsProvider>
-                              <DrawsProvider>
-                                <TrueWordsProvider>
-                                  <PlayerNotesProvider>
-                                    <LoreProvider>
-                                      <DefinitionsProvider>
-                                        <DiceProvider>
-                                          <CombatProvider>
-                                            <RouterProvider router={router} />
-                                          </CombatProvider>
-                                        </DiceProvider>
-                                      </DefinitionsProvider>
-                                    </LoreProvider>
-                                  </PlayerNotesProvider>
-                                </TrueWordsProvider>
-                              </DrawsProvider>
-                            </StatsProvider>
-                          </ActivityLogProvider>
-                        </PacksProvider>
-                      </TableProvider>
-                    </HoldingsProvider>
-                  </CardsProvider>
-                </SetsProvider>
-              </BalancesProvider>
-            </CharactersProvider>
-          </AccessProvider>
+          <PresenceProvider>
+            <AccessProvider>
+              <CharactersProvider>
+                <BalancesProvider>
+                  <SetsProvider>
+                    <CardsProvider>
+                      <HoldingsProvider>
+                        <TableProvider>
+                          <PacksProvider>
+                            <ActivityLogProvider>
+                              <StatsProvider>
+                                <DrawsProvider>
+                                  <TrueWordsProvider>
+                                    <PlayerNotesProvider>
+                                      <LoreProvider>
+                                        <DefinitionsProvider>
+                                          <DiceProvider>
+                                            <CombatProvider>
+                                              <RouterProvider router={router} />
+                                            </CombatProvider>
+                                          </DiceProvider>
+                                        </DefinitionsProvider>
+                                      </LoreProvider>
+                                    </PlayerNotesProvider>
+                                  </TrueWordsProvider>
+                                </DrawsProvider>
+                              </StatsProvider>
+                            </ActivityLogProvider>
+                          </PacksProvider>
+                        </TableProvider>
+                      </HoldingsProvider>
+                    </CardsProvider>
+                  </SetsProvider>
+                </BalancesProvider>
+              </CharactersProvider>
+            </AccessProvider>
+          </PresenceProvider>
         </UsersProvider>
       </AuthProvider>
     </ArtProvider>

@@ -1,14 +1,28 @@
 import { Avatar } from '@/components/ui/Avatar'
 import { Button } from '@/components/ui/Button'
 import { useAuth } from '@/features/auth/authContext'
+import { usePresenceActions } from '@/features/presence/presenceContext'
 import { RoleTag } from '@/features/users/RoleTag'
 import type { Role } from '@/features/users/schema'
 import { useCurrentProfile } from '@/features/users/usersContext'
+
+/**
+ * Removes the user's presence first, so they count as offline at once (spec: player-presence, "Leaving the
+ * application"), then signs out. `leave` gives up after a short wait; a failed leave never stops the sign-out.
+ */
+async function signOutAfter(
+  leave: () => Promise<void>,
+  signOut: () => Promise<void>,
+): Promise<void> {
+  await leave().catch(() => {})
+  await signOut()
+}
 
 /** The signed-in user's name, picture and role, with the sign-out action. */
 export function UserBadge() {
   const auth = useAuth()
   const profile = useCurrentProfile()
+  const presence = usePresenceActions()
   if (auth.status !== 'signedIn') return null
 
   const name = auth.user.displayName ?? auth.user.email ?? 'Oyuncu'
@@ -29,7 +43,7 @@ export function UserBadge() {
           {role ? <RoleTag role={role} /> : null}
         </div>
       </div>
-      <Button onClick={() => void auth.signOut()}>Çıkış yap</Button>
+      <Button onClick={() => void signOutAfter(presence.leave, auth.signOut)}>Çıkış yap</Button>
     </section>
   )
 }

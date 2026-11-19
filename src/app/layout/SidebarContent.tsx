@@ -1,7 +1,9 @@
 import { NavLink } from 'react-router'
 
+import { useAuth } from '@/features/auth/authContext'
 import { PartyPurse } from '@/features/balances/PartyPurse'
 import { UnseenRollsBadge } from '@/features/dice/UnseenRollsBadge'
+import { usePresence } from '@/features/presence/presenceContext'
 import { PlayerList } from '@/features/users/PlayerList'
 import { useProfiles } from '@/features/users/usersContext'
 import { cn } from '@/lib/cn'
@@ -17,6 +19,9 @@ export type SidebarContentProps = {
 /** App name, version, the screen navigation, the party purse, the players and the signed-in user. Shared by the sidebar and the mobile menu. */
 export function SidebarContent({ onNavigate }: SidebarContentProps) {
   const profiles = useProfiles()
+  const online = usePresence()
+  const auth = useAuth()
+  const selfUid = auth.status === 'signedIn' ? auth.user.uid : null
   return (
     <div className="flex h-full flex-col gap-6 p-5">
       <div>
@@ -45,7 +50,7 @@ export function SidebarContent({ onNavigate }: SidebarContentProps) {
         ))}
       </nav>
       <PartyPurse />
-      <PlayerList profiles={profiles} onNavigate={onNavigate} />
+      <PlayerList profiles={profiles} online={online} selfUid={selfUid} onNavigate={onNavigate} />
       <div className="mt-auto">
         <UserBadge />
       </div>

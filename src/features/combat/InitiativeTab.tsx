@@ -22,8 +22,10 @@ import { Spinner } from '@/components/ui/Spinner'
 import { useAuth } from '@/features/auth/authContext'
 import { charactersOf, useCharacters } from '@/features/characters/charactersContext'
 import type { Character } from '@/features/characters/schema'
+import { usePresence } from '@/features/presence/presenceContext'
 import type { UserProfile } from '@/features/users/schema'
 import { profileName, sortProfiles, useIsDm, useProfiles } from '@/features/users/usersContext'
+import type { Subscription } from '@/lib/firestore/subscription'
 import { useOnlineStatus } from '@/lib/useOnlineStatus'
 
 import { useCombat, useCombatActions, useDmCombatants } from './combatContext'
@@ -34,15 +36,20 @@ import { canStepBack, moveItem, turnAfterReorder } from './order'
 import { RollControl } from './RollControl'
 import { orderedRows, type Row } from './rows'
 import { type Combat, COMBAT_LIMITS, type Combatant } from './schema'
+import { initialCombatChoice, isOfflineOwner } from './setupChoice'
 
 const NO_CHARACTERS: readonly Character[] = []
 const NO_PROFILES: readonly UserProfile[] = []
 
-/** The table's unarchived characters by owner: players first, the DM's own last. */
+/**
+ * The table's unarchived characters by owner: players first, the DM's own last. With `online`, each owner who is not
+ * online is marked (the setup only); without it, no owner is.
+ */
 function joinGroups(
   characters: readonly Character[],
   profiles: readonly UserProfile[],
   leaveOut: ReadonlySet<string> = new Set(),
+  online: Subscription<ReadonlySet<string>> | null = null,
 ): JoinGroup[] {
   const sorted = sortProfiles(profiles)
   const ordered = [
@@ -54,6 +61,7 @@ function joinGroups(
       uid: profile.id,
       name: profileName(profile),
       characters: charactersOf(characters, profile.id).filter((c) => !leaveOut.has(c.id)),
+      offline: online !== null && isOfflineOwner(profile.id, online),
     }))
     .filter((group) => group.characters.length > 0)
 }
@@ -87,6 +95,7 @@ export function InitiativeTab() {
   const uid = auth.status === 'signedIn' ? auth.user.uid : null
   const characters = useCharacters()
   const profiles = useProfiles()
+  const online = usePresence()
   const npcRolls = useDmCombatants()
   const actions = useCombatActions()
   const isOnline = useOnlineStatus()
@@ -150,14 +159,9 @@ export function InitiativeTab() {
           <JoinCombatDialog
             title="Savaş başlat"
             submitLabel="Modifier iste"
-            groups={joinGroups(characterList, profileList)}
-            initiallyChecked={
-              new Set(
-                characterList
-                  .filter((c) => !c.archived && profileMap.get(c.uid)?.role !== 'dm')
-                  .map((c) => c.id),
-              )
-            }
+            groups={joinGroups(characterList, profileList, new Set(), online)}
+            // Read once, when the dialog opens: a player who comes or goes later changes no checkbox.
+            initiallyChecked={initialCombatChoice(characterList, profileList, online)}
             remaining={COMBAT_LIMITS.combatants}
             onSubmit={actions.open}
             onClose={() => setIsSetupOpen(false)}

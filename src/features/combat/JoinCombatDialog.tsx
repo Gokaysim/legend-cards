@@ -10,8 +10,13 @@ import { COMBAT_OFFLINE_NOTE, combatFailureMessage } from './errors'
 import { NpcForm } from './NpcForm'
 import { type NpcGroup, npcGroupText, TOO_MANY_MESSAGE } from './npcs'
 
-/** One owner's characters in the list. */
-export type JoinGroup = { uid: string; name: string; characters: readonly Character[] }
+/** One owner's characters in the list. `offline` marks an owner who is not online (design D7 of show-online-players). */
+export type JoinGroup = {
+  uid: string
+  name: string
+  characters: readonly Character[]
+  offline: boolean
+}
 
 export type JoinCombatDialogProps = {
   title: string
@@ -97,6 +102,11 @@ export function JoinCombatDialog({
             <fieldset key={group.uid} className="flex flex-col gap-1.5">
               <legend className="mb-1 text-xs tracking-wide text-ink-muted uppercase">
                 {group.name}
+                {group.offline ? (
+                  <span className="ml-1.5 font-normal tracking-normal normal-case">
+                    · çevrimdışı
+                  </span>
+                ) : null}
               </legend>
               {group.characters.map((character) => (
                 <label key={character.id} className="flex items-center gap-2 text-sm text-ink">

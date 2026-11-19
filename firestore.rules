@@ -2881,6 +2881,18 @@ service cloud.firestore {
       }
     }
 
+    // A user's presence (spec: player-presence, "Presence access"; design D1 and D5 of show-online-players): the server
+    // time of the latest report from one of the user's devices. Every member reads every record, to see who is online.
+    // A user writes only their own, holding nothing but the server time of the write, and removes only their own when
+    // leaving. Presence is not a table action, so an open pack does not stop it.
+    match /presence/{uid} {
+      allow read: if isMember();
+      allow create, update: if isSelf(uid)
+        && request.resource.data.keys().hasOnly(['lastSeen'])
+        && request.resource.data.lastSeen == request.time;
+      allow delete: if isSelf(uid);
+    }
+
     // Closed catch-all: anything no rule grants is denied, for signed-in and signed-out users alike.
     // A request is allowed if ANY matching rule allows it, so this never overrides a deliberately opened path.
     match /{document=**} {

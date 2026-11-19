@@ -141,6 +141,89 @@ describe('setting up a combat', () => {
   })
 })
 
+// Spec: initiative-tracker, "Setting up a combat" (show-online-players).
+describe('setting up a combat with presence', () => {
+  const online = (...uids: string[]) => ready<ReadonlySet<string>>(new Set(uids))
+
+  async function openSetup(
+    presence: RenderAppOptions['presence'],
+    open = vi.fn<CombatActions['open']>(() => Promise.resolve()),
+  ) {
+    const user = userEvent.setup()
+    const view = renderTab({ dm: true, presence, combat: { actions: { open } } })
+    await user.click(screen.getByRole('button', { name: 'Savaş başlat' }))
+    const dialog = screen.getByRole('dialog', { name: 'Savaş başlat' })
+    return { user, open, view, dialog }
+  }
+  const box = (dialog: HTMLElement, name: string) => within(dialog).getByRole('checkbox', { name })
+  const group = (dialog: HTMLElement, owner: string) =>
+    within(dialog).getByRole('group', { name: new RegExp(`^${owner}`) })
+
+  it('checks the online players’ characters, not the DM’s own', async () => {
+    const { dialog } = await openSetup({ online: online(testUser.uid, 'bora', 'dm-1') })
+    expect(box(dialog, 'Thorn')).toBeChecked()
+    expect(box(dialog, 'Kuzgun')).toBeChecked()
+    expect(box(dialog, 'Elara')).toBeChecked()
+    expect(box(dialog, 'Goblin şefi')).not.toBeChecked()
+    expect(dialog).not.toHaveTextContent('çevrimdışı')
+  })
+
+  it('leaves an offline player’s characters unchecked and marks the player as offline', async () => {
+    const { dialog } = await openSetup({ online: online(testUser.uid, 'dm-1') })
+    expect(box(dialog, 'Thorn')).toBeChecked()
+    expect(box(dialog, 'Elara')).not.toBeChecked()
+    expect(group(dialog, 'Bora')).toHaveTextContent('çevrimdışı')
+    expect(group(dialog, 'Ayla')).not.toHaveTextContent('çevrimdışı')
+  })
+
+  it('lets the DM bring an offline player’s character in', async () => {
+    const { user, open, dialog } = await openSetup({ online: online(testUser.uid, 'dm-1') })
+    await user.click(box(dialog, 'Elara'))
+    await user.click(within(dialog).getByRole('button', { name: 'Modifier iste' }))
+    expect(open).toHaveBeenCalledWith({
+      // In the list's order, owner by owner.
+      characters: [
+        { characterId: KUZGUN.id, uid: testUser.uid },
+        { characterId: THORN.id, uid: testUser.uid },
+        { characterId: ELARA.id, uid: 'bora' },
+      ],
+      npcGroups: [],
+    })
+  })
+
+  it('checks every player’s characters and marks nobody while presence has not loaded', async () => {
+    const { dialog } = await openSetup({})
+    expect(box(dialog, 'Thorn')).toBeChecked()
+    expect(box(dialog, 'Elara')).toBeChecked()
+    expect(dialog).not.toHaveTextContent('çevrimdışı')
+  })
+
+  it('keeps the checkboxes when a player comes online during the setup, and drops the mark', async () => {
+    const { view, dialog } = await openSetup({ online: online(testUser.uid, 'dm-1') })
+    view.setPresence({ online: online(testUser.uid, 'dm-1', 'bora') })
+    const reopened = screen.getByRole('dialog', { name: 'Savaş başlat' })
+    expect(reopened).toBe(dialog)
+    expect(box(dialog, 'Elara')).not.toBeChecked()
+    expect(group(dialog, 'Bora')).not.toHaveTextContent('çevrimdışı')
+  })
+
+  it('marks nobody in "Savaşa ekle"', async () => {
+    const user = userEvent.setup()
+    renderTab({
+      dm: true,
+      presence: { online: online(testUser.uid, 'dm-1') },
+      combat: {
+        combat: testRunningCombat([THORN.id]),
+        combatants: [testCharacterCombatant(THORN, 0)],
+      },
+    })
+    await user.click(screen.getByRole('button', { name: '+ Ekle' }))
+    const dialog = screen.getByRole('dialog', { name: 'Savaşa ekle' })
+    expect(within(dialog).getByRole('checkbox', { name: 'Elara' })).not.toBeChecked()
+    expect(dialog).not.toHaveTextContent('çevrimdışı')
+  })
+})
+
 describe('while the rolls come in', () => {
   const thorn = testCharacterCombatant(THORN, 0)
   const elara = testCharacterCombatant(ELARA, 1)

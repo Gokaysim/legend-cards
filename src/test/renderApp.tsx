@@ -20,6 +20,7 @@ import { type TestDraws, TestDrawsProvider } from './TestDrawsProvider'
 import { type TestHoldings, TestHoldingsProvider } from './TestHoldingsProvider'
 import { type TestLore, TestLoreProvider } from './TestLoreProvider'
 import { type TestPacks, TestPacksProvider } from './TestPacksProvider'
+import { type TestPresence, TestPresenceProvider } from './TestPresenceProvider'
 import { type TestSets, TestSetsProvider } from './TestSetsProvider'
 import { type TestStats, TestStatsProvider } from './TestStatsProvider'
 import { type TestNotes, TestPlayerNotesProvider } from './TestPlayerNotesProvider'
@@ -33,6 +34,8 @@ export type RenderAppOptions = {
   signOut?: () => Promise<void>
   /** Profiles to provide. Defaults to `testUser` as a ready player. */
   users?: TestUsers
+  /** Who counts as online and a fake leave. Defaults to loading: the name order, only the signed-in user online. */
+  presence?: TestPresence
   /** The DM's access list and fake list steps. Defaults to an empty list, and steps that succeed. */
   access?: TestAccess
   /** The characters and fake character steps. Defaults to none, and steps that succeed. */
@@ -73,6 +76,7 @@ export type RenderAppOptions = {
 
 type Data = {
   users: TestUsers
+  presence: TestPresence
   access: TestAccess
   characters: TestCharacters
   sets: TestSets
@@ -94,12 +98,12 @@ type Data = {
 }
 
 /**
- * Renders the real route table at `path`, with a fixed auth state (signed in by default), fixed profiles, characters,
- * sets, cards, open holdings, party purse, table lock, open pack, True Words, notes, log and statistics records and
- * pictures, the DM's access list, and fake draws, pack, set, character, access-list and True Word steps and note
- * saves. `setUsers`, `setAccess`, `setCharacters`,
- * `setSets`, `setCards`, `setHoldings`, `setBalances`, `setTable`, `setPacks`, `setTrueWords`, `setNotes`, `setLore`,
- * `setActivityLog`, `setStats`, `setDraws`, `setDice` and `setCombat` re-render the same app with other data, as a real-time update would, without
+ * Renders the real route table at `path`, with a fixed auth state (signed in by default), fixed profiles, presence,
+ * characters, sets, cards, open holdings, party purse, table lock, open pack, True Words, notes, log and statistics
+ * records and pictures, the DM's access list, and fake draws, pack, set, character, access-list and True Word steps,
+ * note saves and leave. `setUsers`, `setPresence`, `setAccess`, `setCharacters`, `setSets`, `setCards`, `setHoldings`,
+ * `setBalances`, `setTable`, `setPacks`, `setTrueWords`, `setNotes`, `setLore`, `setActivityLog`, `setStats`,
+ * `setDraws`, `setDice` and `setCombat` re-render the same app with other data, as a real-time update would, without
  * remounting.
  */
 export function renderApp({
@@ -107,6 +111,7 @@ export function renderApp({
   state = signedInAs(testUser),
   signOut,
   users = {},
+  presence = {},
   access = {},
   characters = {},
   sets = {},
@@ -129,6 +134,7 @@ export function renderApp({
   const router = createMemoryRouter(routes, { initialEntries: [path] })
   let current: Data = {
     users,
+    presence,
     access,
     characters,
     sets,
@@ -152,41 +158,43 @@ export function renderApp({
     <TestArtProvider manifest={data.art}>
       <TestAuthProvider state={state} signOut={signOut}>
         <TestUsersProvider {...data.users}>
-          <TestAccessProvider {...data.access}>
-            <TestCharactersProvider {...data.characters}>
-              <TestBalancesProvider {...data.balances}>
-                <TestSetsProvider {...data.sets}>
-                  <TestCardsProvider {...data.cards}>
-                    <TestHoldingsProvider {...data.holdings}>
-                      <TestTableProvider {...data.table}>
-                        <TestPacksProvider {...data.packs}>
-                          <TestActivityLogProvider {...data.activityLog}>
-                            <TestStatsProvider {...data.stats}>
-                              <TestDrawsProvider {...data.draws}>
-                                <TestTrueWordsProvider {...data.trueWords}>
-                                  <TestPlayerNotesProvider {...data.notes}>
-                                    <TestLoreProvider {...data.lore}>
-                                      <TestDefinitionsProvider {...data.definitions}>
-                                        <TestDiceProvider {...data.dice}>
-                                          <TestCombatProvider {...data.combat}>
-                                            <RouterProvider router={router} />
-                                          </TestCombatProvider>
-                                        </TestDiceProvider>
-                                      </TestDefinitionsProvider>
-                                    </TestLoreProvider>
-                                  </TestPlayerNotesProvider>
-                                </TestTrueWordsProvider>
-                              </TestDrawsProvider>
-                            </TestStatsProvider>
-                          </TestActivityLogProvider>
-                        </TestPacksProvider>
-                      </TestTableProvider>
-                    </TestHoldingsProvider>
-                  </TestCardsProvider>
-                </TestSetsProvider>
-              </TestBalancesProvider>
-            </TestCharactersProvider>
-          </TestAccessProvider>
+          <TestPresenceProvider {...data.presence}>
+            <TestAccessProvider {...data.access}>
+              <TestCharactersProvider {...data.characters}>
+                <TestBalancesProvider {...data.balances}>
+                  <TestSetsProvider {...data.sets}>
+                    <TestCardsProvider {...data.cards}>
+                      <TestHoldingsProvider {...data.holdings}>
+                        <TestTableProvider {...data.table}>
+                          <TestPacksProvider {...data.packs}>
+                            <TestActivityLogProvider {...data.activityLog}>
+                              <TestStatsProvider {...data.stats}>
+                                <TestDrawsProvider {...data.draws}>
+                                  <TestTrueWordsProvider {...data.trueWords}>
+                                    <TestPlayerNotesProvider {...data.notes}>
+                                      <TestLoreProvider {...data.lore}>
+                                        <TestDefinitionsProvider {...data.definitions}>
+                                          <TestDiceProvider {...data.dice}>
+                                            <TestCombatProvider {...data.combat}>
+                                              <RouterProvider router={router} />
+                                            </TestCombatProvider>
+                                          </TestDiceProvider>
+                                        </TestDefinitionsProvider>
+                                      </TestLoreProvider>
+                                    </TestPlayerNotesProvider>
+                                  </TestTrueWordsProvider>
+                                </TestDrawsProvider>
+                              </TestStatsProvider>
+                            </TestActivityLogProvider>
+                          </TestPacksProvider>
+                        </TestTableProvider>
+                      </TestHoldingsProvider>
+                    </TestCardsProvider>
+                  </TestSetsProvider>
+                </TestBalancesProvider>
+              </TestCharactersProvider>
+            </TestAccessProvider>
+          </TestPresenceProvider>
         </TestUsersProvider>
       </TestAuthProvider>
     </TestArtProvider>
@@ -200,6 +208,7 @@ export function renderApp({
     ...view,
     router,
     setUsers: (next: TestUsers) => update({ users: next }),
+    setPresence: (next: TestPresence) => update({ presence: next }),
     setAccess: (next: TestAccess) => update({ access: next }),
     setCharacters: (next: TestCharacters) => update({ characters: next }),
     setSets: (next: TestSets) => update({ sets: next }),

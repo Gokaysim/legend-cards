@@ -92,6 +92,36 @@ describe('AppShell', () => {
     expect(signOut).toHaveBeenCalledTimes(1)
   })
 
+  // Spec: player-presence, "Leaving the application".
+  it('removes the user’s presence before signing out', async () => {
+    const user = userEvent.setup()
+    const steps: string[] = []
+    const leave = vi.fn(() => {
+      steps.push('leave')
+      return Promise.resolve()
+    })
+    const signOut = vi.fn(() => {
+      steps.push('signOut')
+      return Promise.resolve()
+    })
+    renderApp({ path: '/hands', signOut, presence: { actions: { leave } } })
+
+    await user.click(screen.getByRole('button', { name: 'Çıkış yap' }))
+
+    expect(steps).toEqual(['leave', 'signOut'])
+  })
+
+  it('signs out even when removing the presence fails', async () => {
+    const user = userEvent.setup()
+    const signOut = vi.fn(() => Promise.resolve())
+    const leave = vi.fn(() => Promise.reject(new Error('offline')))
+    renderApp({ path: '/hands', signOut, presence: { actions: { leave } } })
+
+    await user.click(screen.getByRole('button', { name: 'Çıkış yap' }))
+
+    expect(signOut).toHaveBeenCalledTimes(1)
+  })
+
   it('opens the mobile menu and closes it after choosing a screen', async () => {
     const user = userEvent.setup()
     const { router } = renderApp({ path: '/hands' })
