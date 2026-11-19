@@ -40,7 +40,7 @@ Every signed-in user SHALL be able to read every LP balance, the party purse, an
 - **THEN** the server denies it
 
 ### Requirement: The DM changes balances by hand
-The DM SHALL be able to add a positive whole amount to, or subtract one from, any user's LP, the DM's own and other DMs' included, and the party purse. A single change SHALL be at most 1,000,000. Players SHALL NOT be able to change any balance, except as the exceptions below allow. The exceptions are a player's own change by hand that lowers their own LP (see "A player lowers their own LP"), a player's own payments from their LP (1 LP for a draw, their own pack's price, their own True Word draft's price, the price of using their own card or True Word), the payments and refunds of packs and True Word drafts, and the DM's payments for a card or True Word use, as the card-draws, pack-shop, card-holdings and true-words rules allow.
+The DM SHALL be able to add a positive whole amount to, or subtract one from, any user's LP, the DM's own and other DMs' included, and the party purse. A single change SHALL be at most 1,000,000. Players SHALL NOT be able to change any balance, except as the exceptions below allow. The exceptions are a player's own change by hand that lowers their own LP (see "A player lowers their own LP"), a player's own payments from their LP (a draw's price, their own pack's price, their own True Word draft's price, the price of using their own card or True Word), the payments and refunds of packs and True Word drafts, and the DM's payments for a draw or for a card or True Word use, as the card-draws, pack-shop, card-holdings and true-words rules allow.
 
 #### Scenario: The DM adds LP
 - **WHEN** the DM adds 2 LP to Ayla, who has 5 LP
@@ -82,8 +82,16 @@ The DM SHALL be able to add a positive whole amount to, or subtract one from, an
 - **WHEN** Ayla, who has 6 LP, uses "Abyss", which costs 5
 - **THEN** her LP drops to 1, recorded as a True Word use payment
 
+#### Scenario: The DM charges a draw
+- **WHEN** the player draw mode is "Filtreli çekiş", and the DM draws a card into Bora's hand at 2 LP while he has 5 LP
+- **THEN** his LP drops to 3, recorded as a draw payment made by the DM
+
 #### Scenario: A player pays for another player's use
 - **WHEN** Ayla lowers Bora's LP with a payment for the use of Bora's card
+- **THEN** the server denies the write
+
+#### Scenario: A player pays for another player's draw
+- **WHEN** Ayla lowers Bora's LP with a payment for a draw
 - **THEN** the server denies the write
 
 #### Scenario: A player changes a DM's LP
@@ -150,6 +158,10 @@ Every change SHALL be recorded in the ledger with the currency (LP or GP), the a
 #### Scenario: Recording a draw payment
 - **WHEN** Ayla, who has 3 LP, pays for a draw
 - **THEN** the ledger has an entry for Ayla's LP with the change −1, the balance 2, the source "draw", the draw, Ayla, and the time
+
+#### Scenario: Recording a draw payment at another price
+- **WHEN** the player draw mode is "Kart seçme", and the DM draws into Bora's hand at 3 LP while he has 4 LP
+- **THEN** the ledger has an entry for Bora's LP with the change −3, the balance 1, the source "draw", the draw, the DM, and the time
 
 #### Scenario: Recording a GP pack payment
 - **WHEN** the DM opens a Golden Pack for Bora, paid with 10,000 GP from a party purse of 12,500 GP
