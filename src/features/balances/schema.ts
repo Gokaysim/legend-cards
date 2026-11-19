@@ -8,9 +8,9 @@ export const CURRENCIES = ['lp', 'gp'] as const
 export type Currency = (typeof CURRENCIES)[number]
 
 /**
- * Where a balance change came from: the DM by hand, a player's payment for a draw, a pack's payment or refund, a
- * True Word draft's payment or refund, or the payment for a use that closes its holding (`use`) or for a use of a card
- * or True Word kept on use (`keptUse`). Keep in step with `firestore.rules`.
+ * Where a balance change came from: the DM by hand, a draw's price from the hand owner's LP, a pack's payment or
+ * refund, a True Word draft's payment or refund, or the payment for a use that closes its holding (`use`) or for a use
+ * of a card or True Word kept on use (`keptUse`). Keep in step with `firestore.rules`.
  */
 export const LEDGER_SOURCES = ['manual', 'draw', 'pack', 'wordDraft', 'use', 'keptUse'] as const
 

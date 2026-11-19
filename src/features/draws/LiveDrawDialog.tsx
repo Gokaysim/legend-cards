@@ -5,6 +5,7 @@ import { Dialog } from '@/components/ui/Dialog'
 import { CURSED_BACK, NEUTRAL_BACK } from '@/features/art/spreadBack'
 import { useBlessedShock } from '@/features/art/useBlessedShock'
 import { useAuth } from '@/features/auth/authContext'
+import { formatDelta } from '@/features/balances/format'
 import { useCards, useCardsById } from '@/features/cards/cardsContext'
 import { cursedPool, drawablePool } from '@/features/cards/pool'
 import { useIsDm } from '@/features/users/usersContext'
@@ -13,9 +14,9 @@ import { genitive } from '@/lib/turkish'
 import { DeckPile } from './DeckPile'
 import { useDrawActions } from './drawsContext'
 import { FaceDownCard } from './FaceDownCard'
-import { DRAW_PRICE, type DrawSession } from './schema'
+import type { DrawSession } from './schema'
 import { isSessionCardUp, sessionCardBack, sessionDeckBack, type SessionState } from './sessions'
-import { isPaidSession, nameFrom, type ProfileOf, sessionTitle } from './sessionText'
+import { nameFrom, type ProfileOf, sessionPayment, sessionTitle } from './sessionText'
 import { DrawSpread } from './table/DrawSpread'
 import { DrawTable } from './table/DrawTable'
 import { TableChip, TableChips } from './table/TableChip'
@@ -82,6 +83,7 @@ export function LiveDrawDialog({ session, state, profileOf, onClose }: LiveDrawD
   }
 
   const count = session.draws.length
+  const payment = sessionPayment(session, profileOf)
   return (
     <Dialog
       title={sessionTitle(session, profileOf, state)}
@@ -95,9 +97,7 @@ export function LiveDrawDialog({ session, state, profileOf, onClose }: LiveDrawD
           {session.kind === 'cursed' ? '☠ Cursed' : '🎲 Rastgele'}
         </TableChip>
         <TableChip>{`${genitive(ownerName)} eline`}</TableChip>
-        <TableChip>
-          {isPaidSession(session, profileOf) ? `Her kart −${DRAW_PRICE} LP` : 'Ücretsiz'}
-        </TableChip>
+        <TableChip>{payment > 0 ? `${formatDelta(-payment)} LP` : 'Ücretsiz'}</TableChip>
       </TableChips>
 
       {isOpen ? null : (

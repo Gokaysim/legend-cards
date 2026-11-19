@@ -2,7 +2,7 @@ import type { UserProfile } from '@/features/users/schema'
 import { profileName } from '@/features/users/usersContext'
 import { dative } from '@/lib/turkish'
 
-import type { DrawSession } from './schema'
+import { DRAW_PRICE, type DrawSession } from './schema'
 import type { SessionState } from './sessions'
 
 /** Looks up a profile by its uid; `undefined` while the profiles load or for someone without one. */
@@ -32,8 +32,8 @@ export function sessionTitle(
 }
 
 /**
- * Whether the session's cards cost LP: only a player's random draw into their own hand. The DM's draws and Cursed
- * draws are free (spec: card-draws).
+ * Whether the session's cards cost LP under the rule from before the prices were stored: only a player's random draw
+ * into their own hand, at 1 LP each. `sessionPayment` uses it for a card stored without its price.
  */
 export function isPaidSession(
   session: Pick<DrawSession, 'kind' | 'uid' | 'by'>,
@@ -42,4 +42,17 @@ export function isPaidSession(
   return (
     session.kind === 'random' && session.by === session.uid && profileOf(session.by)?.role !== 'dm'
   )
+}
+
+/**
+ * The LP the session's cards cost so far (spec: live-draws, "What the watching view shows"; design D4 of
+ * adjustable-draw-price): the sum of each card's price. A card stored before the prices counts by the old rule: 1 LP
+ * in a player's random draw into their own hand, and nothing otherwise.
+ */
+export function sessionPayment(
+  session: Pick<DrawSession, 'kind' | 'uid' | 'by' | 'draws'>,
+  profileOf: ProfileOf,
+): number {
+  const older = isPaidSession(session, profileOf) ? DRAW_PRICE : 0
+  return session.draws.reduce((sum, draw) => sum + (draw.cost ?? older), 0)
 }

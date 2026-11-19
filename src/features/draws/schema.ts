@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import { DRAW_RARITIES, type DrawFilters } from '@/features/cards/pool'
 import { CARD_KINDS, CARD_LIMITS } from '@/features/cards/schema'
+import { DEFAULT_DRAW_PRICE, DRAW_COST_MAX } from '@/features/table/playerDraw'
 import { type WordDraft, wordDraftSchema } from '@/features/true-words/schema'
 import { createConverter } from '@/lib/firestore/converter'
 
@@ -59,12 +60,18 @@ export type PackStatus = (typeof PACK_STATUSES)[number]
 /** The largest amount a pack can cost. Keep in step with `firestore.rules` and the balance limit. */
 export const PACK_COST_MAX = 1_000_000
 
-/** How a draw was paid: a player's 1 LP, or nothing (the DM's draws and Cursed draws). */
+/** How a draw was paid: from the hand owner's LP, or nothing (a free draw, and every Cursed draw). */
 export const DRAW_PAYMENTS = ['lp', 'none'] as const
 export type DrawPayment = (typeof DRAW_PAYMENTS)[number]
 
-/** The LP a player pays for one random draw. */
-export const DRAW_PRICE = 1
+/**
+ * The LP a player's random draw costs under "Kapalı", and the price a draw dialog starts at while the player draw mode
+ * is on (spec: card-draws).
+ */
+export const DRAW_PRICE = DEFAULT_DRAW_PRICE
+
+/** A draw's price: a whole number of LP from 0 (free) to the ledger's largest change. */
+const drawCost = z.number().int().min(0).max(DRAW_COST_MAX)
 
 /** The longest filter values. Keep in step with `validFilters` in `firestore.rules`. */
 export const DRAW_LIMITS = {
@@ -113,8 +120,8 @@ export const cardDrawSchema = z
     /** The filters of a random draw, the DM's or a player's; `null` without filters. */
     filters: drawFiltersSchema.nullable(),
     paidWith: z.enum(DRAW_PAYMENTS),
-    /** The LP paid: 1 with `lp`, 0 with `none`. */
-    cost: z.union([z.literal(0), z.literal(DRAW_PRICE)]),
+    /** The LP paid from the hand owner's LP: above 0 with `lp`, 0 with `none` (design D2 of adjustable-draw-price). */
+    cost: drawCost,
     /** The ledger entry of the payment; `null` when free. */
     entryId: id.nullable(),
     /** The draw session it belongs to (spec: live-draws). A record from before the sessions has none: `null`. */
@@ -131,8 +138,8 @@ export const cardDrawSchema = z
       )
     }
     const paid = draw.paidWith === 'lp'
-    if (paid !== (draw.cost === DRAW_PRICE) || paid !== (draw.entryId !== null)) {
-      issue('paidWith', 'a paid draw costs 1 LP and names its entry, and a free one neither')
+    if (paid !== draw.cost > 0 || paid !== (draw.entryId !== null)) {
+      issue('paidWith', 'a paid draw costs more than 0 and names its entry, and a free one neither')
     }
     if (draw.kind === 'cursed' && (paid || draw.filters !== null)) {
       issue('kind', 'a Cursed draw is free and has no filters')
@@ -281,11 +288,15 @@ export const packOpeningConverter = createConverter(packOpeningSchema, { idField
 /** The most draws one session keeps. Keep in step with `firestore.rules`. */
 export const DRAW_SESSION_MAX = 500
 
-/** One draw of a session: the draw record, its card, and the set whose cardback it had (`null`: no set filter). */
+/**
+ * One draw of a session: the draw record, its card, the set whose cardback it had (`null`: no set filter), and its
+ * price. A card stored before the prices has none: `null` (design D4 of adjustable-draw-price).
+ */
 const sessionDrawSchema = z.object({
   drawId: id,
   cardId: id,
   backSet: z.string().min(1).max(CARD_LIMITS.setCode).nullable(),
+  cost: drawCost.nullable().default(null),
 })
 
 /**

@@ -63,6 +63,8 @@ describe('drawSchema', () => {
       { ...free, filters: { cost: null, mechanicPack: null, rarity: 'rare', keyword: null } },
     ],
     ['a draw whose server time is still pending', { ...paid, at: null }],
+    ['a draw at another price', { ...paid, cost: 3 }],
+    ['a draw at the highest price', { ...paid, cost: 1_000_000 }],
   ])('accepts %s', (_case, draw) => {
     expect(accepts(draw)).toBe(true)
   })
@@ -76,7 +78,11 @@ describe('drawSchema', () => {
     ['a paid draw without its entry', { ...paid, entryId: null }],
     ['a free draw that costs 1', { ...free, cost: 1 }],
     ['a free draw with an entry', { ...free, entryId: 'e1' }],
-    ['a cost of 2', { ...paid, cost: 2 }],
+    ['a price without its entry', { ...paid, cost: 3, entryId: null }],
+    ['a free draw that costs 3', { ...free, cost: 3 }],
+    ['a fractional price', { ...paid, cost: 1.5 }],
+    ['a negative price', { ...paid, cost: -1 }],
+    ['a price over the limit', { ...paid, cost: 1_000_001 }],
     ['a paid Cursed draw', { ...cursed, paidWith: 'lp', cost: 1, entryId: 'e1' }],
     ['a Cursed draw with filters', { ...cursed, filters }],
     ['an unknown rarity filter', { ...free, filters: { ...filters, rarity: 'legendary' } }],
@@ -262,6 +268,7 @@ const sessionDraw = (index: number, backSet: string | null = null) => ({
   drawId: `d${index}`,
   cardId: `legend-${index}`,
   backSet,
+  cost: 1,
 })
 
 const openSession = {
@@ -313,7 +320,18 @@ describe('drawSessionSchema', () => {
         draws: Array.from({ length: DRAW_SESSION_MAX + 1 }, (_, i) => sessionDraw(i)),
       },
     ],
+    ['a negative price', { ...openSession, draws: [{ ...sessionDraw(0), cost: -1 }], turned: [] }],
+    [
+      'a fractional price',
+      { ...openSession, draws: [{ ...sessionDraw(0), cost: 0.5 }], turned: [] },
+    ],
   ])('rejects %s', (_case, session) => {
     expect(acceptsSession(session)).toBe(false)
+  })
+
+  it("reads each card's price, and a card stored before the prices as having none", () => {
+    const { cost: _cost, ...older } = sessionDraw(0)
+    const session = { ...openSession, draws: [older, { ...sessionDraw(1), cost: 2 }], turned: [] }
+    expect(drawSessionSchema.parse(session).draws.map((draw) => draw.cost)).toEqual([null, 2])
   })
 })

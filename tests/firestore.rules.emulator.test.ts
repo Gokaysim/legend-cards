@@ -3529,6 +3529,8 @@ function newSession(
   drawId: string,
   cardId: string,
   backSet: string | null = null,
+  /** The card's price. Default: what it costs under "Kapalı", 1 LP for a player's own random draw. */
+  cost: number = kind === 'random' && by === uid && by !== 'dana' ? 1 : 0,
 ) {
   return {
     kind,
@@ -3536,7 +3538,7 @@ function newSession(
     by,
     startedAt: serverTimestamp(),
     lastAt: serverTimestamp(),
-    draws: [{ drawId, cardId, backSet }],
+    draws: [{ drawId, cardId, backSet, cost }],
     turned: [],
     endedAt: null,
     endedBy: null,
@@ -3591,6 +3593,11 @@ describe('draws (draws/{drawId} with its holding, card, ledger entry and LP)', (
     kind?: 'random' | 'cursed'
     /** Default: a player's random draw is paid, everything else is free. */
     paid?: boolean
+    /**
+     * The price of a paid draw (default 1): the draw's cost, the entry's change, and the payer's LP from 3. Give the
+     * payer 3 LP first (`setLp`) when it is not Ayla.
+     */
+    price?: number
     /** Overrides of the draw's fields. */
     draw?: Record<string, unknown>
     /** Overrides of the holding's fields, or `null` to write no holding. */
@@ -3612,11 +3619,11 @@ describe('draws (draws/{drawId} with its holding, card, ledger entry and LP)', (
     session?: 'new' | 'join' | null
     /** Overrides of the session's fields. */
     sessionFields?: Record<string, unknown>
-    /** Overrides of this draw's entry in the session. */
+    /** Overrides of this draw's entry in the session; `undefined` leaves a field out. */
     sessionEntry?: Record<string, unknown>
   }
 
-  /** The cards of the session that `seedSession` stores: two earlier draws by Ayla. */
+  /** The cards of the session that `seedSession` stores: two earlier draws by Ayla, stored before the prices. */
   const SEEDED_DRAWS = [
     { drawId: 'd-old', cardId: OTHER_CARD.cardId, backSet: null },
     { drawId: 'd-old2', cardId: BLESSED, backSet: null },
@@ -3667,6 +3674,7 @@ describe('draws (draws/{drawId} with its holding, card, ledger entry and LP)', (
     const card = spec.card ?? POOL_CARD
     const kind = spec.kind ?? (card.cardKind === 'cursed' ? 'cursed' : 'random')
     const paid = spec.paid ?? (kind === 'random' && writer !== 'dana')
+    const price = spec.price ?? 1
     const payer = spec.payer ?? uid
     const batch = writeBatch(db)
     const drawFields: Record<string, unknown> = {
@@ -3678,19 +3686,23 @@ describe('draws (draws/{drawId} with its holding, card, ledger entry and LP)', (
       holdingId: 'h-new',
       filters: null,
       paidWith: paid ? 'lp' : 'none',
-      cost: paid ? 1 : 0,
+      cost: paid ? price : 0,
       entryId: paid ? 'e-new' : null,
       sessionId: 's-new',
       ...spec.draw,
     }
     batch.set(doc(db, 'draws/d-new'), drawFields)
     const filters = drawFields.filters as { setCode?: string | null } | null
-    const entry = {
-      drawId: 'd-new',
-      cardId: card.cardId,
-      backSet: filters?.setCode ?? null,
-      ...spec.sessionEntry,
-    }
+    // An `undefined` in `sessionEntry` leaves that field out.
+    const entry = Object.fromEntries(
+      Object.entries({
+        drawId: 'd-new',
+        cardId: card.cardId,
+        backSet: filters?.setCode ?? null,
+        cost: drawFields.cost,
+        ...spec.sessionEntry,
+      }).filter(([, value]) => value !== undefined),
+    )
     const session = spec.session === undefined ? 'new' : spec.session
     if (session === 'new') {
       batch.set(doc(db, 'drawSessions/s-new'), {
@@ -3724,10 +3736,22 @@ describe('draws (draws/{drawId} with its holding, card, ledger entry and LP)', (
       })
     }
     if (paid && spec.entry !== null) {
-      batch.set(doc(db, 'ledger/e-new'), drawEntry(writer, { account: payer, ...spec.entry }))
+      batch.set(
+        doc(db, 'ledger/e-new'),
+        drawEntry(writer, {
+          account: payer,
+          delta: -price,
+          balanceAfter: 3 - price,
+          ...spec.entry,
+        }),
+      )
     }
     if (paid && spec.balance !== null) {
-      batch.update(doc(db, `users/${payer}`), { lp: 2, lpEntryId: 'e-new', ...spec.balance })
+      batch.update(doc(db, `users/${payer}`), {
+        lp: 3 - price,
+        lpEntryId: 'e-new',
+        ...spec.balance,
+      })
     }
     return batch.commit()
   }
@@ -3855,10 +3879,9 @@ describe('draws (draws/{drawId} with its holding, card, ledger entry and LP)', (
       )
     })
 
-    it("denies filters on a player's free draw, a Cursed draw, or a draw into another hand", async () => {
+    it('denies filters on a Cursed draw, or a draw into another hand', async () => {
       await setMode('pick')
       await setLp('bora', 3)
-      await assertFails(draw('ayla', { paid: false, draw: { filters: FILTERS } }))
       await assertFails(draw('ayla', { card: CURSED_CARD, draw: { filters: FILTERS } }))
       await assertFails(draw('ayla', { uid: 'bora', draw: { filters: FILTERS } }))
     })
@@ -3868,6 +3891,174 @@ describe('draws (draws/{drawId} with its holding, card, ledger entry and LP)', (
       await assertFails(
         draw('ayla', { draw: { filters: FACETS }, sessionEntry: { backSet: null } }),
       )
+    })
+  })
+
+  describe('the draw price (adjustable-draw-price)', () => {
+    async function setMode(playerDraw: string) {
+      await testEnv.withSecurityRulesDisabled(async (admin) => {
+        await setDoc(doc(firestoreOf(admin), 'table/main'), {
+          openPackId: null,
+          playerDraw,
+          playerDrawChangeId: 'c-old',
+        })
+      })
+    }
+
+    it("allows a player's draw at 2 LP under Filtreli çekiş", async () => {
+      await setMode('filtered')
+      await assertSucceeds(draw('ayla', { price: 2 }))
+      expect(await readAsAdmin('draws/d-new')).toMatchObject({ paidWith: 'lp', cost: 2 })
+      expect(await readAsAdmin('ledger/e-new')).toMatchObject({ delta: -2, balanceAfter: 1 })
+      expect(await readAsAdmin('drawSessions/s-new')).toMatchObject({
+        draws: [{ drawId: 'd-new', cost: 2 }],
+      })
+      expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 1 })
+    })
+
+    it("allows a player's free draw with filters under Kart seçme", async () => {
+      await setMode('pick')
+      await assertSucceeds(draw('ayla', { paid: false, draw: { filters: FILTERS } }))
+      expect(await readAsAdmin('draws/d-new')).toMatchObject({ paidWith: 'none', cost: 0 })
+      expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 3, lpEntryId: 'e-old' })
+    })
+
+    it("allows a player's draw of all their LP", async () => {
+      await setMode('filtered')
+      await assertSucceeds(draw('ayla', { price: 3 }))
+      expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 0 })
+    })
+
+    it('denies a price other than 1 LP, and a free draw, under Kapalı and with no table', async () => {
+      await setMode('off')
+      await assertFails(draw('ayla', { price: 2 }))
+      await assertFails(draw('ayla', { paid: false }))
+      await deleteAsAdmin('table/main')
+      await assertFails(draw('ayla', { price: 2 }))
+      await assertFails(draw('ayla', { paid: false }))
+      expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 3 })
+    })
+
+    it('denies a price and an entry that disagree', async () => {
+      await setMode('filtered')
+      await assertFails(draw('ayla', { price: 3, entry: { delta: -1, balanceAfter: 2 } }))
+      await assertFails(draw('ayla', { price: 3, balance: { lp: 2 } }))
+      await assertFails(draw('ayla', { price: 2, draw: { cost: 3 } }))
+    })
+
+    it('denies a price over the limit, a fractional or negative one, and a paid draw at 0', async () => {
+      await setMode('pick')
+      await setLp('ayla', 1_000_000)
+      const big = { cost: 1_000_001 }
+      await assertFails(
+        draw('ayla', {
+          draw: big,
+          entry: { delta: -1_000_001, balanceAfter: 0 },
+          balance: { lp: 0 },
+        }),
+      )
+      await assertFails(draw('ayla', { draw: { cost: 1.5 } }))
+      await assertFails(draw('ayla', { draw: { cost: -1 } }))
+      await assertFails(draw('ayla', { draw: { cost: 0 } }))
+    })
+
+    it('denies a price above the LP', async () => {
+      await setMode('filtered')
+      await assertFails(draw('ayla', { price: 4 }))
+    })
+
+    it("allows the DM's draw at 2 LP from a player's LP, in any mode", async () => {
+      await setLp('bora', 3)
+      await setMode('filtered')
+      await assertSucceeds(draw('dana', { uid: 'bora', paid: true, price: 2 }))
+      expect(await readAsAdmin('draws/d-new')).toMatchObject({ by: 'dana', uid: 'bora', cost: 2 })
+      expect(await readAsAdmin('ledger/e-new')).toMatchObject({
+        account: 'bora',
+        delta: -2,
+        by: 'dana',
+      })
+      expect(await readAsAdmin('users/bora')).toMatchObject({ lp: 1, lpEntryId: 'e-new' })
+    })
+
+    it("allows the DM's paid draw under Kapalı, and into the DM's own hand", async () => {
+      await setLp('bora', 3)
+      await setMode('off')
+      await assertSucceeds(draw('dana', { uid: 'bora', paid: true }))
+      await deleteAsAdmin('draws/d-new')
+      await deleteAsAdmin('drawSessions/s-new')
+      await deleteAsAdmin('userCards/h-new')
+      await deleteAsAdmin('ledger/e-new')
+      await setLp('dana', 3)
+      await assertSucceeds(draw('dana', { card: BLESSED_CARD, paid: true, price: 2 }))
+      expect(await readAsAdmin('users/dana')).toMatchObject({ lp: 1 })
+    })
+
+    it("denies the DM's paid draw without its entry, from the wrong account, or a paid Cursed draw", async () => {
+      await setLp('bora', 3)
+      await setMode('filtered')
+      await assertFails(draw('dana', { uid: 'bora', paid: true, price: 2, entry: null }))
+      await assertFails(draw('dana', { uid: 'bora', paid: true, price: 2, balance: null }))
+      await assertFails(draw('dana', { uid: 'bora', paid: true, price: 2, payer: 'ayla' }))
+      await assertFails(draw('dana', { uid: 'bora', card: CURSED_CARD, paid: true }))
+      expect(await readAsAdmin('users/bora')).toMatchObject({ lp: 3 })
+    })
+
+    it('denies a player paying for a draw into another hand, at any price', async () => {
+      await setLp('bora', 3)
+      await setMode('pick')
+      await assertFails(draw('ayla', { uid: 'bora', price: 2 }))
+      await assertFails(draw('ayla', { uid: 'bora', price: 2, payer: 'bora' }))
+      expect(await readAsAdmin('users/bora')).toMatchObject({ lp: 3 })
+    })
+
+    it('denies a draw payment without its draw, by a player or the DM', async () => {
+      await setMode('filtered')
+      for (const writer of ['ayla', 'dana']) {
+        const db = asUser(writer)
+        const batch = writeBatch(db)
+        batch.set(doc(db, 'ledger/e-new'), drawEntry(writer))
+        batch.update(doc(db, 'users/ayla'), { lp: 2, lpEntryId: 'e-new' })
+        await assertFails(batch.commit())
+      }
+      expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 3 })
+    })
+
+    it("denies a session card whose price is not the draw's, or that has none", async () => {
+      await setMode('filtered')
+      await assertFails(draw('ayla', { price: 2, sessionEntry: { cost: 1 } }))
+      await assertFails(draw('ayla', { sessionEntry: { cost: undefined } }))
+      await seedSession()
+      await assertFails(draw('ayla', { session: 'join', price: 2, sessionEntry: { cost: 1 } }))
+    })
+
+    it('joins a priced card to a session whose older cards have no price', async () => {
+      await setMode('filtered')
+      await seedSession()
+      await assertSucceeds(draw('ayla', { session: 'join', price: 2 }))
+      expect(await readAsAdmin('drawSessions/s-new')).toMatchObject({
+        draws: [...SEEDED_DRAWS, { drawId: 'd-new', cost: 2 }],
+      })
+    })
+
+    // The heaviest draw request: the DM's paid draw of a one-copy card with every filter, into a player's hand,
+    // joining an open session. It must stay within the rules' 1000-expression limit.
+    it("allows the DM's paid draw with every filter into an open session: six documents", async () => {
+      await setLp('ayla', 3)
+      await setMode('pick')
+      await seedSession({ by: 'dana' })
+      await assertSucceeds(
+        draw('dana', {
+          uid: 'ayla',
+          paid: true,
+          price: 2,
+          session: 'join',
+          draw: { filters: FILTERS },
+        }),
+      )
+      expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 1, lpEntryId: 'e-new' })
+      expect(await readAsAdmin(`cards/${POOL}`)).toMatchObject({
+        holder: { uid: 'ayla', userCardId: 'h-new' },
+      })
     })
   })
 
@@ -4232,7 +4423,7 @@ describe('draws (draws/{drawId} with its holding, card, ledger entry and LP)', (
           kind: 'random',
           uid: 'ayla',
           by: 'ayla',
-          draws: [{ drawId: 'd-new', cardId: POOL, backSet: null }],
+          draws: [{ drawId: 'd-new', cardId: POOL, backSet: null, cost: 1 }],
           turned: [],
           endedBy: null,
         })
@@ -4256,7 +4447,7 @@ describe('draws (draws/{drawId} with its holding, card, ledger entry and LP)', (
         await seedSession()
         await assertSucceeds(draw('ayla', { session: 'join' }))
         expect(await readAsAdmin('drawSessions/s-new')).toMatchObject({
-          draws: [...SEEDED_DRAWS, { drawId: 'd-new', cardId: POOL, backSet: null }],
+          draws: [...SEEDED_DRAWS, { drawId: 'd-new', cardId: POOL, backSet: null, cost: 1 }],
         })
       })
 
@@ -4370,7 +4561,7 @@ describe('draws (draws/{drawId} with its holding, card, ledger entry and LP)', (
           draw('ayla', {
             session: 'join',
             sessionFields: {
-              draws: [...changed, { drawId: 'd-new', cardId: POOL, backSet: null }],
+              draws: [...changed, { drawId: 'd-new', cardId: POOL, backSet: null, cost: 1 }],
             },
           }),
         )
@@ -4380,8 +4571,8 @@ describe('draws (draws/{drawId} with its holding, card, ledger entry and LP)', (
             sessionFields: {
               draws: [
                 ...SEEDED_DRAWS,
-                { drawId: 'd-extra', cardId: POOL, backSet: null },
-                { drawId: 'd-new', cardId: POOL, backSet: null },
+                { drawId: 'd-extra', cardId: POOL, backSet: null, cost: 1 },
+                { drawId: 'd-new', cardId: POOL, backSet: null, cost: 1 },
               ],
             },
           }),

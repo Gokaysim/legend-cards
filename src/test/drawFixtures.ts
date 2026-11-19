@@ -54,7 +54,8 @@ export function testDmDraw(
 /**
  * An open draw session `session-<uid>-<startMillis>` with `cards` drawn into `uid`'s hand by `by` (default: `uid`), the
  * last change at `startMillis` (spec: live-draws). A Cursed session when the first card is Cursed. Each draw's ID is
- * `draw-<cardId>`, as `TestDrawsProvider` gives it.
+ * `draw-<cardId>`, as `TestDrawsProvider` gives it. Each card costs what it would under "Kapalı": 1 LP in a random
+ * session that `uid` draws for themselves, and nothing otherwise.
  */
 export function testSession(
   uid: string,
@@ -62,14 +63,21 @@ export function testSession(
   startMillis: number,
   overrides: Partial<DrawSession> = {},
 ): DrawSession {
+  const kind = cards[0]?.kind === 'cursed' ? 'cursed' : 'random'
+  const cost = kind === 'random' && (overrides.by ?? uid) === uid ? 1 : 0
   return {
     id: `session-${uid}-${startMillis}`,
-    kind: cards[0]?.kind === 'cursed' ? 'cursed' : 'random',
+    kind,
     uid,
     by: uid,
     startedAt: Timestamp.fromMillis(startMillis),
     lastAt: Timestamp.fromMillis(startMillis),
-    draws: cards.map((card) => ({ drawId: `draw-${card.id}`, cardId: card.id, backSet: null })),
+    draws: cards.map((card) => ({
+      drawId: `draw-${card.id}`,
+      cardId: card.id,
+      backSet: null,
+      cost,
+    })),
     turned: [],
     endedAt: null,
     endedBy: null,

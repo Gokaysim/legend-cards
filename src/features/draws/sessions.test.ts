@@ -21,8 +21,8 @@ const session: StoredDrawSession = {
   startedAt: Timestamp.fromMillis(LAST - 5000),
   lastAt: Timestamp.fromMillis(LAST),
   draws: [
-    { drawId: 'd0', cardId: 'legend-a', backSet: null },
-    { drawId: 'd1', cardId: 'legend-b', backSet: 'Kesqer' },
+    { drawId: 'd0', cardId: 'legend-a', backSet: null, cost: 0 },
+    { drawId: 'd1', cardId: 'legend-b', backSet: 'Kesqer', cost: 0 },
   ],
   turned: [0],
   endedAt: null,

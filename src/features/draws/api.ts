@@ -22,13 +22,12 @@ import { type Card, type Definition, isCard } from '@/features/cards/schema'
 import { HOLDINGS_COLLECTION, openHolding } from '@/features/hands/api'
 import { profileRef, USERS_COLLECTION } from '@/features/users/api'
 import { explainDenial, playerDrawModeOnServer } from '@/features/table/api'
-import { playerFiltersAllowed } from '@/features/table/playerDraw'
+import { DEFAULT_DRAW_PRICE, playerFiltersAllowed } from '@/features/table/playerDraw'
 import { firebaseCode } from '@/lib/firestore/errors'
 
 import { DrawError } from './errors'
 import { pickRandom, type RandomSource } from '@/lib/random'
 import {
-  DRAW_PRICE,
   type Draw,
   drawConverter,
   type DrawKind,
@@ -58,8 +57,13 @@ export type DrawCardInput = {
   uid: string
   /** The signed-in user: the hand's owner, or the DM. */
   by: string
-  /** A player's own random draw costs 1 LP. The DM's draws and Cursed draws are free. */
-  paid: boolean
+  /**
+   * The LP the draw costs, from the hand owner's LP; 0 is free (spec: card-draws). Work it out with `drawPrice`: 1 for
+   * a player and 0 for the DM under "Kapalı", the dialog's price while the mode is on, and 0 for a Cursed draw.
+   */
+  price: number
+  /** Whether the DM draws. Only a player's draw can be denied because the DM changed the player draw mode. */
+  byDm: boolean
   /**
    * The filters of a random draw, recorded with it; `null` without filters. The DM's, or a player's under the table's
    * player draw mode (spec: card-draws).
@@ -151,7 +155,8 @@ class TakenError extends Error {
  * The same transaction creates the draw's session with this draw, or adds the draw to it (design D2 of live-draws).
  *
  * Throws `DrawError`: `nothing-to-draw` when no candidate is left, `insufficient` when a paid draw finds less
- * than 1 LP, `mode-changed` when the rules denied a player's filters because the DM changed the player draw mode,
+ * LP than its price, `mode-changed` when the rules denied a player's filters or price because the DM changed the
+ * player draw mode,
  * `session-ended` when the session has ended, and `retries-exhausted` after five tries. Throws `TableBusyError` when
  * the rules denied the draw because a pack is open.
  */
@@ -203,12 +208,18 @@ async function isTakenOnServer(db: Firestore, cardId: string, kind: DrawKind): P
 }
 
 /**
- * True when a player's draw carried filters that the table's player draw mode no longer allows: the DM changed the
- * mode while the dialog still showed the old one (design D5 of player-draw-modes).
+ * True when a player's draw carried filters or a price that the table's player draw mode no longer allows: the DM
+ * changed the mode while the dialog still showed the old one (design D5 of player-draw-modes, D2 of
+ * adjustable-draw-price). Under "Kapalı" a player's draw costs exactly 1 LP.
  */
 async function isModeChangedOnServer(db: Firestore, input: DrawCardInput): Promise<boolean> {
-  if (!input.paid || input.filters === null) return false
-  return !playerFiltersAllowed(await playerDrawModeOnServer(db), input.filters)
+  if (input.byDm || input.kind !== 'random') return false
+  if (input.filters === null && input.price === DEFAULT_DRAW_PRICE) return false
+  const mode = await playerDrawModeOnServer(db)
+  return (
+    !playerFiltersAllowed(mode, input.filters) ||
+    (mode === 'off' && input.price !== DEFAULT_DRAW_PRICE)
+  )
 }
 
 async function isEndedOnServer(db: Firestore, sessionId: string): Promise<boolean> {
@@ -222,7 +233,7 @@ async function serverLp(db: Firestore, uid: string): Promise<number | null> {
 
 function drawOnce(
   db: Firestore,
-  { kind, uid, by, paid, filters, sessionId }: DrawCardInput,
+  { kind, uid, by, price, filters, sessionId }: DrawCardInput,
   picked: Card,
   read: { lp: number | null },
 ): Promise<DrawResult> {
@@ -234,12 +245,13 @@ function drawOnce(
     const stored = (await transaction.get(ref)).data()
     if (isTaken(stored, kind) || !isCard(stored)) throw new TakenError()
     const card = stored
+    const paid = price > 0
     let lpAfter: number | null = null
     if (paid) {
       const lp = (await transaction.get(profileRef(db, uid))).data()?.lp ?? 0
       read.lp = lp
-      if (lp < DRAW_PRICE) throw new DrawError('insufficient', lp)
-      lpAfter = lp - DRAW_PRICE
+      if (lp < price) throw new DrawError('insufficient', lp, price)
+      lpAfter = lp - price
     }
     const session = (await transaction.get(sessionRef(db, sessionId))).data()
     if (session !== undefined && session.endedBy !== null) throw new DrawError('session-ended')
@@ -255,7 +267,7 @@ function drawOnce(
       holdingId: holdingDoc.id,
       filters: kind === 'random' ? filters : null,
       paidWith: paid ? 'lp' : 'none',
-      cost: paid ? DRAW_PRICE : 0,
+      cost: price,
       entryId: paid ? entryDoc.id : null,
       sessionId,
     }
@@ -264,6 +276,7 @@ function drawOnce(
       drawId: drawDoc.id,
       cardId: card.id,
       backSet: kind === 'random' ? (filters?.setCode ?? null) : null,
+      cost: price,
     }
     if (session === undefined) {
       const created: WithFieldValue<StoredDrawSession> = {
@@ -306,7 +319,7 @@ function drawOnce(
         newLedgerEntry({
           currency: 'lp',
           account: uid,
-          delta: -DRAW_PRICE,
+          delta: -price,
           balanceAfter: lpAfter,
           source: 'draw',
           drawId: drawDoc.id,

@@ -67,8 +67,9 @@ function filtersText(filters: DrawFilters | null, setName: SetName): string | nu
 }
 
 /**
- * A draw: "Aboleth's Eyes kartını çekti (−1 LP).", or into another hand (the DM's draw) "Bora'ya Aboleth's Eyes
- * kartını çekti (filtre: Rare · Blood & Battle)." A Cursed draw: "Cursed kart çekti: Visions of Death."
+ * A draw: "Aboleth's Eyes kartını çekti (−1 LP).", with the price paid, whatever it was ("−3 LP"), and none for a free
+ * draw. Into another hand (the DM's draw): "Bora'ya Aboleth's Eyes kartını çekti (filtre: Rare · Blood & Battle).", or
+ * "(−2 LP)" when the DM charged Bora's LP. A Cursed draw: "Cursed kart çekti: Visions of Death."
  */
 function drawnSentence(draw: CardDraw, { nameOf, setName }: LogNames): SentencePart[] {
   const into = draw.by === draw.uid ? '' : `${dative(nameOf(draw.uid))} `

@@ -397,9 +397,9 @@ service cloud.firestore {
     // give-dms-lp-and-share-the-dm-role); the admin script (Admin SDK) changes roles without a record.
     // The other writes are a user's Legend Points, a DM's included (design D1 of give-dms-lp-and-share-the-dm-role),
     // each together with the ledger entry that records it: the DM changes them by hand, a player lowers their own by
-    // hand (never raises them), a player pays 1 LP for their own draw, a pack's or a True Word draft's payment or refund
-    // moves them, and the holder or the DM pays for using the holder's card or True Word (a use that closes its
-    // holding, `use`, or one that keeps it in the hand, `keptUse`).
+    // hand (never raises them), a player or the DM pays a draw's price from the hand owner's LP, a pack's or a True
+    // Word draft's payment or refund moves them, and the holder or the DM pays for using the holder's card or True
+    // Word (a use that closes its holding, `use`, or one that keeps it in the hand, `keptUse`).
     match /users/{uid} {
       allow read: if isMember();
       allow create: if isSelf(uid)
@@ -425,7 +425,7 @@ service cloud.firestore {
         )
         || (lpSetByEntry('manual')
           && (isDm() || (isSelf(uid) && request.resource.data.lp < resource.data.get('lp', 0))))
-        || (isSelf(uid) && lpSetByEntry('draw'))
+        || (lpSetByEntry('draw') && (isSelf(uid) || isDm()))
         || (lpSetByEntry('pack') && (isSelf(uid) || isDm()))
         || (lpSetByEntry('wordDraft') && (isSelf(uid) || isDm()))
         || (lpSetByEntry('use') && (isSelf(uid) || isDm()))
@@ -446,8 +446,8 @@ service cloud.firestore {
       }
 
       // A user's LP (a whole number, never below 0), whatever their role, set with a new ledger entry from `source`:
-      // a change by hand (the DM's, or the player's own lowering), the player's draw payment, whose amount the ledger rules fix at 1, a
-      // pack's or a True Word draft's payment or refund, or a use's payment, which the ledger rules tie to its record.
+      // a change by hand (the DM's, or the player's own lowering), a draw's payment, a pack's or a True Word draft's
+      // payment or refund, or a use's payment, which the ledger rules tie to its record.
       // A missing `lp` is 0.
       //
       // The entry's source comes first: it tells the update rule's branches apart cheaply, so a use's payment, the
@@ -537,19 +537,28 @@ service cloud.firestore {
               && setsLp()));
       }
 
-      // A player's payment of 1 LP for their own draw, which this same request creates and which names this entry.
-      // It has no reason: the draw explains it.
+      // A draw's payment, which takes exactly the draw's price from its hand owner's LP: the draw that this same
+      // request creates names this entry. Made by the hand owner or the DM; the draw's rules decide who may pay
+      // what (design D3 of adjustable-draw-price). It has no reason: the draw explains it.
       function paysForDraw() {
         let data = request.resource.data;
         return data.source == 'draw'
           && data.reason == null
           && data.currency == 'lp'
-          && data.account == request.auth.uid
-          && data.delta == -1
           && data.drawId is string
-          && createdNow(drawPath(data.drawId))
-          && getAfter(drawPath(data.drawId)).data.entryId == entryId
+          && takesDrawPrice()
           && setsLp();
+      }
+
+      function takesDrawPrice() {
+        let data = request.resource.data;
+        let draw = getAfter(drawPath(data.drawId)).data;
+        return createdNow(drawPath(data.drawId))
+          && draw.entryId == entryId
+          && draw.paidWith == 'lp'
+          && data.account == draw.uid
+          && data.delta == -draw.cost
+          && (data.account == request.auth.uid || isDm());
       }
 
       // A pack's payment, created with the opening that names it, or its refund, created with the DM's cancel that
@@ -1201,9 +1210,11 @@ service cloud.firestore {
     // Draws: one card drawn into a hand, or one pack opened into a hand, kept as a permanent record. Everyone signed
     // in reads every record.
     //
-    // A card draw is created only together with the holding it opens and, when paid, the ledger entry and the new
-    // LP; it is never changed or deleted. A player draws only into their own hand: a random draw for 1 LP, without
-    // filters, or a free Cursed draw. The DM draws into any hand for free, and may record filters on a random draw.
+    // A card draw is created only together with the holding it opens and, when paid, the ledger entry and the hand
+    // owner's new LP; it is never changed or deleted. A player draws only into their own hand: a random draw for 1 LP
+    // with the filters the table's player draw mode allows, at any price from 0 up while the mode is on (design D3 of
+    // adjustable-draw-price), or a free Cursed draw. The DM draws into any hand, free or for any price from the hand
+    // owner's LP, and may record filters on a random draw.
     //
     // A pack opening is created open, together with taking the table and, when paid, its ledger entry and the new
     // balance. A player opens a pack only into their own hand, for its LP price; the DM opens one into any hand, paid
@@ -1222,7 +1233,7 @@ service cloud.firestore {
           && opensItsHolding()
           && joinsSession()
           && tableFree()
-          && (paidByPlayer() || cursedForSelf() || (isFree() && isDm())))
+          && (drawnByPlayer() || cursedForSelf() || drawnByDm()))
         || (validPackOpening() && takesTable() && (packPaidByPlayer() || packByDm()))
         || (validWordDraft() && tableFree() && startsDraft() && (draftPaidByPlayer() || draftByDm()));
       allow update: if isMember()
@@ -1292,8 +1303,8 @@ service cloud.firestore {
       }
 
       // The draw session named by this draw takes it in this same request (spec: live-draws, design D2): the session,
-      // open, of the same kind, hand and drawer, was changed now, and its last card is this draw, its card, and the
-      // back its set filter gives. The session's own rule checks that only this card was added, or that it is new.
+      // open, of the same kind, hand and drawer, was changed now, and its last card is this draw, its card, the
+      // back its set filter gives, and its price (design D4 of adjustable-draw-price). The session's own rule checks that only this card was added, or that it is new.
       function joinsSession() {
         let data = request.resource.data;
         let path = drawSessionPath(data.sessionId);
@@ -1307,7 +1318,8 @@ service cloud.firestore {
           && session.lastAt == request.time
           && entry.drawId == drawId
           && entry.cardId == data.cardId
-          && entry.backSet == (data.filters == null ? null : data.filters.setCode);
+          && entry.backSet == (data.filters == null ? null : data.filters.setCode)
+          && entry.cost == data.cost;
       }
 
       function isFree() {
@@ -1315,28 +1327,50 @@ service cloud.firestore {
         return data.paidWith == 'none' && data.cost == 0 && data.entryId == null;
       }
 
-      // A player's random draw into their own hand, with the filters the table's player draw mode allows, paid
-      // with 1 LP through a ledger entry that this same request creates and that names this draw. The ledger rules
-      // check the amount and the balance.
-      function paidByPlayer() {
+      // Free, or paid with a whole price from 1 to 1,000,000 LP through a ledger entry that this same request creates
+      // and that names this draw. The ledger rules take exactly the price from the hand owner and check the balance.
+      // Keep the limit in step with DRAW_COST_MAX in src/features/table/playerDraw.ts.
+      function validPayment() {
         let data = request.resource.data;
+        return isFree()
+          || (data.paidWith == 'lp'
+            && data.cost is int
+            && data.cost >= 1
+            && data.cost <= 1000000
+            && data.entryId is string
+            && createdNow(ledgerPath(data.entryId))
+            && getAfter(ledgerPath(data.entryId)).data.drawId == drawId);
+      }
+
+      // A player's random draw into their own hand, with the filters the table's player draw mode allows: for 1 LP
+      // under 'off', and at any price, free included, while the mode is on (spec: card-draws, "The server checks the
+      // draw price"). Keep in step with drawPrice in src/features/table/playerDraw.ts.
+      function drawnByPlayer() {
+        let data = request.resource.data;
+        let mode = playerDrawMode();
         return data.kind == 'random'
           && data.uid == request.auth.uid
-          && playerFiltersAllowed(data.filters)
-          && data.paidWith == 'lp'
-          && data.cost == 1
-          && data.entryId is string
-          && createdNow(ledgerPath(data.entryId))
-          && getAfter(ledgerPath(data.entryId)).data.drawId == drawId;
+          && playerFiltersAllowed(mode, data.filters)
+          && (mode != 'off' || (data.paidWith == 'lp' && data.cost == 1))
+          && validPayment();
+      }
+
+      // The DM's draw into any hand: free, or a random draw at any price from the hand owner's LP, in any mode.
+      function drawnByDm() {
+        return (isFree() || (request.resource.data.kind == 'random' && validPayment())) && isDm();
+      }
+
+      // The table's player draw mode. A missing table, or one from before the setting, is 'off'. The table is read
+      // once per request: tableFree() reads it too.
+      function playerDrawMode() {
+        return exists(tablePath()) ? get(tablePath()).data.get('playerDraw', 'off') : 'off';
       }
 
       // The filters a player's draw may record under the table's player draw mode (spec: card-draws, "The server
       // checks a player's filters against the mode"): none under 'off', the set, cost, mechanic pack and rarity under
-      // 'filtered', and the keyword too under 'pick'. A missing table, or one from before the setting, is 'off'. The
-      // table is read once per request: tableFree() reads it too. Keep in step with playerFiltersAllowed in
+      // 'filtered', and the keyword too under 'pick'. Keep in step with playerFiltersAllowed in
       // src/features/table/playerDraw.ts.
-      function playerFiltersAllowed(filters) {
-        let mode = exists(tablePath()) ? get(tablePath()).data.get('playerDraw', 'off') : 'off';
+      function playerFiltersAllowed(mode, filters) {
         return filters == null
           || mode == 'pick'
           || (mode == 'filtered' && filters.keyword == null);
@@ -1653,10 +1687,12 @@ service cloud.firestore {
             && (request.auth.uid == resource.data.uid || isDm())));
       allow delete: if false;
 
-      // One card of the session: a draw that this same request creates and that names this session, its card, and
-      // the set whose cardback it had (none in a Cursed session). Keep the limit in step with CARD_LIMITS.setCode.
+      // One card of the session: a draw that this same request creates and that names this session, its card, the
+      // set whose cardback it had (none in a Cursed session), and its price, which the draw's own rule ties to the
+      // draw. Only a new card is checked: older ones, stored before the prices, have no `cost`. Keep the limit in
+      // step with CARD_LIMITS.setCode.
       function validSessionDraw(entry, kind) {
-        let fields = ['drawId', 'cardId', 'backSet'];
+        let fields = ['drawId', 'cardId', 'backSet', 'cost'];
         return entry is map
           && entry.keys().hasOnly(fields)
           && entry.keys().hasAll(fields)

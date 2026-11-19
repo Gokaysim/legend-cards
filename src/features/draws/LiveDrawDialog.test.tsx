@@ -85,17 +85,51 @@ describe('LiveDrawDialog', () => {
     setup({ session: testSession('ayla', [EYES, RITE], 1000) })
 
     expect(screen.getByRole('dialog', { name: 'Ayla kart çekiyor' })).toBeInTheDocument()
-    expect(chips()).toEqual(['Canlı', '🎲 Rastgele', "Ayla'nın eline", 'Her kart −1 LP'])
+    expect(chips()).toEqual(['Canlı', '🎲 Rastgele', "Ayla'nın eline", '−2 LP'])
     expect(faceDown()).toHaveLength(2)
     expect(screen.queryByText("Aboleth's Eyes")).not.toBeInTheDocument()
     expect(screen.getByText('Ayla kartları çeviriyor…')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Küçült' })).toBeInTheDocument()
   })
 
+  it("adds up the prices set while the mode is on, also for the DM's draw", () => {
+    const session = testSession('ayla', [EYES, RITE], 1000, {
+      by: 'dana',
+      draws: [
+        { drawId: 'd1', cardId: EYES.id, backSet: null, cost: 1 },
+        { drawId: 'd2', cardId: RITE.id, backSet: null, cost: 2 },
+      ],
+    })
+    setup({ session })
+
+    expect(chips()).toEqual(['Canlı', '🎲 Rastgele', "Ayla'nın eline", '−3 LP'])
+  })
+
+  it("shows a player's draws at 0 LP as free", () => {
+    const session = testSession('ayla', [EYES], 1000, {
+      draws: [{ drawId: 'd1', cardId: EYES.id, backSet: null, cost: 0 }],
+    })
+    setup({ session })
+
+    expect(chips()).toContain('Ücretsiz')
+  })
+
+  it('counts the cards of an older session, stored without prices, by the old rule', () => {
+    const older = (session: DrawSession) => ({
+      ...session,
+      draws: session.draws.map((draw) => ({ ...draw, cost: null })),
+    })
+    const { update } = setup({ session: older(testSession('ayla', [EYES, RITE], 1000)) })
+    expect(chips()).toContain('−2 LP')
+
+    update(older(testSession('ayla', [EYES, RITE], 1000, { by: 'dana' })))
+    expect(chips()).toContain('Ücretsiz')
+  })
+
   it("names the DM's draw into a hand, free, without any filter", () => {
     const session = testSession('ayla', [RITE], 1000, {
       by: 'dana',
-      draws: [{ drawId: 'd1', cardId: RITE.id, backSet: 'Kesqer' }],
+      draws: [{ drawId: 'd1', cardId: RITE.id, backSet: 'Kesqer', cost: 0 }],
     })
     setup({ session })
 
@@ -108,7 +142,7 @@ describe('LiveDrawDialog', () => {
     const art = testArt({ cardbacks: { Kesqer: '/art/backs/kesqer.0123456789.webp' } })
     const session = testSession('ayla', [RITE], 1000, {
       by: 'dana',
-      draws: [{ drawId: 'd1', cardId: RITE.id, backSet: 'Kesqer' }],
+      draws: [{ drawId: 'd1', cardId: RITE.id, backSet: 'Kesqer', cost: 0 }],
     })
     setup({ session, art })
 

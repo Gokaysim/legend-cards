@@ -209,6 +209,22 @@ describe('describing draws', () => {
     ).toBe("Bora'ya Aboleth's Eyes kartını çekti (filtre: Rare).")
   })
 
+  it('names the price paid, also when the DM charged it, and no payment for a free draw', () => {
+    expect(text(only({ draws: [testDraw(eyes, 'bora', 1000, { by: 'dana', cost: 2 })] }))).toBe(
+      "Bora'ya Aboleth's Eyes kartını çekti (−2 LP).",
+    )
+    expect(text(only({ draws: [testDraw(eyes, 'ayla', 1000, { cost: 3 })] }))).toBe(
+      "Aboleth's Eyes kartını çekti (−3 LP).",
+    )
+    expect(
+      text(
+        only({
+          draws: [testDraw(eyes, 'ayla', 1000, { paidWith: 'none', cost: 0, entryId: null })],
+        }),
+      ),
+    ).toBe("Aboleth's Eyes kartını çekti.")
+  })
+
   it("describes a player's filtered paid draw with its payment and its filters", () => {
     const filters = {
       setCode: 'Kesqer',

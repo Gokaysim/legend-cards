@@ -160,7 +160,8 @@ describe("a player's draw", () => {
       kind: 'random',
       uid: me.id,
       by: testUser.uid,
-      paid: true,
+      price: 1,
+      byDm: false,
       filters: null,
       candidates: [EYES, RITE, WIND],
       sessionId: expect.any(String) as string,
@@ -270,7 +271,8 @@ describe("a player's draw tools follow the table's player draw mode", () => {
       kind: 'random',
       uid: me.id,
       by: testUser.uid,
-      paid: true,
+      price: 1,
+      byDm: false,
       filters: { setCode: 'Kesqer', cost: null, mechanicPack: null, rarity: null, keyword: null },
       candidates: [MARKET, OATH],
       sessionId: expect.any(String) as string,
@@ -293,7 +295,8 @@ describe("a player's draw tools follow the table's player draw mode", () => {
 
     await user.click(control('🎲 Çek · 1 LP'))
     expect(draw.mock.calls[0]?.[0]).toMatchObject({
-      paid: true,
+      price: 1,
+      byDm: false,
       filters: { keyword: 'sand oath' },
       candidates: [OATH],
     })
@@ -357,9 +360,186 @@ describe("a player's draw tools follow the table's player draw mode", () => {
     await user.click(control('🎲 Çek · 1 LP'))
 
     expect(screen.getByRole('alert')).toHaveTextContent(
-      'DM oyuncu kart çekişini değiştirdi; filtreler kaldırıldı.',
+      'DM oyuncu kart çekişini değiştirdi; filtreler ve fiyat sıfırlandı.',
     )
     expect(deckCount()).toHaveTextContent('4 uygun kart')
+    expect(backs()).toHaveLength(0)
+  })
+})
+
+describe('the draw price while the mode is on (adjustable-draw-price)', () => {
+  const bora = testProfile({ id: 'bora', displayName: 'Bora', lp: 3 })
+  const priceBox = () => screen.getByRole('textbox', { name: 'Fiyat' })
+  const queryPriceBox = () => screen.queryByRole('textbox', { name: 'Fiyat' })
+  const setPrice = async (user: ReturnType<typeof userEvent.setup>, price: string) => {
+    await user.clear(priceBox())
+    await user.type(priceBox(), price)
+  }
+
+  it("starts at 1 LP in a player's dialog under Filtreli çekiş", () => {
+    setup({ playerDraw: 'filtered', owner: { ...me, lp: 4 } })
+
+    expect(priceBox()).toHaveValue('1')
+    expect(control('🎲 Çek · 1 LP')).toBeEnabled()
+    expect(chips()).toEqual([
+      '🎲 Rastgele',
+      "Ayla'nın eline",
+      '✦ Filtreli çekiş',
+      'Bakiye: 4 LP',
+      'Her kart 1 LP',
+    ])
+  })
+
+  it('lets a player raise the price, and draws at it', async () => {
+    const { user, draw } = setup({ playerDraw: 'filtered', owner: { ...me, lp: 4 } })
+
+    await setPrice(user, '3')
+    expect(screen.getByText('Her kart 3 LP')).toBeInTheDocument()
+    await user.click(control('🎲 Çek · 3 LP'))
+
+    expect(draw.mock.calls[0]?.[0]).toMatchObject({ price: 3, byDm: false })
+  })
+
+  it('steps the price with "−" and "+", never below 0', async () => {
+    const { user } = setup({ playerDraw: 'pick' })
+
+    await user.click(control('Fiyatı artır'))
+    expect(priceBox()).toHaveValue('2')
+    await user.click(control('Fiyatı azalt'))
+    await user.click(control('Fiyatı azalt'))
+    expect(priceBox()).toHaveValue('0')
+    expect(control('Fiyatı azalt')).toBeDisabled()
+  })
+
+  it('lets a player draw for free at 0 LP, also with no LP', async () => {
+    const { user, draw } = setup({ playerDraw: 'pick', owner: { ...me, lp: 0 } })
+
+    expect(control('🎲 Çek · 1 LP')).toBeDisabled()
+    await setPrice(user, '0')
+    expect(chips()).toContain('Ücretsiz')
+    expect(screen.queryByText(/Kart çekmek için/)).not.toBeInTheDocument()
+    await user.click(control('🎲 Çek'))
+
+    expect(draw.mock.calls[0]?.[0]).toMatchObject({ price: 0, byDm: false })
+  })
+
+  it('draws each card at the price shown when it is drawn', async () => {
+    const { user, draw } = setup({ playerDraw: 'filtered', owner: { ...me, lp: 5 } })
+
+    await user.click(control('🎲 Çek · 1 LP'))
+    await setPrice(user, '2')
+    await user.click(control('🎲 Çek · 2 LP'))
+
+    expect(draw.mock.calls.map(([input]) => input.price)).toEqual([1, 2])
+  })
+
+  it("disables the control and names the price when it is above the owner's LP", async () => {
+    const { user } = setup({ playerDraw: 'filtered', owner: { ...me, lp: 2 } })
+
+    await setPrice(user, '3')
+
+    expect(control('🎲 Çek · 3 LP')).toBeDisabled()
+    expect(screen.getByText('Kart çekmek için 3 LP gerekiyor.')).toBeInTheDocument()
+  })
+
+  it('disables the control while the box holds no valid price', async () => {
+    const { user } = setup({ playerDraw: 'filtered' })
+
+    for (const text of ['', '1.5', '-1', 'abc', '1000001']) {
+      await user.clear(priceBox())
+      if (text !== '') await user.type(priceBox(), text)
+      expect(priceBox()).toHaveAttribute('aria-invalid', 'true')
+      expect(screen.getByRole('button', { name: /^🎲 Çek/ })).toBeDisabled()
+    }
+  })
+
+  it("starts the DM's draw at 1 LP from the hand owner's LP, and shows that LP", async () => {
+    const { user, draw } = setup({ asDm: true, owner: bora, playerDraw: 'filtered' })
+
+    expect(priceBox()).toHaveValue('1')
+    expect(chips()).toEqual(['🎲 Rastgele', "Bora'nın eline", 'Bakiye: 3 LP', 'Her kart 1 LP'])
+    await user.click(control('🎲 Çek · 1 LP'))
+
+    expect(draw.mock.calls[0]?.[0]).toMatchObject({ uid: 'bora', price: 1, byDm: true })
+  })
+
+  it("lets the DM draw for free at 0, and disables a price above the owner's LP", async () => {
+    const { user, draw } = setup({ asDm: true, owner: { ...bora, lp: 1 }, playerDraw: 'pick' })
+
+    await setPrice(user, '2')
+    expect(control('🎲 Çek · 2 LP')).toBeDisabled()
+    expect(screen.getByText('Kart çekmek için 2 LP gerekiyor.')).toBeInTheDocument()
+    await setPrice(user, '0')
+    expect(chips()).toEqual(['🎲 Rastgele', "Bora'nın eline", 'Bakiye: 1 LP', 'Ücretsiz'])
+    await user.click(control('🎲 Çek'))
+
+    expect(draw.mock.calls[0]?.[0]).toMatchObject({ price: 0, byDm: true })
+  })
+
+  it('starts at 1 LP again when the dialog opens again', async () => {
+    const first = setup({ playerDraw: 'filtered' })
+    await setPrice(first.user, '3')
+    first.unmount()
+
+    setup({ playerDraw: 'filtered' })
+
+    expect(priceBox()).toHaveValue('1')
+  })
+
+  it('shows no price control under Kapalı, for a player or the DM, nor in a Cursed draw', () => {
+    const player = setup({ playerDraw: 'off' })
+    expect(queryPriceBox()).not.toBeInTheDocument()
+    player.unmount()
+
+    const dmView = setup({ asDm: true, owner: bora, playerDraw: 'off' })
+    expect(queryPriceBox()).not.toBeInTheDocument()
+    expect(chips()).toEqual(['🎲 Rastgele', "Bora'nın eline", 'Ücretsiz'])
+    dmView.unmount()
+
+    setup({ mode: 'cursed', playerDraw: 'pick' })
+    expect(queryPriceBox()).not.toBeInTheDocument()
+    expect(chips()).toContain('Ücretsiz')
+  })
+
+  it('goes back to 1 LP for a player when the DM closes the mode', async () => {
+    const { user, draw, setPlayerDraw } = setup({
+      playerDraw: 'filtered',
+      owner: { ...me, lp: 4 },
+    })
+    await setPrice(user, '3')
+
+    setPlayerDraw('off')
+
+    expect(queryPriceBox()).not.toBeInTheDocument()
+    await user.click(control('🎲 Çek · 1 LP'))
+    expect(draw.mock.calls[0]?.[0]).toMatchObject({ price: 1 })
+  })
+
+  it("makes the DM's draw free again when the mode closes, and starts at 1 LP when it opens", async () => {
+    const { user, setPlayerDraw } = setup({ asDm: true, owner: bora, playerDraw: 'filtered' })
+    await setPrice(user, '2')
+
+    setPlayerDraw('off')
+    expect(queryPriceBox()).not.toBeInTheDocument()
+    expect(chips()).toContain('Ücretsiz')
+
+    setPlayerDraw('pick')
+    expect(priceBox()).toHaveValue('1')
+  })
+
+  it('puts the price back to 1 LP when the server refused it because the mode changed', async () => {
+    const { user } = setup({
+      playerDraw: 'filtered',
+      drawCard: () => Promise.reject(new DrawError('mode-changed')),
+    })
+    await setPrice(user, '3')
+
+    await user.click(control('🎲 Çek · 3 LP'))
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'DM oyuncu kart çekişini değiştirdi; filtreler ve fiyat sıfırlandı.',
+    )
+    expect(priceBox()).toHaveValue('1')
     expect(backs()).toHaveLength(0)
   })
 })
@@ -409,7 +589,8 @@ describe("the DM's draw", () => {
       kind: 'random',
       uid: 'ayla',
       by: testUser.uid,
-      paid: false,
+      price: 0,
+      byDm: true,
       filters: { setCode: null, cost: null, mechanicPack: null, rarity: 'rare', keyword: null },
       candidates: [RITE],
       sessionId: expect.any(String) as string,
@@ -541,7 +722,8 @@ describe('the Cursed draw', () => {
     expect(draw).toHaveBeenCalledTimes(2)
     expect(draw.mock.calls[0]?.[0]).toMatchObject({
       kind: 'cursed',
-      paid: false,
+      price: 0,
+      byDm: false,
       filters: null,
       candidates: [VISIONS],
     })

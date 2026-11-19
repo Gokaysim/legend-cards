@@ -119,7 +119,13 @@ describe('the Ayarlar screen', () => {
     expect(option('Kapalı')).toBeChecked()
     expect(option('Filtreli çekiş')).not.toBeChecked()
     expect(option('Kart seçme')).toHaveAccessibleDescription(
-      'Oyuncular ayrıca kelimeyle arayıp destede ne olduğuna bakabilir; istedikleri kartı seçip çekebilir.',
+      'Oyuncular ayrıca kelimeyle arayıp destede ne olduğuna bakabilir; istedikleri kartı seçip çekebilir. Bir çekiş 1 LP; çeken kişi fiyatı değiştirebilir.',
+    )
+    expect(option('Filtreli çekiş')).toHaveAccessibleDescription(
+      'Oyuncular kart çekerken set, cost, mechanic pack ve rarity seçebilir; kart yine rastgele gelir. Bir çekiş 1 LP; çeken kişi fiyatı değiştirebilir.',
+    )
+    expect(option('Kapalı')).toHaveAccessibleDescription(
+      'Oyuncular kartı tüm havuzdan rastgele çeker.',
     )
   })
 

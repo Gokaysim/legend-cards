@@ -41,7 +41,7 @@ describe('PlayerDrawBanner', () => {
     setup({ playerDraw: 'filtered' })
 
     expect(screen.getByRole('status')).toHaveTextContent(
-      '✦ Filtreli çekiş açık. Oyuncular kart çekerken set, cost, mechanic pack ve rarity seçebilir; kart yine rastgele gelir.',
+      '✦ Filtreli çekiş açık. Oyuncular kart çekerken set, cost, mechanic pack ve rarity seçebilir; kart yine rastgele gelir. Bir çekiş 1 LP; çeken kişi fiyatı değiştirebilir.',
     )
     expect(screen.queryByRole('button', { name: 'Kapat' })).not.toBeInTheDocument()
   })

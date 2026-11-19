@@ -89,7 +89,8 @@ const aylaDraws = (candidates: Card[], extra: Partial<DrawCardInput> = {}) =>
     kind: 'random',
     uid: 'ayla',
     by: 'ayla',
-    paid: true,
+    price: 1,
+    byDm: false,
     filters: null,
     candidates,
     random: always(0),
@@ -194,7 +195,8 @@ describe('drawing under the real rules', () => {
       kind: 'random',
       uid: 'ayla',
       by: 'dana',
-      paid: false,
+      price: 0,
+      byDm: true,
       filters,
       candidates: [RITE],
       sessionId: nextSession(),
@@ -217,7 +219,8 @@ describe('drawing under the real rules', () => {
       kind: 'cursed',
       uid: 'ayla',
       by: 'ayla',
-      paid: false,
+      price: 0,
+      byDm: false,
       filters: null,
       candidates: [VISIONS],
       sessionId: nextSession(),
@@ -239,7 +242,7 @@ describe('drawing under the real rules', () => {
     const error = await failureOf(aylaDraws([EYES]))
 
     expect(error).toBeInstanceOf(DrawError)
-    expect(toDrawFailure(error)).toEqual({ kind: 'insufficient', lp: 0 })
+    expect(toDrawFailure(error)).toEqual({ kind: 'insufficient', lp: 0, price: 1 })
     expect(await all('draws')).toEqual([])
     expect(await all('userCards')).toEqual([])
     expect(await stored(`cards/${EYES.id}`)).not.toHaveProperty('holder')
@@ -328,7 +331,8 @@ describe('draw sessions under the real rules', () => {
       kind: 'random',
       uid: 'ayla',
       by: 'dana',
-      paid: false,
+      price: 0,
+      byDm: true,
       filters,
       candidates: [RITE],
       sessionId: 's-set',
@@ -387,7 +391,8 @@ describe('the behavior flags in draws under the real rules', () => {
       kind: 'cursed',
       uid: 'ayla',
       by: 'ayla',
-      paid: false,
+      price: 0,
+      byDm: false,
       filters: null,
       candidates: [{ ...VISIONS, isRepeatable: false }],
       sessionId: nextSession(),
@@ -423,7 +428,8 @@ describe('the behavior flags in draws under the real rules', () => {
       kind: 'random',
       uid: 'bora',
       by: 'dana',
-      paid: false,
+      price: 0,
+      byDm: true,
       filters: null,
       candidates: [shared],
       sessionId: nextSession(),
@@ -501,6 +507,102 @@ describe("a player's filtered draw under the real rules", () => {
     const failure = await failureOf(
       aylaDraws([EYES], { filters: { ...SET_FILTERS, keyword: 'eyes' } }),
     )
+
+    expect(toDrawFailure(failure)).toEqual({ kind: 'mode-changed' })
+  })
+})
+
+describe('the draw price under the real rules', () => {
+  async function setMode(playerDraw: string) {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(firestoreOf(admin), 'table/main'), {
+        openPackId: null,
+        playerDraw,
+        playerDrawChangeId: 'c-old',
+      })
+    })
+  }
+
+  it("takes a player's price of 3 LP, with the draw, the entry and the session card agreeing", async () => {
+    await setMode('filtered')
+
+    const result = await aylaDraws([EYES], { price: 3, sessionId: 's-price' })
+
+    const draw = await stored(`draws/${result.drawId}`)
+    expect(draw).toMatchObject({ paidWith: 'lp', cost: 3 })
+    expect(await stored(`ledger/${draw?.entryId as string}`)).toMatchObject({
+      account: 'ayla',
+      delta: -3,
+      balanceAfter: 0,
+      by: 'ayla',
+    })
+    expect(await stored('users/ayla')).toMatchObject({ lp: 0 })
+    expect(await stored('drawSessions/s-price')).toMatchObject({
+      draws: [{ drawId: result.drawId, cost: 3 }],
+    })
+  })
+
+  it("draws a player's card for free at 0 LP while the mode is on", async () => {
+    await setMode('pick')
+
+    const result = await aylaDraws([EYES], { price: 0 })
+
+    expect(await stored(`draws/${result.drawId}`)).toMatchObject({
+      paidWith: 'none',
+      cost: 0,
+      entryId: null,
+    })
+    expect(await stored('users/ayla')).toMatchObject({ lp: 3, lpEntryId: 'seed' })
+  })
+
+  it("charges the DM's 2 LP draw to the hand's owner", async () => {
+    await setMode('filtered')
+
+    const result = await drawCard(as('dana'), {
+      kind: 'random',
+      uid: 'ayla',
+      by: 'dana',
+      price: 2,
+      byDm: true,
+      filters: null,
+      candidates: [RITE],
+      sessionId: nextSession(),
+    })
+
+    const draw = await stored(`draws/${result.drawId}`)
+    expect(draw).toMatchObject({ by: 'dana', uid: 'ayla', paidWith: 'lp', cost: 2 })
+    expect(await stored(`ledger/${draw?.entryId as string}`)).toMatchObject({
+      account: 'ayla',
+      delta: -2,
+      by: 'dana',
+    })
+    expect(await stored('users/ayla')).toMatchObject({ lp: 1 })
+  })
+
+  it('fails with "insufficient" for a price above the LP, and writes nothing', async () => {
+    await setMode('filtered')
+
+    const error = await failureOf(aylaDraws([EYES], { price: 4 }))
+
+    expect(toDrawFailure(error)).toEqual({ kind: 'insufficient', lp: 3, price: 4 })
+    expect(await all('draws')).toEqual([])
+    expect(await stored('users/ayla')).toMatchObject({ lp: 3 })
+  })
+
+  it('fails with "mode-changed" for a price of 3 after the DM closed the mode, and charges nothing', async () => {
+    await setMode('off')
+
+    const failure = await failureOf(aylaDraws([EYES], { price: 3 }))
+
+    expect(toDrawFailure(failure)).toEqual({ kind: 'mode-changed' })
+    expect(await all('draws')).toEqual([])
+    expect(await stored('users/ayla')).toMatchObject({ lp: 3, lpEntryId: 'seed' })
+  })
+
+  it('fails with "mode-changed" for a free player draw under Kapalı', async () => {
+    await setMode('off')
+
+    const failure = await failureOf(aylaDraws([EYES], { price: 0 }))
 
     expect(toDrawFailure(failure)).toEqual({ kind: 'mode-changed' })
   })

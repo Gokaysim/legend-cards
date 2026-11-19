@@ -68,6 +68,19 @@ describe('describeHistoryRow', () => {
     ).toMatchObject({ text: "DM, Bora'nın eline çekti", details: 'Rastgele çekiliş · ücretsiz' })
   })
 
+  it('words a draw at another price with the price paid', () => {
+    const holding = testHolding(card, 'bora', 1000, { givenBy: 'bora', givenVia: 'draw' })
+    expect(
+      wordsOf({
+        key: 'k',
+        at,
+        kind: 'drawn',
+        holding,
+        draw: testDraw(card, 'bora', 1000, { cost: 3 }),
+      }),
+    ).toMatchObject({ details: 'Rastgele çekiliş · 3 LP' })
+  })
+
   it('words a pack choice with who opened the pack', () => {
     const pack = testPack('ayla', { packType: 'premium', by: 'ayla' })
     const holding = testHolding(card, 'ayla', 1000, { givenBy: 'ayla', givenVia: 'pack' })

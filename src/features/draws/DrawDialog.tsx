@@ -30,7 +30,10 @@ import {
 import { compareLabels } from '@/features/cards/sort'
 import { useSetIndex } from '@/features/sets/setsContext'
 import {
+  drawPrice,
   filtersUnderMode,
+  isPricedDraw,
+  parseDrawPrice,
   PLAYER_DRAW_LABELS,
   type PlayerDrawTools,
   playerDrawTools,
@@ -44,6 +47,7 @@ import { useOnlineStatus } from '@/lib/useOnlineStatus'
 import type { DrawResult } from './api'
 import { DeckPile } from './DeckPile'
 import { useDrawActions, useDrawSessions } from './drawsContext'
+import { DrawPriceControl } from './DrawPriceControl'
 import { DrawError, type DrawFailure, drawFailureMessage, toDrawFailure } from './errors'
 import { FaceDownCard } from './FaceDownCard'
 import { DRAW_LIMITS, DRAW_PRICE, type DrawKind } from './schema'
@@ -87,10 +91,13 @@ export type DrawDialogProps = {
  * of cards a draw picks from, the draw control under it, and the drawn cards beside it in a fan, face down, in the
  * order drawn. Each draw is complete (the card in the hand, the LP paid) before its card shows here. Closing never
  * undoes a draw.
- * - A player's random draw costs 1 LP. It has the tools the table's player draw mode gives (spec: card-draws, "A
- *   player's draw tools follow the mode"): none, the filter pills, or also the keyword and "Destede ne var?". When
- *   the DM changes the mode, the dialog drops what the new mode no longer allows at once.
- * - The DM's random draw is free, can be narrowed with the filter pills and the keyword, and can look into the deck.
+ * - A player's random draw has the tools the table's player draw mode gives (spec: card-draws, "A player's draw tools
+ *   follow the mode"): none, the filter pills, or also the keyword and "Destede ne var?". When the DM changes the
+ *   mode, the dialog drops what the new mode no longer allows at once.
+ * - The DM's random draw can be narrowed with the filter pills and the keyword, and can look into the deck.
+ * - The price (design D5 of adjustable-draw-price): under "Kapalı" a player's random draw costs 1 LP and the DM's is
+ *   free. While the mode is on, both dialogs show the price control, starting at 1 LP, and each draw costs the price
+ *   shown, from the hand owner's LP. Every change of the mode puts the price back to 1 LP.
  * - A Cursed draw is free for both, and has no tools.
  *
  * Every other device watches the draws (spec: live-draws): the first draw starts the dialog's session, each card is
@@ -116,10 +123,18 @@ export function DrawDialog({ mode, owner, onClose }: DrawDialogProps) {
       : isDm
         ? { filters: true, keyword: true, peek: true }
         : playerDrawTools(playerMode)
-  const paid = mode === 'random' && !isDm
+  const priced = isPricedDraw(mode, playerMode)
   const hasFilters = tools.filters
 
   const [filters, setFilters] = useState<DrawFilters>(NO_FILTERS)
+  const [priceText, setPriceText] = useState(String(DRAW_PRICE))
+  const chosen = priced ? parseDrawPrice(priceText) : DRAW_PRICE
+  /** The next draw's price, or `null` while the price control holds no valid price. */
+  const price =
+    chosen === null ? null : drawPrice({ kind: mode, byDm: isDm, mode: playerMode, chosen })
+  const paid = price !== null && price > 0
+  /** The price as the chips, the draw control and the note show it: "3". */
+  const shownPrice = formatAmount(price ?? 0)
   const [drawn, setDrawn] = useState<Drawn[]>([])
   const [isBusy, setIsBusy] = useState(false)
   const [failure, setFailure] = useState<DrawFailure | null>(null)
@@ -129,6 +144,7 @@ export function DrawDialog({ mode, owner, onClose }: DrawDialogProps) {
   const [seenMode, setSeenMode] = useState(playerMode)
   if (seenMode !== playerMode) {
     setSeenMode(playerMode)
+    setPriceText(String(DRAW_PRICE))
     if (!isDm) {
       setFilters((current) => filtersUnderMode(playerMode, current))
       if (!playerDrawTools(playerMode).peek) setPeekCount(0)
@@ -181,9 +197,14 @@ export function DrawDialog({ mode, owner, onClose }: DrawDialogProps) {
         ? { kind: 'set', setCode: filters.setCode }
         : NEUTRAL_BACK
 
-  const isShort = paid && owner.lp < DRAW_PRICE
+  const isShort = paid && owner.lp < price
   const canDraw =
-    uid !== null && !isBusy && !isShort && candidates !== null && candidates.length > 0
+    uid !== null &&
+    !isBusy &&
+    price !== null &&
+    !isShort &&
+    candidates !== null &&
+    candidates.length > 0
 
   /** The session the next draw joins: a new one at first, and after the last one went stale. */
   const sessionForDraw = (): OwnSession => {
@@ -195,12 +216,13 @@ export function DrawDialog({ mode, owner, onClose }: DrawDialogProps) {
     return ownSession.current as OwnSession
   }
 
-  const runDraw = async (by: string, drawFrom: NonNullable<typeof candidates>) => {
+  const runDraw = async (by: string, drawFrom: NonNullable<typeof candidates>, cost: number) => {
     const input = {
       kind: mode,
       uid: owner.id,
       by,
-      paid,
+      price: cost,
+      byDm: isDm,
       filters: hasFilters ? activeFilters(filters) : null,
       candidates: drawFrom,
     }
@@ -223,23 +245,25 @@ export function DrawDialog({ mode, owner, onClose }: DrawDialogProps) {
     } catch (error) {
       const failure = toDrawFailure(error)
       if (failure.kind === 'mode-changed') {
-        // The server's mode no longer allows these filters, even if this device has not heard of the change yet.
+        // The server's mode no longer allows these filters or this price, even if this device has not heard of the
+        // change yet.
         setFilters(NO_FILTERS)
         setPeekCount(0)
+        setPriceText(String(DRAW_PRICE))
       }
       setFailure(failure)
     }
   }
 
   const draw = async () => {
-    if (!canDraw || uid === null || candidates === null) return
+    if (!canDraw || uid === null || candidates === null || price === null) return
     setFailure(null)
     if (!isOnline) {
       setFailure({ kind: 'offline' })
       return
     }
     setIsBusy(true)
-    const running = runDraw(uid, candidates)
+    const running = runDraw(uid, candidates, price)
     inFlight.current = running
     await running
     if (inFlight.current === running) inFlight.current = null
@@ -273,7 +297,7 @@ export function DrawDialog({ mode, owner, onClose }: DrawDialogProps) {
   useShockOnTurn(turnedKeys, isBlessedKey, shock)
 
   const control =
-    mode === 'cursed' ? '☠ Cursed Kart Çek' : paid ? `🎲 Çek · ${DRAW_PRICE} LP` : '🎲 Çek'
+    mode === 'cursed' ? '☠ Cursed Kart Çek' : paid ? `🎲 Çek · ${shownPrice} LP` : '🎲 Çek'
 
   const pills =
     hasFilters && pool !== null
@@ -311,21 +335,23 @@ export function DrawDialog({ mode, owner, onClose }: DrawDialogProps) {
           {mode === 'cursed' ? '☠ Cursed' : '🎲 Rastgele'}
         </TableChip>
         <TableChip>{`${genitive(ownerName)} eline`}</TableChip>
-        {paid && playerMode !== 'off' ? (
+        {mode === 'random' && !isDm && playerMode !== 'off' ? (
           <TableChip variant="mode">{`✦ ${PLAYER_DRAW_LABELS[playerMode]}`}</TableChip>
         ) : null}
-        {paid ? (
-          <>
-            <TableChip variant="gold">
-              <span className="sr-only">Bakiye: </span>
-              <span className="tabular-nums">{formatAmount(owner.lp)} LP</span>
-            </TableChip>
-            <TableChip>Her kart {DRAW_PRICE} LP</TableChip>
-          </>
+        {paid || priced ? (
+          <TableChip variant="gold">
+            <span className="sr-only">Bakiye: </span>
+            <span className="tabular-nums">{formatAmount(owner.lp)} LP</span>
+          </TableChip>
+        ) : null}
+        {price === null ? null : paid ? (
+          <TableChip>Her kart {shownPrice} LP</TableChip>
         ) : (
           <TableChip>Ücretsiz</TableChip>
         )}
       </TableChips>
+
+      {priced ? <DrawPriceControl value={priceText} onChange={setPriceText} /> : null}
 
       {hasFilters && pool !== null ? (
         <FilterBar
@@ -357,7 +383,9 @@ export function DrawDialog({ mode, owner, onClose }: DrawDialogProps) {
         <p className="text-sm text-ink-muted">Çekilebilecek kart yok.</p>
       ) : null}
 
-      {isShort ? <p className="text-sm text-ink-muted">Kart çekmek için 1 LP gerekiyor.</p> : null}
+      {isShort ? (
+        <p className="text-sm text-ink-muted">{`Kart çekmek için ${shownPrice} LP gerekiyor.`}</p>
+      ) : null}
 
       {failure ? (
         <p
