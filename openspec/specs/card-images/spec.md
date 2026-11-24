@@ -253,7 +253,7 @@ Each Pack Shop tile SHALL show the pack's picture across its width: a Mechanic P
 
 #### Scenario: The Pandemonium packs
 - **WHEN** a user opens the Pandemonium group
-- **THEN** its two tiles show the Pandemonium cardback, one with "Pandemonium" and the other with "Cursed" under it, each with "3 LP / 7.500 GP" under the name
+- **THEN** its two tiles show the Pandemonium cardback, one with "Pandemonium" and "4 LP / 10.000 GP" under it, and the other with "Cursed" and "3 LP / 7.500 GP" under it
 
 #### Scenario: A pack without a picture
 - **WHEN** the Kesqerian Nights group is shown while the set has no cardback

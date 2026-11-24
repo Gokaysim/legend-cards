@@ -48,7 +48,7 @@ Each pack type SHALL have this price in LP and in GP:
 | Standard | 2 | 5.000 |
 | Premium | 3 | 7.500 |
 | Cursed | 1 | 2.500 |
-| Pandemonium | 3 | 7.500 |
+| Pandemonium | 4 | 10.000 |
 | Pandemonium Cursed | 3 | 7.500 |
 | Mechanic | 4 | 10.000 |
 | Golden | 4 | 10.000 |
@@ -57,6 +57,10 @@ Each pack type SHALL have this price in LP and in GP:
 #### Scenario: A price label
 - **WHEN** a user looks at a Standard Pack
 - **THEN** it shows "2 LP / 5.000 GP"
+
+#### Scenario: The Pandemonium Pack's price
+- **WHEN** Ayla, with 5 LP, opens a Pandemonium Pack with her LP
+- **THEN** she pays 4 LP and has 1 LP left, and a write that takes only 3 LP is denied
 
 ### Requirement: When a pack can be opened
 A pack SHALL be openable only while it has enough candidates: cards in the pool whose pack flag for that pack is on (spec: "Packs follow the pack flags"). A card with "Birden fazla elde olabilir" on is always in the pool. Standard: 9 cards of the set. Premium: 9 of the set, 3 of them Rare. Cursed: 5 Common cards of the set. A "Tek paket + Cursed" set's Pack: 9 Rares of the set. Its Cursed Pack: 5 Rares of the set. Mechanic: 29 cards of that mechanic pack. Golden: 49 Rares across all sets. Cursed Golden: 5 Rares across all sets.
