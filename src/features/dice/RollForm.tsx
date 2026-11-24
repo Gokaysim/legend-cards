@@ -12,13 +12,16 @@ import {
   type DieType,
   emptyCounts,
   FORMULA_ORDER,
-  formulaInputText,
+  formulaPartsText,
   isSingleD20,
   MAX_DICE,
+  MAX_PARTS,
   maxCount,
   NOTE_MAX,
+  onePart,
   parseFormula,
   type ParsedFormula,
+  partsPhysicalCount,
   physicalCount,
   type RollMode,
 } from './formula'
@@ -28,17 +31,15 @@ import { previewUrl } from './stage/previews'
 const FIELD =
   'rounded-lg border border-control-line bg-control px-3 py-2 text-sm text-ink placeholder:text-ink-muted'
 
-/** The longest formula the field takes: every die type with a count, and eight two-digit numbers, with room. */
-const FORMULA_TEXT_MAX = 120
+/**
+ * The longest formula the field takes: four parts, each with every die type with a count and eight two-digit numbers,
+ * with room, and their separators (design D4 of add-multi-part-rolls).
+ */
+const FORMULA_TEXT_MAX = 486
 
 type ValidFormula = Extract<ParsedFormula, { ok: true }>
 
-const EMPTY_FORMULA: ValidFormula = {
-  ok: true,
-  counts: emptyCounts(),
-  modifier: 0,
-  modifierSum: null,
-}
+const EMPTY_FORMULA: ValidFormula = { ok: true, parts: [onePart(emptyCounts())] }
 
 export type RollFormProps = {
   /** The user's dice style, for the quick dice's pictures. */
@@ -90,7 +91,8 @@ function CountField({ type, count, disabled, onCount, onRemove }: CountFieldProp
  * The roll form (spec: dice-rolls, "Building a roll" to "Advantage and disadvantage", "The DM's hidden roll"). The
  * formula text is the one source (design D1 of dice-formula-and-sixty-dice): the user types it, and the quick dice and
  * the chips rewrite it in its canonical form. Then the note, Avantaj or Dezavantaj for a single d20, the DM's "Gizli",
- * and "At".
+ * and "At". A formula holds up to four parts separated by ";" (design D5 of add-multi-part-rolls): the quick dice and
+ * the chips act on the last part, and the chips say "Son parça" when there are two or more.
  */
 export function RollForm({ style }: RollFormProps) {
   const actions = useDiceActions()
@@ -107,10 +109,15 @@ export function RollForm({ style }: RollFormProps) {
   const parsed = parseFormula(text)
   const isValid = parsed.ok
   const shown = parsed.ok ? parsed : lastValid
-  const counts = shown.counts
-  const hasDice = isValid && physicalCount(counts) > 0
-  const isFull = isValid && DIE_TYPES.some((type) => !canAdd(counts, type))
-  const offersAdvantage = isValid && isSingleD20(counts)
+  const parts = shown.parts
+  // The controls act on the last part; `others` is the physical dice of the parts before it.
+  const last = parts[parts.length - 1] ?? onePart(emptyCounts())
+  const counts = last.counts
+  const others = partsPhysicalCount(parts) - physicalCount(counts)
+  const hasMany = parts.length > 1
+  const hasDice = isValid && partsPhysicalCount(parts) > 0
+  const isFull = isValid && DIE_TYPES.some((type) => !canAdd(counts, type, others))
+  const offersAdvantage = isValid && !hasMany && isSingleD20(counts)
 
   const update = (next: string) => {
     setText(next)
@@ -118,10 +125,10 @@ export function RollForm({ style }: RollFormProps) {
     if (result.ok) setLastValid(result)
   }
   const write = (next: DiceCounts) =>
-    update(formulaInputText(next, shown.modifier, shown.modifierSum))
+    update(formulaPartsText([...parts.slice(0, -1), { ...last, counts: next }]))
   const add = (type: DieType) => write({ ...counts, [type]: counts[type] + 1 })
   const setCount = (type: DieType, wanted: number) => {
-    const count = Math.min(wanted, maxCount(counts, type))
+    const count = Math.min(wanted, maxCount(counts, type, others))
     write({ ...counts, [type]: count })
     return count
   }
@@ -135,10 +142,8 @@ export function RollForm({ style }: RollFormProps) {
     setFailed(false)
     actions
       .roll({
-        counts: parsed.counts,
+        parts: parsed.parts,
         mode: offersAdvantage ? mode : 'normal',
-        modifier: parsed.modifier,
-        modifierSum: parsed.modifierSum,
         note,
         hidden: isHidden,
       })
@@ -160,7 +165,7 @@ export function RollForm({ style }: RollFormProps) {
             type="button"
             aria-label={`${type} ekle`}
             aria-describedby={isFull && !canAdd(counts, type) ? ids.limit : undefined}
-            disabled={!isValid || !canAdd(counts, type)}
+            disabled={!isValid || !canAdd(counts, type, others)}
             onClick={() => add(type)}
             className="flex h-10 items-center gap-0.5 rounded-lg border border-line bg-pane-raised pr-2.5 pl-1 text-sm text-ink transition-colors hover:border-gold disabled:cursor-not-allowed disabled:opacity-40"
           >
@@ -211,13 +216,13 @@ export function RollForm({ style }: RollFormProps) {
           aria-describedby={isValid ? undefined : ids.formulaError}
           onChange={(event) => update(event.target.value)}
           onBlur={() => {
-            if (parsed.ok)
-              setText(formulaInputText(parsed.counts, parsed.modifier, parsed.modifierSum))
+            if (parsed.ok) setText(formulaPartsText(parsed.parts))
           }}
           className={cn(FIELD, 'font-bold text-gold', !isValid && 'border-danger-line')}
         />
         {physicalCount(counts) > 0 ? (
           <div className="flex flex-wrap items-center gap-1.5">
+            {hasMany ? <span className="text-xs text-ink-muted">Son parça</span> : null}
             {FORMULA_ORDER.filter((type) => counts[type] > 0).map((type) => (
               <span
                 key={type}
@@ -286,7 +291,9 @@ export function RollForm({ style }: RollFormProps) {
         <p id={ids.formulaError} className="text-sm text-danger-ink">
           {parsed.reason === 'tooMany'
             ? `En fazla ${MAX_DICE} zar`
-            : 'Formül zarlardan (40d6, d20, d%) ve 0–99 arası sayılardan, + ve − işaretleriyle oluşabilir: örneğin 1d20+4+4-5. Sayıların toplamı −99 ile +99 arasında olmalı.'}
+            : parsed.reason === 'tooManyParts'
+              ? `En fazla ${MAX_PARTS} parça`
+              : `Formül zarlardan (40d6, d20, d%) ve 0–99 arası sayılardan, + ve − işaretleriyle oluşabilir: örneğin 1d20+4+4-5. Sayıların toplamı −99 ile +99 arasında olmalı. Birden fazla atış için ; ile ayır: örneğin 1d20+5; 2d6+3 (en fazla ${MAX_PARTS} parça, her parçada en az bir zar).`}
         </p>
       )}
       {failed ? (

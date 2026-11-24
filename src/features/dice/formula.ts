@@ -10,8 +10,12 @@ export type DieType = (typeof DIE_TYPES)[number]
 /** The order in which a formula names its dice. */
 export const FORMULA_ORDER: readonly DieType[] = ['d20', 'd12', 'd10', 'd8', 'd6', 'd4', 'd100']
 
-/** At most this many physical dice per roll. A d100 counts as two. */
+/** At most this many physical dice per roll, every part's together. A d100 counts as two. */
 export const MAX_DICE = 60
+/** At most this many parts per roll, separated by ";" (spec: dice-rolls, "A roll in parts"). */
+export const MAX_PARTS = 4
+/** The longest `parts` a record holds: four parts of a two-digit count and a written sum. Keep in step with the rules. */
+export const PARTS_TEXT_MAX = 120
 export const MODIFIER_MIN = -99
 export const MODIFIER_MAX = 99
 export const NOTE_MAX = 80
@@ -121,9 +125,12 @@ export function physicalCount(counts: DiceCounts): number {
   return DIE_TYPES.reduce((sum, type) => sum + counts[type] * physicalSize(type), 0)
 }
 
-/** Whether one more die of this type still fits in the roll. */
-export function canAdd(counts: DiceCounts, type: DieType): boolean {
-  return physicalCount(counts) + physicalSize(type) <= MAX_DICE
+/**
+ * Whether one more die of this type still fits in the roll. `others` is the physical dice of the roll's other parts
+ * (design D4 of add-multi-part-rolls).
+ */
+export function canAdd(counts: DiceCounts, type: DieType, others = 0): boolean {
+  return others + physicalCount(counts) + physicalSize(type) <= MAX_DICE
 }
 
 /** Whether the formula holds exactly one d20 and no other die: only then are Avantaj and Dezavantaj offered. */
@@ -167,10 +174,33 @@ export function formulaInputText(
   return modifierText(modifier, sum).replace(/^ \+ /, '').replace(/^ − /, '−')
 }
 
-/** A formula as the roll form reads it: its dice, its fixed number and the written sum, or why it is refused. */
+/** One part of a formula: its dice, its fixed number and the written sum. A formula without ";" has one. */
+export type FormulaPart = { counts: DiceCounts; modifier: number; modifierSum: string | null }
+
+/** A part of these dice and this fixed number: the shape of a roll of one part, such as an initiative roll. */
+export function onePart(
+  counts: DiceCounts,
+  modifier = 0,
+  modifierSum: string | null = null,
+): FormulaPart {
+  return { counts, modifier, modifierSum }
+}
+
+/** A formula as the roll form reads it: its parts, or why it is refused. */
 export type ParsedFormula =
-  | { ok: true; counts: DiceCounts; modifier: number; modifierSum: string | null }
-  | { ok: false; reason: 'invalid' | 'tooMany' }
+  { ok: true; parts: FormulaPart[] } | { ok: false; reason: 'invalid' | 'tooMany' | 'tooManyParts' }
+
+/** The physical dice of every part together. */
+export function partsPhysicalCount(parts: readonly FormulaPart[]): number {
+  return parts.reduce((sum, part) => sum + physicalCount(part.counts), 0)
+}
+
+/** The canonical text of a formula's parts: each part's `formulaInputText`, joined by "; ". */
+export function formulaPartsText(parts: readonly FormulaPart[]): string {
+  return parts
+    .map((part) => formulaInputText(part.counts, part.modifier, part.modifierSum))
+    .join('; ')
+}
 
 const DIE_SIZES = '100|20|12|10|8|6|4|%'
 const FORMULA_TERM = `(?:\\d{1,3})?d(?:${DIE_SIZES})|\\d+`
@@ -178,19 +208,19 @@ const FORMULA_PATTERN = new RegExp(`^[+-]?(?:${FORMULA_TERM})(?:[+-](?:${FORMULA
 const DICE_TERM = new RegExp(`^(\\d{1,3})?d(${DIE_SIZES})$`, 'i')
 
 /**
- * The formula as typed (design D1 of dice-formula-and-sixty-dice): dice terms such as "40d6", "d20" or "d%", and whole
+ * One part as typed (design D1 of dice-formula-and-sixty-dice): dice terms such as "40d6", "d20" or "d%", and whole
  * numbers, joined by + and −. A missing count is 1, case does not matter, and terms of one die add up. The numbers
- * follow `parseModifier`. A die after a minus, a count of 0 or an unknown die is `invalid`; more than `MAX_DICE`
- * physical dice is `tooMany`. Spaces around the signs are ignored, and an empty text is a formula without dice.
+ * follow `parseModifier`. A die after a minus, a count of 0 or an unknown die is `null`, as is anything else. Spaces
+ * around the signs are ignored, and an empty text is a part without dice. The dice limit is `parseFormula`'s.
  */
-export function parseFormula(text: string): ParsedFormula {
+function parsePart(text: string): FormulaPart | null {
   const compact = text
     .replace(/[−–]/g, '-')
     .replace(/\s*([+-])\s*/g, '$1')
     .trim()
   const counts = emptyCounts()
-  if (compact === '') return { ok: true, counts, modifier: 0, modifierSum: null }
-  if (!FORMULA_PATTERN.test(compact)) return { ok: false, reason: 'invalid' }
+  if (compact === '') return onePart(counts)
+  if (!FORMULA_PATTERN.test(compact)) return null
   const numbers: string[] = []
   for (const token of compact.match(/[+-]?[^+-]+/g) ?? []) {
     const dice = DICE_TERM.exec(token.replace(/^[+-]/, ''))
@@ -199,21 +229,116 @@ export function parseFormula(text: string): ParsedFormula {
       continue
     }
     const count = dice[1] === undefined ? 1 : Number(dice[1])
-    if (token.startsWith('-') || count === 0) return { ok: false, reason: 'invalid' }
+    if (token.startsWith('-') || count === 0) return null
     const size = (dice[2] as string) === '%' ? '100' : (dice[2] as string)
     const type = `d${size}` as DieType
     counts[type] += count
   }
   const modifier = parseModifier(numbers.join(''))
-  if (!modifier) return { ok: false, reason: 'invalid' }
-  if (physicalCount(counts) > MAX_DICE) return { ok: false, reason: 'tooMany' }
-  return { ok: true, counts, modifier: modifier.total, modifierSum: modifier.sum }
+  if (!modifier) return null
+  return onePart(counts, modifier.total, modifier.sum)
 }
 
-/** The most dice of `type` the formula can hold with its other dice, for a count typed on a chip. */
-export function maxCount(counts: DiceCounts, type: DieType): number {
-  const others = physicalCount(counts) - counts[type] * physicalSize(type)
-  return Math.floor((MAX_DICE - others) / physicalSize(type))
+/**
+ * The formula as typed (design D4 of add-multi-part-rolls): up to `MAX_PARTS` parts separated by ";", each read by
+ * `parsePart`. An empty last part is dropped, so "d20+5;" reads as "1d20 + 5"; any other empty part is `invalid`.
+ * Checked in this order: a part that does not read is `invalid`; more than `MAX_PARTS` parts is `tooManyParts`; with
+ * two or more parts, a part without a die is `invalid`; more than `MAX_DICE` physical dice in all is `tooMany`.
+ */
+export function parseFormula(text: string): ParsedFormula {
+  const texts = text.split(';')
+  if (texts.length > 1 && (texts[texts.length - 1] as string).trim() === '') texts.pop()
+  const parts: FormulaPart[] = []
+  for (const partText of texts) {
+    const part = texts.length > 1 && partText.trim() === '' ? null : parsePart(partText)
+    if (!part) return { ok: false, reason: 'invalid' }
+    parts.push(part)
+  }
+  if (parts.length > MAX_PARTS) return { ok: false, reason: 'tooManyParts' }
+  if (parts.length > 1 && parts.some((part) => physicalCount(part.counts) === 0))
+    return { ok: false, reason: 'invalid' }
+  if (partsPhysicalCount(parts) > MAX_DICE) return { ok: false, reason: 'tooMany' }
+  return { ok: true, parts }
+}
+
+/**
+ * The most dice of `type` the part can hold with its other dice and `others`, the physical dice of the roll's other
+ * parts, for a count typed on a chip.
+ */
+export function maxCount(counts: DiceCounts, type: DieType, others = 0): number {
+  const rest = others + physicalCount(counts) - counts[type] * physicalSize(type)
+  return Math.floor((MAX_DICE - rest) / physicalSize(type))
+}
+
+/** Where a part's dice lie in a record's `dice`, and its fixed number with the written sum. */
+export type PartSpan = {
+  start: number
+  count: number
+  modifier: number
+  modifierSum: string | null
+}
+
+const RECORD_PART = /^([1-9]|[1-5][0-9]|60)(?::(-?\d{1,2}(?:[+-]\d{1,2}){0,7}))?$/
+
+/**
+ * A record's `parts` as written by `partsText` (design D1, D3 of add-multi-part-rolls): parts joined by ";", each the
+ * part's number of physical dice and, after ":", its fixed number as written. `null`, and the roll reads as one part,
+ * when the text has fewer than 2 or more than `MAX_PARTS` parts, a part does not read, the counts do not add up to the
+ * dice, or a part would start on the d10 of a percentile pair.
+ */
+export function checkedParts(
+  dice: readonly RolledDie[],
+  text: string | null | undefined,
+): PartSpan[] | null {
+  if (!text || text.length > PARTS_TEXT_MAX) return null
+  const texts = text.split(';')
+  if (texts.length < 2 || texts.length > MAX_PARTS) return null
+  const spans: PartSpan[] = []
+  let start = 0
+  for (const partText of texts) {
+    const match = RECORD_PART.exec(partText)
+    if (!match) return null
+    const modifier = match[2] === undefined ? { total: 0, sum: null } : parseModifier(match[2])
+    if (!modifier) return null
+    if (start > 0 && dice[start - 1]?.t === 'd100' && dice[start]?.t === 'd10') return null
+    const count = Number(match[1])
+    spans.push({ start, count, modifier: modifier.total, modifierSum: modifier.sum })
+    start += count
+  }
+  return start === dice.length ? spans : null
+}
+
+/**
+ * A record's parts (design D3 of add-multi-part-rolls): its `parts` when `checkedParts` accepts them. Otherwise one part
+ * of every die: with the record's fixed number and its checked written sum for a record without `parts`, and with 0
+ * for a record whose `parts` do not fit its dice.
+ */
+export function recordParts(
+  dice: readonly RolledDie[],
+  modifier: number,
+  modifierSum: string | null | undefined,
+  parts: string | null | undefined,
+): PartSpan[] {
+  const whole = { start: 0, count: dice.length }
+  if (parts === null || parts === undefined)
+    return [{ ...whole, modifier, modifierSum: checkedModifierSum(modifier, modifierSum) }]
+  return checkedParts(dice, parts) ?? [{ ...whole, modifier: 0, modifierSum: null }]
+}
+
+/**
+ * The record's `parts` for a roll of these parts, read back by `checkedParts`: each part's physical dice, and its fixed
+ * number as written, or as one number, or nothing for 0.
+ */
+export function partsText(parts: readonly FormulaPart[]): string {
+  return parts
+    .map((part) => {
+      const count = physicalCount(part.counts)
+      const sum =
+        checkedModifierSum(part.modifier, part.modifierSum) ??
+        (part.modifier === 0 ? null : String(part.modifier))
+      return sum === null ? String(count) : `${count}:${sum}`
+    })
+    .join(';')
 }
 
 /**
@@ -302,5 +427,21 @@ export function naturalMark(dice: readonly RolledDie[], mode: RollMode): Natural
   if (die?.t !== 'd20') return null
   if (die.v === 20) return 'natural20'
   if (die.v === 1) return 'natural1'
+  return null
+}
+
+/**
+ * The mark of a roll's first part that has one, in part order (spec: dice-rolls, "Natural sounds"): the one sound a
+ * roll in parts plays. For a roll of one part, its `naturalMark`.
+ */
+export function firstNaturalMark(
+  dice: readonly RolledDie[],
+  mode: RollMode,
+  parts: readonly Pick<PartSpan, 'start' | 'count'>[],
+): NaturalMark | null {
+  for (const part of parts) {
+    const mark = naturalMark(dice.slice(part.start, part.start + part.count), mode)
+    if (mark) return mark
+  }
   return null
 }

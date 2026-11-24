@@ -2790,9 +2790,10 @@ service cloud.firestore {
     }
 
     // The fields a roll's content may hold besides rollKeys(): the fixed number as written, when it is a sum (design
-    // D1-D2 of dice-sum-modifier-and-nat-marks). Rolls from before it, and the initiative tracker's, have none.
+    // D1-D2 of dice-sum-modifier-and-nat-marks), and the parts of a roll of two or more (design D1-D2 of
+    // add-multi-part-rolls). Rolls from before them, and the initiative tracker's, have neither.
     function rollOptionalKeys() {
-      return ['modifierSum'];
+      return ['modifierSum', 'parts'];
     }
 
     // Every die a roll can hold, as `{t, v}` (DIE_MAX in src/features/dice/formula.ts): d4 to d20 from 1 to their size,
@@ -2835,6 +2836,11 @@ service cloud.firestore {
     // src/features/dice/schema.ts: 60 dice of 20 32-bit floats in base64, with room), which the client decodes
     // leniently (design D4). The client, not the rules, checks that the written sum adds up to the fixed number, and
     // shows the fixed number alone when it does not (design D2 of dice-sum-modifier-and-nat-marks).
+    // A roll of two or more parts (design D2 of add-multi-part-rolls) holds `parts`, such as "1:5;2:9": 2 to 4 parts,
+    // each its number of physical dice (1 to 60) and, after ":", its fixed number as written (PARTS_TEXT_MAX in
+    // src/features/dice/formula.ts). Such a roll is normal, with the fixed number 0 and no written sum. One `matches`
+    // keeps the cost flat; the client checks that the counts add up to the dice and reads the roll as one part when
+    // they do not.
     function validRoll(data) {
       return data.style in diceStyles()
         && data.mode in ['normal', 'advantage', 'disadvantage']
@@ -2845,6 +2851,13 @@ service cloud.firestore {
           || (data.modifierSum is string
             && data.modifierSum.size() <= 24
             && data.modifierSum.matches('-?[0-9]{1,2}([+-][0-9]{1,2}){1,7}')))
+        && (!('parts' in data)
+          || (data.parts is string
+            && data.parts.size() <= 120
+            && data.parts.matches('([1-9]|[1-5][0-9]|60)(:-?[0-9]{1,2}([+-][0-9]{1,2}){0,7})?(;([1-9]|[1-5][0-9]|60)(:-?[0-9]{1,2}([+-][0-9]{1,2}){0,7})?){1,3}')
+            && data.mode == 'normal'
+            && data.modifier == 0
+            && !('modifierSum' in data)))
         && data.note is string
         && data.note.size() <= 80
         && data.motion is string

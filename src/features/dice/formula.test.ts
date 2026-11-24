@@ -3,24 +3,29 @@ import { describe, expect, it } from 'vitest'
 import {
   type DiceCounts,
   type DieType,
+  type FormulaPart,
   type RolledDie,
   DIE_TYPES,
   canAdd,
   checkedModifierSum,
+  checkedParts,
   countsOf,
   emptyCounts,
-  formulaInputText,
+  formulaPartsText,
   formulaText,
   isSingleD20,
   keptIndexes,
   maxCount,
   modifierLabel,
   modifierTerms,
+  onePart,
   parseFormula,
   parseModifier,
   naturalMark,
   percentileValue,
   physicalCount,
+  partsPhysicalCount,
+  partsText,
   physicalDice,
   resultGroups,
   rollTotal,
@@ -262,19 +267,19 @@ describe('showing the fixed number', () => {
 })
 
 describe('parseFormula (spec: dice-rolls, "A typed formula")', () => {
-  const ok = (text: string) => {
+  const okParts = (text: string) => {
     const parsed = parseFormula(text)
     if (!parsed.ok) throw new Error(`${text} refused: ${parsed.reason}`)
-    return parsed
+    return parsed.parts
+  }
+  const ok = (text: string) => {
+    const parts = okParts(text)
+    if (parts.length !== 1) throw new Error(`${text} has ${parts.length} parts`)
+    return parts[0] as FormulaPart
   }
 
   it('reads a big roll and its fixed number', () => {
-    expect(ok('40d6+5')).toEqual({
-      ok: true,
-      counts: counts({ d6: 40 }),
-      modifier: 5,
-      modifierSum: null,
-    })
+    expect(ok('40d6+5')).toEqual({ counts: counts({ d6: 40 }), modifier: 5, modifierSum: null })
   })
 
   it('adds up terms of the same die', () => {
@@ -307,7 +312,10 @@ describe('parseFormula (spec: dice-rolls, "A typed formula")', () => {
   })
 
   it('reads an empty text and a lone number as formulas without dice', () => {
-    expect(ok('')).toEqual({ ok: true, counts: emptyCounts(), modifier: 0, modifierSum: null })
+    expect(parseFormula('')).toEqual({
+      ok: true,
+      parts: [{ counts: emptyCounts(), modifier: 0, modifierSum: null }],
+    })
     expect(ok('   ').counts).toEqual(emptyCounts())
     expect(ok('5')).toMatchObject({ counts: emptyCounts(), modifier: 5 })
   })
@@ -352,18 +360,17 @@ describe('parseFormula (spec: dice-rolls, "A typed formula")', () => {
       '5',
       '-2-3',
       '',
+      'd20+5;d4+9+d20',
+      '2d6; 3d6-1-1; d% ; d20+5+10-4',
     ]) {
-      const parsed = ok(text)
-      const canonical = formulaInputText(parsed.counts, parsed.modifier, parsed.modifierSum)
-      expect(ok(canonical), `${text} -> ${canonical}`).toEqual(parsed)
+      const parts = okParts(text)
+      const canonical = formulaPartsText(parts)
+      expect(okParts(canonical), `${text} -> ${canonical}`).toEqual(parts)
     }
   })
 
   it('writes the canonical text with the dice first, and the fixed number alone without dice', () => {
-    const write = (text: string) => {
-      const parsed = ok(text)
-      return formulaInputText(parsed.counts, parsed.modifier, parsed.modifierSum)
-    }
+    const write = (text: string) => formulaPartsText(okParts(text))
     expect(write('5+2d6+d20')).toBe('1d20 + 2d6 + 5')
     expect(write('2d6+3d6')).toBe('5d6')
     expect(write('d%')).toBe('1d100')
@@ -371,5 +378,152 @@ describe('parseFormula (spec: dice-rolls, "A typed formula")', () => {
     expect(write('5')).toBe('5')
     expect(write('-2-3')).toBe('−2 − 3')
     expect(write('')).toBe('')
+  })
+})
+
+describe('parseFormula with parts (spec: dice-rolls, "A roll in parts")', () => {
+  const okParts = (text: string) => {
+    const parsed = parseFormula(text)
+    if (!parsed.ok) throw new Error(`${text} refused: ${parsed.reason}`)
+    return parsed.parts
+  }
+
+  it('reads an attack and its damage as two parts', () => {
+    expect(okParts('d20+5;d4+9+d20')).toEqual([
+      { counts: counts({ d20: 1 }), modifier: 5, modifierSum: null },
+      { counts: counts({ d20: 1, d4: 1 }), modifier: 9, modifierSum: null },
+    ])
+  })
+
+  it('writes the parts in canonical form, joined by "; "', () => {
+    expect(formulaPartsText(okParts('d20+5;d4+9+d20'))).toBe('1d20 + 5; 1d20 + 1d4 + 9')
+  })
+
+  it('never adds the same die across parts', () => {
+    expect(formulaPartsText(okParts('2d6; 3d6'))).toBe('2d6; 3d6')
+  })
+
+  it('reads four parts', () => {
+    expect(okParts('d20; d20; d20; d20')).toHaveLength(4)
+  })
+
+  it('counts sixty dice across the parts', () => {
+    expect(okParts('30d6; 30d6')).toHaveLength(2)
+    expect(parseFormula('40d6; 21d6')).toEqual({ ok: false, reason: 'tooMany' })
+  })
+
+  it('refuses more than four parts', () => {
+    expect(parseFormula('d20; d20; d20; d20; d20')).toEqual({ ok: false, reason: 'tooManyParts' })
+  })
+
+  it('reports a part that does not read before the part limit', () => {
+    expect(parseFormula('d20; d20; d20; d20; 2d7')).toEqual({ ok: false, reason: 'invalid' })
+  })
+
+  it('refuses a part without a die when there are two or more', () => {
+    expect(parseFormula('d20+5; 5')).toEqual({ ok: false, reason: 'invalid' })
+    expect(parseFormula('5; d20')).toEqual({ ok: false, reason: 'invalid' })
+  })
+
+  it('ignores an empty last part', () => {
+    expect(okParts('d20+5;')).toEqual([
+      { counts: counts({ d20: 1 }), modifier: 5, modifierSum: null },
+    ])
+    expect(okParts('d20+5;  ')).toHaveLength(1)
+    expect(formulaPartsText(okParts('d20+5;'))).toBe('1d20 + 5')
+  })
+
+  it('refuses an empty part elsewhere', () => {
+    for (const text of ['d20;;d6', ';d20', 'd20;;', 'd20; ;d6']) {
+      expect(parseFormula(text), text).toEqual({ ok: false, reason: 'invalid' })
+    }
+  })
+
+  it("checks each part's numbers on their own", () => {
+    expect(okParts('d20+90; d6+90').map((part) => part.modifier)).toEqual([90, 90])
+    expect(parseFormula('d20+90; d6+90+20')).toEqual({ ok: false, reason: 'invalid' })
+  })
+})
+
+describe('the sixty dice across parts', () => {
+  it('counts the other parts when adding a die', () => {
+    // "30d6; 29d6": 59 dice, the last part holds 29.
+    expect(canAdd(counts({ d6: 29 }), 'd6', 30)).toBe(true)
+    expect(canAdd(counts({ d6: 29 }), 'd100', 30)).toBe(false)
+  })
+
+  it("caps a chip's count by the other parts' dice", () => {
+    expect(maxCount(counts({ d20: 1, d6: 3 }), 'd6', 40)).toBe(19)
+    expect(maxCount(counts({ d6: 1 }), 'd100', 50)).toBe(4)
+  })
+
+  it('counts every part', () => {
+    expect(
+      partsPhysicalCount([onePart(counts({ d20: 1 }), 5), onePart(counts({ d100: 2, d6: 1 }))]),
+    ).toBe(6)
+  })
+})
+
+describe('the parts of a record (design D3 of add-multi-part-rolls)', () => {
+  it('reads each part as a span of the dice', () => {
+    const dice = rolled(['d20', 14], ['d20', 20], ['d4', 3])
+    expect(checkedParts(dice, '1:5;2:9')).toEqual([
+      { start: 0, count: 1, modifier: 5, modifierSum: null },
+      { start: 1, count: 2, modifier: 9, modifierSum: null },
+    ])
+  })
+
+  it('keeps a written sum and a part without a fixed number', () => {
+    const dice = rolled(['d20', 14], ['d6', 2], ['d6', 5])
+    expect(checkedParts(dice, '1:5+10-4;2')).toEqual([
+      { start: 0, count: 1, modifier: 11, modifierSum: '5+10-4' },
+      { start: 1, count: 2, modifier: 0, modifierSum: null },
+    ])
+    expect(checkedParts(dice, '1:-3;2')?.[0]).toMatchObject({ modifier: -3, modifierSum: null })
+  })
+
+  it('refuses parts that do not fit the dice', () => {
+    const dice = rolled(['d20', 14], ['d20', 20], ['d4', 3])
+    expect(checkedParts(dice, '3:5')).toBeNull()
+    expect(checkedParts(dice, '0;3')).toBeNull()
+    expect(checkedParts(dice, '2;2')).toBeNull()
+    expect(checkedParts(dice, '1;1;1;0')).toBeNull()
+    expect(checkedParts(dice, '1;1;1;1;1')).toBeNull()
+    expect(checkedParts(dice, '1:5*2;2')).toBeNull()
+    expect(checkedParts(dice, '1:90+20;2')).toBeNull()
+    expect(checkedParts(dice, '')).toBeNull()
+    expect(checkedParts(dice, null)).toBeNull()
+  })
+
+  it('refuses a part that starts on the d10 of a percentile pair', () => {
+    const dice = rolled(['d100', 30], ['d10', 7], ['d6', 2])
+    expect(checkedParts(dice, '1;2')).toBeNull()
+    expect(checkedParts(dice, '2;1')).toHaveLength(2)
+  })
+
+  it('writes the parts so that they read back', () => {
+    const parts = [
+      onePart(counts({ d20: 1 }), 11, '5+10-4'),
+      onePart(counts({ d20: 1, d4: 1 }), 9),
+      onePart(counts({ d100: 1 }), -2),
+      onePart(counts({ d6: 3 })),
+    ]
+    const text = partsText(parts)
+    expect(text).toBe('1:5+10-4;2:9;2:-2;3')
+    const dice = parts
+      .flatMap((part) => physicalDice(part.counts, 'normal'))
+      .map((t) => ({ t, v: 1 }))
+    expect(checkedParts(dice, text)).toEqual([
+      { start: 0, count: 1, modifier: 11, modifierSum: '5+10-4' },
+      { start: 1, count: 2, modifier: 9, modifierSum: null },
+      { start: 3, count: 2, modifier: -2, modifierSum: null },
+      { start: 5, count: 3, modifier: 0, modifierSum: null },
+    ])
+  })
+
+  it('writes a fixed number alone when its written sum does not add up', () => {
+    expect(partsText([onePart(counts({ d20: 1 }), 7, '5+10-4'), onePart(counts({ d6: 1 }))])).toBe(
+      '1:7;1',
+    )
   })
 })

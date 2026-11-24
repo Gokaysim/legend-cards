@@ -1,11 +1,12 @@
 import { cn } from '@/lib/cn'
 
-import { type RollView, NATURAL_MARK_TEXT } from './rollView'
+import { type PartView, NATURAL_MARK_TEXT } from './rollView'
 import type { DiceStyle } from './schema'
 import { previewUrl } from './stage/previews'
 
 export type FlatDiceProps = {
-  view: RollView
+  /** One part of a roll: a roll of one part has only one. */
+  view: PartView
   style: DiceStyle
   /** `sm` for the channel and the card, `lg` for the strip without 3D. */
   size?: 'sm' | 'lg'
@@ -13,7 +14,7 @@ export type FlatDiceProps = {
 }
 
 /**
- * The dice of a roll as pictures with their results (design D7): the style's preview of each die and the face it
+ * The dice of one part of a roll as pictures with their results (design D7): the style's preview of each die and the face it
  * shows. A die the roll does not keep is dimmed and struck through. Serves the channel, the card's text, and the strip
  * and the card when there is no 3D.
  */
@@ -50,7 +51,7 @@ export function FlatDice({ view, style, size = 'sm', className }: FlatDiceProps)
 }
 
 /** "Nat 20" in gold or "Nat 1" in red, or nothing. */
-export function NaturalMarkLabel({ view, className }: { view: RollView; className?: string }) {
+export function NaturalMarkLabel({ view, className }: { view: PartView; className?: string }) {
   if (!view.mark) return null
   return (
     <span

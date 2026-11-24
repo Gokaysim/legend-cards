@@ -5,6 +5,7 @@ import { screenById } from '@/app/screens'
 import { Avatar } from '@/components/ui/Avatar'
 import { useAuth } from '@/features/auth/authContext'
 import { profileName, useProfiles } from '@/features/users/usersContext'
+import { cn } from '@/lib/cn'
 
 import { useDiceDeviceSettings } from './deviceSettings'
 import { useFreshRoll } from './diceContext'
@@ -26,8 +27,8 @@ type CardState = {
 /**
  * Another user's roll on any screen but Zarlar (spec: dice-rolls, "A roll arrives on another screen"; design D3 of
  * reveal-dice-results-after-the-throw): a card at the bottom right of a wide window and at the top of a phone, with
- * the roller, the note, the formula as written with the kept results, the natural mark and the total, all at once and
- * without dice. It closes 6 seconds after it appears, unless the pointer or the focus is on it or the user selected
+ * the roller, the note, and for each part of the roll the formula as written with the kept results, the natural mark and
+ * the total (design D7 of add-multi-part-rolls), all at once and without dice. It closes 6 seconds after it appears, unless the pointer or the focus is on it or the user selected
  * it. A newer roll replaces it. Mounted once in the app shell.
  */
 export function DiceNotice() {
@@ -69,7 +70,7 @@ export function DiceNotice() {
     profiles.status === 'ready' ? profiles.data.find((p) => p.id === roll.by) : undefined
   const name = roller ? profileName(roller) : 'Bilinmeyen oyuncu'
   const close = () => setCard((state) => (state ? { ...state, isClosed: true } : state))
-  const kept = view.results.filter((result) => result.isKept).map((result) => result.value)
+  const isWhole = view.parts.length === 1
 
   return (
     <aside
@@ -90,17 +91,31 @@ export function DiceNotice() {
             <strong className="truncate text-ink">{name}</strong>
           </div>
           {content.note ? <p className="text-sm break-words text-ink">{content.note}</p> : null}
-          <div className="flex items-end gap-2">
-            <p className="min-w-0 flex-1 text-sm break-words text-ink-muted">
-              {view.formula} · {kept.join(' + ')}
-              {modifierText(content.modifier, content.modifierSum)}
-            </p>
-            <NaturalMarkLabel view={view} className="shrink-0" />
-            <span className="shrink-0 text-3xl leading-none font-extrabold text-gold">
-              <span className="sr-only">Toplam: </span>
-              {view.total}
-            </span>
-          </div>
+          {view.parts.map((part, index) => {
+            const roll = content.parts[index]
+            const kept = part.results
+              .filter((result) => result.isKept)
+              .map((result) => result.value)
+            return (
+              // A roll's parts never change, so their order is their identity.
+              <div key={index} data-testid="notice-part" className="flex items-end gap-2">
+                <p className="min-w-0 flex-1 text-sm break-words text-ink-muted">
+                  {part.formula} · {kept.join(' + ')}
+                  {roll ? modifierText(roll.modifier, roll.modifierSum) : null}
+                </p>
+                <NaturalMarkLabel view={part} className="shrink-0" />
+                <span
+                  className={cn(
+                    'shrink-0 leading-none font-extrabold text-gold',
+                    isWhole ? 'text-3xl' : 'text-xl',
+                  )}
+                >
+                  <span className="sr-only">Toplam: </span>
+                  {part.total}
+                </span>
+              </div>
+            )
+          })}
         </div>
         <button
           type="button"

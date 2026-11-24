@@ -10,9 +10,10 @@ import {
   MODIFIER_MIN,
   NOTE_MAX,
   ROLL_MODES,
+  type PartSpan,
   type RollMode,
   type RolledDie,
-  checkedModifierSum,
+  recordParts,
 } from './formula'
 
 /**
@@ -159,6 +160,8 @@ const contentFields = {
   modifier: z.number().int().min(MODIFIER_MIN).max(MODIFIER_MAX),
   // Optional, and checked leniently: the rules check only its shape, and `contentOf` drops one that does not add up.
   modifierSum: z.string().nullish().catch(null),
+  // Optional, and checked leniently in the same way: `contentOf` reads parts that do not fit the dice as one part.
+  parts: z.string().nullish().catch(null),
   note: z.string().max(NOTE_MAX),
   dice: z.array(rolledDieSchema).min(1).max(MAX_DICE),
   // Checked leniently: only a bounded string in the rules, decoded on the client (design D4).
@@ -166,15 +169,21 @@ const contentFields = {
   sim: z.number().int().catch(SIM_NONE),
 }
 
+/** One part of a roll: where its dice lie in `dice`, its fixed number and the fixed number as written. */
+export type RollPart = PartSpan
+
 /**
  * A roll's content as features see it. `motion` is `null` when the record has none or a bad one. `modifierSum` is the
- * fixed number as written, such as "5+10-4", or `null` when the record has none or one that does not add up.
+ * fixed number as written, such as "5+10-4", or `null` when the record has none or one that does not add up. `parts`
+ * holds one part for a roll of one part, and 2 to 4 for a roll in parts (design D3 of add-multi-part-rolls); the
+ * parts' fixed numbers are what the totals use.
  */
 export type RollContent = {
   style: DiceStyle
   mode: RollMode
   modifier: number
   modifierSum: string | null
+  parts: RollPart[]
   note: string
   dice: RolledDie[]
   motion: DieMotion[] | null
@@ -194,6 +203,7 @@ type StoredContent = {
   mode: RollMode
   modifier: number
   modifierSum?: string | null | undefined
+  parts?: string | null | undefined
   note: string
   dice: RolledDie[]
   motion: string
@@ -201,10 +211,14 @@ type StoredContent = {
 }
 
 function contentOf(stored: StoredContent): RollContent {
-  const { motion, sim, modifierSum, ...rest } = stored
+  const { motion, sim, modifierSum, parts, ...rest } = stored
+  const read = recordParts(stored.dice, stored.modifier, modifierSum, parts)
+  const isWhole = read.length === 1
   return {
     ...rest,
-    modifierSum: checkedModifierSum(stored.modifier, modifierSum),
+    modifier: isWhole ? (read[0] as RollPart).modifier : stored.modifier,
+    modifierSum: isWhole ? (read[0] as RollPart).modifierSum : null,
+    parts: read,
     motion: sim === SIM_THROWS_AND_RESTS ? decodeMotion(motion, stored.dice.length) : null,
   }
 }

@@ -39,9 +39,10 @@ function LockIcon() {
 }
 
 /**
- * One roll in the channel (spec: dice-rolls, "The channel"): who rolled and when, the note, the formula, each die with
- * its result, the total and the natural marks, and "Tekrar izle". A hidden roll shows to a player as "DM gizli zar
- * attı" and to the DM in full, marked hidden. A roll still waiting to be sent says so.
+ * One roll in the channel (spec: dice-rolls, "The channel"): who rolled and when, the note, and for each part of the
+ * roll (one for a roll of one part) its formula, each die with its result, its total and its natural mark, then
+ * "Tekrar izle". A hidden roll shows to a player as "DM gizli zar attı" and to the DM in full, marked hidden. A roll
+ * still waiting to be sent says so.
  */
 export function RollEntry({ roll, roller, isSettling = false, onReplay }: RollEntryProps) {
   const name = roller ? profileName(roller) : 'Bilinmeyen oyuncu'
@@ -85,33 +86,40 @@ export function RollEntry({ roll, roller, isSettling = false, onReplay }: RollEn
         {content && view ? (
           <>
             {content.note ? <p className="mt-0.5 text-sm text-ink">{content.note}</p> : null}
-            <div
-              className={cn(
-                'mt-1.5 inline-flex max-w-full flex-wrap items-center gap-1.5 rounded-xl border border-line bg-pane px-3 py-2',
-                !isSettling && view.mark === 'natural20' && 'border-gold',
-                !isSettling && view.mark === 'natural1' && 'border-cursed',
-              )}
-            >
-              <span className="mr-1 text-sm text-ink-muted">{view.formula}</span>
-              {isSettling ? <span className="sr-only">sonuç bekleniyor</span> : null}
-              <span
-                data-testid="roll-result"
-                aria-hidden={isSettling || undefined}
-                className={cn(
-                  'inline-flex flex-wrap items-center gap-1.5 motion-safe:transition-[filter] motion-safe:duration-300',
-                  isSettling && 'blur-sm select-none',
-                )}
-              >
-                <FlatDice view={view} style={content.style} />
-                {view.modifier ? (
-                  <span className="text-sm text-ink-muted">{view.modifier}</span>
-                ) : null}
-                {isSettling ? null : <NaturalMarkLabel view={view} className="ml-1" />}
-                <span className="ml-2 text-2xl font-extrabold text-gold">
-                  <span className="sr-only">Toplam: </span>
-                  {view.total}
-                </span>
-              </span>
+            <div className="mt-1.5 flex flex-col items-start gap-1.5">
+              {view.parts.map((part, index) => (
+                // A roll's parts never change, so their order is their identity.
+                <div
+                  key={index}
+                  data-testid="roll-part"
+                  className={cn(
+                    'inline-flex max-w-full flex-wrap items-center gap-1.5 rounded-xl border border-line bg-pane px-3 py-2',
+                    !isSettling && part.mark === 'natural20' && 'border-gold',
+                    !isSettling && part.mark === 'natural1' && 'border-cursed',
+                  )}
+                >
+                  <span className="mr-1 text-sm text-ink-muted">{part.formula}</span>
+                  {isSettling ? <span className="sr-only">sonuç bekleniyor</span> : null}
+                  <span
+                    data-testid="roll-result"
+                    aria-hidden={isSettling || undefined}
+                    className={cn(
+                      'inline-flex flex-wrap items-center gap-1.5 motion-safe:transition-[filter] motion-safe:duration-300',
+                      isSettling && 'blur-sm select-none',
+                    )}
+                  >
+                    <FlatDice view={part} style={content.style} />
+                    {part.modifier ? (
+                      <span className="text-sm text-ink-muted">{part.modifier}</span>
+                    ) : null}
+                    {isSettling ? null : <NaturalMarkLabel view={part} className="ml-1" />}
+                    <span className="ml-2 text-2xl font-extrabold text-gold">
+                      <span className="sr-only">Toplam: </span>
+                      {part.total}
+                    </span>
+                  </span>
+                </div>
+              ))}
             </div>
           </>
         ) : (

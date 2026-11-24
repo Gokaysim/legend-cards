@@ -73,6 +73,30 @@ describe('a roll arrives on another screen', () => {
     expect(card()).toHaveTextContent('Toplam: 26')
   })
 
+  it('shows a roll in parts on two lines, each with its total (spec: dice-rolls, "A roll in parts")', () => {
+    const roll = testRoll({
+      by: 'bora',
+      dice: [
+        ['d20', 15],
+        ['d6', 2],
+        ['d6', 5],
+      ],
+      content: {
+        modifier: 0,
+        parts: [
+          { start: 0, count: 1, modifier: 5, modifierSum: null },
+          { start: 1, count: 2, modifier: 3, modifierSum: null },
+        ],
+      },
+    })
+    renderShell({ dice: { rolls: [roll], fresh: roll } })
+    const lines = within(card() as HTMLElement).getAllByTestId('notice-part')
+    expect(lines.map((line) => line.textContent)).toEqual([
+      '1d20 + 5 · 15 + 5Toplam: 20',
+      '2d6 + 3 · 2 + 5 + 3Toplam: 10',
+    ])
+  })
+
   it('sits at the bottom right of a wide window and at the top of a phone', () => {
     const roll = boraRoll()
     renderShell({ dice: { rolls: [roll], fresh: roll } })

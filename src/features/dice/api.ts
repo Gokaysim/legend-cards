@@ -23,9 +23,10 @@ import { randomIndex } from '@/lib/random'
 
 import { DiceResetIncompleteError } from './errors'
 import {
-  type DiceCounts,
   type DieType,
   DIE_MAX,
+  type FormulaPart,
+  MAX_PARTS,
   MODIFIER_MAX,
   MODIFIER_MIN,
   NOTE_MAX,
@@ -33,7 +34,10 @@ import {
   type RolledDie,
   checkedModifierSum,
   isSingleD20,
+  partsText,
+  physicalCount,
   physicalDice,
+  recordParts,
 } from './formula'
 import {
   type DiceRoll,
@@ -74,15 +78,14 @@ export function recentDmRollsQuery(db: Firestore, count: number): Query<DiceRoll
 export type RollInput = {
   /** The signed-in user, who rolls. */
   by: string
-  counts: DiceCounts
-  /** Advantage and disadvantage apply only to a single d20; any other formula rolls normally. */
-  mode: RollMode
-  modifier: number
   /**
-   * The fixed number as written, when it is a sum of two or more numbers, such as "5+10-4" (spec: dice-rolls, "A
-   * fixed number written as a sum"). It must add up to `modifier`; otherwise it is left out.
+   * The roll's parts, 1 to `MAX_PARTS` (design D6 of add-multi-part-rolls), each with its dice, its fixed number and
+   * the fixed number as written when it is a sum of two or more numbers, such as "5+10-4" (spec: dice-rolls, "A fixed
+   * number written as a sum"). A written sum that does not add up is left out. `onePart` builds a roll of one part.
    */
-  modifierSum?: string | null
+  parts: FormulaPart[]
+  /** Advantage and disadvantage apply only to one part of a single d20; any other formula rolls normally. */
+  mode: RollMode
   note: string
   /** The DM's hidden roll. The rules refuse it from a player. */
   hidden: boolean
@@ -147,11 +150,25 @@ export type RollResult = {
   written: Promise<void>
 }
 
+/** A part as written: its fixed number clamped, and its written sum kept only when it adds up. */
+function writtenPart(part: FormulaPart): FormulaPart {
+  const modifier = clampModifier(part.modifier)
+  return {
+    counts: part.counts,
+    modifier,
+    modifierSum: checkedModifierSum(modifier, part.modifierSum),
+  }
+}
+
 /**
  * Rolls the dice (design D2, D4): throws them on this device, then writes the record, or for a hidden roll the
  * public record and the DM's record in one batch. With `alsoWrite`, the caller's writes join that batch, so the roll
  * and they are written together or not at all. Returns at once with the roll for the local playback; the write is
  * queued offline and sent when the connection returns.
+ *
+ * A roll of two or more parts (design D6 of add-multi-part-rolls) throws every part's dice at once, part after part,
+ * and is written normal, with the fixed number 0 and each part's count and fixed number in `parts`. A roll of one part
+ * is written as before.
  */
 export async function rollDice(
   db: Firestore,
@@ -159,20 +176,28 @@ export async function rollDice(
   thrower: Thrower = throwWithPhysics,
   alsoWrite?: AlsoWrite,
 ): Promise<RollResult> {
-  const mode: RollMode = isSingleD20(input.counts) ? input.mode : 'normal'
-  const types = physicalDice(input.counts, mode)
+  const parts = input.parts.map(writtenPart)
+  if (parts.length < 1 || parts.length > MAX_PARTS) throw new Error('A roll has 1 to 4 parts')
+  if (parts.length > 1 && parts.some((part) => physicalCount(part.counts) === 0))
+    throw new Error('Each part of a roll in parts needs a die')
+  const first = parts[0] as FormulaPart
+  const isWhole = parts.length === 1
+  const mode: RollMode = isWhole && isSingleD20(first.counts) ? input.mode : 'normal'
+  const types = parts.flatMap((part) => physicalDice(part.counts, mode))
   if (types.length === 0) throw new Error('A roll needs at least one die')
   const ref = doc(collection(db, DICE_ROLLS_COLLECTION))
   const { values, motion } = await thrower(types, input.style, ref.id)
   const dice: RolledDie[] = types.map((t, index) => ({ t, v: values[index] ?? 1 }))
-  const modifier = clampModifier(input.modifier)
+  const modifier = isWhole ? first.modifier : 0
   // The written sum goes in only when it adds up, so the record never shows numbers its total does not use.
-  const modifierSum = checkedModifierSum(modifier, input.modifierSum)
+  const modifierSum = isWhole ? first.modifierSum : null
+  const recordedParts = isWhole ? null : partsText(parts)
   const content = {
     style: input.style,
     mode,
     modifier,
     ...(modifierSum ? { modifierSum } : {}),
+    ...(recordedParts ? { parts: recordedParts } : {}),
     note: rollNote(input.note),
     dice,
     motion: motion ? encodeMotion(motion) : '',
@@ -213,6 +238,7 @@ export async function rollDice(
         mode,
         modifier: content.modifier,
         modifierSum,
+        parts: recordParts(dice, modifier, modifierSum, recordedParts),
         note: content.note,
         dice,
         motion,

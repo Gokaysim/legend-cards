@@ -48,7 +48,7 @@ class StageBoundary extends Component<BoundaryProps, { failed: boolean }> {
 /** The most results the flat strip shows large. */
 const FLAT_LARGE_MAX = 12
 
-/** The roll's results as numbers, for a device without 3D. Tells the caller at once that the dice are at rest. */
+/** The roll's results as numbers, grouped by part, for a device without 3D. Tells the caller at once that the dice are at rest. */
 function FlatStage({
   roll,
   playKey = 0,
@@ -64,18 +64,36 @@ function FlatStage({
   }, [roll.id, playKey])
   if (!roll.content) return null
   const view = rollView(roll.content)
+  const style = roll.content.style
   // Up to twelve results show large; more show at the channel's size, so sixty fit the strip. A narrow strip scrolls,
   // and "safe" centring keeps the first row reachable below the strip's labels (design D6 of
   // dice-formula-and-sixty-dice).
-  const size = view.results.length > FLAT_LARGE_MAX ? 'sm' : 'lg'
+  const resultCount = view.parts.reduce((sum, part) => sum + part.results.length, 0)
+  const size = resultCount > FLAT_LARGE_MAX ? 'sm' : 'lg'
   return (
     <div
       data-testid="flat-dice"
       data-size={size}
       className="flex size-full flex-wrap [align-content:safe_center] items-center justify-center gap-2 overflow-y-auto px-2 pt-12 pb-2"
     >
-      <FlatDice view={view} style={roll.content.style} size={size} className="justify-center" />
-      <NaturalMarkLabel view={view} />
+      {view.parts.length === 1 && view.parts[0] ? (
+        <>
+          <FlatDice view={view.parts[0]} style={style} size={size} className="justify-center" />
+          <NaturalMarkLabel view={view.parts[0]} />
+        </>
+      ) : (
+        // A roll in parts: each part's results in a group of their own (design D7 of add-multi-part-rolls).
+        view.parts.map((part, index) => (
+          <div
+            key={index}
+            data-testid="flat-part"
+            className="flex flex-wrap items-center justify-center gap-2 rounded-xl border border-line/60 px-2 py-1"
+          >
+            <FlatDice view={part} style={style} size={size} className="justify-center" />
+            <NaturalMarkLabel view={part} />
+          </div>
+        ))
+      )}
     </div>
   )
 }

@@ -79,11 +79,52 @@ describe('roll records', () => {
         mode: 'normal',
         modifier: 3,
         modifierSum: null,
+        parts: [{ start: 0, count: 2, modifier: 3, modifierSum: null }],
         note: 'Ateş topu',
         dice: stored.dice,
         motion: twoD6,
       },
     })
+  })
+
+  it('reads a roll from before parts as one part with its fixed number and written sum', () => {
+    const roll = diceRollSchema.parse({ ...stored, modifier: 11, modifierSum: '5+10-4' })
+    expect(roll.content?.parts).toEqual([
+      { start: 0, count: 2, modifier: 11, modifierSum: '5+10-4' },
+    ])
+  })
+
+  it('reads a roll in parts (spec: dice-rolls, "A roll in parts")', () => {
+    const parts = {
+      ...stored,
+      modifier: 0,
+      parts: '1:5;2:9',
+      dice: [
+        { t: 'd20', v: 14 },
+        { t: 'd20', v: 20 },
+        { t: 'd4', v: 3 },
+      ],
+      motion: '',
+      sim: 0,
+    }
+    expect(diceRollSchema.parse(parts).content).toMatchObject({
+      modifier: 0,
+      modifierSum: null,
+      parts: [
+        { start: 0, count: 1, modifier: 5, modifierSum: null },
+        { start: 1, count: 2, modifier: 9, modifierSum: null },
+      ],
+    })
+    const dm = dmRollSchema.parse({ ...parts, by: 'dm', hidden: true })
+    expect(dm.content?.parts).toHaveLength(2)
+  })
+
+  it('reads parts that do not match the dice as one part with the fixed number 0', () => {
+    const roll = diceRollSchema.parse({ ...stored, modifier: 0, parts: '1:5;3:9' })
+    expect(roll.content?.parts).toEqual([{ start: 0, count: 2, modifier: 0, modifierSum: null }])
+    expect(diceRollSchema.parse({ ...stored, parts: 42 }).content?.parts).toEqual([
+      { start: 0, count: 2, modifier: 3, modifierSum: null },
+    ])
   })
 
   it('keeps a roll whose motion is garbage, without its motion', () => {

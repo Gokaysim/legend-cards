@@ -114,8 +114,10 @@ src/
                         (historyText), the pages (CardHistoryPage, SetStatsPage) and the set's table (SetCardTable)
     dice/               the Zarlar screen and the dice channel (spec: dice-rolls): the dice and how a roll counts
                         (formula: DIE_TYPES, formulaText, physicalCount, canAdd, physicalDice, resultGroups,
-                        keptIndexes, rollTotal, percentileValue, naturalMark), the records (schema: the roll and the
-                        hidden roll's DM record, DICE_STYLES, the motion's encodeMotion and decodeMotion), api (rollDice,
+                        keptIndexes, rollTotal, percentileValue, naturalMark; a formula's parts split by ";":
+                        parseFormula, formulaPartsText, onePart, and a record's parts: partsText, checkedParts,
+                        recordParts), the records (schema: the roll and the hidden roll's DM record with its parts,
+                        DICE_STYLES, the motion's encodeMotion and decodeMotion), api (rollDice,
                         setDiceStyle, the newest-first queries), the freshness of arriving rolls (freshness),
                         DiceProvider (useDiceRolls, useFreshRoll, useDiceActions), and the 3D part in stage/: the
                         lazily loaded DiceStage, the pure Rapier simulation (simulate, throwDice), the flat fallback's

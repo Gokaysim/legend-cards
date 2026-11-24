@@ -9,7 +9,7 @@ import { renderApp, type RenderAppOptions } from '@/test/renderApp'
 
 import { resetDeviceSettingsMemory } from './deviceSettings'
 import type { DiceActions } from './diceContext'
-import { emptyCounts } from './formula'
+import { emptyCounts, type RolledDie } from './formula'
 
 const ME = testProfile()
 const BORA = testProfile({ id: 'bora', displayName: 'Bora' })
@@ -138,6 +138,43 @@ describe('building a roll', () => {
     expect(rollButton()).toBeDisabled()
   })
 
+  it('adds a selected die to the last part (spec: "A die control with parts")', async () => {
+    const user = userEvent.setup()
+    renderDice()
+    await user.type(formula(), '1d20 + 5; 1d6')
+    await user.click(dieButton('d6'))
+    expect(formula()).toHaveValue('1d20 + 5; 2d6')
+  })
+
+  it('shows the chips of the last part, labelled "Son parça" (spec: "The chips with parts")', async () => {
+    const user = userEvent.setup()
+    renderDice()
+    await user.type(formula(), '1d20 + 5; 2d6 + 3')
+    expect(within(form()).getByText('Son parça')).toBeInTheDocument()
+    expect(within(form()).getByRole('textbox', { name: 'd6 sayısı' })).toHaveValue('2')
+    expect(within(form()).queryByRole('textbox', { name: 'd20 sayısı' })).not.toBeInTheDocument()
+
+    await user.click(within(form()).getByRole('button', { name: 'd6 çıkar' }))
+    expect(formula()).toHaveValue('1d20 + 5; 3')
+  })
+
+  it('caps a chip on the last part by the dice of the other parts', async () => {
+    const user = userEvent.setup()
+    renderDice()
+    await user.type(formula(), '40d6; 1d8')
+    const count = within(form()).getByRole('textbox', { name: 'd8 sayısı' })
+    await user.clear(count)
+    await user.type(count, '30')
+    expect(formula()).toHaveValue('40d6; 20d8')
+  })
+
+  it('shows no "Son parça" with one part', async () => {
+    const user = userEvent.setup()
+    renderDice()
+    await user.type(formula(), '1d20 + 2d6')
+    expect(within(form()).queryByText('Son parça')).not.toBeInTheDocument()
+  })
+
   it('keeps the first 80 characters of a long note', async () => {
     const user = userEvent.setup()
     renderDice()
@@ -158,9 +195,7 @@ describe('a typed formula', () => {
 
     expect(roll).toHaveBeenCalledWith(
       expect.objectContaining({
-        counts: { ...emptyCounts(), d6: 40 },
-        modifier: 5,
-        modifierSum: null,
+        parts: [{ counts: { ...emptyCounts(), d6: 40 }, modifier: 5, modifierSum: null }],
       }),
     )
   })
@@ -208,7 +243,52 @@ describe('a typed formula', () => {
     await user.click(rollButton())
 
     expect(roll).toHaveBeenCalledWith(
-      expect.objectContaining({ modifier: 11, modifierSum: '5+10-4' }),
+      expect.objectContaining({
+        parts: [expect.objectContaining({ modifier: 11, modifierSum: '5+10-4' })],
+      }),
+    )
+  })
+
+  it('writes parts in canonical form, each on its own (spec: "Parts in canonical form")', async () => {
+    const user = userEvent.setup()
+    renderDice()
+    const leave = async (text: string) => {
+      await user.clear(formula())
+      await user.type(formula(), text)
+      await user.tab()
+      return formula()
+    }
+    expect(await leave('d20+5;d4+9+d20')).toHaveValue('1d20 + 5; 1d20 + 1d4 + 9')
+    expect(await leave('2d6; 3d6')).toHaveValue('2d6; 3d6')
+  })
+
+  it('ignores a trailing ";", and drops it when the field is left', async () => {
+    const user = userEvent.setup()
+    renderDice()
+    await user.type(formula(), 'd20+5;')
+    expect(formula()).toHaveAttribute('aria-invalid', 'false')
+    expect(rollButton()).toBeEnabled()
+    await user.tab()
+    expect(formula()).toHaveValue('1d20 + 5')
+  })
+
+  it('rolls an attack and its damage as one roll of two parts (spec: "An attack and its damage")', async () => {
+    const user = userEvent.setup()
+    const roll = vi.fn<DiceActions['roll']>(() => Promise.resolve(testRoll()))
+    renderDice({ dice: { actions: { roll } } })
+
+    await user.type(formula(), 'd20+5;d4+9+d20')
+    await user.click(rollButton())
+
+    expect(roll).toHaveBeenCalledTimes(1)
+    expect(roll).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parts: [
+          { counts: { ...emptyCounts(), d20: 1 }, modifier: 5, modifierSum: null },
+          { counts: { ...emptyCounts(), d20: 1, d4: 1 }, modifier: 9, modifierSum: null },
+        ],
+        mode: 'normal',
+      }),
     )
   })
 })
@@ -251,6 +331,44 @@ describe('an invalid formula', () => {
       expect(formula()).toHaveAccessibleDescription('En fazla 60 zar')
       expect(rollButton()).toBeDisabled()
     }
+  })
+
+  it('says "En fazla 60 zar" for too many dice across parts', async () => {
+    const user = userEvent.setup()
+    renderDice()
+    await user.type(formula(), '40d6; 21d6')
+    expect(formula()).toHaveAttribute('aria-invalid', 'true')
+    expect(formula()).toHaveAccessibleDescription('En fazla 60 zar')
+    expect(rollButton()).toBeDisabled()
+  })
+
+  it('says "En fazla 4 parça" for a fifth part (spec: "Too many parts")', async () => {
+    const user = userEvent.setup()
+    renderDice()
+    await user.type(formula(), 'd20; d20; d20; d20; d20')
+    expect(formula()).toHaveAttribute('aria-invalid', 'true')
+    expect(formula()).toHaveAccessibleDescription('En fazla 4 parça')
+    expect(rollButton()).toBeDisabled()
+  })
+
+  it('refuses an empty part in the middle and a part without a die, with the hint about ";"', async () => {
+    const user = userEvent.setup()
+    renderDice()
+    for (const text of ['d20;;d6', 'd20+5; 5']) {
+      await user.clear(formula())
+      await user.type(formula(), text)
+      expect(formula(), text).toHaveAttribute('aria-invalid', 'true')
+      expect(formula(), text).toHaveAccessibleDescription(/; ile ayır: örneğin 1d20\+5; 2d6\+3/)
+      expect(rollButton()).toBeDisabled()
+    }
+  })
+
+  it('checks each part\'s numbers on their own (spec: "Each part\'s own range")', async () => {
+    const user = userEvent.setup()
+    renderDice()
+    await user.type(formula(), 'd20+90; d6+90')
+    expect(formula()).toHaveAttribute('aria-invalid', 'false')
+    expect(rollButton()).toBeEnabled()
   })
 
   it('keeps the controls on the last valid formula and disabled while the text is invalid', async () => {
@@ -340,13 +458,40 @@ describe('advantage, disadvantage and Gizli', () => {
     await user.click(within(form()).getByRole('button', { name: 'At' }))
 
     expect(roll).toHaveBeenCalledWith({
-      counts: { ...emptyCounts(), d20: 1 },
+      parts: [{ counts: { ...emptyCounts(), d20: 1 }, modifier: 5, modifierSum: null }],
       mode: 'advantage',
-      modifier: 5,
-      modifierSum: null,
       note: 'Okçuya saldırı',
       hidden: false,
     })
+  })
+
+  it('disables Avantaj and Dezavantaj with a d20 in each part (spec: "A d20 in each part")', async () => {
+    const user = userEvent.setup()
+    renderDice()
+    await user.type(formula(), '1d20 + 5; 1d20 + 3')
+    expect(within(form()).getByRole('button', { name: 'Avantaj' })).toBeDisabled()
+    expect(within(form()).getByRole('button', { name: 'Dezavantaj' })).toBeDisabled()
+  })
+
+  it('rolls normally when a part is added after choosing Avantaj', async () => {
+    const user = userEvent.setup()
+    const roll = vi.fn<DiceActions['roll']>(() => Promise.resolve(testRoll()))
+    renderDice({ dice: { actions: { roll } } })
+
+    await user.type(formula(), 'd20+5')
+    await user.click(within(form()).getByRole('button', { name: 'Avantaj' }))
+    await user.type(formula(), '; 2d6')
+    await user.click(rollButton())
+
+    expect(roll).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mode: 'normal',
+        parts: [
+          expect.objectContaining({ counts: { ...emptyCounts(), d20: 1 } }),
+          expect.objectContaining({ counts: { ...emptyCounts(), d6: 2 } }),
+        ],
+      }),
+    )
   })
 
   it('offers "Gizli" to the DM only', async () => {
@@ -513,6 +658,67 @@ describe('the channel', () => {
     expect(cem).toHaveTextContent('Toplam: 15')
   })
 
+  it('shows a roll in parts as one entry with a line for each part (spec: dice-rolls, "A roll in parts")', () => {
+    renderDice({
+      dice: {
+        rolls: [
+          testRoll({
+            by: 'cem',
+            dice: [
+              ['d20', 12],
+              ['d6', 4],
+              ['d6', 6],
+            ],
+            content: {
+              modifier: 0,
+              parts: [
+                { start: 0, count: 1, modifier: 5, modifierSum: null },
+                { start: 1, count: 2, modifier: 3, modifierSum: null },
+              ],
+            },
+          }),
+        ],
+      },
+    })
+    const entry = within(channel()).getByRole('listitem', { name: 'Cem atışı' })
+    const parts = within(entry).getAllByTestId('roll-part')
+    expect(parts).toHaveLength(2)
+    expect(parts[0]).toHaveTextContent('1d20 + 5')
+    expect(parts[0]).toHaveTextContent('Toplam: 17')
+    expect(parts[1]).toHaveTextContent('2d6 + 3')
+    expect(parts[1]).toHaveTextContent('Toplam: 13')
+  })
+
+  it("marks only the part whose d20 is natural, and borders that part's line", () => {
+    renderDice({
+      dice: {
+        rolls: [
+          testRoll({
+            by: 'bora',
+            dice: [
+              ['d20', 20],
+              ['d20', 20],
+              ['d4', 3],
+            ],
+            content: {
+              modifier: 0,
+              parts: [
+                { start: 0, count: 1, modifier: 5, modifierSum: null },
+                { start: 1, count: 2, modifier: 9, modifierSum: null },
+              ],
+            },
+          }),
+        ],
+      },
+    })
+    const entry = within(channel()).getByRole('listitem', { name: 'Bora atışı' })
+    const [first, second] = within(entry).getAllByTestId('roll-part')
+    expect(within(first as HTMLElement).getByText('Nat 20')).toBeInTheDocument()
+    expect(first).toHaveClass('border-gold')
+    expect(second).not.toHaveTextContent('Nat 20')
+    expect(second).not.toHaveClass('border-gold')
+  })
+
   it('keeps its screen-reader text inside its own scroll box, so the page does not scroll with it', () => {
     renderDice({ dice: { rolls: [testRoll()] } })
     // jsdom has no layout: the box must be positioned, or its entries' sr-only spans make the whole page scroll.
@@ -545,6 +751,38 @@ describe("the DM's hidden roll", () => {
     const entry = within(channel()).getByRole('listitem', { name: 'Dana atışı' })
     expect(entry).toHaveTextContent('Gizli')
     expect(entry).toHaveTextContent('Toplam: 17')
+  })
+
+  it('shows a hidden roll in parts to the DM with both parts, and to a player as "DM gizli zar attı"', () => {
+    const content = {
+      modifier: 0,
+      parts: [
+        { start: 0, count: 1, modifier: 5, modifierSum: null },
+        { start: 1, count: 2, modifier: 0, modifierSum: null },
+      ],
+    }
+    const dice: [RolledDie['t'], number][] = [
+      ['d20', 14],
+      ['d6', 2],
+      ['d6', 5],
+    ]
+    const view = renderDice({
+      users: { currentProfile: ready(DM), profiles: PROFILES },
+      dice: { rolls: [testRoll({ by: 'dm-1', hidden: true, dice, content })] },
+    })
+    const entry = within(channel()).getByRole('listitem', { name: 'Dana atışı' })
+    expect(entry).toHaveTextContent('Gizli')
+    expect(
+      within(entry)
+        .getAllByTestId('roll-part')
+        .map((part) => part.textContent),
+    ).toEqual([expect.stringContaining('Toplam: 19'), expect.stringContaining('Toplam: 7')])
+    view.unmount()
+
+    renderDice({ dice: { rolls: [testHiddenRoll()] } })
+    expect(within(channel()).getByRole('listitem', { name: 'Dana atışı' })).toHaveTextContent(
+      'DM gizli zar attı',
+    )
   })
 })
 

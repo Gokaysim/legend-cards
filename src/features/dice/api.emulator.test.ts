@@ -32,7 +32,7 @@ import {
   setDiceStyle,
   type Thrower,
 } from './api'
-import { emptyCounts } from './formula'
+import { emptyCounts, type FormulaPart, onePart } from './formula'
 
 let testEnv: RulesTestEnvironment
 
@@ -77,16 +77,27 @@ const fixed =
   () =>
     Promise.resolve({ values, motion: null })
 
-const input = (overrides: Partial<RollInput> = {}): RollInput => ({
+/** A roll of one part, 1d20 + 2d6 + 3 by default; `counts`, `modifier` and `modifierSum` change that part. */
+const input = ({
+  counts = { ...emptyCounts(), d20: 1, d6: 2 },
+  modifier = 3,
+  modifierSum = null,
+  ...overrides
+}: Partial<RollInput> & Partial<FormulaPart> = {}): RollInput => ({
   by: 'ayla',
-  counts: { ...emptyCounts(), d20: 1, d6: 2 },
+  parts: [onePart(counts, modifier, modifierSum)],
   mode: 'normal',
-  modifier: 3,
   note: '  Ateş topu  ',
   hidden: false,
   style: 'walnut',
   ...overrides,
 })
+
+/** "1d20 + 5; 1d20 + 1d4 + 9" (spec: dice-rolls, "An attack and its damage"). */
+const attackAndDamage = (): FormulaPart[] => [
+  onePart({ ...emptyCounts(), d20: 1 }, 5),
+  onePart({ ...emptyCounts(), d20: 1, d4: 1 }, 9),
+]
 
 describe('rolling under the real rules', () => {
   it('writes a roll that every device reads back with its dice and the server time', async () => {
@@ -101,6 +112,7 @@ describe('rolling under the real rules', () => {
       mode: 'normal',
       modifier: 3,
       modifierSum: null,
+      parts: [{ start: 0, count: 3, modifier: 3, modifierSum: null }],
       note: 'Ateş topu',
       dice: [
         { t: 'd20', v: 17 },
@@ -109,6 +121,65 @@ describe('rolling under the real rules', () => {
       ],
       motion: null,
     })
+  })
+
+  it('writes a roll in parts as one record that every device reads back with its parts', async () => {
+    const { roll, written } = await rollDice(
+      as('ayla'),
+      input({ parts: attackAndDamage(), mode: 'advantage' }),
+      fixed(14, 20, 3),
+    )
+    await written
+    const expected = {
+      mode: 'normal',
+      modifier: 0,
+      modifierSum: null,
+      parts: [
+        { start: 0, count: 1, modifier: 5, modifierSum: null },
+        { start: 1, count: 2, modifier: 9, modifierSum: null },
+      ],
+      dice: [
+        { t: 'd20', v: 14 },
+        { t: 'd20', v: 20 },
+        { t: 'd4', v: 3 },
+      ],
+    }
+    expect(roll.content).toMatchObject(expected)
+    const stored = (await getDoc(doc(diceRollsRef(as('dana')), roll.id))).data()
+    expect(stored?.content).toMatchObject(expected)
+    let raw: Record<string, unknown> | undefined
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      raw = (await getDoc(doc(firestoreOf(admin), 'diceRolls', roll.id))).data()
+    })
+    expect(raw).toMatchObject({ parts: '1:5;2:9', modifier: 0, mode: 'normal' })
+    expect(raw).not.toHaveProperty('modifierSum')
+  })
+
+  it("writes the DM's hidden roll in parts, which only the DM reads in full", async () => {
+    const parts = [onePart({ ...emptyCounts(), d20: 1 }, 11, '5+10-4'), attackAndDamage()[1]!]
+    const { roll, written } = await rollDice(
+      as('dana'),
+      input({ by: 'dana', hidden: true, parts }),
+      fixed(14, 20, 3),
+    )
+    await written
+    const publicRecord = (await getDoc(doc(diceRollsRef(as('ayla')), roll.id))).data()
+    expect(publicRecord).toMatchObject({ hidden: true, content: null })
+    const dmRecord = (await getDoc(doc(dmRollsRef(as('dana')), roll.id))).data()
+    expect(dmRecord?.content?.parts).toEqual([
+      { start: 0, count: 1, modifier: 11, modifierSum: '5+10-4' },
+      { start: 1, count: 2, modifier: 9, modifierSum: null },
+    ])
+  })
+
+  it('writes a roll of one part without parts', async () => {
+    const { roll, written } = await rollDice(as('ayla'), input(), fixed(17, 4, 2))
+    await written
+    let raw: Record<string, unknown> | undefined
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      raw = (await getDoc(doc(firestoreOf(admin), 'diceRolls', roll.id))).data()
+    })
+    expect(raw).not.toHaveProperty('parts')
   })
 
   it('writes the fixed number as written, and leaves out a sum that does not add up', async () => {

@@ -125,6 +125,44 @@ describe('results hidden until the dice rest', () => {
     expectShown('Bora', 23)
   })
 
+  it('hides every part of a roll in parts until its dice rest', async () => {
+    const user = userEvent.setup()
+    const cem = testRoll({
+      by: 'cem',
+      dice: [
+        ['d20', 12],
+        ['d6', 4],
+        ['d6', 6],
+      ],
+      content: {
+        modifier: 0,
+        parts: [
+          { start: 0, count: 1, modifier: 5, modifierSum: null },
+          { start: 1, count: 2, modifier: 3, modifierSum: null },
+        ],
+        motion: motionOf(3),
+      },
+    })
+    const view = renderDice({ dice: { rolls: [], fresh: null } })
+    view.setDice({ rolls: [cem], fresh: cem })
+
+    const results = () => within(entryOf('Cem')).getAllByTestId('roll-result')
+    expect(results()).toHaveLength(2)
+    for (const result of results()) {
+      expect(result).toHaveAttribute('aria-hidden', 'true')
+      expect(result).toHaveClass('blur-sm')
+    }
+
+    await user.click(await restButton(cem.id))
+
+    for (const result of results()) {
+      expect(result).not.toHaveAttribute('aria-hidden')
+      expect(result).not.toHaveClass('blur-sm')
+    }
+    expect(entryOf('Cem')).toHaveTextContent('Toplam: 17')
+    expect(entryOf('Cem')).toHaveTextContent('Toplam: 13')
+  })
+
   it("hides the user's own roll the same way", () => {
     const mine = thrown(testUser.uid, 7)
     const view = renderDice({ dice: { rolls: [], fresh: null } })

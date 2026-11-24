@@ -70,6 +70,26 @@ describe('DiceView', () => {
     expect(screen.getAllByRole('listitem')).toHaveLength(60)
   })
 
+  it('groups the results by part without 3D (spec: dice-rolls, "Parts without 3D")', () => {
+    const roll = testRoll({
+      dice: [
+        ['d20', 14],
+        ['d6', 2],
+        ['d6', 5],
+      ],
+      content: {
+        modifier: 0,
+        parts: [
+          { start: 0, count: 1, modifier: 5, modifierSum: null },
+          { start: 1, count: 2, modifier: 0, modifierSum: null },
+        ],
+      },
+    })
+    render(<DiceView roll={roll} playing show3d={false} />)
+    const groups = screen.getAllByTestId('flat-part')
+    expect(groups.map((group) => group.textContent)).toEqual(['d20: 14', 'd6: 2d6: 5'])
+  })
+
   it('shows a roll without motion flat', () => {
     webgl.available = true
     const onRest = vi.fn()

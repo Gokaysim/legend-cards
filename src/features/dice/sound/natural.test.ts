@@ -53,6 +53,45 @@ describe('the natural sounds', () => {
     expect(await played()).toEqual([])
   })
 
+  it('plays only the first marked part\'s sound for a roll in parts, once (spec: "Two naturals in parts")', async () => {
+    const roll = testRoll({
+      dice: [
+        ['d20', 1],
+        ['d20', 20],
+      ],
+      content: {
+        modifier: 0,
+        parts: [
+          { start: 0, count: 1, modifier: 0, modifierSum: null },
+          { start: 1, count: 1, modifier: 0, modifierSum: null },
+        ],
+      },
+    })
+    expect(playNaturalOnce(roll, true)).toBe(true)
+    expect(playNaturalOnce(roll, true)).toBe(false)
+    const files = await played()
+    expect(files).toHaveLength(1)
+    expect(files[0]).toMatch(/nat1\.m4a/)
+  })
+
+  it("plays a later part's mark when the first part has none", async () => {
+    const roll = testRoll({
+      dice: [
+        ['d6', 1],
+        ['d20', 20],
+      ],
+      content: {
+        modifier: 0,
+        parts: [
+          { start: 0, count: 1, modifier: 0, modifierSum: null },
+          { start: 1, count: 1, modifier: 0, modifierSum: null },
+        ],
+      },
+    })
+    expect(playNaturalOnce(roll, true)).toBe(true)
+    expect((await played())[0]).toMatch(/nat20\.m4a/)
+  })
+
   it("plays nothing for a hidden roll on a player's device", async () => {
     expect(playNaturalOnce(testHiddenRoll(), true)).toBe(false)
     expect(await played()).toEqual([])

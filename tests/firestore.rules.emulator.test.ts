@@ -7717,6 +7717,23 @@ describe('dice rolls (diceRolls/{rollId} and dmRolls/{rollId})', () => {
       await assertSucceeds(create('ayla', 'e', roll('ayla')))
     })
 
+    it('allows a roll in parts (spec: dice-rolls, "A roll in parts")', async () => {
+      const parts = (id: string, text: string) =>
+        create('ayla', id, roll('ayla', { modifier: 0, parts: text }))
+      await assertSucceeds(parts('a', '1:5;2:9'))
+      await assertSucceeds(parts('b', '1;2'))
+      await assertSucceeds(parts('c', '1:-3;1;1:99+99+99+99+99+99+99-99'))
+      // The rules check the shape; the client checks that the counts add up to the dice.
+      await assertSucceeds(parts('d', '60;60;60;60'))
+    })
+
+    it("accepts the DM's hidden pair of a roll in parts", async () => {
+      await assertSucceeds(
+        hiddenPair('dana', 'h-parts', roll('dana', { modifier: 0, parts: '1:5+10-4;2' })),
+      )
+      expect(await readAsAdmin('dmRolls/h-parts')).toMatchObject({ parts: '1:5+10-4;2' })
+    })
+
     it("accepts the DM's hidden pair of 60 dice with a full motion and a written sum", async () => {
       const dice = Array.from({ length: 30 }, () => [
         { t: 'd100', v: 50 },
@@ -7861,6 +7878,45 @@ describe('dice rolls (diceRolls/{rollId} and dmRolls/{rollId})', () => {
       await assertFails(bad('f', '5 + 6'))
       await assertFails(bad('g', '+5+6'))
       await assertFails(bad('h', null))
+    })
+
+    it('denies malformed parts, and parts with advantage, a fixed number or a written sum', async () => {
+      const bad = (id: string, overrides: Record<string, unknown>) =>
+        create('ayla', id, roll('ayla', { modifier: 0, parts: '1:5;2', ...overrides }))
+      await assertFails(bad('a', { parts: '1:5' }))
+      await assertFails(bad('b', { parts: '1;1;1;1;1' }))
+      await assertFails(bad('c', { parts: '0;2' }))
+      await assertFails(bad('d', { parts: '1:5*2;1' }))
+      await assertFails(bad('e', { parts: '61;1' }))
+      await assertFails(bad('f', { parts: '1:100;2' }))
+      await assertFails(bad('g', { parts: '1:+5;2' }))
+      await assertFails(bad('h', { parts: '1; 2' }))
+      await assertFails(bad('i', { parts: 12 }))
+      await assertFails(bad('j', { parts: null }))
+      await assertFails(bad('k', { parts: `${'1:5+5+5+5+5+5+5+5;'.repeat(3)}1:5+5+5+5+5+5+5+5+5` }))
+      await assertFails(bad('l', { modifier: 5 }))
+      await assertFails(bad('m', { modifierSum: '5+10-4', modifier: 11 }))
+      await assertFails(
+        bad('n', {
+          mode: 'advantage',
+          dice: [
+            { t: 'd20', v: 3 },
+            { t: 'd20', v: 9 },
+          ],
+          parts: '1;1',
+        }),
+      )
+    })
+
+    it('accepts the longest parts, and denies 121 characters', async () => {
+      // Four parts of a two-digit count and eight two-digit numbers: 111 characters, the longest valid shape.
+      const longPart = '60:-99+99+99+99+99+99+99+99'
+      const text = [longPart, longPart, longPart, longPart].join(';')
+      expect(text).toHaveLength(111)
+      await assertSucceeds(create('ayla', 'ok-long', roll('ayla', { modifier: 0, parts: text })))
+      await assertFails(
+        create('ayla', 'too-long', roll('ayla', { modifier: 0, parts: '1;'.repeat(60) + '1' })),
+      )
     })
 
     it('denies missing and extra fields', async () => {

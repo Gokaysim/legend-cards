@@ -17,7 +17,7 @@ import {
 
 import { CHARACTERS_COLLECTION } from '@/features/characters/schema'
 import type { AlsoWrite } from '@/features/dice/api'
-import { emptyCounts } from '@/features/dice/formula'
+import { emptyCounts, onePart } from '@/features/dice/formula'
 import type { RollRequest } from '@/features/dice/diceContext'
 import { firebaseCode } from '@/lib/firestore/errors'
 
@@ -249,9 +249,8 @@ function newId(db: Firestore): string {
 /** The roll of one character's initiative (design D3): 1d20 plus the modifier, in the channel. */
 export function initiativeRequest(characterName: string, modifier: number): RollRequest {
   return {
-    counts: { ...emptyCounts(), d20: 1 },
+    parts: [onePart({ ...emptyCounts(), d20: 1 }, modifier)],
     mode: 'normal',
-    modifier,
     note: `İnisiyatif · ${characterName}`,
     hidden: false,
   }
@@ -279,9 +278,8 @@ export function initiativeWrites(
 /** The hidden roll of an NPC group (design D4): one d20 per NPC, with the group's modifier. */
 export function npcGroupRequest(group: CreatedNpcGroup): RollRequest {
   return {
-    counts: { ...emptyCounts(), d20: group.ids.length },
+    parts: [onePart({ ...emptyCounts(), d20: group.ids.length }, group.modifier)],
     mode: 'normal',
-    modifier: group.modifier,
     note: `İnisiyatif · ${groupLabel(group.names)}`,
     hidden: true,
   }

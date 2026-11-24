@@ -1,4 +1,4 @@
-import { naturalMark, type NaturalMark } from '../formula'
+import { firstNaturalMark, type NaturalMark } from '../formula'
 import type { DiceRoll } from '../schema'
 import { loadSound, playBuffer, unlockAudio } from './audio'
 import NAT1_URL from './nat1.m4a?url'
@@ -29,9 +29,13 @@ export function wakeNaturalSounds(): void {
   prepareNaturalSounds()
 }
 
-/** A roll's natural mark, or `null` for a roll without one or without content (a hidden roll on a player's device). */
+/**
+ * A roll's natural mark, its first marked part's for a roll in parts, or `null` for a roll without one or without
+ * content (a hidden roll on a player's device).
+ */
 export function naturalMarkOf(roll: DiceRoll): NaturalMark | null {
-  return roll.content ? naturalMark(roll.content.dice, roll.content.mode) : null
+  const content = roll.content
+  return content ? firstNaturalMark(content.dice, content.mode, content.parts) : null
 }
 
 /** Plays a natural's sound, every time it is asked: for "Tekrar izle". */

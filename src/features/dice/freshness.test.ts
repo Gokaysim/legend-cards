@@ -17,6 +17,7 @@ function rollAt(id: string, at: number | null, overrides: Partial<DiceRoll> = {}
       mode: 'normal',
       modifier: 0,
       modifierSum: null,
+      parts: [{ start: 0, count: 1, modifier: 0, modifierSum: null }],
       note: '',
       dice: [{ t: 'd20', v: 12 }],
       motion: null,
