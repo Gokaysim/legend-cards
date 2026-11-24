@@ -49,14 +49,19 @@ class StageBoundary extends Component<BoundaryProps, { failed: boolean }> {
 const FLAT_LARGE_MAX = 12
 
 /** The roll's results as numbers, for a device without 3D. Tells the caller at once that the dice are at rest. */
-function FlatStage({ roll, onRest }: Pick<DiceViewProps, 'roll' | 'onRest'>) {
+function FlatStage({
+  roll,
+  playKey = 0,
+  onRest,
+}: Pick<DiceViewProps, 'roll' | 'playKey' | 'onRest'>) {
   const onRestRef = useRef(onRest)
   useEffect(() => {
     onRestRef.current = onRest
   })
+  // At rest at once, for each roll and each playback: "Tekrar izle" on the roll already shown rests again.
   useEffect(() => {
     onRestRef.current?.()
-  }, [roll.id])
+  }, [roll.id, playKey])
   if (!roll.content) return null
   const view = rollView(roll.content)
   // Up to twelve results show large; more show at the channel's size, so sixty fit the strip. A narrow strip scrolls,
@@ -91,7 +96,7 @@ export function DiceView({
 }: DiceViewProps) {
   const isReduced = useReducedMotion()
   const motion = roll.content?.motion ?? null
-  const flat = <FlatStage roll={roll} onRest={onRest} />
+  const flat = <FlatStage roll={roll} playKey={playKey} onRest={onRest} />
   return (
     <div className={cn('relative overflow-hidden', className)}>
       {motion && show3d && canDraw3d() ? (

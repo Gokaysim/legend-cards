@@ -4,6 +4,7 @@ import { cn } from '@/lib/cn'
 import { useDiceDeviceSettings } from './deviceSettings'
 import { useDiceActions } from './diceContext'
 import { DICE_STYLE_LABELS, DICE_STYLES, type DiceStyle } from './schema'
+import { wakeNaturalSounds } from './sound/natural'
 import { previewUrl } from './stage/previews'
 
 /**
@@ -71,6 +72,19 @@ export function DiceSettingsDialog({ style, onClose }: { style: DiceStyle; onClo
               className="size-4.5 accent-gold"
             />
             Zar sesi
+          </label>
+          <label className="flex items-center gap-2 text-ink-muted">
+            <input
+              type="checkbox"
+              checked={settings.naturalSound}
+              onChange={(event) => {
+                settings.setNaturalSound(event.target.checked)
+                // The switch's own click wakes the audio and loads the sounds.
+                if (event.target.checked) wakeNaturalSounds()
+              }}
+              className="size-4.5 accent-gold"
+            />
+            Nat 20 / Nat 1 sesi
           </label>
           <label className="flex items-center gap-2 text-ink-muted">
             <input

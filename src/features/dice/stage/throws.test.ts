@@ -21,10 +21,20 @@ describe('makeThrows', () => {
       expect(launch).toBeLessThanOrEqual(THROW_RANGES.launch[1] + 1e-6)
       // The launch points towards the tray's centre.
       expect(linearVelocity.x * position.x + linearVelocity.z * position.z).toBeLessThanOrEqual(0)
+      // The range is the spin's speed; its direction is random.
       for (const spin of [angularVelocity.x, angularVelocity.y, angularVelocity.z]) {
-        expect(spin).toBeGreaterThanOrEqual(THROW_RANGES.spin[0])
-        expect(spin).toBeLessThanOrEqual(THROW_RANGES.spin[1])
+        expect(Math.abs(spin)).toBeGreaterThanOrEqual(THROW_RANGES.spin[0])
+        expect(Math.abs(spin)).toBeLessThanOrEqual(THROW_RANGES.spin[1])
       }
+    }
+  })
+
+  it('spins the dice either way about every axis', () => {
+    const throws = makeThrows(Array.from({ length: 40 }), seededUnit(11))
+    for (const axis of ['x', 'y', 'z'] as const) {
+      const spins = throws.map((dieThrow) => dieThrow.angularVelocity[axis])
+      expect(spins.some((spin) => spin > 0)).toBe(true)
+      expect(spins.some((spin) => spin < 0)).toBe(true)
     }
   })
 

@@ -404,6 +404,62 @@ describe('the channel', () => {
     expect(entries.at(-1)).toHaveTextContent('Yeni')
   })
 
+  /** Gives the channel's box a layout, which jsdom lacks: its heights, and a scroll position the test can read. */
+  function layOut(box: HTMLElement, sizes: { scrollHeight: number; clientHeight: number }) {
+    let top = 0
+    Object.defineProperty(box, 'clientHeight', { configurable: true, value: sizes.clientHeight })
+    Object.defineProperty(box, 'scrollHeight', {
+      configurable: true,
+      get: () => sizes.scrollHeight,
+    })
+    Object.defineProperty(box, 'scrollTop', {
+      configurable: true,
+      get: () => top,
+      set: (value: number) => {
+        top = value
+      },
+    })
+    return {
+      scrollTo(value: number) {
+        top = value
+        act(() => {
+          box.dispatchEvent(new Event('scroll'))
+        })
+      },
+      get top() {
+        return top
+      },
+    }
+  }
+
+  const fifty = Array.from({ length: 50 }, (_, index) =>
+    testRoll({ id: `roll-${index}`, by: index % 2 === 0 ? 'cem' : 'bora' }),
+  )
+
+  it('keeps to the newest roll at its end, also when a full channel drops its oldest roll', () => {
+    const view = renderDice({ dice: { rolls: fifty } })
+    const sizes = { scrollHeight: 5000, clientHeight: 400 }
+    const box = layOut(channel().parentElement as HTMLElement, sizes)
+    box.scrollTo(4600)
+
+    sizes.scrollHeight = 5100
+    view.setDice({ rolls: [...fifty.slice(1), testRoll({ id: 'roll-50', by: 'bora' })] })
+
+    expect(box.top).toBe(5100)
+  })
+
+  it('stays where the user was reading when a roll arrives', () => {
+    const view = renderDice({ dice: { rolls: fifty } })
+    const sizes = { scrollHeight: 5000, clientHeight: 400 }
+    const box = layOut(channel().parentElement as HTMLElement, sizes)
+    box.scrollTo(1200)
+
+    sizes.scrollHeight = 5100
+    view.setDice({ rolls: [...fifty.slice(1), testRoll({ id: 'roll-50', by: 'bora' })] })
+
+    expect(box.top).toBe(1200)
+  })
+
   it('asks for older rolls with "Daha eski atışlar"', async () => {
     const user = userEvent.setup()
     const loadOlder = vi.fn()
@@ -598,7 +654,7 @@ describe('the dice settings dialog', () => {
     expect(screen.queryByRole('dialog', { name: 'Zar ayarları' })).not.toBeInTheDocument()
   })
 
-  it('lists "Zarları 3D göster" third under "Bu cihazda", on by default, and keeps it off on the device', async () => {
+  it('lists "Zarları 3D göster" last under "Bu cihazda", on by default, and keeps it off on the device', async () => {
     const user = userEvent.setup()
     renderDice()
     const dialog = await openSettings(user)
@@ -608,6 +664,7 @@ describe('the dice settings dialog', () => {
     expect(settings.map((box) => box.closest('label')?.textContent)).toEqual([
       'Atışları göster',
       'Zar sesi',
+      'Nat 20 / Nat 1 sesi',
       'Zarları 3D göster',
     ])
     const show3d = within(dialog).getByRole('checkbox', { name: 'Zarları 3D göster' })
@@ -616,6 +673,18 @@ describe('the dice settings dialog', () => {
     await user.click(show3d)
     expect(show3d).not.toBeChecked()
     expect(window.localStorage.getItem('lcm.dice.3d')).toBe('0')
+  })
+
+  it('plays the natural sounds by default, and keeps them off on the device', async () => {
+    const user = userEvent.setup()
+    renderDice()
+    const dialog = await openSettings(user)
+    const natural = within(dialog).getByRole('checkbox', { name: 'Nat 20 / Nat 1 sesi' })
+    expect(natural).toBeChecked()
+
+    await user.click(natural)
+    expect(natural).not.toBeChecked()
+    expect(window.localStorage.getItem('lcm.dice.natural')).toBe('0')
   })
 
   it('closes with Escape', async () => {

@@ -106,8 +106,8 @@ describe('golden throws', () => {
   // would make old records play differently.
   it.each(GOLDEN_CASES.map((golden, index) => [golden.seed, golden, index] as const))(
     'seed %i lands as recorded',
-    (_seed, { seed, dice, style }, index) => {
-      const result = simulateThrow(dice, style, makeThrows(dice, seededUnit(seed)))
+    (_seed, { seed, dice, style, throws }, index) => {
+      const result = simulateThrow(dice, style, throws)
       const expected = GOLDEN_RESULTS[index]
       expect({
         seed,

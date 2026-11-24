@@ -4,7 +4,9 @@
  * Copyright (C) 2023 Owlbear Rodeo. Licensed under the GNU General Public License version 3 (see LICENSE).
  *
  * Changed for Legend Card Manager: the random source is injected (a cryptographic one in the app), and every number is
- * rounded to 32 bits, so the throw the roller simulates is exactly the throw the record stores.
+ * rounded to 32 bits, so the throw the roller simulates is exactly the throw the record stores. Since
+ * tune-dice-feel-and-natural-sounds, the spin is faster (12 to 24 rad/s instead of 2 to 6) and turns either way about
+ * each axis, so the dice visibly tumble before they land.
  */
 
 import type { DieThrow, Quaternion, Vector } from '../../schema'
@@ -20,8 +22,9 @@ const MIN_Z = -0.8
 const MAX_Z = 0.8
 const MIN_LAUNCH_VELOCITY = 1
 const MAX_LAUNCH_VELOCITY = 2
-const MIN_ANGULAR_VELOCITY = 2
-const MAX_ANGULAR_VELOCITY = 6
+/** The spin's speed about each axis; its direction is random (design D2 of tune-dice-feel-and-natural-sounds). */
+const MIN_ANGULAR_VELOCITY = 12
+const MAX_ANGULAR_VELOCITY = 24
 /** Dice start at least this far apart, when 50 tries allow it. */
 const MIN_DISTANCE = 0.25
 const POSITION_TRIES = 50
@@ -71,12 +74,14 @@ function randomLinearVelocity(random: UnitSource, position: Vector): Vector {
   return { x: (-position.x / length) * speed, y: 0, z: (-position.z / length) * speed }
 }
 
+/** A spin about one axis: a speed in the range, turning either way. */
+function randomSpin(random: UnitSource): number {
+  const speed = between(random, MIN_ANGULAR_VELOCITY, MAX_ANGULAR_VELOCITY)
+  return random() < 0.5 ? -speed : speed
+}
+
 function randomAngularVelocity(random: UnitSource): Vector {
-  return {
-    x: between(random, MIN_ANGULAR_VELOCITY, MAX_ANGULAR_VELOCITY),
-    y: between(random, MIN_ANGULAR_VELOCITY, MAX_ANGULAR_VELOCITY),
-    z: between(random, MIN_ANGULAR_VELOCITY, MAX_ANGULAR_VELOCITY),
-  }
+  return { x: randomSpin(random), y: randomSpin(random), z: randomSpin(random) }
 }
 
 function isFarEnough(position: Vector, others: readonly DieThrow[]): boolean {

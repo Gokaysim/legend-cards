@@ -13,6 +13,7 @@ import {
 export const SHOW_ROLLS_KEY = 'lcm.dice.show'
 export const SOUND_KEY = 'lcm.dice.sound'
 export const SHOW_3D_KEY = 'lcm.dice.3d'
+export const NATURAL_SOUND_KEY = 'lcm.dice.natural'
 export function lastSeenKey(uid: string): string {
   return `lcm.dice.seen.${uid}`
 }
@@ -25,6 +26,8 @@ export type DiceDeviceSettings = {
   showRolls: boolean
   /** "Zar sesi": the dice make their sounds. Off by default. */
   sound: boolean
+  /** "Nat 20 / Nat 1 sesi": the natural sounds play, on every screen. On by default. */
+  naturalSound: boolean
   /**
    * "Zarları 3D göster": the strip plays the dice in 3D. On by default. Off, this device shows every roll's dice flat
    * and never loads the 3D part; its own rolls are still thrown with physics (design D5 of dice-formula-and-sixty-dice).
@@ -32,6 +35,7 @@ export type DiceDeviceSettings = {
   show3d: boolean
   setShowRolls: (on: boolean) => void
   setSound: (on: boolean) => void
+  setNaturalSound: (on: boolean) => void
   setShow3d: (on: boolean) => void
 }
 
@@ -40,11 +44,16 @@ export function useDiceDeviceSettings(): DiceDeviceSettings {
   const show = useDeviceSetting(SHOW_ROLLS_KEY)
   const sound = useDeviceSetting(SOUND_KEY)
   const show3d = useDeviceSetting(SHOW_3D_KEY)
+  const natural = useDeviceSetting(NATURAL_SOUND_KEY)
   const setShowRolls = useCallback(
     (on: boolean) => writeDeviceSetting(SHOW_ROLLS_KEY, on ? '1' : '0'),
     [],
   )
   const setSound = useCallback((on: boolean) => writeDeviceSetting(SOUND_KEY, on ? '1' : '0'), [])
+  const setNaturalSound = useCallback(
+    (on: boolean) => writeDeviceSetting(NATURAL_SOUND_KEY, on ? '1' : '0'),
+    [],
+  )
   const setShow3d = useCallback(
     (on: boolean) => writeDeviceSetting(SHOW_3D_KEY, on ? '1' : '0'),
     [],
@@ -52,9 +61,11 @@ export function useDiceDeviceSettings(): DiceDeviceSettings {
   return {
     showRolls: show !== '0',
     sound: sound === '1',
+    naturalSound: natural !== '0',
     show3d: show3d !== '0',
     setShowRolls,
     setSound,
+    setNaturalSound,
     setShow3d,
   }
 }

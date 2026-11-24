@@ -19,6 +19,7 @@ import { DiceView } from './DiceView'
 import { RollEntry } from './RollEntry'
 import { RollForm } from './RollForm'
 import { DEFAULT_DICE_STYLE, type DiceRoll } from './schema'
+import { naturalMarkOf, playNatural, playNaturalOnce } from './sound/natural'
 
 /** What the strip shows: a roll, playing or at rest, and a key that restarts its playback. */
 type StripState = { roll: DiceRoll; playing: boolean; key: number }
@@ -123,20 +124,56 @@ export function DicePage() {
   const shown: StripState | null =
     (isStripGone ? null : strip) ??
     (newestWithContent ? { roll: newestWithContent, playing: false, key: 0 } : null)
-  const replay = (roll: DiceRoll) => setStrip({ roll, playing: true, key: (strip?.key ?? 0) + 1 })
+  // "Tekrar izle" plays a natural's sound again when its dice rest, on this device only (spec: "Natural sounds when
+  // watching again"). The strip's key tells a replay's rest from a roll shown at rest, whose key is 0.
+  const [replayKey, setReplayKey] = useState<number | null>(null)
+  const replay = (roll: DiceRoll) => {
+    const key = (strip?.key ?? 0) + 1
+    setStrip({ roll, playing: true, key })
+    setReplayKey(key)
+  }
+  const onStripRest = (state: StripState) => {
+    settle(state.roll.id)
+    if (state.key !== replayKey) return
+    setReplayKey(null)
+    const mark = naturalMarkOf(state.roll)
+    if (mark && settings.naturalSound) playNatural(mark)
+  }
+
+  // A fresh roll's natural sound plays when its result shows (spec: "Natural sounds"; design D6 of
+  // tune-dice-feel-and-natural-sounds): when the settling roll stops settling, as its dice rest, a newer roll replaces
+  // it, or the wait runs out. Without the 3D dice or with reduced motion, that is at once.
+  const freshRolls = useRef(new Map<string, DiceRoll>())
+  useEffect(() => {
+    if (fresh) freshRolls.current.set(fresh.id, fresh)
+  }, [fresh])
+  const wasSettling = useRef<string | null>(null)
+  const naturalSound = settings.naturalSound
+  useEffect(() => {
+    const before = wasSettling.current
+    wasSettling.current = settlingId
+    if (before === null || before === settlingId) return
+    const roll = freshRolls.current.get(before)
+    freshRolls.current.delete(before)
+    if (roll) playNaturalOnce(roll, naturalSound)
+  }, [settlingId, naturalSound])
 
   // While the screen is open, every roll counts as seen.
   useEffect(() => {
     markSeen(Date.now())
   }, [list.length, markSeen])
 
-  // The channel keeps to its newest roll when a roll arrives, if the user was at the end already.
+  // The channel keeps to its newest roll when a roll arrives, if the user was at the end already (spec: "The
+  // channel"). It follows the newest roll's id, not the count: a full window of 50 keeps its count as a roll arrives
+  // and the oldest leaves. A result that shows after the dice rest can change its entry's height, so the settling
+  // roll counts too (design D1 of tune-dice-feel-and-natural-sounds).
   const channel = useRef<HTMLDivElement>(null)
   const isAtEnd = useRef(true)
+  const newestId = list.at(-1)?.id ?? null
   useLayoutEffect(() => {
     const box = channel.current
     if (box && isAtEnd.current) box.scrollTop = box.scrollHeight
-  }, [list.length, tab])
+  }, [newestId, settlingId, tab])
 
   const profileOf = (id: string) =>
     profiles.status === 'ready' ? profiles.data.find((candidate) => candidate.id === id) : undefined
@@ -201,7 +238,7 @@ export function DicePage() {
                   playKey={shown.key}
                   sound={settings.sound}
                   show3d={settings.show3d}
-                  onRest={() => settle(shown.roll.id)}
+                  onRest={() => onStripRest(shown)}
                   className="size-full"
                 />
                 <span className="absolute top-3 left-3 rounded-full bg-canvas/75 px-2.5 py-1 text-xs text-ink-muted">

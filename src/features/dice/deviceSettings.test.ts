@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   lastSeenKey,
+  NATURAL_SOUND_KEY,
   resetDeviceSettingsMemory,
   SHOW_3D_KEY,
   SHOW_ROLLS_KEY,
@@ -21,11 +22,23 @@ afterEach(() => {
 })
 
 describe('useDiceDeviceSettings', () => {
-  it('shows rolls, stays silent and shows the dice in 3D by default', () => {
+  it('shows rolls, keeps the impacts silent, plays the natural sounds and shows the dice in 3D by default', () => {
     const { result } = renderHook(() => useDiceDeviceSettings())
     expect(result.current.showRolls).toBe(true)
     expect(result.current.sound).toBe(false)
+    expect(result.current.naturalSound).toBe(true)
     expect(result.current.show3d).toBe(true)
+  })
+
+  it('keeps "Nat 20 / Nat 1 sesi" off on the device, also after a reload', () => {
+    const { result } = renderHook(() => useDiceDeviceSettings())
+    act(() => result.current.setNaturalSound(false))
+    expect(result.current.naturalSound).toBe(false)
+    expect(window.localStorage.getItem(NATURAL_SOUND_KEY)).toBe('0')
+    resetDeviceSettingsMemory()
+    expect(renderHook(() => useDiceDeviceSettings()).result.current.naturalSound).toBe(false)
+    act(() => result.current.setNaturalSound(true))
+    expect(window.localStorage.getItem(NATURAL_SOUND_KEY)).toBe('1')
   })
 
   it('keeps "Zarları 3D göster" off on the device, also for a hook that reads it later', () => {
