@@ -3,9 +3,10 @@ import userEvent from '@testing-library/user-event'
 import { Timestamp } from 'firebase/firestore'
 import { describe, expect, it } from 'vitest'
 
-import type { Card } from '@/features/cards/schema'
+import { cardHistoryPath } from '@/app/screens'
+import type { Card, Definition } from '@/features/cards/schema'
 import type { Holding } from '@/features/hands/schema'
-import { testCard, testCursedCard } from '@/test/cardFixtures'
+import { testCard, testCursedCard, testCustomCard } from '@/test/cardFixtures'
 import { testDmDraw, testDraw } from '@/test/drawFixtures'
 import { ready, testProfile } from '@/test/fixtures'
 import { testHolding } from '@/test/holdingFixtures'
@@ -197,7 +198,8 @@ describe('ActivityLogPage', () => {
     renderLog({ records: ready(records({ closed: [discarded], entries: [spent] })) })
     const [lp, discard] = rows()
 
-    expect(within(lp!).getByText('Ayla')).toBeInTheDocument()
+    // Ayla did it, and her account changed: both name her.
+    expect(within(lp!).getAllByText('Ayla')).toHaveLength(2)
     expect(within(lp!).queryByText('DM')).not.toBeInTheDocument()
     expect(lp).toHaveTextContent('Ayla: −1 LP (5 → 4) · d20 avantajı')
     expect(within(discard!).queryByText('DM')).not.toBeInTheDocument()
@@ -681,5 +683,137 @@ describe('Custom Card drafts in the İşlem Logu', () => {
     expect(rows()[0]).toHaveTextContent("3-Cost Custom Card draft'ı açıyor (−3 LP).")
     view.setActivityLog({ records: () => ready(records({ draws: [finished] })) })
     expect(rows()[0]).toHaveTextContent('kartını yaptı')
+  })
+})
+
+describe('links in the İşlem Logu', () => {
+  /** The log with these records and cards, seen by `viewer` (a player unless given), and the cards' holders. */
+  const renderLinks = (
+    parts: Partial<LogRecords>,
+    {
+      cards = [eyes],
+      viewer = me,
+      holdings = [],
+    }: { cards?: Definition[]; viewer?: typeof me; holdings?: Holding[] } = {},
+  ) =>
+    renderApp({
+      path: '/log',
+      users: { profiles: PROFILES, currentProfile: ready(viewer) },
+      cards: { cards: ready(cards) },
+      holdings: { openHoldings: ready(holdings) },
+      activityLog: { records: ready(records(parts)) },
+    })
+  const link = (row: HTMLElement, name: string) => within(row).getByRole('link', { name })
+
+  it("links the user who did it to their hand, and keeps the DM's mark beside the name", async () => {
+    const user = userEvent.setup()
+    const { router } = renderLinks({ given: [givenToAyla] })
+    const [row] = rows()
+
+    expect(within(row!).getByText('DM')).toBeInTheDocument()
+    await user.click(link(row!, 'Dana'))
+    expect(router.state.location.pathname).toBe('/hands/dana')
+  })
+
+  it('links a player in the sentence by the name alone, with the suffix outside the link', () => {
+    const discarded = { ...usedByAyla, returnedBy: 'dana', returnReason: 'discarded' as const }
+    renderLinks({ closed: [discarded] })
+    const [row] = rows()
+
+    expect(link(row!, 'Ayla')).toHaveAttribute('href', '/hands/ayla')
+    expect(row).toHaveTextContent("Ayla'nın elinden Aboleth's Eyes kartını attı.")
+  })
+
+  it('links both players of a transfer, and the account of an LP change', () => {
+    renderLinks({ given: [newSide], closed: [oldSide], entries: [lpForAyla] })
+    const [transfer, lp] = rows()
+
+    expect(link(transfer!, 'Ayla')).toHaveAttribute('href', '/hands/ayla')
+    expect(link(transfer!, 'Bora')).toHaveAttribute('href', '/hands/bora')
+    expect(link(lp!, 'Ayla')).toHaveAttribute('href', '/hands/ayla')
+  })
+
+  it('leaves a user without a profile, the party purse and the import as text', () => {
+    const toGhost = testHolding(eyes, 'ghost', 0, {
+      id: 'h-ghost',
+      givenAt: on(8, 0),
+      givenBy: 'dana',
+    })
+    renderLinks({ given: [toGhost], entries: [gpForParty] })
+    const [gp, ghost] = rows()
+
+    expect(ghost).toHaveTextContent("Aboleth's Eyes kartını İsimsiz oyuncu'ya verdi.")
+    expect(within(ghost!).queryByRole('link', { name: /İsimsiz/ })).toBeNull()
+    expect(within(gp!).queryByRole('link', { name: /Grup kesesi/ })).toBeNull()
+  })
+
+  it('links a used card to its Kart geçmişi', async () => {
+    const user = userEvent.setup()
+    const { router } = renderLinks({ closed: [usedByAyla] })
+
+    await user.click(link(rows()[0]!, "Aboleth's Eyes"))
+    expect(router.state.location.pathname).toBe(cardHistoryPath(eyes))
+  })
+
+  it('links each card a pack showed, and a Custom Card a draft made', () => {
+    const shown = ['A', 'B', 'C', 'D', 'E'].map((name) => testCard(name))
+    const pack = testPack('ayla', { id: 'p-ayla', at: on(8, 30), offered: shown.map((c) => c.id) })
+    const custom = testCustomCard('custom-1')
+    const finished = testCustomDraft({
+      id: 'c-ayla',
+      uid: 'ayla',
+      by: 'ayla',
+      at: on(8, 20),
+      pickTypes: ['Caster', 'Draw', 'Gold'],
+      pickCosts: [3, 3, 3],
+      offered: [],
+      status: 'finished',
+      closedAt: on(8, 21),
+      closedBy: 'ayla',
+      cardId: 'custom-1',
+      holdingId: 'h-custom',
+    })
+    renderLinks({ draws: [pack, finished] }, { cards: [...shown, custom] })
+    const [packRow, draftRow] = rows()
+
+    for (const card of shown) {
+      expect(link(packRow!, card.name)).toHaveAttribute('href', cardHistoryPath(card))
+    }
+    expect(link(draftRow!, '3-Cost Custom Card')).toHaveAttribute('href', cardHistoryPath(custom))
+  })
+
+  it('does not link a True Word', () => {
+    const abyss = testTrueWord('Abyss')
+    renderLinks({ uses: [testWordUse('u1', abyss, 'ayla', { at: on(8, 0) })] }, { cards: [abyss] })
+    const [row] = rows()
+
+    expect(within(row!).getByText('Abyss')).toBeInTheDocument()
+    expect(within(row!).queryByRole('link', { name: 'Abyss' })).toBeNull()
+    expect(link(row!, 'Ayla')).toHaveAttribute('href', '/hands/ayla')
+  })
+
+  it('links a hidden card that no one holds for the DM only, and for a player while someone holds it', () => {
+    const hidden = testCard('Hidden Card', { isInLibrary: false })
+    const discarded = testHolding(hidden, 'ayla', 0, {
+      id: 'h-hidden',
+      returnedAt: on(8, 10),
+      returnedBy: 'ayla',
+      returnReason: 'discarded',
+    })
+
+    const player = renderLinks({ closed: [discarded] }, { cards: [hidden] })
+    expect(within(rows()[0]!).getByText('Hidden Card')).toBeInTheDocument()
+    expect(within(rows()[0]!).queryByRole('link', { name: 'Hidden Card' })).toBeNull()
+    player.unmount()
+
+    const held = renderLinks(
+      { closed: [discarded] },
+      { cards: [hidden], holdings: [testHolding(hidden, 'bora', 0)] },
+    )
+    expect(link(rows()[0]!, 'Hidden Card')).toBeInTheDocument()
+    held.unmount()
+
+    renderLinks({ closed: [discarded] }, { cards: [hidden], viewer: dana })
+    expect(link(rows()[0]!, 'Hidden Card')).toHaveAttribute('href', cardHistoryPath(hidden))
   })
 })

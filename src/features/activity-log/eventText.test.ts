@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { testCard, testCursedCard } from '@/test/cardFixtures'
 import { testDmDraw, testDraw } from '@/test/drawFixtures'
 import { testHolding } from '@/test/holdingFixtures'
+import { testPack } from '@/test/packFixtures'
 import { testGpEntry, testLedgerEntry } from '@/test/ledgerFixtures'
 import { testTrueWord, testWordDraft, testWordHolding, testWordUse } from '@/test/trueWordFixtures'
 import { testSetChange, testSetName } from '@/test/setFixtures'
@@ -63,7 +64,10 @@ describe('describeEvent', () => {
   it('describes a card the DM gave', () => {
     const event = only({ given: [testHolding(eyes, 'ayla', 1000, { givenBy: 'dana' })] })
     expect(text(event)).toBe("Aboleth's Eyes kartını Ayla'ya verdi.")
-    expect(describeEvent(event, NAMES_OF).parts[0]).toEqual({ card: "Aboleth's Eyes" })
+    expect(describeEvent(event, NAMES_OF).parts[0]).toEqual({
+      card: "Aboleth's Eyes",
+      cardId: eyes.id,
+    })
   })
 
   it('describes a card its holder used, with and without a character', () => {
@@ -172,7 +176,7 @@ describe('describing draws', () => {
     const event = only({ draws: [testDraw(eyes, 'ayla', 1000)] })
     expect(text(event)).toBe("Aboleth's Eyes kartını çekti (−1 LP).")
     expect(describeEvent(event, NAMES_OF)).toEqual({
-      parts: ['', { card: "Aboleth's Eyes" }, ' kartını çekti (−1 LP).'],
+      parts: ['', { card: "Aboleth's Eyes", cardId: eyes.id }, ' kartını çekti (−1 LP).'],
       reason: null,
     })
   })
@@ -273,7 +277,7 @@ describe('describing draws', () => {
     )
     expect(
       describeEvent(only({ draws: [testDraw(visions, 'ayla', 1000)] }), NAMES_OF).parts,
-    ).toEqual(['Cursed kart çekti: ', { card: 'Visions of Death' }, '.'])
+    ).toEqual(['Cursed kart çekti: ', { card: 'Visions of Death', cardId: visions.id }, '.'])
   })
 })
 
@@ -298,6 +302,7 @@ describe('describeEvent: True Words', () => {
     )
     expect(describeEvent(only({ draws: [draft(learned)] }), NAMES_OF).parts).toContainEqual({
       card: 'Abyss',
+      cardId: abyss.id,
     })
   })
 
@@ -376,7 +381,7 @@ describe('describeEvent: True Words', () => {
   it("describes a player's use of their word, with its payment", () => {
     const event = only({ uses: [testWordUse('u1', abyss, 'ayla', { cost: 5 })] })
     expect(text(event)).toBe("Abyss True Word'ünü kullandı (−5 LP).")
-    expect(describeEvent(event, NAMES_OF).parts).toContainEqual({ card: 'Abyss' })
+    expect(describeEvent(event, NAMES_OF).parts).toContainEqual({ card: 'Abyss', cardId: abyss.id })
   })
 
   it('names the player when the DM used their word, and shows no payment for a free use', () => {
@@ -505,6 +510,7 @@ describe('describeEvent: Custom Card drafts', () => {
     )
     expect(describeEvent(only({ draws: [draft(finished)] }), NAMES_OF).parts).toContainEqual({
       card: '3-Cost Custom Card',
+      cardId: 'custom-1',
     })
   })
 
@@ -543,5 +549,87 @@ describe('describeEvent: Custom Card drafts', () => {
     expect(text(only({ draws: [draft(cancelled)] }))).toBe(
       "5-Cost Custom Card draft'ı açtı (−5 LP); DM iptal etti, 5 LP iade edildi.",
     )
+  })
+})
+
+describe('naming players and cards as parts', () => {
+  const parts = (event: LogEvent, other?: Parameters<typeof describeEvent>[2]) =>
+    describeEvent(event, NAMES_OF, other).parts
+  const ayla = (suffix = '') => ({ player: 'ayla', name: 'Ayla', suffix })
+  const bora = (suffix = '') => ({ player: 'bora', name: 'Bora', suffix })
+  const eyesPart = { card: "Aboleth's Eyes", cardId: eyes.id }
+
+  it("names the hand of a DM's discard apart from its suffix, and the card by its ID", () => {
+    expect(parts(only({ closed: [closed('ayla', 'dana', 'discarded')] }))).toEqual([
+      ayla("'nın"),
+      ' elinden ',
+      eyesPart,
+      ' kartını attı.',
+    ])
+  })
+
+  it('names both sides of a transfer, from the side that is read later too', () => {
+    expect(parts(only({ closed: [oldSide], given: [newSide] }))).toEqual([
+      eyesPart,
+      ' kartını',
+      ' ',
+      ayla("'dan"),
+      ' ',
+      bora("'ya"),
+      ' verdi.',
+    ])
+    expect(parts(only({ given: [newSide] }), oldSide)).toContainEqual(ayla("'dan"))
+  })
+
+  it('names the account of an LP change, and leaves the party purse as text', () => {
+    expect(parts(only({ entries: [testLedgerEntry(1000, { account: 'ayla' })] }))[0]).toEqual(
+      ayla(),
+    )
+    expect(parts(only({ entries: [testGpEntry(1000)] }))[0]).toBe('Grup kesesi')
+  })
+
+  it("names the hand of a DM's pack, the chosen card by its ID, and leaves the DM's cancel as text", () => {
+    const chosen = testPack('bora', {
+      by: 'dana',
+      status: 'chosen',
+      closedAt: at(6000),
+      closedBy: 'bora',
+      offered: [eyes.id, 'legend-b', 'legend-c', 'legend-d', 'legend-e'],
+      revealed: [0],
+      chosen: { cardKind: 'normal', cardId: eyes.id, cardName: "Aboleth's Eyes", holdingId: 'h-p' },
+    })
+    expect(parts(only({ draws: [chosen] })).slice(0, 2)).toEqual([bora(), ' için '])
+    expect(parts(only({ draws: [chosen] }))).toContainEqual(eyesPart)
+    const cancelled = testPack('bora', {
+      status: 'cancelled',
+      closedAt: at(6000),
+      closedBy: 'dana',
+    })
+    expect(parts(only({ draws: [cancelled] })).every((part) => typeof part === 'string')).toBe(true)
+  })
+
+  it("names the player who skipped a draft, and leaves the DM's skip as text", () => {
+    const skipped = (closedBy: string) =>
+      testWordDraft('w1', 'ayla', [testTrueWord('Abyss')], {
+        status: 'skipped',
+        closedAt: at(2000),
+        closedBy,
+      })
+    expect(parts(only({ draws: [skipped('ayla')] }))).toContainEqual(ayla())
+    expect(
+      parts(only({ draws: [skipped('dana')] })).every((part) => typeof part === 'string'),
+    ).toBe(true)
+  })
+
+  it('names the target of a role grant apart from its suffix', () => {
+    const change = {
+      id: 'r-ayla',
+      by: 'dana',
+      at: at(1000),
+      target: 'ayla',
+      before: 'player' as const,
+      after: 'dm' as const,
+    }
+    expect(parts(only({ roleChanges: [change] }))).toEqual([ayla("'yı"), ' DM yaptı.'])
   })
 })

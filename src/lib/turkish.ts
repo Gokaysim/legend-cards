@@ -71,3 +71,15 @@ export function accusative(name: string): string {
   const buffer = /[aeıioöuü]$/.test(lower) ? 'y' : ''
   return `${name.trim()}'${buffer}${ACCUSATIVE_SUFFIX[lastVowel] ?? 'ı'}`
 }
+
+/** A Turkish case of a name: one of `genitive`, `dative`, `ablative` and `accusative`. */
+export type Inflect = (name: string) => string
+
+/**
+ * A name and the suffix that `inflect` puts after it, apart, so that the name alone can be a link:
+ * `{ name: 'Ayla', suffix: "'nın" }` for `genitive('Ayla')`. The name is trimmed, as every case writes it.
+ */
+export function splitSuffix(name: string, inflect: Inflect): { name: string; suffix: string } {
+  const trimmed = name.trim()
+  return { name: trimmed, suffix: inflect(name).slice(trimmed.length) }
+}

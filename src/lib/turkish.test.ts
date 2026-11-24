@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { ablative, accusative, dative, genitive } from './turkish'
+import { ablative, accusative, dative, genitive, splitSuffix } from './turkish'
 
 describe('genitive', () => {
   it.each([
@@ -73,5 +73,21 @@ describe('accusative', () => {
     ['XYZ', "XYZ'ı"],
   ])('writes %s as %s', (name, expected) => {
     expect(accusative(name)).toBe(expected)
+  })
+})
+
+describe('splitSuffix', () => {
+  it.each([
+    ['Ayla', genitive, "'nın"],
+    ['Cem', dative, "'e"],
+    ['Gökay', ablative, "'dan"],
+    ['Umut', ablative, "'tan"],
+    ['Türkü', accusative, "'yü"],
+  ])('gives %s and its suffix apart', (name, inflect, suffix) => {
+    expect(splitSuffix(name, inflect)).toEqual({ name, suffix })
+  })
+
+  it('trims the name, as the cases do', () => {
+    expect(splitSuffix('  Ayla ', genitive)).toEqual({ name: 'Ayla', suffix: "'nın" })
   })
 })

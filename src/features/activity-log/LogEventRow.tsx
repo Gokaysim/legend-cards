@@ -1,3 +1,7 @@
+import { Fragment } from 'react'
+import { Link } from 'react-router'
+
+import { cardHistoryPath, handPath } from '@/app/screens'
 import { useHandCardsById } from '@/features/cards/cardsContext'
 import { useSetIndex } from '@/features/sets/setsContext'
 import { useTrueWords } from '@/features/true-words/trueWordsContext'
@@ -7,7 +11,7 @@ import { formatTime } from '@/lib/days'
 
 import { useHolding } from './activityLogContext'
 import type { LogEvent } from './events'
-import { describeEvent, type NameOf } from './eventText'
+import { describeEvent, type NameOf, type SentencePart } from './eventText'
 
 /** The name an import shows in the log, in place of a user's. */
 export const IMPORT_ACTOR = 'Import'
@@ -15,8 +19,51 @@ export const IMPORT_ACTOR = 'Import'
 export type LogEventRowProps = {
   event: LogEvent
   nameOf: NameOf
+  /** Whether the user with this uid has a profile, and so a hand to link to. */
+  hasProfile: (uid: string) => boolean
+  /** Whether the viewer may open the Kart geçmişi of the card with this ID (`useCardPageAccess`). */
+  canOpenCard: (cardId: string) => boolean
   /** The profile of the user who did it, to mark the DM. `undefined` when unknown. */
   actor: UserProfile | undefined
+}
+
+/** The log's links look like the Kütüphane table's card links (design D6 of link-log-players-and-cards). */
+const LINK_CLASSES = 'hover:text-gold hover:underline'
+
+/** A player's name, a link to their hand when they have a profile (spec: activity-log). */
+function PlayerName({ uid, name, isLinked }: { uid: string; name: string; isLinked: boolean }) {
+  return isLinked ? (
+    <Link to={handPath(uid)} className={LINK_CLASSES}>
+      {name}
+    </Link>
+  ) : (
+    name
+  )
+}
+
+/** A card's name, marked as English, a link to its Kart geçmişi when the viewer may open it. */
+function CardName({
+  name,
+  cardId,
+  canOpenCard,
+  className,
+}: {
+  name: string
+  cardId: string | null
+  canOpenCard: (cardId: string) => boolean
+  className?: string
+}) {
+  return (
+    <span lang="en" className={className}>
+      {cardId !== null && canOpenCard(cardId) ? (
+        <Link to={cardHistoryPath({ id: cardId })} className={LINK_CLASSES}>
+          {name}
+        </Link>
+      ) : (
+        name
+      )}
+    </span>
+  )
 }
 
 /**
@@ -25,7 +72,7 @@ export type LogEventRowProps = {
  * pack also lists the cards it showed, and a True Word draft the words it showed. A set edit lists its changed fields,
  * and a set import the names it added.
  */
-export function LogEventRow({ event, nameOf, actor }: LogEventRowProps) {
+export function LogEventRow({ event, nameOf, hasProfile, canOpenCard, actor }: LogEventRowProps) {
   const other = useHolding(event.kind === 'transferred' ? event.missingHoldingId : null)
   const { setName } = useSetIndex()
   const sentence = describeEvent(
@@ -36,14 +83,36 @@ export function LogEventRow({ event, nameOf, actor }: LogEventRowProps) {
   const at = event.at?.toDate() ?? null
   const cardsById = useHandCardsById()
   const words = useTrueWords()
-  const shown =
+  // A pack's cards link to their pages; a draft's True Words have none (spec: activity-log).
+  const shown: { name: string; cardId: string | null }[] =
     event.kind === 'pack' && cardsById.status === 'ready'
-      ? event.pack.offered.flatMap((cardId) => cardsById.data.get(cardId)?.name ?? [])
+      ? event.pack.offered.flatMap((cardId) => {
+          const card = cardsById.data.get(cardId)
+          return card ? [{ name: card.name, cardId }] : []
+        })
       : event.kind === 'wordDraft' && words.status === 'ready'
-        ? event.draft.offered.map(
-            (wordId) => words.data.find((word) => word.id === wordId)?.name ?? wordId,
-          )
+        ? event.draft.offered.map((wordId) => ({
+            name: words.data.find((word) => word.id === wordId)?.name ?? wordId,
+            cardId: null,
+          }))
         : []
+  const renderPart = (part: SentencePart, index: number) =>
+    typeof part === 'string' ? (
+      part
+    ) : 'card' in part ? (
+      <CardName
+        key={index}
+        name={part.card}
+        cardId={part.cardId}
+        canOpenCard={canOpenCard}
+        className="font-semibold"
+      />
+    ) : (
+      <span key={index}>
+        <PlayerName uid={part.player} name={part.name} isLinked={hasProfile(part.player)} />
+        {part.suffix}
+      </span>
+    )
 
   return (
     <li className="flex gap-3 py-2 text-sm">
@@ -56,19 +125,17 @@ export function LogEventRow({ event, nameOf, actor }: LogEventRowProps) {
       )}
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <p className="flex flex-wrap items-baseline gap-x-2 font-semibold text-ink">
-          <span className="break-words">{event.by === null ? IMPORT_ACTOR : nameOf(event.by)}</span>
+          <span className="break-words">
+            {event.by === null ? (
+              IMPORT_ACTOR
+            ) : (
+              <PlayerName uid={event.by} name={nameOf(event.by)} isLinked={actor !== undefined} />
+            )}
+          </span>
           {actor?.role === 'dm' ? <RoleTag role="dm" /> : null}
         </p>
         <p className="break-words text-ink">
-          {sentence.parts.map((part, index) =>
-            typeof part === 'string' ? (
-              part
-            ) : (
-              <span key={index} lang="en" className="font-semibold">
-                {part.card}
-              </span>
-            ),
-          )}
+          {sentence.parts.map(renderPart)}
           {sentence.reason !== null ? (
             <span className="text-ink-muted"> · {sentence.reason}</span>
           ) : null}
@@ -88,7 +155,13 @@ export function LogEventRow({ event, nameOf, actor }: LogEventRowProps) {
         ) : null}
         {shown.length > 0 ? (
           <p className="text-xs break-words text-ink-muted">
-            Sunulan: <span lang="en">{shown.join(', ')}</span>
+            Sunulan:{' '}
+            {shown.map((item, index) => (
+              <Fragment key={index}>
+                {index > 0 ? ', ' : null}
+                <CardName name={item.name} cardId={item.cardId} canOpenCard={canOpenCard} />
+              </Fragment>
+            ))}
           </p>
         ) : null}
       </div>

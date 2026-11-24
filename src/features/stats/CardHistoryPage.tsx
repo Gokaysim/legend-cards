@@ -20,6 +20,7 @@ import { cn } from '@/lib/cn'
 import { formatTime, groupByDay } from '@/lib/days'
 
 import { BackLink } from './BackLink'
+import { canOpenCardPage } from './cardAccess'
 import { cardStats, type CardRecords, historyRows } from './cardHistory'
 import { describeHistoryRow, type HistoryTone } from './historyText'
 import { StatsTile, StatsTiles } from './StatsTile'
@@ -224,19 +225,6 @@ function CardHistory({ card, records, now }: CardHistoryProps) {
 }
 
 /**
- * Whether the viewer may open the card's page (spec: card-stats, "Who opens a card's page"): the DM every card, a
- * player an active card whose "Listede görünür" is on, and a hidden or retired card while someone holds it. This is about what
- * the interface shows: the rules let every signed-in user read these records (design D8).
- */
-function isOpenTo(card: HandCard, isDm: boolean, isHeld: boolean): boolean {
-  if (isDm) return true
-  // A Custom Card is listed nowhere: its page opens from the hand that holds it, and stays open after it is gone.
-  if (card.kind === 'custom') return true
-  if (card.status === 'draft') return false
-  return (card.status === 'active' && card.isInLibrary) || isHeld
-}
-
-/**
  * A card's Kart geçmişi (spec: card-stats): the card large with its labels and status, eight stat tiles, and the
  * Geçmiş list of what happened to it, grouped by day, newest first. It sits below the Kütüphane's address, whatever the
  * card's kind, with a link back to the tab of its kind, and counts live from the card's holdings, draws and pack
@@ -254,7 +242,7 @@ export function CardHistoryPage() {
   )
   const isHeld =
     holdings.status === 'ready' && holdings.data.some((holding) => holding.cardId === cardId)
-  const isShown = card !== undefined && isOpenTo(card, isDm, isHeld)
+  const isShown = card !== undefined && canOpenCardPage(card, isDm, isHeld)
   const records = useCardRecords(isShown ? cardId : null)
   // Read once, when the page opens: the page does not tick (design D7).
   const [now] = useState(() => Date.now())

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/Button'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Spinner } from '@/components/ui/Spinner'
 import { groupByDay } from '@/lib/days'
+import { useCardPageAccess } from '@/features/stats/cardAccess'
 import { profileName, useProfiles } from '@/features/users/usersContext'
 
 import { useLogRecords } from './activityLogContext'
@@ -47,6 +48,8 @@ export function ActivityLogPage() {
     () => new Map(profiles.status === 'ready' ? profiles.data.map((p) => [p.id, p]) : []),
     [profiles],
   )
+  const hasProfile = (id: string) => byId.has(id)
+  const canOpenCard = useCardPageAccess()
   const nameOf = (id: string) => {
     const profile = byId.get(id)
     return profile ? profileName(profile) : 'İsimsiz oyuncu'
@@ -118,6 +121,8 @@ export function ActivityLogPage() {
                     key={event.key}
                     event={event}
                     nameOf={nameOf}
+                    hasProfile={hasProfile}
+                    canOpenCard={canOpenCard}
                     actor={event.by === null ? undefined : byId.get(event.by)}
                   />
                 ))}
