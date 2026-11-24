@@ -28,7 +28,7 @@ At 360 CSS pixels wide, the strip, the form and the tabs SHALL be stacked in tha
 - **THEN** the page does not scroll, and the channel scrolls inside its box
 
 ### Requirement: Building a roll
-The roll form SHALL build a roll from a formula, using these dice: d4, d6, d8, d10, d12, d20 and d100. The user SHALL be able to type the formula (see "A typed formula") or edit it with controls. Selecting a die SHALL add one to the formula. Each die type in the formula SHALL have a chip that shows its count in an editable field, and a "×" that takes that die type away. The form SHALL also let the user write a note of up to 80 characters.
+The roll form SHALL build a roll from a formula, using these dice: d4, d6, d8, d10, d12, d20 and d100. The user SHALL be able to type the formula (see "A typed formula") or edit it with controls. Selecting a die SHALL add one to the formula's last part. Each die type in the last part SHALL have a chip that shows its count in an editable field, and a "×" that takes that die type away from the last part. With two or more parts, the chips SHALL be labelled "Son parça". The form SHALL also let the user write a note of up to 80 characters, one for the whole roll.
 
 "At" SHALL be disabled while the formula has no die.
 
@@ -55,6 +55,41 @@ The roll form SHALL build a roll from a formula, using these dice: d4, d6, d8, d
 #### Scenario: A long note
 - **WHEN** Ayla types a note of 100 characters
 - **THEN** the note keeps its first 80 characters
+
+#### Scenario: A die control with parts
+- **WHEN** the field reads "1d20 + 5; 1d6" and Ayla selects d6
+- **THEN** the formula reads "1d20 + 5; 2d6"
+
+#### Scenario: The chips with parts
+- **WHEN** the formula is "1d20 + 5; 2d6 + 3"
+- **THEN** the form shows one chip, for the d6 with the count 2, labelled "Son parça"
+
+### Requirement: A roll in parts
+A formula SHALL hold up to 4 parts separated by ";". Each part SHALL be a formula of its own, with its own dice, fixed number and total. The roll SHALL throw every part's dice together, once, in one record. It SHALL show in one channel entry, one strip playback and one notification card. With two or more parts, every part SHALL hold at least one die. A formula without ";" SHALL be a roll of one part, as before.
+
+#### Scenario: An attack and its damage
+- **WHEN** Ayla types "d20+5;d4+9+d20" and selects "At", and the dice show 14, then 20 and 3
+- **THEN** one roll is made, its channel entry shows "1d20 + 5" totalling 19 and "1d20 + 1d4 + 9" totalling 32
+
+#### Scenario: One throw on the strip
+- **WHEN** Bora rolls "1d20 + 5; 2d6 + 3" while Ayla has the Zarlar screen open
+- **THEN** Ayla's strip plays all three dice in one throw
+
+#### Scenario: Four parts
+- **WHEN** Cem types "d20; d20; d20; d20" and selects "At"
+- **THEN** one roll of four parts is made, each with its own total
+
+#### Scenario: Sixty dice across parts
+- **WHEN** the formula is "30d6; 30d6"
+- **THEN** the formula is valid, and the form says "En fazla 60 zar"
+
+#### Scenario: A part without a die
+- **WHEN** Bora types "d20+5; 5" as the formula
+- **THEN** the field is marked invalid, and "At" is disabled
+
+#### Scenario: A single formula
+- **WHEN** Ayla rolls "1d20 + 5" without ";"
+- **THEN** the roll is a roll of one part, recorded and shown as before
 
 ### Requirement: A fixed number written as a sum
 The fixed number SHALL be the numbers in the formula that are not dice. It SHALL be one whole number, or up to eight joined by + and −, each from 0 to 99, and their sum SHALL be from −99 to +99. The roll SHALL keep the numbers as written. The form's formula, the channel and the notification card SHALL show them in order after the dice, and the total SHALL use their sum. When a record's written numbers do not add up to its fixed number, devices SHALL show the fixed number alone.
@@ -84,7 +119,7 @@ The fixed number SHALL be the numbers in the formula that are not dice. It SHALL
 - **THEN** devices show the fixed number as "+ 11", and the total uses 11
 
 ### Requirement: An invalid formula
-When the formula is not dice and whole numbers joined by + and −, when it names a die other than the seven, when a number is outside 0 to 99, when it holds more than eight numbers, or when their sum is outside −99 to +99, the form SHALL keep the text as typed and mark the field as invalid. It SHALL show a hint with an example, "örneğin 1d20+4+4-5", and SHALL disable "At" until the text is valid. When the formula holds more than 60 physical dice, the hint SHALL say "En fazla 60 zar".
+When the formula is not dice and whole numbers joined by + and −, when it names a die other than the seven, when a number is outside 0 to 99, when a part holds more than eight numbers, or when a part's numbers add up outside −99 to +99, the form SHALL keep the text as typed and mark the field as invalid. It SHALL also do so when the formula has more than 4 parts, when a part other than the last is empty, or when one of two or more parts has no die. It SHALL show a hint with an example, "örneğin 1d20+4+4-5", and SHALL disable "At" until the text is valid. When the formula holds more than 60 physical dice, the hint SHALL say "En fazla 60 zar". When it has more than 4 parts, the hint SHALL say "En fazla 4 parça".
 
 #### Scenario: A sum left open
 - **WHEN** Ayla types "1d20+4+" as the formula
@@ -106,8 +141,24 @@ When the formula is not dice and whole numbers joined by + and −, when it name
 - **WHEN** Cem types "61d6" or "31d100" as the formula
 - **THEN** the field is marked invalid, the hint says "En fazla 60 zar", and "At" is disabled
 
+#### Scenario: Too many dice across parts
+- **WHEN** Cem types "40d6; 21d6" as the formula
+- **THEN** the field is marked invalid, the hint says "En fazla 60 zar", and "At" is disabled
+
+#### Scenario: Too many parts
+- **WHEN** Ayla types "d20; d20; d20; d20; d20" as the formula
+- **THEN** the field is marked invalid, the hint says "En fazla 4 parça", and "At" is disabled
+
+#### Scenario: An empty part in the middle
+- **WHEN** Bora types "d20;;d6" as the formula
+- **THEN** the field is marked invalid, and "At" is disabled
+
+#### Scenario: Each part's own range
+- **WHEN** Cem types "d20+90; d6+90" as the formula
+- **THEN** the field is not marked invalid
+
 ### Requirement: A typed formula
-The formula field SHALL read dice terms and whole numbers joined by + and −. A dice term SHALL be a count and a die, such as "40d6". A missing count SHALL mean 1, upper and lower case SHALL both be read, and "d%" SHALL mean d100. Terms of the same die SHALL add up. Spaces SHALL be ignored. While the user types, the field SHALL keep the text as typed. When the user leaves the field, or uses a die control or a chip, the formula SHALL be written in the canonical form.
+The formula field SHALL read dice terms and whole numbers joined by + and −, and parts separated by ";". A dice term SHALL be a count and a die, such as "40d6". A missing count SHALL mean 1, upper and lower case SHALL both be read, and "d%" SHALL mean d100. Terms of the same die SHALL add up within a part, never across parts. Spaces SHALL be ignored. An empty last part SHALL be ignored. While the user types, the field SHALL keep the text as typed. When the user leaves the field, or uses a die control or a chip, the formula SHALL be written in the canonical form, its parts joined by "; ".
 
 #### Scenario: Typing a big roll
 - **WHEN** Cem types "40d6+5" and selects "At"
@@ -137,6 +188,18 @@ The formula field SHALL read dice terms and whole numbers joined by + and −. A
 - **WHEN** the field reads "2d6+5" and Ayla selects d20
 - **THEN** the formula reads "1d20 + 2d6 + 5"
 
+#### Scenario: Parts in canonical form
+- **WHEN** Ayla types "d20+5;d4+9+d20" and leaves the field
+- **THEN** the formula reads "1d20 + 5; 1d20 + 1d4 + 9"
+
+#### Scenario: The same die in two parts
+- **WHEN** Bora types "2d6; 3d6" and leaves the field
+- **THEN** the formula reads "2d6; 3d6"
+
+#### Scenario: A trailing separator
+- **WHEN** Cem types "d20+5;" as the formula
+- **THEN** the field is not marked invalid, and when he leaves the field it reads "1d20 + 5"
+
 ### Requirement: At most sixty dice
 A roll SHALL hold at most 60 physical dice. A d100 SHALL count as two: a tens die and a d10. When a roll is full, the form SHALL disable the dice that no longer fit and say "En fazla 60 zar". A count typed on a chip SHALL NOT go above what fits.
 
@@ -165,7 +228,7 @@ A roll SHALL hold at most 60 physical dice. A d100 SHALL count as two: a tens di
 - **THEN** Ayla's strip plays all 40 dice, and her channel shows 40 results and their total
 
 ### Requirement: Advantage and disadvantage
-When the formula holds exactly one d20 and no other die, the form SHALL offer "Avantaj" and "Dezavantaj". Such a roll SHALL throw two d20 and keep the higher one (Avantaj) or the lower one (Dezavantaj). The die it does not keep SHALL be shown dimmed and struck through. With any other formula, the two choices SHALL be disabled, and the roll is normal.
+When the formula has one part, and that part holds exactly one d20 and no other die, the form SHALL offer "Avantaj" and "Dezavantaj". Such a roll SHALL throw two d20 and keep the higher one (Avantaj) or the lower one (Dezavantaj). The die it does not keep SHALL be shown dimmed and struck through. With any other formula, two or more parts included, the two choices SHALL be disabled, and the roll is normal.
 
 #### Scenario: Advantage
 - **WHEN** Bora rolls 1d20 + 5 with "Avantaj", and the dice show 20 and 8
@@ -175,8 +238,16 @@ When the formula holds exactly one d20 and no other die, the form SHALL offer "A
 - **WHEN** the formula is 1d20 + 1d6
 - **THEN** "Avantaj" and "Dezavantaj" are disabled
 
+#### Scenario: A d20 in each part
+- **WHEN** the formula is "1d20 + 5; 1d20 + 3"
+- **THEN** "Avantaj" and "Dezavantaj" are disabled
+
+#### Scenario: Advantage chosen before adding a part
+- **WHEN** Ayla chose "Avantaj" on "1d20 + 5", then types "; 2d6" and selects "At"
+- **THEN** the roll is normal and throws one d20 and two d6
+
 ### Requirement: Results and the total
-Each die SHALL show the face it lands on. The total SHALL be the sum of the kept dice plus the fixed number. A d100 SHALL read its tens die (00 to 90) plus its d10 (0 to 9), with 00 and 0 reading 100. The total SHALL be computed from the roll's record each time it is shown, never stored apart from it.
+Each die SHALL show the face it lands on. Each part's total SHALL be the sum of its kept dice plus its fixed number. A roll of one part has one total. A d100 SHALL read its tens die (00 to 90) plus its d10 (0 to 9), with 00 and 0 reading 100. The totals SHALL be computed from the roll's record each time they are shown, never stored apart from it.
 
 #### Scenario: A mixed roll
 - **WHEN** Ayla rolls 1d20 + 2d6 + 3, and the dice show 17, 4 and 2
@@ -190,8 +261,12 @@ Each die SHALL show the face it lands on. The total SHALL be the sum of the kept
 - **WHEN** the tens die shows 00 and the d10 shows 0
 - **THEN** the d100 reads 100
 
+#### Scenario: Totals of parts
+- **WHEN** Ayla rolls "1d20 + 5; 2d6 + 3", and the dice show 12, then 4 and 6
+- **THEN** the first part totals 17 and the second 13, and no total of the whole roll is shown
+
 ### Requirement: Natural 20 and natural 1
-When a roll's only kept die is a d20, a kept 20 SHALL be marked "Nat 20" in gold, and a kept 1 SHALL be marked "Nat 1" in red, in the channel, the strip and the notification card.
+When a part's only kept die is a d20, a kept 20 SHALL mark that part "Nat 20" in gold, and a kept 1 SHALL mark it "Nat 1" in red, in the channel, the strip and the notification card. Each part SHALL be marked on its own. In a roll of one part, the part's mark is the roll's mark.
 
 #### Scenario: A natural 20 with advantage
 - **WHEN** Bora's advantage roll keeps a 20
@@ -204,6 +279,10 @@ When a roll's only kept die is a d20, a kept 20 SHALL be marked "Nat 20" in gold
 #### Scenario: A 20 among other dice
 - **WHEN** a 1d20 + 1d6 roll shows 20 on the d20
 - **THEN** no "Nat 20" mark is shown
+
+#### Scenario: A natural in one part
+- **WHEN** Ayla rolls "1d20 + 5; 1d20 + 1d4 + 9", and both d20 show 20
+- **THEN** the first part is marked "Nat 20", and the second part is not marked
 
 ### Requirement: Results hidden until the dice rest
 While the strip plays a roll that just arrived, the roll's channel entry SHALL hide its result until the strip's dice come to rest. That covers the dice faces, the fixed number, the total, the natural mark and the mark's border color. The roller, the time, the note and the formula SHALL stay visible. The user's own rolls SHALL be hidden the same way. A hidden result SHALL NOT be read out to assistive technology.
@@ -255,6 +334,8 @@ Every signed-in user SHALL see every roll in the channel, live, oldest at the to
 - each die with its result
 - the total
 
+A roll of two or more parts SHALL show one line per part, in order, each with its formula, its dice, its fixed number, its natural mark and its total.
+
 The channel SHALL show the 50 newest rolls and load 50 older ones at a time with "Daha eski atışlar".
 
 When a roll arrives while the channel is scrolled to its end, the channel SHALL scroll to show the new roll, however many rolls it holds. When the user has scrolled away from the end, the channel SHALL keep its position.
@@ -274,6 +355,10 @@ When a roll arrives while the channel is scrolled to its end, the channel SHALL 
 #### Scenario: Reading older rolls
 - **WHEN** Bora has scrolled up the channel, and Ayla rolls
 - **THEN** Bora's channel stays where he was reading
+
+#### Scenario: A roll in parts
+- **WHEN** Cem rolls "1d20 + 5; 2d6 + 3" while Bora has the Zarlar screen open
+- **THEN** Bora's channel shows one entry for Cem, with a line for "1d20 + 5" and its total and a line for "2d6 + 3" and its total
 
 ### Requirement: The same throw on every device
 A roll SHALL be thrown once, on the roller's device. Every device that shows the roll SHALL play that same throw. The dice SHALL come to rest showing the roll's recorded results. When a device's playback would end on other faces, the dice SHALL settle onto the recorded rest. The channel and the totals SHALL always use the recorded results.
@@ -307,7 +392,7 @@ The strip on the Zarlar screen SHALL play each new roll as it arrives, the user'
 ### Requirement: A roll arrives on another screen
 When another user rolls while this user is on any screen other than Zarlar, a notification card SHALL show the roll. The card SHALL show, all at once:
 - the roller and the note
-- the formula, the kept results, the natural mark and the total
+- the formula, the kept results, the natural mark and the total, one line per part for a roll of two or more parts
 - "Kanalda aç"
 
 The card SHALL NOT play the throw or the dice's impact sounds. A natural's sound follows "Natural sounds". A long formula SHALL wrap rather than be cut off. The card SHALL sit at the bottom right of a window at least 640 px wide, and at the top of a narrower window.
@@ -327,6 +412,10 @@ The card SHALL NOT play the throw or the dice's impact sounds. A natural's sound
 #### Scenario: Opening the channel
 - **WHEN** Ayla selects "Kanalda aç" on the card
 - **THEN** the Zarlar screen opens, and the card closes
+
+#### Scenario: A roll in parts on another screen
+- **WHEN** Bora rolls "1d20 + 5; 2d6 + 3" while Ayla is on her hand screen, and the dice show 15, then 2 and 5
+- **THEN** the card shows "1d20 + 5" with 20, and "2d6 + 3" with 10, on two lines
 
 ### Requirement: The notification card closes on its own
 The notification card SHALL close 6 seconds after it appears. It SHALL stay open while the pointer or the keyboard focus is on it, and after the user selects it, until the user closes it with "Kapat". A newer roll SHALL replace it.
@@ -430,7 +519,7 @@ A roll made without a connection SHALL appear in the roller's channel at once, m
 - **THEN** her dice tumble, the roll shows in her channel as waiting, and Bora's channel gets it once Ayla is online again
 
 ### Requirement: Dice without motion
-With reduced motion, the dice SHALL appear at rest on their recorded faces without tumbling. Without WebGL, when the 3D part cannot load, or when "Zarları 3D göster" is off on the device, the strip SHALL show the results as numbers. The channel, the form, the notification card and the totals SHALL work in every case.
+With reduced motion, the dice SHALL appear at rest on their recorded faces without tumbling. Without WebGL, when the 3D part cannot load, or when "Zarları 3D göster" is off on the device, the strip SHALL show the results as numbers, grouped by part for a roll of two or more parts. The 3D strip SHALL NOT show which die belongs to which part. The channel, the form, the notification card and the totals SHALL work in every case.
 
 #### Scenario: Reduced motion
 - **WHEN** a device that asks for reduced motion shows Bora's roll
@@ -444,14 +533,21 @@ With reduced motion, the dice SHALL appear at rest on their recorded faces witho
 - **WHEN** Cem has turned "Zarları 3D göster" off
 - **THEN** his strip shows each roll's results as numbers, and he can still roll
 
+#### Scenario: Parts without 3D
+- **WHEN** Cem has turned "Zarları 3D göster" off, and Ayla rolls "1d20 + 5; 2d6"
+- **THEN** his strip shows the d20's result apart from the two d6 results
+
 ### Requirement: Roll records
 Each roll SHALL be stored as one record. The record SHALL hold:
 - the roller and the server time
 - the style, the mode and the fixed number
 - the fixed number's numbers as written, when it was written as a sum of two or more
+- for a roll of two or more parts, each part's number of physical dice and its fixed number as written
 - the note
-- each physical die with its type and result
+- each physical die with its type and result, part after part
 - the throw and each die's rest
+
+A roll of two or more parts SHALL have the mode normal and the fixed number 0, and SHALL keep each part's fixed number in its parts. A roll of one part SHALL be recorded without parts, as before. A record without parts SHALL show as one part. When a record's parts do not match its dice, devices SHALL show it as one part with its dice and the fixed number 0.
 
 A hidden roll's public record SHALL hold only the roller, the time and that it is hidden. Its content SHALL be in a record only the DM can read. Records SHALL NOT be changed, by anyone. Only the DM SHALL delete them, public and DM-only alike, by resetting the channel.
 
@@ -475,6 +571,18 @@ A hidden roll's public record SHALL hold only the roller, the time and that it i
 - **WHEN** the DM deletes a public roll record, a hidden roll's public record, and that hidden roll's DM-only record
 - **THEN** the server accepts all three
 
+#### Scenario: A roll from before parts
+- **WHEN** Bora opens the channel, and it holds a roll recorded before this change
+- **THEN** the roll shows as one part, as before
+
+#### Scenario: Parts that do not match the dice
+- **WHEN** a record's parts count 4 dice, and it holds 3
+- **THEN** devices show its 3 dice as one part with the fixed number 0
+
+#### Scenario: A hidden roll in parts
+- **WHEN** the DM rolls "1d20 + 5; 2d6" hidden
+- **THEN** the DM's channel shows both parts, marked hidden, and a player's channel shows "DM gizli zar attı"
+
 ### Requirement: Roll records are checked
 The server SHALL accept a roll record only when all of these hold:
 - the record is the signed-in user's own
@@ -483,6 +591,7 @@ The server SHALL accept a roll record only when all of these hold:
 - advantage or disadvantage comes only with exactly two d20
 - the fixed number is from −99 to +99, and the note is at most 80 characters
 - the numbers as written, when present, are 2 to 8 whole numbers from 0 to 99 joined by + and −
+- the parts, when present, are 2 to 4, each a dice count from 1 to 60 with an optional fixed number of 1 to 8 whole numbers from 0 to 99 joined by + and −, and the record then has the mode normal, the fixed number 0 and no numbers as written
 - the style is one of the 8
 
 #### Scenario: Rolling for someone else
@@ -531,6 +640,26 @@ The server SHALL accept a roll record only when all of these hold:
 
 #### Scenario: A malformed written sum
 - **WHEN** a record's numbers as written read "5+*4" or hold a number above 99
+- **THEN** the server denies it
+
+#### Scenario: A roll in parts
+- **WHEN** Ayla writes a public roll record of 3 dice with the parts "1:5;2:9", the mode normal and the fixed number 0
+- **THEN** the server accepts it
+
+#### Scenario: A hidden roll in parts
+- **WHEN** the DM writes a hidden public record and its DM-only record with the parts "1:5+10-4;2"
+- **THEN** the server accepts both
+
+#### Scenario: Parts with advantage
+- **WHEN** a record with parts has the mode advantage
+- **THEN** the server denies it
+
+#### Scenario: Parts with a fixed number
+- **WHEN** a record with parts has the fixed number 5, or numbers as written
+- **THEN** the server denies it
+
+#### Scenario: Malformed parts
+- **WHEN** a record's parts read "1:5", "1;1;1;1;1", "0;2" or "1:5*2;1"
 - **THEN** the server denies it
 
 ### Requirement: Hidden roll records are checked
@@ -617,7 +746,7 @@ Resetting the dice channel SHALL require a network connection. Offline, the Ayar
 - **THEN** the remaining rolls are deleted
 
 ### Requirement: Natural sounds
-When a fresh roll's natural mark shows on a device, the device SHALL play a short sound: one for Nat 20 and another for Nat 1. On the Zarlar screen it SHALL play when the roll's result shows (see "When a hidden result shows"). On any other screen it SHALL play when the roll arrives, whether or not a notification card opens. Each fresh roll SHALL play its sound at most once on a device. A roll without a natural mark SHALL play none.
+When a fresh roll's natural mark shows on a device, the device SHALL play a short sound: one for Nat 20 and another for Nat 1. A roll of two or more parts SHALL play one sound, that of its first marked part. On the Zarlar screen it SHALL play when the roll's result shows (see "When a hidden result shows"). On any other screen it SHALL play when the roll arrives, whether or not a notification card opens. Each fresh roll SHALL play its sound at most once on a device. A roll without a natural mark SHALL play none.
 
 #### Scenario: A Nat 20 on the Zarlar screen
 - **WHEN** Bora rolls 1d20 and it lands on 20 while Ayla has the Zarlar screen open
@@ -646,6 +775,10 @@ When a fresh roll's natural mark shows on a device, the device SHALL play a shor
 #### Scenario: Reloading the page
 - **WHEN** Ayla reloads the app right after Bora rolled a Nat 20
 - **THEN** her device plays no sound, as the roll does not play (see "Only fresh rolls play")
+
+#### Scenario: Two naturals in parts
+- **WHEN** Bora rolls "1d20; 1d20", and the first d20 shows 1 and the second 20
+- **THEN** Ayla's device plays only the Nat 1 sound, once
 
 ### Requirement: Natural sounds and hidden rolls
 A player's device SHALL NOT play a natural sound for the DM's hidden roll. The DM's devices SHALL play it as for any roll.
