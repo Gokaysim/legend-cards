@@ -205,14 +205,14 @@ describe('pack pictures', () => {
 
   it('gives the Pandemonium packs and the Golden Packs their short names, with their prices under them', () => {
     const { unmount } = renderShop({ path: '/shops/packs?group=Pandemonium', art: ART })
-    for (const [title, name] of [
-      ['Pandemonium Pack', 'Pandemonium'],
-      ['Pandemonium Cursed Pack', 'Cursed'],
+    for (const [title, name, price] of [
+      ['Pandemonium Pack', 'Pandemonium', '4 LP / 10.000 GP'],
+      ['Pandemonium Cursed Pack', 'Cursed', '3 LP / 7.500 GP'],
     ] as const) {
       expect(pictureOf(title)).toHaveAttribute('src', PANDEMONIUM_BACK)
       expect(partsOf(title)).toEqual(['picture', 'name', 'price'])
       expect(nameOf(title)).toHaveTextContent(new RegExp(`^${name}$`))
-      expect(priceOf(title)).toHaveTextContent('3 LP / 7.500 GP')
+      expect(priceOf(title)).toHaveTextContent(price)
     }
     unmount()
 

@@ -5253,6 +5253,12 @@ describe('packs (draws/{drawId} with kind pack, table/main, and their holdings a
       )
     })
 
+    it('allows a Pandemonium Pack at 4 LP, and denies it at 3 (spec: pack-shop, "Pack prices")', async () => {
+      await assertFails(open('ayla', { pack: { packType: 'pandemonium', cost: 3 } }))
+      await assertSucceeds(open('ayla', { pack: { packType: 'pandemonium', cost: 4 } }))
+      expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 1, lpEntryId: 'e-pay' })
+    })
+
     it("allows the DM's LP opening of any amount", async () => {
       await assertSucceeds(open('dana', { pack: { cost: 1 } }))
       expect(await readAsAdmin('users/ayla')).toMatchObject({ lp: 4 })

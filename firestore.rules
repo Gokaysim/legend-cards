@@ -1548,7 +1548,7 @@ service cloud.firestore {
           'standard': 2,
           'premium': 3,
           'cursed': 1,
-          'pandemonium': 3,
+          'pandemonium': 4,
           'pandemoniumCursed': 3,
           'mechanic': 4,
           'golden': 4,

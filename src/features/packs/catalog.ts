@@ -30,7 +30,7 @@ export const PACK_PRICES: Record<PackType, { lp: number; gp: number }> = {
   standard: { lp: 2, gp: 5000 },
   premium: { lp: 3, gp: 7500 },
   cursed: { lp: 1, gp: 2500 },
-  pandemonium: { lp: 3, gp: 7500 },
+  pandemonium: { lp: 4, gp: 10000 },
   pandemoniumCursed: { lp: 3, gp: 7500 },
   mechanic: { lp: 4, gp: 10000 },
   golden: { lp: 4, gp: 10000 },
