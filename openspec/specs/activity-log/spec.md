@@ -7,7 +7,7 @@ Shows what happened in the game on the İşlem Logu screen: the card movements a
 ## Requirements
 
 ### Requirement: One list of what happened
-The İşlem Logu screen SHALL list, newest first and live, every card given, drawn, used, discarded, and transferred, every pack opened, every True Word draft, every word the DM teaches or takes back, every use of a card or True Word that stays in the hand, every LP and GP change, every set change, every change of the player draw mode, every reset of the dice channel, every DM role change made in the app, and every start and end of a fight. It SHALL be read from the holdings (the learned True Words among them), the draws, packs and True Word drafts, the use records, the ledger, the set change records, the table change records, the role change records and the combat change records, so it never disagrees with them. Switching a card or a word active, notes, cost overrides, definition changes and imports SHALL NOT be listed.
+The İşlem Logu screen SHALL list, newest first and live, every card given, drawn, used, discarded, and transferred, every pack opened, every True Word draft, every Custom Card draft, every word the DM teaches or takes back, every use of a card or True Word that stays in the hand, every LP and GP change, every set change, every change of the player draw mode, every reset of the dice channel, every DM role change made in the app, and every start and end of a fight. It SHALL be read from the holdings (the learned True Words among them), the draws, packs, True Word drafts and Custom Card drafts, the use records, the ledger, the set change records, the table change records, the role change records and the combat change records, so it never disagrees with them. Switching a card or a word active, notes, cost overrides, definition changes and imports SHALL NOT be listed.
 
 #### Scenario: Events from both sources
 - **WHEN** the DM gives Ayla a card and then adds 2 LP to Bora
@@ -64,6 +64,10 @@ The İşlem Logu screen SHALL list, newest first and live, every card given, dra
 #### Scenario: A taught word is not a card given
 - **WHEN** the DM teaches Bora "Aid"
 - **THEN** the log shows that the DM taught Bora "Aid", and no event of a card given
+
+#### Scenario: A Custom Card draft among the events
+- **WHEN** the DM adds 2 LP to Bora, and then Ayla starts a Custom Card draft
+- **THEN** the log shows the draft first and the LP change below it
 
 ### Requirement: Log readable by every signed-in user
 Every signed-in user SHALL see the whole log, including the events of other players. The DM and the players SHALL see the same events.
@@ -144,7 +148,7 @@ The log SHALL first show the 50 most recent events. When there are older events,
 - **THEN** no "Daha fazla" control is shown
 
 ### Requirement: Player filter
-The log SHALL offer a filter for one user. With a user chosen, it SHALL list only the cards that user received, including the cards drawn into their hand and the packs opened for them, the cards that left their hand, their True Word drafts, the True Words the DM taught them or took back from them, the uses of their True Words, the changes of their LP, and the changes of their role. Party purse changes, player draw mode changes, dice channel resets and fights SHALL be listed only without a filter.
+The log SHALL offer a filter for one user. With a user chosen, it SHALL list only the cards that user received, including the cards drawn into their hand and the packs opened for them, the cards that left their hand, their True Word drafts, their Custom Card drafts, the True Words the DM taught them or took back from them, the uses of their True Words, the changes of their LP, and the changes of their role. Party purse changes, player draw mode changes, dice channel resets and fights SHALL be listed only without a filter.
 
 #### Scenario: Filtering by a player
 - **WHEN** a user chooses Ayla in the filter
@@ -189,6 +193,10 @@ The log SHALL offer a filter for one user. With a user chosen, it SHALL list onl
 #### Scenario: A dice reset in the filter
 - **WHEN** a user chooses Bora in the filter after the DM reset the dice channel
 - **THEN** the reset is not listed
+
+#### Scenario: Filtering a Custom Card draft
+- **WHEN** the DM started a Custom Card draft for Bora, and a user chooses Bora in the filter
+- **THEN** the draft's event is listed
 
 ### Requirement: Log states
 While the log is loading, the screen SHALL show a loading indicator. If it cannot be loaded, it SHALL show a Turkish error message. When there are no events, it SHALL say so in Turkish.
@@ -414,3 +422,22 @@ The İşlem Logu SHALL NOT list definition changes or imports, for the DM or for
 #### Scenario: Game events stay
 - **WHEN** the DM edits "Aboleth's Eyes", and then Ahmet uses it and discards another card
 - **THEN** the log shows Ahmet's use and discard, and no event of the edit
+
+### Requirement: A Custom Card draft is one event
+A Custom Card draft SHALL appear as one event, at the time it started. It names who started it, the user it is for, the card cost, the payment or "ücretsiz", and how it ended: the card made with its effects, or a cancel with its refund. While the draft is open, the event says so and SHALL update live. Its card, payment and refund SHALL NOT appear as separate events.
+
+#### Scenario: A finished draft
+- **WHEN** Ayla starts a 3-cost draft for 3 LP and finishes it with Caster, Draw and Gold
+- **THEN** the log shows one event naming Ayla, "3-Cost Custom Card", −3 LP, and Caster, Draw and Gold, and no separate event for the card or the LP change
+
+#### Scenario: A cancelled draft
+- **WHEN** the DM cancels a 5-cost draft that Bora paid 5 LP for
+- **THEN** the draft's event says that the DM cancelled it and refunded 5 LP, and there is no separate event for the refund
+
+#### Scenario: An open draft
+- **WHEN** Ayla has started a draft and has made one pick
+- **THEN** the event says that Ayla's draft is open, and it changes as soon as the draft ends
+
+#### Scenario: Using the card later
+- **WHEN** Ayla uses her Custom Card
+- **THEN** the log shows the use as for any card, naming "3-Cost Custom Card"

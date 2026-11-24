@@ -7,7 +7,7 @@ Records which player holds which card, from the moment a card is given until it 
 ## Requirements
 
 ### Requirement: Holding records
-Every time a player receives a card, the application SHALL record a holding: the card, the player, when it was given, by whom, and how ("dm", "transfer", "draw" or "pack"). A holding received through a draw SHALL name its draw, and one received from a pack SHALL name its pack opening. A holding starts open. When the card leaves the hand, the holding SHALL be closed with when, by whom, and why ("used", "discarded" or "transferred"). A holding closed as used SHALL also record the LP paid for the use, and the ledger entry of that payment when it is more than 0. Holdings SHALL never be deleted.
+Every time a player receives a card, the application SHALL record a holding: the card, the player, when it was given, by whom, and how ("dm", "transfer", "draw", "pack" or "draft"). A holding received through a draw SHALL name its draw, one received from a pack SHALL name its pack opening, and one received from a draft, a learned True Word or a finished Custom Card, SHALL name its draft. A holding starts open. When the card leaves the hand, the holding SHALL be closed with when, by whom, and why ("used", "discarded" or "transferred"). A holding closed as used SHALL also record the LP paid for the use, and the ledger entry of that payment when it is more than 0. Holdings SHALL never be deleted.
 
 #### Scenario: The DM gives a card
 - **WHEN** the DM gives "Aboleth's Eyes" to Ayla
@@ -36,6 +36,10 @@ Every time a player receives a card, the application SHALL record a holding: the
 #### Scenario: Deleting a holding
 - **WHEN** any signed-in user, including the DM, tries to delete a holding
 - **THEN** the server denies it
+
+#### Scenario: A finished Custom Card
+- **WHEN** Ayla makes the last pick of her Custom Card draft
+- **THEN** an open holding records her Custom Card, Ayla, the time, Ayla as the giver, "draft" as the way it was given, and the draft
 
 ### Requirement: Holdings readable by every signed-in user
 Every signed-in user SHALL be able to read every holding, open or closed, of every player. Signed-out requests SHALL be denied.
@@ -653,7 +657,7 @@ When a character is chosen from the list and the card's "Kullanınca efekt bıra
 - **THEN** the step shows no "Aktif efekt olarak ekle", and the use adds no effect
 
 ### Requirement: Browsing the cards to give
-"+ Kart ver" SHALL list every active card and every active True Word before any search or filter, together, sorted by name in Turkish alphabetical order. It SHALL show 20 at first, and "Daha fazla göster" SHALL add 20 more each time. It SHALL show how many cards and words match, as one number.
+"+ Kart ver" SHALL list every active card and every active True Word before any search or filter, together, sorted by name in Turkish alphabetical order. It SHALL never list a Custom Card. It SHALL show 20 at first, and "Daha fazla göster" SHALL add 20 more each time. It SHALL show how many cards and words match, as one number.
 
 #### Scenario: Opening the dialog
 - **WHEN** the DM opens "+ Kart ver" with 744 active cards and 26 active True Words
@@ -666,6 +670,10 @@ When a character is chosen from the list and the card's "Kullanınca efekt bıra
 #### Scenario: Searching a word
 - **WHEN** the DM searches for "ascend"
 - **THEN** the dialog lists the active True Words and cards whose name or text matches, the words "Ascend 1", "Ascend 2" and "Ascend 3" among them
+
+#### Scenario: Custom Cards are not given
+- **WHEN** Ayla holds a Custom Card, and the DM opens "+ Kart ver" or searches for "Custom"
+- **THEN** no Custom Card is listed or counted
 
 ### Requirement: Filters in Kart ver
 "+ Kart ver" SHALL offer filters by set, cost, mechanic pack and kind (Common, Rare, Blessed, Cursed, True Word), and a "Yalnızca havuzdakiler" switch, which combine with each other and with the search. The set filter SHALL list sets as the draw's set filter does, over the active cards. A True Word SHALL match no set and no mechanic pack. "Yalnızca havuzdakiler" SHALL keep the cards in the pool and the words whose "Draft'ta çıkar" is on. Choices SHALL show counts and clear as in the DM's draw dialog. Closing the dialog SHALL drop them.

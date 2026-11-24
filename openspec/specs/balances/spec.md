@@ -149,7 +149,7 @@ LP and GP SHALL never go below 0. Subtracting more than the current balance SHAL
 - **THEN** the server denies the write
 
 ### Requirement: Permanent ledger
-Every change SHALL be recorded in the ledger with the currency (LP or GP), the account (the player or the party), the change, the balance after it, its source (by hand, a draw, a pack, a True Word draft, a card use, or a True Word use), the reason for a change by hand, the draw, pack opening, draft, holding or word use for a payment or a refund, who made the change, and when. Ledger entries SHALL never be changed or deleted.
+Every change SHALL be recorded in the ledger with the currency (LP or GP), the account (the player or the party), the change, the balance after it, its source (by hand, a draw, a pack, a True Word draft, a Custom Card draft, a card use, or a True Word use), the reason for a change by hand, the draw, pack opening, draft, holding or word use for a payment or a refund, who made the change, and when. Ledger entries SHALL never be changed or deleted.
 
 #### Scenario: Recording a change
 - **WHEN** the DM adds 2 LP to Ayla, who has 5 LP, with the reason "Boss'u yendi"
@@ -186,6 +186,14 @@ Every change SHALL be recorded in the ledger with the currency (LP or GP), the a
 #### Scenario: Changing an entry
 - **WHEN** any signed-in user, including the DM, tries to change or delete a ledger entry
 - **THEN** the server denies it
+
+#### Scenario: Recording a Custom Card draft payment
+- **WHEN** Ayla, who has 5 LP, starts a 3-cost Custom Card draft
+- **THEN** the ledger has an entry for Ayla's LP with the change −3, the balance 2, the source "Custom Card draft", the draft, Ayla, and the time
+
+#### Scenario: Recording a Custom Card draft refund
+- **WHEN** the DM cancels that draft
+- **THEN** the ledger has an entry for Ayla's LP with the change +3, the balance 5, the source "Custom Card draft", and the same draft
 
 ### Requirement: Balance and ledger agree
 The server SHALL accept a balance change only together with the ledger entry that explains it, and a ledger entry only together with the balance change it records. The entry's balance after SHALL equal the new balance, and its change SHALL equal the difference.

@@ -7,11 +7,11 @@ Builds the owner's card, cardback, pack, True Word and Cardmaker pictures into t
 ## Requirements
 
 ### Requirement: Building the pictures
-A picture build script SHALL read the `.7z` archives and loose PNG files of a given folder, without changing them, and write the converted Blessed and Cursed cardbacks, packs and Cardmaker with a manifest to the app's public picture folder, which is committed, so that a build without the archives still has them. It SHALL replace an earlier build. It SHALL leave card and True Word pictures to the picture import, and the sets' cardbacks and Cardmakers to the set import (spec: admin-scripts), and SHALL NOT touch Firestore or the file storage. Without 7-Zip it SHALL stop with a Turkish message saying how to install it.
+A picture build script SHALL read the `.7z` archives and loose PNG files of a given folder, without changing them, and write the converted Blessed and Cursed cardbacks, packs, Cardmaker, Custom Card covers and custom effect pictures with a manifest to the app's public picture folder, which is committed, so that a build without the archives still has them. It SHALL replace an earlier build. It SHALL leave card and True Word pictures to the picture import, and the sets' cardbacks and Cardmakers to the set import (spec: admin-scripts), and SHALL NOT touch Firestore or the file storage. Without 7-Zip it SHALL stop with a Turkish message saying how to install it.
 
 #### Scenario: Building from the downloads
 - **WHEN** an admin runs the build script with the folder that holds the five archives
-- **THEN** the public picture folder holds the Blessed and Cursed cardbacks, the pack pictures, the screens' Cardmaker pictures and a manifest, and no card, word or set picture, and the archives are unchanged
+- **THEN** the public picture folder holds the Blessed and Cursed cardbacks, the pack pictures, the screens' Cardmaker pictures, the 3 Custom Card covers, the custom effect pictures and a manifest, and no card, word or set picture, and the archives are unchanged
 
 #### Scenario: No 7-Zip
 - **WHEN** the build script runs on a machine without 7-Zip
@@ -24,6 +24,10 @@ A picture build script SHALL read the `.7z` archives and loose PNG files of a gi
 #### Scenario: A rebuilt picture
 - **WHEN** an admin rebuilds the pictures after an archive changed one pack picture
 - **THEN** `git status` shows that pack's old file removed and its new file and the manifest changed, ready to commit
+
+#### Scenario: Custom Card pictures
+- **WHEN** an admin runs the build script with the folder that holds the custom card pictures
+- **THEN** the manifest names the 1, 3 and 5-cost covers and each custom effect picture by its cost and type
 
 ### Requirement: Matching card and word pictures
 Each file SHALL be matched by its name without the extension, compared as card names are. `tw<name>` SHALL be that True Word, and `cursed_<name>` that Cursed card. A name that is no other kind of picture SHALL be the Legend card, normal or Blessed, of that name, or else the Cursed card of that name. The picture import SHALL match against the stored definitions, whatever their status: a name SHALL find the definition whose identity that name gives, or else the one whose name equals it.
@@ -49,6 +53,8 @@ By the legacy names, a file SHALL be one of these:
 - a Cardmaker picture, for a known `cardmaker_*` stem that is not a set's
 - a pack picture, for `pack_<mechanic stem>`, `pack_gold` or `pack_cursedgold`
 - a cardback, for `blessed_cb` or `cursed_cb`
+- a Custom Card cover, for `1custom`, `3custom` or `5custom`
+- a custom effect picture, for `<cost><type>` with a cost of 1, 3 or 5 and one of the 18 effect types (spec: custom-cards), for example `3caster`
 - a set's cardback, for `<set>_cb`, or a set's Cardmaker, for `cardmaker_<set>`, which the set import matches against the stored sets by code, official name or alias
 
 The build SHALL count the set files as left to the set import. `<set>_std`, `_prm`, `_crs` and `_gold` SHALL NOT be pictures.
@@ -64,6 +70,10 @@ The build SHALL count the set files as left to the set import. `<set>_std`, `_pr
 #### Scenario: A set file in the build
 - **WHEN** the archives hold `cardmaker_ulagal.png`, and the build script runs
 - **THEN** the build writes no picture for it, and its report counts it as left to the set import
+
+#### Scenario: A custom effect picture
+- **WHEN** the archives hold `5tw.png`
+- **THEN** it becomes the picture of the TW effect at 5-cost, and the picture import does not count it as a card picture
 
 ### Requirement: Picture aliases
 A table in the local data folder (spec: developer-workflow, "The owner's data stays out of the repository") SHALL map a file name to the card, Cursed card, True Word or asset it shows, for files whose names differ from the data. An alias SHALL win over the name rules. An alias naming an asset that does not exist SHALL stop the build with its row number. An alias naming a card, Cursed card or True Word that is not stored SHALL stop the picture import with its row number.
@@ -92,11 +102,15 @@ When two files become the picture of the same card, word or asset, the file whos
 - **THEN** the picture import's report lists it as unknown, and the import goes on
 
 ### Requirement: Build report and dry run
-After a build, the script SHALL report in Turkish how many cardbacks, pack pictures and mascots got a picture, name each of them that has no picture, list the duplicates among them, and say how many files it left to the picture import and how many to the set import. With a dry-run option it SHALL print the same report without writing anything.
+After a build, the script SHALL report in Turkish how many cardbacks, pack pictures, mascots, Custom Card covers and custom effect pictures got a picture, name each of them that has no picture, list the duplicates among them, and say how many files it left to the picture import and how many to the set import. With a dry-run option it SHALL print the same report without writing anything.
 
 #### Scenario: Previewing a build
 - **WHEN** an admin runs the build script with the dry-run option
 - **THEN** the report shows the cardbacks, pack pictures and mascots that would be built, how many card and word files are left to the picture import, and how many set files to the set import, and the public picture folder is unchanged
+
+#### Scenario: A missing effect picture
+- **WHEN** the archives have no `1held.png`
+- **THEN** the report names the Held effect at 1-cost among the pictures that are missing
 
 ### Requirement: Converted pictures
 Cardback, pack and imported card and True Word pictures SHALL be stored as WebP at their own size. Cardmaker pictures SHALL be shrunk to at most 480 pixels high, keeping their transparency. A picture the DM uploads SHALL be stored as WebP, shrunk to fit within 563 × 788 pixels with its proportions kept, and never enlarged. Each file name SHALL carry a hash of its content, so a changed picture gets a new address.
@@ -519,3 +533,14 @@ While a card with a picture is face down in a draw dialog, a watching view or an
 #### Scenario: A failed fetch
 - **WHEN** the picture of a face-down card cannot be fetched
 - **THEN** nothing is shown about it before the turn, and after the turn the face falls back to its look without a picture
+
+### Requirement: Custom Card pictures in the application
+The application SHALL learn from the manifest which Custom Card covers and custom effect pictures exist. A missing cover or effect picture SHALL fall back to text: the cost choice shows "✧" and its cost, and an option, a pick or a face shows its type and cost.
+
+#### Scenario: A missing cover
+- **WHEN** the manifest has no 5-cost cover
+- **THEN** the "5-Cost Custom Card" choice shows "✧" and 5, and still works
+
+#### Scenario: A missing effect picture
+- **WHEN** the manifest has no picture for Gold at 3-cost, and a draft offers it
+- **THEN** the option shows "Gold · 3-Cost" and its text, without a picture

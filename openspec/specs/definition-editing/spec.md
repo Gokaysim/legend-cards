@@ -18,7 +18,7 @@ Every card and every True Word SHALL have exactly one status: draft, active or r
 - **THEN** it is marked "Kaldırıldı"
 
 ### Requirement: Only the DM manages definitions
-Only the DM SHALL add, edit, publish, retire, bring back or delete a card or a True Word in the application. The server SHALL deny these steps to players. Players SHALL see no controls for them.
+Only the DM SHALL add, edit, publish, retire, bring back or delete a card or a True Word in the application. The server SHALL deny these steps to players. Players SHALL see no controls for them. A Custom Card is the one definition a player's step creates, with the last pick of their draft (spec: custom-cards). After that, only the DM SHALL change it, and only its effects. A Custom Card SHALL NOT be retired, brought back or deleted.
 
 #### Scenario: The DM fixes a text
 - **WHEN** the DM changes the text of "Aboleth's Eyes"
@@ -35,6 +35,10 @@ Only the DM SHALL add, edit, publish, retire, bring back or delete a card or a T
 #### Scenario: No controls for players
 - **WHEN** Ayla opens any tab of the Kütüphane
 - **THEN** she sees no "+ Kart ekle", "+ True Word ekle" or "✎ Düzenle" control
+
+#### Scenario: Retiring a Custom Card
+- **WHEN** the DM tries to retire or delete Ayla's Custom Card
+- **THEN** the server denies it
 
 ### Requirement: Adding a card
 The DM SHALL add a normal or Blessed card from "+ Kart ekle" on the Kütüphane's Kartlar tab, and a Cursed card from "+ Kart ekle" on its Cursed tab. The form SHALL ask for the fields of the card's kind. "Kaydet" SHALL store the card as a draft, even with empty fields. "Kaydet ve yayınla" SHALL store it as active, and SHALL be possible only when the card is complete.
@@ -360,6 +364,7 @@ Some flags SHALL be fixed by the kind. A Cursed card SHALL have "Set paketlerind
 - **WHEN** the DM writes a True Word with "Kullanınca elde kalır" off
 - **THEN** the server denies it
 
+
 ### Requirement: Starting values of the flags
 A new definition SHALL start with its kind's current behavior. The four "where" flags and "Kullanınca efekt bırakır" start on. "Birden fazla elde olabilir" starts off for a normal card and on for the others. "Kullanınca elde kalır" starts off, except for a True Word. "Elde etkili" starts on when the text starts with "Held:". While the DM adds a definition, that box follows the text until the DM changes it.
 
@@ -426,3 +431,14 @@ Saving a changed flag SHALL be an edit of the definition, with its change record
 #### Scenario: Turning it off while held
 - **WHEN** Ayla and Bora hold the Cursed card "Visions of Death", and the DM unchecks "Birden fazla elde olabilir" and saves
 - **THEN** both keep their copy, and the card is still in the Cursed Deck
+
+### Requirement: Flags fixed for a Custom Card
+A Custom Card SHALL have "Listede görünür", the draw flag, both pack flags and "Birden fazla elde olabilir" off, and "Kullanınca efekt bırakır" on. Its "Elde etkili" and "Kullanınca elde kalır" SHALL be on exactly when it has a Held effect. The server SHALL deny any other value.
+
+#### Scenario: A Custom Card in the draws
+- **WHEN** anyone writes a Custom Card with the draw flag on
+- **THEN** the server denies it
+
+#### Scenario: Adding Held to a Custom Card
+- **WHEN** the DM adds a Held effect to Ayla's Custom Card
+- **THEN** its "Elde etkili" and "Kullanınca elde kalır" turn on in the same step
