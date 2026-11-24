@@ -1,6 +1,6 @@
 import { hasChannel } from '@/features/cards/pool'
 import type { SetName } from '@/features/cards/display'
-import type { Card } from '@/features/cards/schema'
+import type { HandCard } from '@/features/cards/schema'
 import type { PackOpening } from '@/features/draws/schema'
 import type { Holding } from '@/features/hands/schema'
 import { packOpeningTitle } from '@/features/packs/catalog'
@@ -18,7 +18,7 @@ export type NameOf = (uid: string) => string
 export type HistoryNames = {
   nameOf: NameOf
   setName: SetName
-  card: Pick<Card, 'kind' | 'isRepeatable' | 'isInDraws' | 'isInSetPacks' | 'isInMechanicPacks'>
+  card: Pick<HandCard, 'kind' | 'isRepeatable' | 'isInDraws' | 'isInSetPacks' | 'isInMechanicPacks'>
 }
 
 /** The dot of a row: how the card reached a hand, left it, changed hands, or was only seen. */
@@ -87,6 +87,21 @@ export function describeHistoryRow(row: HistoryRow, names: HistoryNames): Histor
         details: isCursed
           ? 'Cursed çekiliş'
           : details(['Rastgele çekiliş', draw === undefined ? null : lp(draw.cost)]),
+        tone: 'given',
+      }
+    }
+    case 'drafted': {
+      const { holding, draft } = row
+      const by = draft?.by ?? holding.givenBy
+      return {
+        text:
+          by === holding.uid
+            ? `${nameOf(holding.uid)}, Custom Card draft'ında yaptı`
+            : `${nameOf(by)}, ${nameOf(holding.uid)} için Custom Card draft'ında yaptı`,
+        details:
+          draft === undefined
+            ? 'Custom Card draft'
+            : details([lp(draft.cost), draft.pickTypes.join(', ')]),
         tone: 'given',
       }
     }

@@ -1,8 +1,8 @@
 import { useMemo } from 'react'
 
-import { type Deck, isInDeck, useCards, useCardsById } from '@/features/cards/cardsContext'
+import { type Deck, isInDeck, useCards, useHandCardsById } from '@/features/cards/cardsContext'
 import { isInPool } from '@/features/cards/pool'
-import type { Card } from '@/features/cards/schema'
+import type { HandCard } from '@/features/cards/schema'
 import type { CardStatus, DeckStatus } from '@/features/cards/status'
 import type { UserProfile } from '@/features/users/schema'
 import { profileName, useProfiles } from '@/features/users/usersContext'
@@ -15,7 +15,7 @@ import type { Holding } from './schema'
  * the profiles (their names). The holder is named even before its holding arrives.
  */
 export function cardStatuses(
-  cards: readonly Card[],
+  cards: readonly HandCard[],
   holdings: readonly Holding[],
   profiles: readonly UserProfile[],
 ): Map<string, CardStatus> {
@@ -33,7 +33,8 @@ export function cardStatuses(
       const uids = holdersOf(byCard.get(card.id) ?? [], card.id)
       if (holder && !uids.includes(holder.uid)) uids.unshift(holder.uid)
       const status: CardStatus = {
-        inPool: card.kind !== 'cursed' && isInPool(card),
+        // A Custom Card never returns to a pool (spec: custom-cards, "Custom Cards are never in the pool").
+        inPool: card.kind !== 'cursed' && card.kind !== 'custom' && isInPool(card),
         holderNames: uids.map((uid) => names.get(uid) ?? 'İsimsiz oyuncu'),
       }
       return [card.id, status]
@@ -42,11 +43,11 @@ export function cardStatuses(
 }
 
 /**
- * The status of every card this device reads, live: the active ones, the retired ones still in hands, and on the DM's
- * device the drafts. `null` while the cards, the holdings or the profiles load or fail.
+ * The status of every card this device reads, live: the active ones, the retired ones still in hands, the Custom
+ * Cards, and on the DM's device the drafts. `null` while the cards, the holdings or the profiles load or fail.
  */
 export function useCardStatuses(): ReadonlyMap<string, CardStatus> | null {
-  const cardsById = useCardsById()
+  const cardsById = useHandCardsById()
   const holdings = useOpenHoldings()
   const profiles = useProfiles()
   return useMemo(
@@ -75,7 +76,10 @@ export function useDeckStatus(deck: Deck): DeckStatus | undefined {
       byCard: statuses,
       poolCount: deckCards.filter((card) => statuses.get(card.id)?.inPool).length,
       handCount: holdings.data.filter(
-        (holding) => holding.cardKind !== 'trueWord' && isInDeck({ kind: holding.cardKind }, deck),
+        (holding) =>
+          holding.cardKind !== 'trueWord' &&
+          holding.cardKind !== 'custom' &&
+          isInDeck({ kind: holding.cardKind }, deck),
       ).length,
     }
   }, [statuses, cards, holdings, deck])

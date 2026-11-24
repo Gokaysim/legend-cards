@@ -83,19 +83,21 @@ export function costChange(cardCost: string | null, handCost: string | null): Co
 
 /**
  * The frame a face gets, after the Kurallar table rules: purple Common, gold Rare, white Blessed, red Cursed, and the
- * True Words color for a True Word in the Kütüphane (spec: card-library, "Card view").
+ * True Words color for a True Word in the Kütüphane (spec: card-library, "Card view"), and the custom color for a
+ * Custom Card.
  */
-export type CardFrame = 'common' | 'rare' | 'blessed' | 'cursed' | 'word'
+export type CardFrame = 'common' | 'rare' | 'blessed' | 'cursed' | 'word' | 'custom'
 
 export function cardFrame(card: Pick<Definition, 'kind' | 'rarity'>): CardFrame {
   if (card.kind === 'trueWord') return 'word'
+  if (card.kind === 'custom') return 'custom'
   // A normal draft may have no rarity yet: it gets the Common frame until it does.
   return card.kind === 'normal' ? (card.rarity ?? 'common') : card.kind
 }
 
 /** True when a face shows a set, a rarity and a mechanic pack: not for a Cursed card or a True Word. */
 export function hasSetDetails(card: Pick<Definition, 'kind'>): boolean {
-  return card.kind !== 'cursed' && card.kind !== 'trueWord'
+  return card.kind !== 'cursed' && card.kind !== 'trueWord' && card.kind !== 'custom'
 }
 
 /**
@@ -126,8 +128,8 @@ export function faceGlow(
     return frame === 'cursed' ? 'active-cursed' : frame === 'blessed' ? 'active-blessed' : 'active'
   }
   if (state.isSelected) return 'selected'
-  // A True Word is never drawn or shown in a pack, so it has no reveal glow.
-  if (state.isRevealed && frame !== 'word') return `reveal-${frame}`
+  // A True Word and a Custom Card are never drawn or shown in a pack, so they have no reveal glow.
+  if (state.isRevealed && frame !== 'word' && frame !== 'custom') return `reveal-${frame}`
   return state.isHeld ? 'held' : null
 }
 

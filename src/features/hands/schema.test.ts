@@ -47,6 +47,10 @@ describe('holdingSchema', () => {
     ['a discarded holding', { ...used, returnReason: 'discarded', usedOn: null }],
     ['a holding closed as transferred', transferred],
     [
+      'a Custom Card received from its draft',
+      { ...open, cardId: 'custom-1', cardKind: 'custom', givenVia: 'draft', drawId: 'draft-1' },
+    ],
+    [
       'a holding that continues a transfer',
       { ...open, givenVia: 'transfer', transferredFrom: 'h1' },
     ],

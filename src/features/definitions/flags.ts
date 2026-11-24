@@ -6,8 +6,12 @@
 // No `@/` imports on purpose: the script tests (Node type config) import it to check that `scripts/lib/cardCatalog.ts`
 // agrees with it.
 
-/** Every kind of definition in `cards/{cardId}`. Keep in step with `firestore.rules` and `scripts/lib/cardCatalog.ts`. */
-export const DEFINITION_KINDS = ['normal', 'blessed', 'cursed', 'trueWord'] as const
+/**
+ * Every kind of definition in `cards/{cardId}`. Keep in step with `firestore.rules` and `scripts/lib/cardCatalog.ts`.
+ * A `custom` definition is a Custom Card, made only by its draft (design D1 of add-custom-card-draft): no import adds
+ * one, and no form edits one.
+ */
+export const DEFINITION_KINDS = ['normal', 'blessed', 'cursed', 'trueWord', 'custom'] as const
 export type DefinitionKind = (typeof DEFINITION_KINDS)[number]
 
 /** The eight flags, in the order the form shows them. Keep in step with `firestore.rules`. */
@@ -68,6 +72,16 @@ export const FIXED_FLAGS: Readonly<Record<DefinitionKind, Readonly<Partial<Behav
     isRepeatable: true,
     isKeptOnUse: true,
   },
+  // A Custom Card is in no list, draw or pack, has one copy, and has a use effect. "Elde etkili" and "Kullanınca elde
+  // kalır" are not fixed: both follow whether it has a Held effect.
+  custom: {
+    isInLibrary: false,
+    isInDraws: false,
+    isInSetPacks: false,
+    isInMechanicPacks: false,
+    isRepeatable: false,
+    hasUseEffect: true,
+  },
 }
 
 /** The flags the form shows for a kind: those it does not fix, in the form's order. */
@@ -91,6 +105,7 @@ const DRAW_LABELS: Readonly<Record<DefinitionKind, string>> = {
   blessed: 'Kart çekmede çıkar',
   cursed: "Cursed Deck'te çıkar",
   trueWord: "Draft'ta çıkar",
+  custom: 'Kart çekmede çıkar',
 }
 
 /** A flag's Turkish label for a definition of `kind`. */

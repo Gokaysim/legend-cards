@@ -104,6 +104,11 @@ describe('ledgerEntrySchema', () => {
     expect(accepts(draftRefund)).toBe(true)
   })
 
+  it('accepts a Custom Card draft payment and its refund: LP, no reason, and the draft', () => {
+    expect(accepts({ ...draftPayment, source: 'customDraft' })).toBe(true)
+    expect(accepts({ ...draftRefund, source: 'customDraft' })).toBe(true)
+  })
+
   it('accepts the payments for a card and a True Word use: LP, no reason, and the holding or word use', () => {
     expect(accepts(usePayment)).toBe(true)
     expect(accepts(wordUsePayment)).toBe(true)
@@ -121,6 +126,18 @@ describe('ledgerEntrySchema', () => {
     ['a draft payment in GP', { ...draftPayment, currency: 'gp', account: 'party' }],
     ['a draft payment with a reason', { ...draftPayment, reason: 'True Word draft' }],
     ['a draft refund without its draft', { ...draftRefund, drawId: null }],
+    [
+      'a Custom Card draft payment in GP',
+      { ...draftPayment, source: 'customDraft', currency: 'gp', account: 'party' },
+    ],
+    [
+      'a Custom Card draft payment with a reason',
+      { ...draftPayment, source: 'customDraft', reason: 'Custom Card' },
+    ],
+    [
+      'a Custom Card draft refund without its draft',
+      { ...draftRefund, source: 'customDraft', drawId: null },
+    ],
     ['a card use payment in GP', { ...usePayment, currency: 'gp', account: 'party' }],
     ['a card use payment with a reason', { ...usePayment, reason: 'Kart kullanımı' }],
     ['a card use payment without its holding', { ...usePayment, drawId: null }],

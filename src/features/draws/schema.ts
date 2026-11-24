@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { DRAW_RARITIES, type DrawFilters } from '@/features/cards/pool'
 import { CARD_KINDS, CARD_LIMITS } from '@/features/cards/schema'
 import { DEFAULT_DRAW_PRICE, DRAW_COST_MAX } from '@/features/table/playerDraw'
+import { type CustomDraft, customDraftSchema } from '@/features/custom-draft/schema'
 import { type WordDraft, wordDraftSchema } from '@/features/true-words/schema'
 import { createConverter } from '@/lib/firestore/converter'
 
@@ -246,13 +247,14 @@ export const packOpeningSchema = z
   })
 
 /**
- * Every record at `draws/{drawId}`: a card draw, a pack opening, or a True Word draft (design D5 of
- * unify-cards-and-true-words).
+ * Every record at `draws/{drawId}`: a card draw, a pack opening, a True Word draft (design D5 of
+ * unify-cards-and-true-words), or a Custom Card draft (design D3 of add-custom-card-draft).
  */
 export const drawSchema = z.discriminatedUnion('kind', [
   cardDrawSchema,
   packOpeningSchema,
   wordDraftSchema,
+  customDraftSchema,
 ])
 
 export type StoredCardDraw = z.infer<typeof cardDrawSchema>
@@ -266,7 +268,7 @@ export type CardDraw = StoredCardDraw & { id: string }
 export type PackOpening = StoredPackOpening & { id: string }
 
 /** Any record of the draws collection, with its document ID as `id`. */
-export type Draw = CardDraw | PackOpening | WordDraft
+export type Draw = CardDraw | PackOpening | WordDraft | CustomDraft
 
 export function isPackOpening(draw: Draw): draw is PackOpening {
   return draw.kind === 'pack'
@@ -278,6 +280,10 @@ export function isCardDraw(draw: Draw): draw is CardDraw {
 
 export function isWordDraft(draw: Draw): draw is WordDraft {
   return draw.kind === 'wordDraft'
+}
+
+export function isCustomDraft(draw: Draw): draw is CustomDraft {
+  return draw.kind === 'customDraft'
 }
 
 export const drawConverter = createConverter(drawSchema, { idField: 'id' })

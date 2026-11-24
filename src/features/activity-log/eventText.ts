@@ -1,6 +1,8 @@
 import { formatAmount, formatDelta } from '@/features/balances/format'
 import type { DrawFilters } from '@/features/cards/pool'
 import type { SetName } from '@/features/cards/display'
+import { customCardName } from '@/features/custom-draft/draftRules'
+import type { CustomDraft } from '@/features/custom-draft/schema'
 import type { CardDraw, PackOpening } from '@/features/draws/schema'
 import { packOpeningTitle } from '@/features/packs/catalog'
 import type { Holding } from '@/features/hands/schema'
@@ -147,6 +149,32 @@ function draftSentence(draft: WordDraft, nameOf: NameOf): SentencePart[] {
   }
 }
 
+/**
+ * A Custom Card draft (spec: activity-log, "A Custom Card draft is one event"): open, finished with the card and its
+ * effect types, or cancelled by the DM with its refund. One event for the draft, its card, its payment and its refund.
+ */
+function customDraftSentence(draft: CustomDraft, nameOf: NameOf): SentencePart[] {
+  const into = draft.by === draft.uid ? '' : `${nameOf(draft.uid)} için `
+  const payment = draft.paidWith === 'none' ? 'ücretsiz' : `${formatDelta(-draft.cost)} LP`
+  const name = customCardName(draft.base)
+  switch (draft.status) {
+    case 'open':
+      return [`${into}${name} draft'ı açıyor (${payment}).`]
+    case 'cancelled': {
+      const refund = draft.paidWith === 'none' ? '' : `, ${formatAmount(draft.cost)} LP iade edildi`
+      return [`${into}${name} draft'ı açtı (${payment}); DM iptal etti${refund}.`]
+    }
+    case 'finished': {
+      const byDm = draft.closedBy !== null && draft.closedBy !== draft.uid
+      return [
+        `${into}Custom Card draft'ı açtı ve `,
+        card(name),
+        ` kartını yaptı${byDm ? ' (son seçimi DM yaptı)' : ''} (${payment}): ${draft.pickTypes.join(', ')}.`,
+      ]
+    }
+  }
+}
+
 /** The set fields as an edit's event names them (spec: activity-log, "Set changes are events"). */
 const SET_FIELD_LABELS: Readonly<Record<SetField, string>> = {
   name: 'Ad',
@@ -251,6 +279,8 @@ export function describeEvent(
       return { parts: packSentence(event.pack, names), reason: null }
     case 'wordDraft':
       return { parts: draftSentence(event.draft, nameOf), reason: null }
+    case 'customDraft':
+      return { parts: customDraftSentence(event.draft, nameOf), reason: null }
     case 'wordTaught':
       return {
         parts: [

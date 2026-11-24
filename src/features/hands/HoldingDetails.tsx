@@ -20,6 +20,8 @@ import {
 import { UsePayment } from '@/features/balances/UsePayment'
 import { CardFace } from '@/features/cards/CardFace'
 import { CharacterPicker } from '@/features/characters/CharacterPicker'
+import { CustomCardEffects } from '@/features/custom-draft/CustomCardEffects'
+import { CustomEffectsDialog } from '@/features/custom-draft/CustomEffectsDialog'
 import { useCharacterChoice } from '@/features/characters/useCharacterChoice'
 import { cardFrame, type FaceGlow, faceGlow, NO_VALUE } from '@/features/cards/display'
 import { useSetIndex } from '@/features/sets/setsContext'
@@ -105,7 +107,9 @@ export function HoldingDetails({ entry, holderName, onDone, layout }: HoldingDet
   const [entered, setEntered] = useState('')
   const [receiver, setReceiver] = useState('')
   const [isBusy, setIsBusy] = useState(false)
+  const [isEditingEffects, setIsEditingEffects] = useState(false)
   const [failure, setFailure] = useState<HoldingFailure | null>(null)
+  const isCustom = card.kind === 'custom'
   const showError = (error: unknown) => setFailure(toHoldingFailure(error))
 
   const note = useSavedField(holding.note, (value) => actions.setNote(holding.id, value), showError)
@@ -214,8 +218,12 @@ export function HoldingDetails({ entry, holderName, onDone, layout }: HoldingDet
   const discardStep = (
     <div className="flex flex-col gap-2 rounded-xl border border-danger-line bg-pane-raised p-3">
       <p className="text-sm text-ink">
-        Bu kart kullanılmadan elden atılsın mı?
-        {!card.isRepeatable && !isExtraCopy && hasChannel(card) ? ' Kart havuza döner.' : ''}
+        {isCustom
+          ? 'Bu Custom Card yok edilsin mi? Kart oyundan çıkar ve geri gelmez.'
+          : 'Bu kart kullanılmadan elden atılsın mı?'}
+        {!isCustom && !card.isRepeatable && !isExtraCopy && hasChannel(card)
+          ? ' Kart havuza döner.'
+          : ''}
       </p>
       <div className="flex flex-wrap gap-2">
         <Button
@@ -228,7 +236,7 @@ export function HoldingDetails({ entry, holderName, onDone, layout }: HoldingDet
             )
           }
         >
-          {isBusy ? 'Kaydediliyor…' : 'Evet, at'}
+          {isBusy ? 'Kaydediliyor…' : isCustom ? 'Evet, yok et' : 'Evet, at'}
         </Button>
         <Button disabled={isBusy} onClick={() => goTo('idle')}>
           Vazgeç
@@ -324,6 +332,7 @@ export function HoldingDetails({ entry, holderName, onDone, layout }: HoldingDet
                 </li>
               ))}
             </ul>
+            {card.kind === 'custom' ? <CustomCardEffects card={card} /> : null}
             <Link
               to={cardHistoryPath(card)}
               className="text-[13px] font-medium text-gold hover:underline"
@@ -360,17 +369,31 @@ export function HoldingDetails({ entry, holderName, onDone, layout }: HoldingDet
                 <BoltIcon />
                 Kullan
               </Button>
-              <Button
-                variant="danger"
-                disabled={isTableBusy}
-                title={busyTitle}
-                onClick={() => goTo('discard')}
-                className="h-11 w-20 shrink-0"
-              >
-                <BinIcon className="size-4.5" />
-                At
-              </Button>
+              {isCustom ? null : (
+                <Button
+                  variant="danger"
+                  disabled={isTableBusy}
+                  title={busyTitle}
+                  onClick={() => goTo('discard')}
+                  className="h-11 w-20 shrink-0"
+                >
+                  <BinIcon className="size-4.5" />
+                  At
+                </Button>
+              )}
             </div>
+          ) : null}
+          {/* A Custom Card leaves the game when discarded: its own button says so (spec: custom-cards, "Discarding a
+              Custom Card"). */}
+          {isCustom && canUse && step === 'idle' ? (
+            <Button
+              variant="danger"
+              disabled={isTableBusy}
+              title={busyTitle}
+              onClick={() => goTo('discard')}
+            >
+              ✕ Custom kartı yok et
+            </Button>
           ) : null}
           {step === 'use' ? useStep : null}
           {step === 'discard' ? discardStep : null}
@@ -420,6 +443,12 @@ export function HoldingDetails({ entry, holderName, onDone, layout }: HoldingDet
                     Başkasına ver
                   </Button>
                 </div>
+              ) : null}
+              {card.kind === 'custom' && step === 'idle' ? (
+                <Button onClick={() => setIsEditingEffects(true)}>Efektleri düzenle</Button>
+              ) : null}
+              {card.kind === 'custom' && isEditingEffects ? (
+                <CustomEffectsDialog card={card} onClose={() => setIsEditingEffects(false)} />
               ) : null}
               {step === 'transfer' ? transferStep : null}
             </ToolSection>

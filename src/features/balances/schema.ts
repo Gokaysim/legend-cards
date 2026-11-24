@@ -9,13 +9,28 @@ export type Currency = (typeof CURRENCIES)[number]
 
 /**
  * Where a balance change came from: the DM by hand, a draw's price from the hand owner's LP, a pack's payment or
- * refund, a True Word draft's payment or refund, or the payment for a use that closes its holding (`use`) or for a use
- * of a card or True Word kept on use (`keptUse`). Keep in step with `firestore.rules`.
+ * refund, a True Word draft's payment or refund, a Custom Card draft's payment or refund (`customDraft`), or the
+ * payment for a use that closes its holding (`use`) or for a use of a card or True Word kept on use (`keptUse`). Keep in
+ * step with `firestore.rules`.
  */
-export const LEDGER_SOURCES = ['manual', 'draw', 'pack', 'wordDraft', 'use', 'keptUse'] as const
+export const LEDGER_SOURCES = [
+  'manual',
+  'draw',
+  'pack',
+  'wordDraft',
+  'customDraft',
+  'use',
+  'keptUse',
+] as const
 
 /** The sources that are always paid in LP: every one but the DM's changes by hand and packs. */
-const LP_ONLY_SOURCES: readonly LedgerSource[] = ['draw', 'wordDraft', 'use', 'keptUse']
+const LP_ONLY_SOURCES: readonly LedgerSource[] = [
+  'draw',
+  'wordDraft',
+  'customDraft',
+  'use',
+  'keptUse',
+]
 export type LedgerSource = (typeof LEDGER_SOURCES)[number]
 
 /** Limits of one change. Keep in step with `validLedgerEntry` in `firestore.rules`. */
@@ -58,7 +73,8 @@ export const ledgerEntrySchema = z
     reason: z.string().min(1).max(BALANCE_LIMITS.reason).nullable(),
     /**
      * For a draw payment, the draw it paid for; for a pack payment or refund, the pack opening; for a True Word
-     * draft's payment or refund, the draft (`wordDrafts/{drawId}`); for a card's use, the holding
+     * draft's payment or refund, the draft (`wordDrafts/{drawId}`); for a Custom Card draft's payment or refund, the
+     * draft (`draws/{drawId}`); for a card's use, the holding
      * (`userCards/{drawId}`); for a True Word's use, the word use (`wordUses/{drawId}`). Stored entries from before
      * draws read as `null`.
      */
@@ -82,7 +98,7 @@ export const ledgerEntrySchema = z
       issue('drawId', 'a draw or pack entry names its draw, and a change by hand names none')
     }
     if (LP_ONLY_SOURCES.includes(entry.source) && entry.currency !== 'lp') {
-      issue('currency', 'a draw, a True Word draft and a use are paid with LP')
+      issue('currency', 'a draw, a draft and a use are paid with LP')
     }
   })
 

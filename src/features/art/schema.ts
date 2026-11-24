@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 // The picture manifest that `npm run build-art` writes to `public/art/manifest.json` (design D4 of add-card-images):
-// the cardbacks, pack pictures and Cardmaker. Card and True Word pictures are in Cloud Storage instead, found through
+// the cardbacks, pack pictures, Cardmaker, and the Custom Card covers and effect pictures. Card and True Word pictures are in Cloud Storage instead, found through
 // their definitions (design D4 of upload-card-and-word-pictures); a manifest from an older build still lists them,
 // and those sections are ignored. Keep in step with `scripts/lib/artWrite.ts`.
 
@@ -17,6 +17,10 @@ export const artManifestSchema = z.object({
   packs: pictures,
   /** By Cardmaker stem, for example `cardmaker_lib`. */
   mascots: pictures,
+  /** The Custom Card covers, by draft cost: `'1'`, `'3'`, `'5'`. Missing from a manifest built before them. */
+  customCovers: pictures.default({}),
+  /** The custom effect pictures, by `'<cost>:<Type>'`, for example `'3:Caster'`. Missing from an older manifest. */
+  customEffects: pictures.default({}),
 })
 
 export type ArtManifest = z.infer<typeof artManifestSchema>
@@ -27,4 +31,6 @@ export const EMPTY_ART: ArtManifest = {
   cardbacks: {},
   packs: {},
   mascots: {},
+  customCovers: {},
+  customEffects: {},
 }

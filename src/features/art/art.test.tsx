@@ -28,6 +28,8 @@ const MANIFEST = testArt({
     'standard:The End is Nigh': '/art/packs/standard-the-end-is-nigh.0123456789.webp',
   },
   mascots: { cardmaker_lib: '/art/mascots/cardmaker_lib.0123456789.webp' },
+  customCovers: { '3': '/art/custom/3.0123456789.webp' },
+  customEffects: { '3:Caster': '/art/custom/3-caster.0123456789.webp' },
 })
 
 /** A fetch that answers with `body` and `status`. */
@@ -56,6 +58,14 @@ describe('artLookup', () => {
       '/art/packs/mechanic-blood-battle.0123456789.webp',
     )
     expect(art.packUrl('premium:The End Is Nigh')).toBeNull()
+  })
+
+  it('gives a Custom Card cover and an effect picture, and null for a missing one', () => {
+    expect(art.customCover(3)).toBe('/art/custom/3.0123456789.webp')
+    expect(art.customCover(5)).toBeNull()
+    expect(art.customEffect(3, 'Caster')).toBe('/art/custom/3-caster.0123456789.webp')
+    expect(art.customEffect(1, 'Caster')).toBeNull()
+    expect(art.customEffect(3, 'Held')).toBeNull()
   })
 
   it('knows no set Cardmaker by itself: the stored sets add them', () => {
@@ -89,6 +99,12 @@ describe('loadArtManifest', () => {
     await expect(
       loadArtManifest('/art/manifest.json', answer(JSON.stringify(older))),
     ).resolves.toEqual(MANIFEST)
+  })
+
+  it('reads a manifest built before the Custom Card pictures as having none', async () => {
+    const { customCovers: _covers, customEffects: _effects, ...older } = MANIFEST
+    const loaded = await loadArtManifest('/art/manifest.json', answer(JSON.stringify(older)))
+    expect(loaded).toEqual({ ...MANIFEST, customCovers: {}, customEffects: {} })
   })
 
   it.each([

@@ -4,10 +4,10 @@ import { useParams } from 'react-router'
 import { libraryPath } from '@/app/screens'
 import { Pill } from '@/components/ui/Pill'
 import { Spinner } from '@/components/ui/Spinner'
-import { useCardsById } from '@/features/cards/cardsContext'
+import { useHandCardsById } from '@/features/cards/cardsContext'
 import { CardFace } from '@/features/cards/CardFace'
 import { NO_VALUE } from '@/features/cards/display'
-import type { Card } from '@/features/cards/schema'
+import type { HandCard } from '@/features/cards/schema'
 import { statusLabel } from '@/features/cards/status'
 import { STATUS_LABELS } from '@/features/definitions/status'
 import { useCardStatuses } from '@/features/hands/cardStatus'
@@ -49,7 +49,7 @@ const BOX_CLASSES = 'rounded-xl border border-line bg-pane p-4'
  * The status pill: "Taslak" or "Kaldırıldı" for a draft or a retired card, else the Kart kütüphanesi's Durum text. A
  * card that is nowhere (a Cursed card no one holds) has none.
  */
-function StatusPill({ card }: { card: Card }) {
+function StatusPill({ card }: { card: HandCard }) {
   const statuses = useCardStatuses()
   const status = statuses?.get(card.id)
   const text =
@@ -76,7 +76,7 @@ function StatusPill({ card }: { card: Card }) {
   )
 }
 
-type CardHistoryProps = { card: Card; records: CardRecords; now: number }
+type CardHistoryProps = { card: HandCard; records: CardRecords; now: number }
 
 /** The page of a card the viewer may see, once its records are read. */
 function CardHistory({ card, records, now }: CardHistoryProps) {
@@ -228,8 +228,10 @@ function CardHistory({ card, records, now }: CardHistoryProps) {
  * player an active card whose "Listede görünür" is on, and a hidden or retired card while someone holds it. This is about what
  * the interface shows: the rules let every signed-in user read these records (design D8).
  */
-function isOpenTo(card: Card, isDm: boolean, isHeld: boolean): boolean {
+function isOpenTo(card: HandCard, isDm: boolean, isHeld: boolean): boolean {
   if (isDm) return true
+  // A Custom Card is listed nowhere: its page opens from the hand that holds it, and stays open after it is gone.
+  if (card.kind === 'custom') return true
   if (card.status === 'draft') return false
   return (card.status === 'active' && card.isInLibrary) || isHeld
 }
@@ -243,7 +245,7 @@ function isOpenTo(card: Card, isDm: boolean, isHeld: boolean): boolean {
 export function CardHistoryPage() {
   const { cardId = '' } = useParams()
   const isDm = useIsDm()
-  const cardsById = useCardsById()
+  const cardsById = useHandCardsById()
   const holdings = useOpenHoldings()
   const names = useStatsNames()
   const card = cardsById.status === 'ready' ? cardsById.data.get(cardId) : undefined

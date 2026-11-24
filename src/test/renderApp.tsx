@@ -14,6 +14,7 @@ import { type TestBalances, TestBalancesProvider } from './TestBalancesProvider'
 import { type TestCards, TestCardsProvider } from './TestCardsProvider'
 import { type TestCharacters, TestCharactersProvider } from './TestCharactersProvider'
 import { type TestCombat, TestCombatProvider } from './TestCombatProvider'
+import { type TestCustomDraft, TestCustomDraftProvider } from './TestCustomDraftProvider'
 import { type TestDefinitions, TestDefinitionsProvider } from './TestDefinitionsProvider'
 import { type TestDice, TestDiceProvider } from './TestDiceProvider'
 import { type TestDraws, TestDrawsProvider } from './TestDrawsProvider'
@@ -60,6 +61,8 @@ export type RenderAppOptions = {
   packs?: TestPacks
   /** The words, known words, open drafts and fake True Word steps. Defaults to none, and steps that succeed. */
   trueWords?: TestTrueWords
+  /** The custom effect texts, the open Custom Card drafts and fake draft steps. Defaults to none, and steps that succeed. */
+  customDraft?: TestCustomDraft
   /** The player notes and DM notes, and fake saves. Defaults to no notes, and saves that succeed. */
   notes?: TestNotes
   /** The cards' lore and a fake save. Defaults to no lore, and saves that succeed. */
@@ -89,6 +92,7 @@ type Data = {
   table: TestTable
   packs: TestPacks
   trueWords: TestTrueWords
+  customDraft: TestCustomDraft
   notes: TestNotes
   lore: TestLore
   definitions: TestDefinitions
@@ -102,7 +106,7 @@ type Data = {
  * characters, sets, cards, open holdings, party purse, table lock, open pack, True Words, notes, log and statistics
  * records and pictures, the DM's access list, and fake draws, pack, set, character, access-list and True Word steps,
  * note saves and leave. `setUsers`, `setPresence`, `setAccess`, `setCharacters`, `setSets`, `setCards`, `setHoldings`,
- * `setBalances`, `setTable`, `setPacks`, `setTrueWords`, `setNotes`, `setLore`, `setActivityLog`, `setStats`,
+ * `setBalances`, `setTable`, `setPacks`, `setTrueWords`, `setCustomDraft`, `setNotes`, `setLore`, `setActivityLog`, `setStats`,
  * `setDraws`, `setDice` and `setCombat` re-render the same app with other data, as a real-time update would, without
  * remounting.
  */
@@ -124,6 +128,7 @@ export function renderApp({
   table = {},
   packs = {},
   trueWords = {},
+  customDraft = {},
   notes = {},
   lore = {},
   definitions = {},
@@ -147,6 +152,7 @@ export function renderApp({
     table,
     packs,
     trueWords,
+    customDraft,
     notes,
     lore,
     definitions,
@@ -171,17 +177,19 @@ export function renderApp({
                               <TestStatsProvider {...data.stats}>
                                 <TestDrawsProvider {...data.draws}>
                                   <TestTrueWordsProvider {...data.trueWords}>
-                                    <TestPlayerNotesProvider {...data.notes}>
-                                      <TestLoreProvider {...data.lore}>
-                                        <TestDefinitionsProvider {...data.definitions}>
-                                          <TestDiceProvider {...data.dice}>
-                                            <TestCombatProvider {...data.combat}>
-                                              <RouterProvider router={router} />
-                                            </TestCombatProvider>
-                                          </TestDiceProvider>
-                                        </TestDefinitionsProvider>
-                                      </TestLoreProvider>
-                                    </TestPlayerNotesProvider>
+                                    <TestCustomDraftProvider {...data.customDraft}>
+                                      <TestPlayerNotesProvider {...data.notes}>
+                                        <TestLoreProvider {...data.lore}>
+                                          <TestDefinitionsProvider {...data.definitions}>
+                                            <TestDiceProvider {...data.dice}>
+                                              <TestCombatProvider {...data.combat}>
+                                                <RouterProvider router={router} />
+                                              </TestCombatProvider>
+                                            </TestDiceProvider>
+                                          </TestDefinitionsProvider>
+                                        </TestLoreProvider>
+                                      </TestPlayerNotesProvider>
+                                    </TestCustomDraftProvider>
                                   </TestTrueWordsProvider>
                                 </TestDrawsProvider>
                               </TestStatsProvider>
@@ -220,6 +228,7 @@ export function renderApp({
     setTable: (next: TestTable) => update({ table: next }),
     setPacks: (next: TestPacks) => update({ packs: next }),
     setTrueWords: (next: TestTrueWords) => update({ trueWords: next }),
+    setCustomDraft: (next: TestCustomDraft) => update({ customDraft: next }),
     setNotes: (next: TestNotes) => update({ notes: next }),
     setLore: (next: TestLore) => update({ lore: next }),
     setDraws: (next: TestDraws) => update({ draws: next }),

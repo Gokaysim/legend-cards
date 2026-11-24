@@ -8,7 +8,9 @@ import type {
   ArtPlanMode,
 } from './artFiles.ts'
 import type { CardFileError, CardFileWarning, Deck, LimitedField } from './cardRows.ts'
+import type { EffectFileError, EmptyCell, SkippedRow } from './customEffectRows.ts'
 import type { CardOutcome, DeckPlan, Upgrade } from './importCards.ts'
+import type { EffectPlan } from './importCustomEffects.ts'
 import type { PictureDefinition, PictureOutcome, PicturePlan } from './importPictures.ts'
 import type {
   SetImportPlan,
@@ -113,6 +115,45 @@ function deckReport({ deck, counts, cards, upgrades }: DeckPlan, dryRun: boolean
   return additionReport(DECK_LABELS[deck], counts, upgrades, cards, dryRun)
 }
 
+function effectFileError(file: string, error: EffectFileError): string {
+  switch (error.kind) {
+    case 'unreadable':
+      return `${file} okunamadı: ${error.detail}`
+    case 'missing-columns':
+      return `${file}: şu sütunlar eksik: ${error.columns.join(', ')}. Beklenen sütunlar: name, 1-cost version, 3-cost version, 5-cost version.`
+    case 'too-long':
+      return `${file}, satır ${error.row}: ${error.type} ${error.cost}-cost metni ${error.max} karakterden uzun.`
+    case 'duplicate':
+      return `${file}, satır ${error.rows[0]} ve ${error.rows[1]}: ${error.type} iki kez yazılmış.`
+  }
+}
+
+/** The effect import's report: the counts, the skipped rows and cells, and the cost-table reminder. */
+function effectReport(
+  plan: EffectPlan,
+  skipped: { rows: readonly SkippedRow[]; cells: readonly EmptyCell[] },
+  dryRun: boolean,
+): string[] {
+  const { added, changed, unchanged } = plan.counts
+  const verb = dryRun ? 'eklenecek' : 'eklendi'
+  const changeVerb = dryRun ? 'değişecek' : 'değişti'
+  const lines = [
+    `Custom efekt varyantları: ${added} ${verb}, ${changed} ${changeVerb}, ${unchanged} aynı kaldı.`,
+  ]
+  for (const row of skipped.rows) {
+    lines.push(`  Atlandı: satır ${row.row}, "${row.name}" bir efekt türü değil.`)
+  }
+  for (const cell of skipped.cells) {
+    lines.push(`  Atlandı: satır ${cell.row}, ${cell.type} ${cell.cost}-cost hücresi boş.`)
+  }
+  if (plan.costTypesChanged.length > 0) {
+    lines.push(
+      `Dikkat: ${plan.costTypesChanged.join(' ve ')} metni değişti. Custom Card maliyet tablosu kodda (src/features/custom-draft/draftRules.ts); yeni metin maliyeti değiştiriyorsa orayı da güncelle.`,
+    )
+  }
+  return lines
+}
+
 const WORD_FIELD_LABELS: Readonly<Record<WordLimitedField, string>> = {
   name: 'True Word adı',
   cost: 'Cost',
@@ -179,6 +220,8 @@ const ART_GROUP_LABELS: Readonly<Record<ArtGroup, string>> = {
   back: "Cardback'ler",
   pack: 'Pack görselleri',
   mascot: 'Cardmaker',
+  customCover: 'Custom Card kapakları',
+  customEffect: 'Custom efekt görselleri',
   setBack: "Set cardback'leri",
   setMascot: "Set Cardmaker'ları",
 }
@@ -190,7 +233,8 @@ const fileLabel = ({ name, from }: ReportedFile) => (from ? `${name} (${from})` 
 /** What the report says of the files each script plans, when another script leaves them to it. */
 const LEFT_TO_LABELS: Readonly<Record<ArtPlanMode, string>> = {
   definitions: 'Kart ve True Word dosyaları (npm run import-pictures yükler)',
-  assets: 'Blessed/Cursed cardback, pack ve ekran Cardmaker dosyaları (npm run build-art hazırlar)',
+  assets:
+    'Blessed/Cursed cardback, pack, ekran Cardmaker ve Custom Card dosyaları (npm run build-art hazırlar)',
   sets: 'Set cardback ve Cardmaker dosyaları (npm run import-sets yükler)',
 }
 
@@ -440,9 +484,24 @@ export const messages = {
     count === 0
       ? 'Hiçbir True Word yazılmadı: dosyadaki her True Word zaten kayıtlı.'
       : `${count} True Word yazıldı.`,
+  usageImportCustomEffects:
+    'Kullanım: npm run import-custom-effects -- [--file <csv>] [--dry-run] [--project <proje-kimliği>] [--yes]\n' +
+    'Dosya verilmezse data/custom-effects.csv kullanılır. Dosyadaki varyantların metnini yazar; dosyada olmayan ya da boş bırakılan varyantların kayıtlı metnine dokunmaz. Yapılmış Custom kartlar değişmez.',
+  effectFileUnreadable: (file: string, detail: string) =>
+    `"${file}" okunamadı: ${detail}. Hiçbir efekt değişmedi.`,
+  effectFileError,
+  effectFileInvalid: (count: number) =>
+    `Dosyada ${count} hata var. Hiçbir efekt değişmedi: önce dosyayı düzelt.`,
+  dryRunEffectsHeader:
+    'Deneme (--dry-run): hiçbir efekt yazılmadı. Gerçek bir import şunu yapardı:',
+  effectReport,
+  effectsWritten: (count: number) =>
+    count === 0
+      ? 'Hiçbir efekt yazılmadı: dosyada dolu bir varyant yok.'
+      : `${count} custom efekt varyantı kaydedildi.`,
   usageBuildArt:
     'Kullanım: npm run build-art -- --source <klasör> [--dry-run]\n' +
-    "Klasördeki .7z arşivlerini ve .png dosyalarını okur, onlara dokunmaz; Blessed ve Cursed cardback'lerini, pack görsellerini ve ekranların Cardmaker görsellerini public/art/ klasörüne yazar. Kart ve True Word resimlerini npm run import-pictures, setlerin cardback ve Cardmaker resimlerini npm run import-sets yükler.",
+    "Klasördeki .7z arşivlerini ve .png dosyalarını okur, onlara dokunmaz; Blessed ve Cursed cardback'lerini, pack görsellerini, ekranların Cardmaker görsellerini ve Custom Card kapaklarıyla efekt görsellerini public/art/ klasörüne yazar. Kart ve True Word resimlerini npm run import-pictures, setlerin cardback ve Cardmaker resimlerini npm run import-sets yükler.",
   sevenZipMissing:
     '7-Zip bulunamadı (`7zz` komutu yok). Kurmak için: brew install sevenzip. Hiçbir şey yazılmadı.',
   sourceUnreadable: (folder: string, detail: string) =>

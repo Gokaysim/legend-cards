@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { type BehaviorFlag, type DefinitionKind, startingFlags } from '@/features/definitions/flags'
 import { picturePathSchema } from '@/features/definitions/picturePath'
 import { DEFINITION_STATUSES } from '@/features/definitions/status'
+import { CUSTOM_COSTS, EFFECT_TEXT_MAX, EFFECT_TYPES } from '@/features/custom-draft/effectTypes'
 import { createConverter } from '@/lib/firestore/converter'
 
 export {
@@ -138,6 +139,43 @@ const trueWordSchema = z.object({
   holder: z.null().default(null),
 })
 
+/** One effect of a Custom Card: its type, the cost it resolved to, and that variant's text when the card was made. */
+export const customEffectSchema = z.object({
+  type: z.enum(EFFECT_TYPES),
+  cost: z.union(CUSTOM_COSTS.map((cost) => z.literal(cost))),
+  text: z.string().min(1).max(EFFECT_TEXT_MAX),
+})
+
+/**
+ * A Custom Card (design D1 of add-custom-card-draft): a one-copy definition with its own `custom-` IDs, made by the last
+ * pick of its draft. It is always active, in no list, draw or pack, and has no set, rarity, mechanic pack or picture.
+ * `base` is the draft's cost, `cost` the computed cost, and `effects` the resolved effects in pick order. Its `text`
+ * is empty: the app composes the text from the effects. "Elde etkili" and "Kullanınca elde kalır" are on exactly when
+ * it has a Held effect.
+ */
+const customCardSchema = z.object({
+  kind: z.literal('custom'),
+  ...common,
+  cost: z.string().min(1).max(CARD_LIMITS.cost),
+  text: z.literal(''),
+  status: z.literal('active'),
+  picture: z.null().default(null),
+  // Fixed by the kind (FIXED_FLAGS in definitions/flags.ts).
+  isInLibrary: z.literal(false),
+  isInDraws: z.literal(false),
+  isInSetPacks: z.literal(false),
+  isInMechanicPacks: z.literal(false),
+  isRepeatable: z.literal(false),
+  hasUseEffect: z.literal(true),
+  setCode: z.null(),
+  rarity: z.null(),
+  mechanicPack: z.null(),
+  holder,
+  base: z.union(CUSTOM_COSTS.map((cost) => z.literal(cost))),
+  draftId: z.string().min(1),
+  effects: z.array(customEffectSchema).min(1).max(EFFECT_TYPES.length),
+})
+
 /** The definition fields whose emptiness decides whether a card is complete. */
 export type CardCompletenessFields = {
   kind: CardKind
@@ -205,6 +243,7 @@ export const definitionSchema = z
     blessedCardSchema,
     cursedCardSchema,
     trueWordSchema,
+    customCardSchema,
   ])
   .superRefine((definition, ctx) => {
     if (definition.holder !== null && definition.isRepeatable) {
@@ -213,6 +252,21 @@ export const definitionSchema = z
         path: ['holder'],
         message: 'A repeatable card has no holder',
       })
+    }
+    if (definition.kind === 'custom') {
+      const types = definition.effects.map((effect) => effect.type)
+      if (new Set(types).size !== types.length) {
+        ctx.addIssue({ code: 'custom', path: ['effects'], message: 'Effect types are distinct' })
+      }
+      const held = types.includes('Held')
+      if (definition.hasHeldEffect !== held || definition.isKeptOnUse !== held) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['hasHeldEffect'],
+          message: 'A Custom Card acts while held and is kept on use exactly when it has Held',
+        })
+      }
+      return
     }
     if (definition.status === 'draft') return
     const missing =
@@ -231,14 +285,30 @@ export const definitionConverter = createConverter(definitionSchema, { idField: 
 /** A definition as features see it: the stored fields plus the document ID as `id`. */
 export type Definition = z.infer<typeof definitionSchema> & { id: string }
 /** A card: a normal, Blessed or Cursed definition. */
-export type Card = Exclude<Definition, { kind: 'trueWord' }>
+export type Card = Exclude<Definition, { kind: 'trueWord' | 'custom' }>
 /** A True Word definition. */
 export type TrueWord = Extract<Definition, { kind: 'trueWord' }>
+/** A Custom Card (design D1 of add-custom-card-draft). */
+export type CustomCard = Extract<Definition, { kind: 'custom' }>
+/** One effect of a Custom Card. */
+export type CustomCardEffect = CustomCard['effects'][number]
+/** A card a hand can hold as a card: a normal, Blessed or Cursed card, or a Custom Card. */
+export type HandCard = Card | CustomCard
 export type NormalCard = Extract<Card, { kind: 'normal' }>
 export type CursedCard = Extract<Card, { kind: 'cursed' }>
 
-/** True for a card, false for a True Word. */
+/** True for a normal, Blessed or Cursed card; false for a True Word and a Custom Card. */
 export function isCard(definition: Definition): definition is Card {
+  return definition.kind !== 'trueWord' && definition.kind !== 'custom'
+}
+
+/** True for a Custom Card. */
+export function isCustomCard(definition: Definition): definition is CustomCard {
+  return definition.kind === 'custom'
+}
+
+/** True for a card a hand holds as a card: anything but a True Word. */
+export function isHandCard(definition: Definition): definition is HandCard {
   return definition.kind !== 'trueWord'
 }
 

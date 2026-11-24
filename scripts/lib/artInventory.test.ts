@@ -19,7 +19,14 @@ import { parseSetFile } from './setRows.ts'
 import { DATA_FILES, hasOwnerData, ownerFile } from './testData.ts'
 import { parseTrueWordFile } from './trueWordRows.ts'
 
-const HAS_OWNER_DATA = hasOwnerData(...Object.values(DATA_FILES))
+const HAS_OWNER_DATA = hasOwnerData(
+  DATA_FILES.legend,
+  DATA_FILES.cursed,
+  DATA_FILES.trueWords,
+  DATA_FILES.sets,
+  DATA_FILES.aliases,
+  DATA_FILES.inventory,
+)
 /** An owner's file, or nothing where the owner's data is absent and the test is skipped. */
 const dataFile = (name: (typeof DATA_FILES)[keyof typeof DATA_FILES]) =>
   HAS_OWNER_DATA ? ownerFile(name) : ''
@@ -111,14 +118,16 @@ describe.skipIf(!HAS_OWNER_DATA)('the inventory of the archives', () => {
     ).toBe('pack_galmblers.png')
   })
 
-  // The Custom Card pictures (`<cost><effect>.png`) wait for the Custom Card Draft, which the app does not have yet.
-  it('has no duplicates: the Custom Card pictures and three spare files are unknown', () => {
+  it('gives each Custom Card cost its cover and every effect its picture at each cost', () => {
+    expect(assets.coverage.customCover).toEqual({ expected: 3, found: 3, missing: [] })
+    expect(assets.coverage.customEffect).toEqual({ expected: 54, found: 54, missing: [] })
+  })
+
+  it('has no duplicates, and three spare files are unknown', () => {
     expect(plan.duplicates).toEqual([])
     expect(assets.duplicates).toEqual([])
     expect(sets.duplicates).toEqual([])
-    const unknown = plan.unknown.map(({ name }) => name)
-    expect(unknown.filter((name) => /^[135][a-z]+\.png$/.test(name))).toHaveLength(57)
-    expect(unknown.filter((name) => !/^[135][a-z]+\.png$/.test(name))).toEqual([
+    expect(plan.unknown.map(({ name }) => name)).toEqual([
       'thecartographersmapkit.png',
       'vidajalsaqrsunjustblade.png',
       'zallut_shop.png',

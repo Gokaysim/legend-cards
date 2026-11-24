@@ -172,6 +172,22 @@ describe('import-pictures', () => {
     expect(plan.withoutPicture.map(({ name }) => name)).toEqual(['Twilight Veil'])
   })
 
+  it('leaves the Custom Card pictures to the build and never gives a Custom Card a picture', async () => {
+    await admin.db.doc('cards/custom-abc').set({
+      kind: 'custom',
+      name: '3-Cost Custom Card',
+      nameKey: '3costcustomcard',
+      status: 'active',
+    })
+    const { plan } = await importPictures(await pngs('3caster.png', '3custom.png'), {
+      dryRun: true,
+    })
+    expect(plan.art.unknown).toEqual([])
+    expect(plan.art.leftTo.assets.map(({ name }) => name)).toEqual(['3caster.png', '3custom.png'])
+    expect(plan.pictures.map(({ definition }) => definition.id)).not.toContain('custom-abc')
+    expect(plan.withoutPicture.map(({ name }) => name)).not.toContain('3-Cost Custom Card')
+  })
+
   it('writes one public and one DM-only record per kind of definition', async () => {
     await importPictures(await pngs(...FILES))
 

@@ -2,11 +2,17 @@ import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import type { Card } from '@/features/cards/schema'
+import type { Card, Definition } from '@/features/cards/schema'
 import { WordError } from '@/features/true-words/errors'
 import type { LearnedWord } from '@/features/true-words/schema'
 import type { TrueWordActions } from '@/features/true-words/trueWordsContext'
-import { ONLY_FROM_DM, testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
+import {
+  ONLY_FROM_DM,
+  testBlessedCard,
+  testCard,
+  testCursedCard,
+  testCustomCard,
+} from '@/test/cardFixtures'
 import { ready, testProfile, testUser } from '@/test/fixtures'
 import { testHolding } from '@/test/holdingFixtures'
 import { renderApp } from '@/test/renderApp'
@@ -40,7 +46,11 @@ function setup({
   viewer = dm,
   giveCard,
   cards = CARDS,
-}: { viewer?: typeof dm; giveCard?: HoldingActions['giveCard']; cards?: Card[] } = {}) {
+}: {
+  viewer?: typeof dm
+  giveCard?: HoldingActions['giveCard']
+  cards?: Definition[]
+} = {}) {
   const user = userEvent.setup()
   const give = vi.fn<HoldingActions['giveCard']>(giveCard ?? (() => Promise.resolve('new')))
   const view = renderApp({
@@ -291,6 +301,14 @@ describe('GiveCardDialog', () => {
 
     expect(give).not.toHaveBeenCalled()
     expect(dialog().getByRole('alert')).toHaveTextContent('Bağlantı yok')
+  })
+
+  it('never lists a Custom Card, held or not', async () => {
+    const custom = testCustomCard('custom-1')
+    const { user } = setup({ cards: [...CARDS, custom] })
+    await open(user)
+    expect(count()).toHaveTextContent('6 kart')
+    expect(faces()).not.toContain('3-Cost Custom Card')
   })
 
   it('says so when nothing matches, and closes with the close button', async () => {

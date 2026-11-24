@@ -8,14 +8,15 @@ import sharp from 'sharp'
 import { type ArtAssignment, type ArtFile, SECTION_OF_GROUP } from './artFiles.ts'
 
 // Converting the planned pictures and writing them with their manifest (design D1, steps 6 and 7; D4 of
-// add-card-images). Since upload-card-and-word-pictures the build writes only the cardbacks, packs and Cardmaker; the
-// card and True Word pictures go to Cloud Storage (`importPictures.ts`), converted the same way (`convertPicture`).
+// add-card-images). Since upload-card-and-word-pictures the build writes only the cardbacks, packs and Cardmaker, and
+// since add-custom-card-draft the Custom Card covers and effect pictures; the card and True Word pictures go to Cloud
+// Storage (`importPictures.ts`), converted the same way (`convertPicture`).
 
 /** The manifest format. Keep in step with `src/features/art/schema.ts`. */
 export const MANIFEST_VERSION = 1
 
 /** The manifest's sections: the built pictures. */
-export type ManifestSection = 'cardbacks' | 'packs' | 'mascots'
+export type ManifestSection = 'cardbacks' | 'packs' | 'mascots' | 'customCovers' | 'customEffects'
 
 export type ArtManifest = { version: typeof MANIFEST_VERSION } & Record<
   ManifestSection,
@@ -39,6 +40,8 @@ const SECTION_FOLDERS: Readonly<Record<ManifestSection, string>> = {
   cardbacks: 'backs',
   packs: 'packs',
   mascots: 'mascots',
+  customCovers: 'custom',
+  customEffects: 'custom',
 }
 
 const isManifestSection = (section: string): section is ManifestSection =>
@@ -77,6 +80,8 @@ const emptyManifest = (): ArtManifest => ({
   cardbacks: {},
   packs: {},
   mascots: {},
+  customCovers: {},
+  customEffects: {},
 })
 
 /** Runs `work` on every item, at most `limit` at a time, keeping the results in order. */
@@ -105,7 +110,8 @@ export type WriteArtOptions = {
 /**
  * Empties `outDir`, converts each assigned picture into `<section folder>/<key>.<hash>.webp`, and writes the
  * manifest last: a build that fails halfway leaves no manifest, so the app keeps its CSS look. Returns the manifest.
- * Every assignment must be a cardback, a pack or a Cardmaker: card and word pictures are not built.
+ * Every assignment must be a cardback, a pack, a Cardmaker or a Custom Card picture: card and word pictures are not
+ * built.
  */
 export async function writeArt(
   assignments: readonly ArtAssignment<SourceFile>[],
@@ -113,7 +119,7 @@ export async function writeArt(
   { onProgress }: WriteArtOptions = {},
 ): Promise<ArtManifest> {
   await rm(outDir, { recursive: true, force: true })
-  for (const folder of Object.values(SECTION_FOLDERS)) {
+  for (const folder of new Set(Object.values(SECTION_FOLDERS))) {
     await mkdir(join(outDir, folder), { recursive: true })
   }
 

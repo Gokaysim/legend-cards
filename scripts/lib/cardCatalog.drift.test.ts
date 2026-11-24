@@ -60,7 +60,10 @@ describe('the starting flags of the script and the app agree', () => {
     'When held, gain 1 LP.',
   ]
 
-  it.each(DEFINITION_KINDS)('for a %s definition', (kind) => {
+  // A Custom Card is made only by its draft, never by an import.
+  const importedKinds = DEFINITION_KINDS.filter((kind) => kind !== 'custom')
+
+  it.each(importedKinds)('for a %s definition', (kind) => {
     for (const text of texts)
       expect(startingFlags(kind, text), text).toEqual(appStartingFlags(kind, text))
   })

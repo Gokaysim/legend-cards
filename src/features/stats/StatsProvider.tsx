@@ -1,6 +1,6 @@
 import { type ReactNode, useMemo } from 'react'
 
-import { isCardDraw } from '@/features/draws/schema'
+import { isCardDraw, isCustomDraft } from '@/features/draws/schema'
 import { db } from '@/lib/firebase/firestore'
 import { combineSubscriptions, type Subscription } from '@/lib/firestore/subscription'
 import { useCollection } from '@/lib/firestore/useCollection'
@@ -18,7 +18,14 @@ function useFirestoreCardRecords(cardId: string | null): Subscription<CardRecord
   return useMemo(() => {
     const combined = combineSubscriptions({ holdings, uses, draws, packs })
     return combined.status === 'ready'
-      ? { ...combined, data: { ...combined.data, draws: combined.data.draws.filter(isCardDraw) } }
+      ? {
+          ...combined,
+          data: {
+            ...combined.data,
+            draws: combined.data.draws.filter(isCardDraw),
+            customDrafts: combined.data.draws.filter(isCustomDraft),
+          },
+        }
       : combined
   }, [holdings, uses, draws, packs])
 }

@@ -21,7 +21,14 @@ import { visibleText } from '@/features/cards/text'
 import { MAX_USE_AMOUNT, priceAllows, priceOfUse } from '@/features/cards/display'
 import { readUseTarget, setUseEffect } from '@/features/characters/api'
 import type { UseTarget } from '@/features/characters/useTarget'
-import { type Card, type Definition, isCard } from '@/features/cards/schema'
+import {
+  type Card,
+  type Definition,
+  type HandCard,
+  isCard,
+  isHandCard,
+} from '@/features/cards/schema'
+import { composeText } from '@/features/custom-draft/draftRules'
 import { explainDenial } from '@/features/table/api'
 import { profileRef, USERS_COLLECTION } from '@/features/users/api'
 import { firebaseCode } from '@/lib/firestore/errors'
@@ -105,6 +112,16 @@ async function readDefinition(
 ): Promise<Definition> {
   const definition = (await transaction.get(ref)).data()
   if (!definition) throw new HoldingError('card-missing')
+  return definition
+}
+
+/** A card a hand holds as a card, a Custom Card included: never a True Word, which is never transferred. */
+async function readHandCard(
+  transaction: Transaction,
+  ref: DocumentReference<Definition>,
+): Promise<HandCard> {
+  const definition = await readDefinition(transaction, ref)
+  if (!isHandCard(definition)) throw new HoldingError('card-missing')
   return definition
 }
 
@@ -374,7 +391,9 @@ function closeHoldingOnce(db: Firestore, input: CloseHoldingInput, read: LpRead)
         sourceId: paidFor,
         content: {
           name: current.name,
-          text: visibleText(current.text),
+          // A Custom Card's text is composed from its effects (design D1 of add-custom-card-draft).
+          text:
+            current.kind === 'custom' ? composeText(current.effects) : visibleText(current.text),
           cursed: current.kind === 'cursed',
           blessed: current.kind === 'blessed',
         },
@@ -415,7 +434,7 @@ function transferHoldingOnce(
   return runTransaction(db, async (transaction) => {
     const holding = await readOpenHolding(transaction, ref)
     const card = cardRef(db, holding.cardId)
-    const current = await readCard(transaction, card)
+    const current = await readHandCard(transaction, card)
     transaction.update(writableHolding(db, holdingId), {
       returnedAt: serverTimestamp(),
       returnedBy: by,

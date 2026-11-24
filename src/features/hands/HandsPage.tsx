@@ -1,14 +1,20 @@
-import { useCallback, useId, useMemo, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useState } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router'
 
-import { HAND_CHARACTER_PARAM, handPath, packShopPath, screenById } from '@/app/screens'
+import {
+  HAND_CHARACTER_PARAM,
+  HAND_SELECTED_PARAM,
+  handPath,
+  packShopPath,
+  screenById,
+} from '@/app/screens'
 import { DetailsBadges } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { TabPanel } from '@/components/ui/TabList'
 import { Spinner } from '@/components/ui/Spinner'
 import { useAuth } from '@/features/auth/authContext'
-import { useCardsById } from '@/features/cards/cardsContext'
+import { useHandCardsById } from '@/features/cards/cardsContext'
 import { heldEffects } from '@/features/characters/heldEffects'
 import { useHandCharacters } from '@/features/characters/useHandCharacters'
 import { DrawButtons } from '@/features/draws/DrawButtons'
@@ -164,7 +170,7 @@ function HandContent({ profile }: { profile: UserProfile }) {
   const ids = useId()
   const isDm = useIsDm()
   const holdings = useOpenHoldings()
-  const cardsById = useCardsById()
+  const cardsById = useHandCardsById()
   const words = useTrueWords()
   const knownWords = useKnownWords(profile.id)
   const [params, setParams] = useSearchParams()
@@ -175,6 +181,23 @@ function HandContent({ profile }: { profile: UserProfile }) {
   // by itself, and going back does not bring the old selection back.
   if (cardSelection !== null && cardSelection.isWide !== isWide) setCardSelection(null)
   if (wordSelection !== null && wordSelection.isWide !== isWide) setWordSelection(null)
+  // A holding the address asks to select, as after the last pick of a Custom Card draft (design D9 of
+  // add-custom-card-draft): selected once, during this render, and the parameter is dropped below.
+  const requestedCard = params.get(HAND_SELECTED_PARAM)
+  if (requestedCard !== null && cardSelection?.id !== requestedCard) {
+    setCardSelection({ id: requestedCard, isWide })
+  }
+  useEffect(() => {
+    if (requestedCard === null) return
+    setParams(
+      (current) => {
+        const next = new URLSearchParams(current)
+        next.delete(HAND_SELECTED_PARAM)
+        return next
+      },
+      { replace: true },
+    )
+  }, [requestedCard, setParams])
 
   const wordEntries = useMemo(
     () =>

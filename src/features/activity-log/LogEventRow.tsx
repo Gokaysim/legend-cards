@@ -1,4 +1,4 @@
-import { useCardsById } from '@/features/cards/cardsContext'
+import { useHandCardsById } from '@/features/cards/cardsContext'
 import { useSetIndex } from '@/features/sets/setsContext'
 import { useTrueWords } from '@/features/true-words/trueWordsContext'
 import { RoleTag } from '@/features/users/RoleTag'
@@ -34,7 +34,7 @@ export function LogEventRow({ event, nameOf, actor }: LogEventRowProps) {
     other.status === 'ready' ? other.data : null,
   )
   const at = event.at?.toDate() ?? null
-  const cardsById = useCardsById()
+  const cardsById = useHandCardsById()
   const words = useTrueWords()
   const shown =
     event.kind === 'pack' && cardsById.status === 'ready'

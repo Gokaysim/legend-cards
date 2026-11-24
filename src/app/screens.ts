@@ -168,6 +168,12 @@ export const DM_NOTE_TAB = 'dm-note'
 /** The search parameter that names the hand's open character (design D3 of redesign-hand-dashboard). */
 export const HAND_CHARACTER_PARAM = 'character'
 
+/**
+ * The search parameter of a holding to select when a hand opens, as after the last pick of a Custom Card draft (design
+ * D9 of add-custom-card-draft). The hand selects it once and drops the parameter.
+ */
+export const HAND_SELECTED_PARAM = 'selected'
+
 /** A player's hand, opened on its True Words tab. */
 export function handTrueWordsPath(uid: string): string {
   return `${handPath(uid)}?${HAND_TAB_PARAM}=${TRUE_WORDS_TAB}`

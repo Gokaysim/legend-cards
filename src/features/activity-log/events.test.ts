@@ -1,7 +1,8 @@
 import { Timestamp } from 'firebase/firestore'
 import { describe, expect, it } from 'vitest'
 
-import { testCard, testCursedCard } from '@/test/cardFixtures'
+import { testCard, testCursedCard, testCustomCard } from '@/test/cardFixtures'
+import { testCustomDraft } from '@/test/customDraftFixtures'
 import { testDmDraw, testDraw } from '@/test/drawFixtures'
 import { testHolding } from '@/test/holdingFixtures'
 import { testGpEntry, testLedgerEntry } from '@/test/ledgerFixtures'
@@ -356,5 +357,36 @@ describe('True Word events', () => {
 describe('definition changes', () => {
   it('are not among the records the log reads, so they make no events', () => {
     expect(Object.keys(EMPTY_LOG_RECORDS)).not.toContain('changes')
+  })
+})
+
+describe('Custom Card draft events', () => {
+  it('makes one event per draft, at its start, and the later use of its card a card event', () => {
+    const draft = testCustomDraft({
+      id: 'c1',
+      uid: 'ayla',
+      by: 'ayla',
+      at: Timestamp.fromMillis(3000),
+      status: 'finished',
+      closedAt: Timestamp.fromMillis(3500),
+      closedBy: 'ayla',
+      cardId: 'custom-1',
+      holdingId: 'h1',
+      offered: [],
+    })
+    const card = testCustomCard('custom-1')
+    const used = testHolding(card, 'ayla', 3500, {
+      id: 'h1',
+      givenVia: 'draft',
+      drawId: 'c1',
+      returnedAt: Timestamp.fromMillis(5000),
+      returnedBy: 'ayla',
+      returnReason: 'used',
+    })
+    const events = deriveEvents(records({ draws: [draft], closed: [used] }))
+    expect(events.map((event) => [event.kind, event.key, event.at?.toMillis(), event.by])).toEqual([
+      ['used', 'used:h1', 5000, 'ayla'],
+      ['customDraft', 'customDraft:c1', 3000, 'ayla'],
+    ])
   })
 })

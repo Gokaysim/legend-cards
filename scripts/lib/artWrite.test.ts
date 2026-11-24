@@ -77,6 +77,8 @@ describe('writeArt', () => {
       cardbacks: { Kesqer: `/art/backs/${backFile}` },
       packs: {},
       mascots: { cardmaker_lib: `/art/mascots/${mascotFile}` },
+      customCovers: {},
+      customEffects: {},
     }
     expect(manifest).toEqual(expected)
     expect(JSON.parse(await readFile(join(out, 'manifest.json'), 'utf8'))).toEqual(expected)
@@ -90,7 +92,7 @@ describe('writeArt', () => {
     const back = await png('kesqer_cb.png', 30, 42, 32)
     const mascot = await png('cardmaker_lib.png', 30, 42, 112)
     const first = await writeArt([assign(BACK, back), assign(MASCOT, mascot)], out)
-    expect(await readdir(out)).toEqual(['backs', 'manifest.json', 'mascots', 'packs'])
+    expect(await readdir(out)).toEqual(['backs', 'custom', 'manifest.json', 'mascots', 'packs'])
 
     await png('cardmaker_lib.png', 30, 42, 160)
     const second = await writeArt([assign(BACK, back), assign(MASCOT, mascot)], out)
@@ -99,6 +101,27 @@ describe('writeArt', () => {
     expect(second.cardbacks.Kesqer).toBe(first.cardbacks.Kesqer)
     expect(second.cardbacks.Kesqer).toMatch(/^\/art\/backs\/kesqer\.[0-9a-f]{10}\.webp$/)
     expect(await readdir(join(out, 'mascots'))).toHaveLength(1)
+  })
+
+  it('writes the Custom Card covers and effect pictures at their own size', async () => {
+    const cover = await png('3custom.png', 30, 42, 64)
+    const effect = await png('3caster.png', 30, 42, 96)
+    const out = join(root, 'art')
+    const manifest = await writeArt(
+      [
+        assign({ group: 'customCover', key: '3', label: '3custom' }, cover),
+        assign({ group: 'customEffect', key: '3:Caster', label: '3caster' }, effect),
+      ],
+      out,
+    )
+    expect(manifest.customCovers['3']).toMatch(/^\/art\/custom\/3\.[0-9a-f]{10}\.webp$/)
+    expect(manifest.customEffects['3:Caster']).toMatch(
+      /^\/art\/custom\/3-caster\.[0-9a-f]{10}\.webp$/,
+    )
+    const files = await readdir(join(out, 'custom'))
+    expect(files).toHaveLength(2)
+    const bytes = await readFile(join(out, 'custom', files[0] ?? ''))
+    expect(await sharp(bytes).metadata()).toMatchObject({ width: 30, height: 42 })
   })
 
   it('builds no card or word picture', async () => {

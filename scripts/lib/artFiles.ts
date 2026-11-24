@@ -1,6 +1,12 @@
 import { normalize } from './cardCatalog.ts'
 import type { CardDefinition, CardKind } from './cardRows.ts'
 import { normalizeHeader, readRecords } from './csv.ts'
+import {
+  CUSTOM_EFFECT_TYPES,
+  type CustomEffectType,
+  VARIANT_COSTS,
+  type VariantCost,
+} from './customEffectRows.ts'
 import { cardId } from './importCards.ts'
 import { trueWordId } from './importTrueWords.ts'
 import type { TrueWordDefinition } from './trueWordRows.ts'
@@ -16,7 +22,8 @@ import type { TrueWordDefinition } from './trueWordRows.ts'
  * Where each group's pictures go: the manifest's sections for the built ones, and the card, word and set pictures in
  * Cloud Storage.
  */
-export type ArtSection = 'cards' | 'words' | 'sets' | 'cardbacks' | 'packs' | 'mascots'
+export type ArtSection =
+  'cards' | 'words' | 'sets' | 'cardbacks' | 'packs' | 'mascots' | 'customCovers' | 'customEffects'
 
 /** What the report counts, in its order. A group belongs to one section. */
 export const ART_GROUPS = [
@@ -27,6 +34,8 @@ export const ART_GROUPS = [
   'back',
   'pack',
   'mascot',
+  'customCover',
+  'customEffect',
   'setBack',
   'setMascot',
 ] as const
@@ -40,14 +49,17 @@ export const SECTION_OF_GROUP: Readonly<Record<ArtGroup, ArtSection>> = {
   back: 'cardbacks',
   pack: 'packs',
   mascot: 'mascots',
+  customCover: 'customCovers',
+  customEffect: 'customEffects',
   setBack: 'sets',
   setMascot: 'sets',
 }
 
 /**
  * One thing a picture shows. `key` is its key in its section: a card or word document ID, a set ID (for a set's
- * cardback and Cardmaker), `blessed` or `cursed`, a pack key as `PackDef.key` writes it, or a mascot stem. `label`
- * names it in the report.
+ * cardback and Cardmaker), `blessed` or `cursed`, a pack key as `PackDef.key` writes it, a mascot stem, a Custom Card
+ * cover's cost (`'3'`), or a Custom Card effect picture's `'<cost>:<Type>'` (`'3:Caster'`). `label` names it in the
+ * report.
  */
 export type ArtTarget = { group: ArtGroup; key: string; label: string }
 
@@ -113,7 +125,7 @@ export type ArtPlanMode = (typeof ART_PLAN_MODES)[number]
 
 /** The groups each mode plans; the files of the other groups are left to the other scripts. */
 export const GROUPS_OF_MODE: Readonly<Record<ArtPlanMode, readonly ArtGroup[]>> = {
-  assets: ['back', 'pack', 'mascot'],
+  assets: ['back', 'pack', 'mascot', 'customCover', 'customEffect'],
   sets: ['setBack', 'setMascot'],
   definitions: ['normal', 'blessed', 'cursed', 'word'],
 }
@@ -237,6 +249,10 @@ function indexTargets(data: ArtData): TargetIndex {
       back: [BLESSED_BACK, CURSED_BACK],
       pack: NAMED_PACKS.map(({ key, label }) => ({ group: 'pack', key, label })),
       mascot: CARDMAKER_STEMS.map((stem) => ({ group: 'mascot', key: stem, label: stem })),
+      customCover: VARIANT_COSTS.map(customCoverTarget),
+      customEffect: VARIANT_COSTS.flatMap((cost) =>
+        CUSTOM_EFFECT_TYPES.map((type) => customEffectTarget(cost, type)),
+      ),
       setBack: data.sets.map((set) => setTarget('setBack', set)),
       setMascot: data.sets.map((set) => setTarget('setMascot', set)),
     },
@@ -245,6 +261,38 @@ function indexTargets(data: ArtData): TargetIndex {
 
 const BLESSED_BACK: ArtTarget = { group: 'back', key: 'blessed', label: 'Blessed' }
 const CURSED_BACK: ArtTarget = { group: 'back', key: 'cursed', label: 'Cursed' }
+
+/** A Custom Card's cover for its draft cost (design D6 of add-custom-card-draft). */
+const customCoverTarget = (cost: VariantCost): ArtTarget => ({
+  group: 'customCover',
+  key: `${cost}`,
+  label: `${cost}custom`,
+})
+
+/** A custom effect's picture at a cost, keyed `'<cost>:<Type>'`. */
+const customEffectTarget = (cost: VariantCost, type: CustomEffectType): ArtTarget => ({
+  group: 'customEffect',
+  key: `${cost}:${type}`,
+  label: `${cost}${type.toLowerCase()}`,
+})
+
+const CUSTOM_TYPE_BY_STEM = new Map<string, CustomEffectType>(
+  CUSTOM_EFFECT_TYPES.map((type) => [type.toLowerCase(), type]),
+)
+
+/**
+ * A Custom Card picture by its name: `1custom`, `3custom`, `5custom` for the covers, and `<cost><type>` (`3caster`,
+ * `5tw`) for the effect pictures, without regard to case. `null` for any other name.
+ */
+function claimCustomPicture(stem: string): ArtTarget | null {
+  const match = /^([135])([a-z]+)$/i.exec(stem)
+  if (!match) return null
+  const cost = Number(match[1]) as VariantCost
+  const rest = (match[2] ?? '').toLowerCase()
+  if (rest === 'custom') return customCoverTarget(cost)
+  const type = CUSTOM_TYPE_BY_STEM.get(rest)
+  return type === undefined ? null : customEffectTarget(cost, type)
+}
 
 /** A set's cardback or Cardmaker, keyed by the set's ID and named by its official name. */
 const setTarget = (group: 'setBack' | 'setMascot', set: ArtSet): ArtTarget => ({
@@ -260,7 +308,8 @@ export function stemOf(fileName: string): string {
 
 /**
  * Which script a file belongs to by its legacy name (rules 2 to 5), before any data is asked:
- * - the build's assets: a screen's Cardmaker, a named pack, or the Blessed or Cursed cardback, with its target
+ * - the build's assets: a screen's Cardmaker, a named pack, the Blessed or Cursed cardback, or a Custom Card cover or
+ *   effect picture, with its target
  * - the set import's set files: any other `<set>_cb` or `cardmaker_<set>`, with the set as the file writes it
  * - `null` for every other file, which is the picture import's
  */
@@ -270,6 +319,8 @@ type FileClaim =
   | null
 
 function claimFile(stem: string): FileClaim {
+  const custom = claimCustomPicture(stem)
+  if (custom) return { mode: 'assets', target: custom }
   const lower = stem.toLowerCase()
   if (CARDMAKER_STEMS.includes(lower)) {
     return { mode: 'assets', target: { group: 'mascot', key: lower, label: lower } }

@@ -57,6 +57,11 @@ const BUILT_SCREENS: Record<string, () => void> = {
     expect(screen.getByRole('article', { name: 'Dawn of Fortune' })).toBeInTheDocument()
     expect(screen.queryByRole('article', { name: 'Visions of Death' })).not.toBeInTheDocument()
   },
+  // The Custom Card Draft: the three cost choices, disabled until the custom effects are loaded.
+  '/custom-draft': () => {
+    expect(screen.getByRole('list', { name: 'Custom Card seçenekleri' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /1-Cost Custom Card/ })).toBeDisabled()
+  },
   // The sets, in the stored order.
   '/sets': () => {
     expect(screen.getByRole('rowheader', { name: /^The End is Nigh/ })).toBeInTheDocument()

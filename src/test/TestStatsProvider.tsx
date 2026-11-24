@@ -35,6 +35,7 @@ export function TestStatsProvider({ records, children }: TestStatsProviderProps)
             uses: all.data.uses.filter((use) => use.cardId === cardId),
             draws: all.data.draws.filter((draw) => draw.cardId === cardId),
             packs: all.data.packs.filter((pack) => pack.offered.includes(cardId)),
+            customDrafts: (all.data.customDrafts ?? []).filter((draft) => draft.cardId === cardId),
           },
         }
       },

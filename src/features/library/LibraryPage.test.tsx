@@ -3,9 +3,15 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
 import { setMascotStem } from '@/features/art/artContext'
-import type { Card } from '@/features/cards/schema'
+import type { Card, Definition } from '@/features/cards/schema'
 import { testArt } from '@/test/artFixtures'
-import { ONLY_FROM_DM, testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
+import {
+  ONLY_FROM_DM,
+  testBlessedCard,
+  testCard,
+  testCursedCard,
+  testCustomCard,
+} from '@/test/cardFixtures'
 import { ready, testProfile } from '@/test/fixtures'
 import { testHolding } from '@/test/holdingFixtures'
 import { renderApp } from '@/test/renderApp'
@@ -368,5 +374,30 @@ describe("the Kartlar tab's set Cardmaker", () => {
     await user.click(tab(/^♠ Kartlar/))
     expect(headerMascot()).toBe('cardmaker_lib')
     expect(screen.getByLabelText('Set')).toHaveValue('')
+  })
+})
+
+describe('Custom Cards in the Kütüphane', () => {
+  it.each([
+    ['Kartlar', '/library'],
+    ['Cursed', '/library?tab=cursed'],
+  ])('lists no held Custom Card on the %s tab, and counts none', (_tab, path) => {
+    const ayla = testProfile({ id: 'ayla', displayName: 'Ayla' })
+    const custom = testCustomCard('custom-1')
+    const cards: Definition[] = [...CARDS, custom]
+    renderApp({
+      path,
+      users: { currentProfile: ready(dm), profiles: ready([dm, ayla]) },
+      cards: { cards: ready(cards) },
+      trueWords: { words: ready(WORDS) },
+      holdings: { openHoldings: ready([testHolding(custom, 'ayla', 1000, { givenVia: 'draft' })]) },
+    })
+    expect(screen.getAllByRole('tab').map((item) => item.textContent)).toEqual([
+      '♠ Kartlar (1)',
+      '☠ Cursed (1)',
+      '✦ True Words (3)',
+    ])
+    expect(screen.queryByRole('article', { name: '3-Cost Custom Card' })).not.toBeInTheDocument()
+    expect(screen.queryByText(/Ellerde 1/)).not.toBeInTheDocument()
   })
 })

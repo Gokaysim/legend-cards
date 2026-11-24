@@ -8,9 +8,9 @@ import { Placeholder } from './Placeholder'
 
 describe('Placeholder', () => {
   it('shows the screen title, then a drifting card back, "Yakında" and the not-ready note', () => {
-    render(<Placeholder title="Custom Card Draft" />)
+    render(<Placeholder title="Elixir Shop" />)
 
-    expect(screen.getByRole('heading', { level: 1, name: 'Custom Card Draft' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'Elixir Shop' })).toBeInTheDocument()
     const soon = screen.getByRole('heading', { level: 2, name: 'Yakında' })
     expect(soon).toHaveClass('uppercase', 'text-gold')
     expect(soon).toHaveAttribute('lang', 'tr')
@@ -22,7 +22,7 @@ describe('Placeholder', () => {
   })
 
   it('moves the card only where motion is welcome', () => {
-    render(<Placeholder title="Custom Card Draft" />)
+    render(<Placeholder title="Elixir Shop" />)
 
     const card = document.querySelector('[data-coming-soon-card]')
     const drifting = card?.querySelector('.motion-safe\\:animate-card-drift')
@@ -58,7 +58,7 @@ describe('Placeholder', () => {
         manifest={testArt({ mascots: { cardmaker_wave: '/art/mascots/wave.0123456789.webp' } })}
       >
         <Placeholder title="Kurallar" mascot="cardmaker_wave" />
-        <Placeholder title="Custom Card Draft" mascot="cardmaker_custom" />
+        <Placeholder title="Elixir Shop" mascot="cardmaker_zaddir" />
       </TestArtProvider>,
     )
 
@@ -68,6 +68,6 @@ describe('Placeholder', () => {
       'src',
       '/art/mascots/wave.0123456789.webp',
     )
-    expect(header('Custom Card Draft')?.querySelector('img')).toBeNull()
+    expect(header('Elixir Shop')?.querySelector('img')).toBeNull()
   })
 })

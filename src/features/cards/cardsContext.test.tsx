@@ -2,7 +2,7 @@ import { renderHook } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { describe, expect, it } from 'vitest'
 
-import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
+import { testBlessedCard, testCard, testCursedCard, testCustomCard } from '@/test/cardFixtures'
 import { ready, testProfile } from '@/test/fixtures'
 import { TestCardsProvider } from '@/test/TestCardsProvider'
 import { testTrueWord } from '@/test/trueWordFixtures'
@@ -12,11 +12,13 @@ import {
   useCards,
   useCardsById,
   useDeckCards,
+  useCustomCards,
   useDeckDefinitions,
+  useHandCardsById,
   useWords,
   useWordsById,
 } from './cardsContext'
-import type { Card } from './schema'
+import type { Card, Definition } from './schema'
 import type { Subscription } from '@/lib/firestore/subscription'
 
 const common = testCard('Aboleth Eyes')
@@ -190,4 +192,47 @@ describe('useDeckDefinitions', () => {
     })
     expect(result.current).toMatchObject({ status: 'ready', data: [common] })
   })
+})
+
+describe('Custom Cards', () => {
+  const custom = testCustomCard('custom-1')
+  const word = testTrueWord('Abyss')
+  const all: Definition[] = [common, cursed, custom, word]
+
+  const useAll = () => ({
+    cards: useCards(),
+    legend: useDeckDefinitions('legend'),
+    cursed: useDeckDefinitions('cursed'),
+    byId: useCardsById(),
+    words: useWords(),
+    customs: useCustomCards(),
+    hand: useHandCardsById(),
+  })
+
+  it.each(['dm', 'player'] as const)(
+    'never puts a Custom Card in a list, a deck or the card map, on the %s device',
+    (role) => {
+      const profile = testProfile({ role })
+      const { result } = renderHook(useAll, {
+        wrapper: ({ children }: { children: ReactNode }) => (
+          <TestUsersProvider currentProfile={ready(profile)} profiles={ready([profile])}>
+            <TestCardsProvider cards={ready(all)}>{children}</TestCardsProvider>
+          </TestUsersProvider>
+        ),
+      })
+      const data = <T,>(subscription: Subscription<T>) =>
+        subscription.status === 'ready' ? subscription.data : null
+      const ids = (cards: readonly { id: string }[] | null) => (cards ?? []).map((card) => card.id)
+      expect(ids(data(result.current.cards))).toEqual([common.id, cursed.id])
+      expect(ids(data(result.current.legend))).toEqual([common.id])
+      expect(ids(data(result.current.cursed))).toEqual([cursed.id])
+      expect(data(result.current.byId)?.has(custom.id)).toBe(false)
+      expect(ids(data(result.current.words))).toEqual([word.id])
+      expect(data(result.current.customs)).toEqual([custom])
+      const hand = data(result.current.hand)
+      expect(hand?.get(custom.id)).toBe(custom)
+      expect(hand?.get(common.id)).toBe(common)
+      expect(hand?.has(word.id)).toBe(false)
+    },
+  )
 })

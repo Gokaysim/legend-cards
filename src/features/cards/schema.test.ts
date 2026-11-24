@@ -4,7 +4,11 @@ import { startingFlags } from '@/features/definitions/flags'
 
 import {
   definitionSchema as cardSchema,
+  isCard,
   isComplete,
+  isCustomCard,
+  isHandCard,
+  isTrueWord,
   isWordComplete,
   missingCardFields,
   missingWordFields,
@@ -267,5 +271,76 @@ describe('True Word definitions', () => {
 
   it('reads a word without a picture field as having no picture', () => {
     expect(cardSchema.parse(word).picture).toBeNull()
+  })
+})
+
+const custom = {
+  kind: 'custom',
+  name: '3-Cost Custom Card',
+  nameKey: '3costcustomcard',
+  setCode: null,
+  cost: '3',
+  rarity: null,
+  mechanicPack: null,
+  text: '',
+  status: 'active',
+  ...startingFlags('custom', ''),
+  holder: { uid: 'ayla', userCardId: 'h1' },
+  base: 3,
+  draftId: 'd1',
+  effects: [
+    { type: 'Caster', cost: 3, text: 'Cast.' },
+    { type: 'Draw', cost: 3, text: 'Draw.' },
+    { type: 'Gold', cost: 3, text: 'Gold.' },
+  ],
+}
+
+const heldEffects = [...custom.effects, { type: 'Held', cost: 1, text: 'Held.' }]
+
+describe('Custom Card definitions', () => {
+  it('accepts a finished card, and one with Held acting while held and kept on use', () => {
+    expect(cardSchema.safeParse(custom).success).toBe(true)
+    expect(
+      cardSchema.safeParse({
+        ...custom,
+        effects: heldEffects,
+        hasHeldEffect: true,
+        isKeptOnUse: true,
+      }).success,
+    ).toBe(true)
+  })
+
+  it.each([
+    ['Held without its flags', { ...custom, effects: heldEffects }],
+    [
+      'Held acting while held but not kept',
+      { ...custom, effects: heldEffects, hasHeldEffect: true },
+    ],
+    ['the Held flags without Held', { ...custom, hasHeldEffect: true, isKeptOnUse: true }],
+    ['a draw flag on', { ...custom, isInDraws: true }],
+    ['a list flag on', { ...custom, isInLibrary: true }],
+    ['a pack flag on', { ...custom, isInSetPacks: true }],
+    ['a repeatable card', { ...custom, isRepeatable: true }],
+    ['a text', { ...custom, text: 'Caster (3-Cost): Cast.' }],
+    ['a retired card', { ...custom, status: 'retired' }],
+    ['a set', { ...custom, setCode: 'Kesqer' }],
+    ['a picture', { ...custom, picture: 'cards/custom-1/abcdef0123.webp' }],
+    ['a draft cost of 2', { ...custom, base: 2 }],
+    ['no effects', { ...custom, effects: [] }],
+    ['an effect named twice', { ...custom, effects: [...custom.effects, custom.effects[0]] }],
+    ['an unknown effect', { ...custom, effects: [{ type: 'Luck', cost: 3, text: 'Luck.' }] }],
+    ['an effect at 2-cost', { ...custom, effects: [{ type: 'Gold', cost: 2, text: 'Gold.' }] }],
+    ['an empty effect text', { ...custom, effects: [{ type: 'Gold', cost: 3, text: '' }] }],
+    ['no cost', { ...custom, cost: null }],
+  ])('rejects %s', (_case, definition) => {
+    expect(cardSchema.safeParse(definition).success).toBe(false)
+  })
+
+  it('is neither a card nor a True Word, but a hand card', () => {
+    const parsed = { ...cardSchema.parse(custom), id: 'custom-1' }
+    expect(isCard(parsed)).toBe(false)
+    expect(isTrueWord(parsed)).toBe(false)
+    expect(isCustomCard(parsed)).toBe(true)
+    expect(isHandCard(parsed)).toBe(true)
   })
 })

@@ -9,6 +9,8 @@ import { testTrueWord, testWordDraft, testWordHolding, testWordUse } from '@/tes
 import { testSetChange, testSetName } from '@/test/setFixtures'
 import { testDiceReset, testTableChange } from '@/test/tableFixtures'
 import type { WordDraft } from '@/features/true-words/schema'
+import { testCustomDraft } from '@/test/customDraftFixtures'
+import type { CustomDraft } from '@/features/custom-draft/schema'
 
 import { deriveEvents, EMPTY_LOG_RECORDS, type LogEvent, type LogRecords } from './events'
 import { describeEvent, sentenceText } from './eventText'
@@ -479,5 +481,67 @@ describe('describing set changes', () => {
     })
     expect(sentenceText(sentence)).toBe('2 set ekledi; 1 sete resim ekledi.')
     expect(sentence.names).toEqual(['Kesqerian Nights', 'Pandemonium'])
+  })
+})
+
+describe('describeEvent: Custom Card drafts', () => {
+  const draft = (overrides: Partial<CustomDraft> = {}) =>
+    testCustomDraft({ id: 'c1', uid: 'ayla', by: 'ayla', at: at(1000), ...overrides })
+  const finished = {
+    status: 'finished' as const,
+    pickTypes: ['Caster' as const, 'Draw' as const, 'Gold' as const],
+    pickCosts: [3 as const, 3 as const, 3 as const],
+    offered: [],
+    closedAt: at(2000),
+    closedBy: 'ayla',
+    cardId: 'custom-1',
+    holdingId: 'h1',
+  }
+
+  it("describes a player's open draft, then the card it made with its effects", () => {
+    expect(text(only({ draws: [draft()] }))).toBe("3-Cost Custom Card draft'ı açıyor (−3 LP).")
+    expect(text(only({ draws: [draft(finished)] }))).toBe(
+      "Custom Card draft'ı açtı ve 3-Cost Custom Card kartını yaptı (−3 LP): Caster, Draw, Gold.",
+    )
+    expect(describeEvent(only({ draws: [draft(finished)] }), NAMES_OF).parts).toContainEqual({
+      card: '3-Cost Custom Card',
+    })
+  })
+
+  it('names the player for a DM draft, says when the DM made the last pick, and a free draft', () => {
+    expect(
+      text(
+        only({
+          draws: [
+            draft({
+              by: 'dana',
+              paidWith: 'none',
+              cost: 0,
+              entryId: null,
+              ...finished,
+              closedBy: 'dana',
+            }),
+          ],
+        }),
+      ),
+    ).toBe(
+      "Ayla için Custom Card draft'ı açtı ve 3-Cost Custom Card kartını yaptı (son seçimi DM yaptı) (ücretsiz): Caster, Draw, Gold.",
+    )
+  })
+
+  it('says that the DM cancelled a draft and refunded it', () => {
+    const cancelled = {
+      uid: 'bora',
+      by: 'bora',
+      base: 5 as const,
+      cost: 5,
+      status: 'cancelled' as const,
+      closedAt: at(2000),
+      closedBy: 'dana',
+      refundEntryId: 'e-refund',
+    }
+    expect(text(only({ draws: [draft(cancelled)] }))).toBe(
+      "5-Cost Custom Card draft'ı açtı (−5 LP); DM iptal etti, 5 LP iade edildi.",
+    )
   })
 })

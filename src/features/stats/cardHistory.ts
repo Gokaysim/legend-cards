@@ -1,5 +1,6 @@
 import type { Timestamp } from 'firebase/firestore'
 
+import type { CustomDraft } from '@/features/custom-draft/schema'
 import type { CardDraw, PackOpening } from '@/features/draws/schema'
 import type { Holding, KeptUse } from '@/features/hands/schema'
 
@@ -18,8 +19,14 @@ export type CardCountRecords = {
   packs: readonly PackOpening[]
 }
 
-/** The records a card's history lists: also its card draws, for how each was drawn and paid for. */
-export type CardRecords = CardCountRecords & { draws: readonly CardDraw[] }
+/**
+ * The records a card's history lists: also its card draws, for how each was drawn and paid for, and for a Custom Card
+ * the draft that made it (design D9 of add-custom-card-draft).
+ */
+export type CardRecords = CardCountRecords & {
+  draws: readonly CardDraw[]
+  customDrafts?: readonly CustomDraft[]
+}
 
 /** The values of a card's stat tiles. */
 export type CardStats = {
@@ -138,6 +145,8 @@ export type HistoryRow = { key: string; at: Timestamp | null } & (
   | { kind: 'given'; holding: Holding }
   /** A draw opened the holding. `draw` is missing only when its record was not read. */
   | { kind: 'drawn'; holding: Holding; draw: CardDraw | undefined }
+  /** A Custom Card's draft made it, and opened its first holding. `draft` is missing when its record was not read. */
+  | { kind: 'drafted'; holding: Holding; draft: CustomDraft | undefined }
   /** A pack's choice opened the holding: the chosen card, or a Cursed type's Cursed card. */
   | { kind: 'fromPack'; holding: Holding; pack: PackOpening | undefined }
   | { kind: 'used'; holding: Holding }
@@ -158,6 +167,7 @@ const SAME_TIME_ORDER: Record<HistoryRow['kind'], number> = {
   transferred: 0,
   given: 1,
   drawn: 1,
+  drafted: 1,
   fromPack: 1,
   seen: 2,
 }
@@ -172,6 +182,7 @@ export function historyRows(cardId: string, records: CardRecords): HistoryRow[] 
   const holdingsById = new Map(records.holdings.map((holding) => [holding.id, holding]))
   const drawsById = new Map(records.draws.map((draw) => [draw.id, draw]))
   const packsById = new Map(records.packs.map((pack) => [pack.id, pack]))
+  const draftsById = new Map((records.customDrafts ?? []).map((draft) => [draft.id, draft]))
   const rows: HistoryRow[] = []
 
   for (const holding of records.holdings) {
@@ -184,6 +195,9 @@ export function historyRows(cardId: string, records: CardRecords): HistoryRow[] 
     } else if (holding.givenVia === 'pack') {
       const pack = holding.drawId === null ? undefined : packsById.get(holding.drawId)
       rows.push({ ...opened, kind: 'fromPack', holding, pack })
+    } else if (holding.givenVia === 'draft' && holding.cardKind === 'custom') {
+      const draft = holding.drawId === null ? undefined : draftsById.get(holding.drawId)
+      rows.push({ ...opened, kind: 'drafted', holding, draft })
     }
 
     const closed = { key: `${holding.id}:closed`, at: holding.returnedAt }

@@ -1,6 +1,6 @@
 import type { PillTone } from '@/components/ui/Pill'
 import { costChange, NO_VALUE, rarityLabel, type SetName, setLabel } from '@/features/cards/display'
-import type { Card } from '@/features/cards/schema'
+import type { Card, HandCard } from '@/features/cards/schema'
 
 /** One label under the face in a card's details. */
 export type InfoPill = { label: string; tone?: PillTone; isMuted?: boolean }
@@ -23,9 +23,11 @@ export function costInfo(card: Pick<Card, 'cost'>, handCost: string | null): str
  * mechanic pack. A Cursed card has only "Cursed" and its cost, a Blessed card "Blessed", its cost and its mechanic
  * pack. They replace v2.2.8's grey lines; the card's name and text are on its face.
  */
-export function holdingInfo(card: Card, handCost: string | null, setName: SetName): InfoPill[] {
+export function holdingInfo(card: HandCard, handCost: string | null, setName: SetName): InfoPill[] {
   const cost = costInfo(card, handCost)
   const costPill: InfoPill[] = cost === null ? [] : [{ label: cost }]
+  // A Custom Card has no set, rarity or mechanic pack (spec: custom-cards, "Custom Card fields").
+  if (card.kind === 'custom') return [{ label: 'Custom Card' }, ...costPill]
   const mechanicPack: InfoPill[] =
     card.mechanicPack === null ? [] : [{ label: card.mechanicPack, isMuted: true }]
   if (card.kind === 'cursed') return [{ label: 'Cursed', tone: 'cursed' }, ...costPill]

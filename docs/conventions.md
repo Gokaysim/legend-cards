@@ -44,6 +44,8 @@ src/
                         kinds and the behavior flags, Card, TrueWord, isCard, isTrueWord), api (cardsRef for the
                         DM, playerVisibleCardsQuery for a player), CardsProvider, useCards, useDeckCards,
                         useDeckDefinitions (the DM's status filter), useCardsById, useWords, useWordsById,
+                        useCustomCards and useHandCardsById (cards with the Custom Cards, for the hands, the log and
+                        a card's history; no list or pool sees a Custom Card),
                         the mechanic packs, search and sort helpers, the pool and its distribution (pool),
                         the DM's filters as facets (filters, setChoices) and their pill bar (FilterBar, FilterPill,
                         pillClasses), the card browser (CardBrowser, CardFace, CardTable), the cost badge
@@ -129,8 +131,15 @@ src/
                         İnisiyatif tab and its dialogs, and the notices (CombatNotice)
     rules/              the Kurallar screen: RulesPage around RulesContent, the static rules text as JSX
     shops/              the Shops hub (ShopsPage), and the Elixir Shop placeholder
-    custom-draft/ settings/
-                        each with its <Name>Page.tsx (placeholders for now)
+    custom-draft/       the Custom Card Draft (spec: custom-cards): the effect vocabulary with no imports (effectTypes),
+                        the pure draft rules and card cost (draftRules: stepCost, requiredPicks, applyPick,
+                        nextOptions, resolveEffects, cardCost, costLine, composeText), the effect texts' schema
+                        (effectsSchema, customEffects/main) and the draft's (schema, with playerCustomDrafts/{uid}),
+                        api (startCustomDraft, pickEffect, cancelCustomDraft, editCustomEffects), errors,
+                        CustomDraftProvider (useCustomEffects, useOpenCustomDraft, useCustomDraftActions), the screen
+                        (CustomDraftPage, DraftAmountDialog, OpenCustomDraft), and the card's pieces the hand uses
+                        (EffectPicture, CoverPicture, CustomEffectsPreview, CustomCardEffects, CustomEffectsDialog)
+    settings/           the Ayarlar screen (SettingsPage, DataSection)
   components/ui/        shared primitives: Avatar, Button, Dialog (a native modal dialog; one may open inside
                         another, and closing the inner one leaves the outer one open; `closeOnBackdrop` also closes
                         it with a click outside, as the zoom view does), PageHeader, Placeholder, Spinner,
@@ -312,14 +321,14 @@ Pictures come from these places:
 - **Card and True Word pictures** are files in Cloud Storage, `cards/<id>/<hash>.webp` and `words/<id>/<hash>.webp`. The definition's `picture` field holds the path (`src/features/definitions/picturePath.ts`). `npm run import-pictures` and the DM's forms store them (see [The picture import](#the-picture-import)).
 - **Set cardbacks and set Cardmakers** are files in Cloud Storage, `sets/<setId>/<hash>.webp`. The set's `cardback` and `mascot` fields hold the paths. `npm run import-sets` and the DM's set form store them (see [The set import](#the-set-import)).
 - **Character photos** are files in Cloud Storage, `characters/<characterId>/<hash>.webp`, cropped from the center to 3:4 (`CHARACTER_PICTURE_BOX` in `src/features/definitions/picture.ts`). The character's `picture` field holds the path, and the character steps store them. The owner and the DM may store and delete them, and anyone may read them by address, as the card pictures.
-- **The Blessed and Cursed cardbacks, pack pictures and the screens' Cardmaker** are static files on Hosting: `npm run build-art` writes them with a manifest to `public/art/` (see [The picture build](#the-picture-build)). Vite serves that folder in development and copies it into `dist/`. The folder is committed, so every clone and the CI build has the pictures without the archives; Prettier skips it as generated output.
+- **The Blessed and Cursed cardbacks, pack pictures, the screens' Cardmaker and the Custom Card pictures** are static files on Hosting: `npm run build-art` writes them with a manifest to `public/art/` (see [The picture build](#the-picture-build)). Vite serves that folder in development and copies it into `dist/`. The folder is committed, so every clone and the CI build has the pictures without the archives; Prettier skips it as generated output.
 - **The not-found page's manticore** is `src/app/notFoundManticore.webp`, a bundled Vite asset (design D6 of `release-1-0-0`): imported by `NotFoundPage`, hashed and cached with the other assets, and outside the picture build's manifest.
 
 How components use them:
 
 - **Read them with `useArt()`** (`src/features/art/`). It gives:
   - `pictureUrl(card.picture)` for a card's or word's stored picture
-  - `backUrl(key)`, `packUrl(key)` and `mascotUrl(stem)` for the built pictures, and `backUrl(setCode)`, `setMascotUrl(setCode)` and `mascotUrl(setMascotStem(setCode))` for a stored set's (`SetArt` in `src/features/sets/` adds them inside the sets' provider)
+  - `backUrl(key)`, `packUrl(key)`, `mascotUrl(stem)`, `customCover(cost)` and `customEffect(cost, type)` for the built pictures, and `backUrl(setCode)`, `setMascotUrl(setCode)` and `mascotUrl(setMascotStem(setCode))` for a stored set's (`SetArt` in `src/features/sets/` adds them inside the sets' provider)
 
   Each gives the picture's URL or `null`. A set code finds its stored set as card data does, so a code written "The End Is Nigh" or the alias "endisnigh" finds the cardback of "The End is Nigh". Pack keys are compared ignoring case, accents and punctuation.
 
@@ -394,7 +403,7 @@ Cloud Storage is closed the same way (`storage.rules`). A new file path gets its
 
 ## Scripts
 
-Admin scripts in `scripts/` change data with the Admin SDK, outside the security rules: the access list (`allow-email`), the roles (`set-role`), the sets and their pictures (`import-sets`), the card definitions (`import-cards`), the True Words (`import-true-words`) and the card and word pictures (`import-pictures`). They work the same way against the emulators and against a real project, so data work is done once. The picture build (`build-art`) lives there too, but never touches Firebase.
+Admin scripts in `scripts/` change data with the Admin SDK, outside the security rules: the access list (`allow-email`), the roles (`set-role`), the sets and their pictures (`import-sets`), the card definitions (`import-cards`), the True Words (`import-true-words`), the Custom Card effect texts (`import-custom-effects`) and the card and word pictures (`import-pictures`). They work the same way against the emulators and against a real project, so data work is done once. The picture build (`build-art`) lives there too, but never touches Firebase.
 
 - **Layout.**
   - One file per command in `scripts/`, for example `set-role.ts`.
@@ -457,15 +466,24 @@ Admin scripts in `scripts/` change data with the Admin SDK, outside the security
 - **It only adds.** A word's ID is `tw-` plus its normalized name (`tw-ancientword`). Since `unify-cards-and-true-words` the words are definitions in `cards` of the kind `trueWord`, without a set, rarity or mechanic pack, with a True Word's starting flags (listed, offered in drafts, no pack flags, repeatable, kept on use, "Elde etkili" for a "Held:" text). The import adds the words that are not stored, matched by ID or `nameKey` among the definitions of that kind only, upgrades old words to a status, and records its additions with the target `word`, as the card import does. Stored words, learned words and drafts are never touched.
 - **Dry run.** `--dry-run` prints the same report without writing.
 
+### The custom effects import
+
+`npm run import-custom-effects` loads the Custom Card effect texts from `data/custom-effects.csv`, or from `--file <csv>`, into the one document `customEffects/main` (design D2 of `add-custom-card-draft`). It differs from the definition imports:
+
+- **Check first.** `customEffectRows.ts` requires the columns Name, 1-Cost Version, 3-Cost Version and 5-Cost Version, matched without regard to case. A type written twice or a text over 1,000 characters stops the run, and nothing changes. "True Word" and "EXP" read as TW and XP. A row whose name is not one of the 18 types and an empty cell are skipped and named in the report.
+- **It replaces.** The app has no editor for the effect texts, so the file is the truth: each variant in the file replaces its stored text, with a merge that keeps the variants the file lacks. Custom Cards already made store their own texts and are never touched. When a stored Effects or Cursed text changes, the report reminds that the cost table is in `src/features/custom-draft/draftRules.ts`.
+- **Dry run.** `--dry-run` prints the same report without writing.
+- **Tests.** `customEffectRows.test.ts` covers the parser and checks the 18 types against the app's (`effectTypes.ts`). `tests/import-custom-effects.emulator.test.ts` covers a first import of `tests/fixtures/data/custom-effects.csv`, a re-import that merges, a dry run and a missing column.
+
 ### The picture build
 
-`npm run build-art -- --source <folder> [--dry-run]` builds the Blessed and Cursed cardbacks, the pack pictures and the screens' Cardmaker from the owner's archives (see [data/README.md](../data/README.md#pictures)). The card and True Word pictures are left to [the picture import](#the-picture-import), and the sets' cardbacks and Cardmakers to [the set import](#the-set-import): the build no longer builds set pictures, and needs no set list.
+`npm run build-art -- --source <folder> [--dry-run]` builds the Blessed and Cursed cardbacks, the pack pictures, the screens' Cardmaker and the Custom Card pictures (the covers `<cost>custom` and the effect pictures `<cost><type>`, in `public/art/custom/`, listed in the manifest's `customCovers` by cost and `customEffects` by `'<cost>:<Type>'`) from the owner's archives (see [data/README.md](../data/README.md#pictures)). The card and True Word pictures are left to [the picture import](#the-picture-import), and the sets' cardbacks and Cardmakers to [the set import](#the-set-import): the build no longer builds set pictures, and needs no set list.
 
 - **Committed output.** It replaces the files in `public/art/`; commit the result like any other change. A changed picture gets a new hashed name, so `git status` shows the old file removed and the new one added.
 - **Read only.** It never changes the source folder, and never reads or writes Firestore or Cloud Storage, so it takes no `--project` and does not use `target.ts`.
 - **7-Zip.** It runs `7zz` (`brew install sevenzip`), and stops without it. `archives.ts` extracts each archive with `7zz e` into its own folder inside a temporary folder, which is removed at the end, after a failure or Ctrl+C too.
 - **Check first.** The alias table's asset rows are checked before anything is extracted. An asset row that names nothing stops the run with its row number.
-- **Pure matching.** `artFiles.ts` holds the rules: `planArt(files, data, aliases, mode)` returns the assignments, duplicates, unknown files, the files left to the other scripts (`leftTo`, by script), and coverage. `readAliases(text, data, mode)` checks the table. It never touches files. There are three modes, one per script: `assets` for the build, `sets` for the set import and `definitions` for the picture import. A file's name alone says which script it belongs to: `blessed_cb`, `cursed_cb`, the screens' `CARDMAKER_STEMS` and the named packs are the build's; every other `*_cb` and `cardmaker_*` is the set import's; the rest is the picture import's. So the build plans against no definitions and no sets, and counts the set files as left to the set import. `<set>_std`, `_prm`, `_crs` and `_gold` are no pictures. `artWrite.ts` converts with `sharp` and writes the manifest last, so a run that fails halfway leaves no manifest and the app keeps its CSS look.
+- **Pure matching.** `artFiles.ts` holds the rules: `planArt(files, data, aliases, mode)` returns the assignments, duplicates, unknown files, the files left to the other scripts (`leftTo`, by script), and coverage. `readAliases(text, data, mode)` checks the table. It never touches files. There are three modes, one per script: `assets` for the build, `sets` for the set import and `definitions` for the picture import. A file's name alone says which script it belongs to: `blessed_cb`, `cursed_cb`, the screens' `CARDMAKER_STEMS`, the named packs and the Custom Card pictures (`^[135]custom$` and `^[135]<type>$` for the 18 effect types) are the build's; every other `*_cb` and `cardmaker_*` is the set import's; the rest is the picture import's. So the build plans against no definitions and no sets, and counts the set files as left to the set import. `<set>_std`, `_prm`, `_crs` and `_gold` are no pictures. `artWrite.ts` converts with `sharp` and writes the manifest last, so a run that fails halfway leaves no manifest and the app keeps its CSS look.
 - **Tests.** `artFiles.test.ts` covers each rule in every mode. `artInventory.test.ts` plans the archives' real file names (`data/art-inventory.json`): the assets on their own, the set pictures against the sets of `data/sets.csv`, and the cards and words against the definitions the owner's data would store (`definitionsOfRows`). So a data or alias change that loses a picture fails there. It needs the owner's files, so it runs only on the owner's machine and is skipped elsewhere. Regenerate the inventory when the archives change (see [data/README.md](../data/README.md#the-archive-inventory)).
 
 ### The picture import

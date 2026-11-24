@@ -12,6 +12,7 @@ import { testHolding } from '@/test/holdingFixtures'
 import { testGpEntry, testLedgerEntry } from '@/test/ledgerFixtures'
 import { testPack } from '@/test/packFixtures'
 import { testTrueWord, testWordDraft, testWordHolding, testWordUse } from '@/test/trueWordFixtures'
+import { testCustomDraft } from '@/test/customDraftFixtures'
 import { renderApp } from '@/test/renderApp'
 import type { TestActivityLog } from '@/test/TestActivityLogProvider'
 import { testSetChange } from '@/test/setFixtures'
@@ -622,5 +623,63 @@ describe('definition changes in the İşlem Logu', () => {
     ])
     expect(main().queryByText(/Yalnızca DM/)).toBeNull()
     expect(main().queryByText(/düzenledi|yayınladı|Import/)).toBeNull()
+  })
+})
+
+describe('Custom Card drafts in the İşlem Logu', () => {
+  /** Ayla's 3-cost draft for 3 LP, started at 8:40 and finished with Caster, Draw and Gold. */
+  const finished = testCustomDraft({
+    id: 'c-ayla',
+    uid: 'ayla',
+    by: 'ayla',
+    at: on(8, 40),
+    pickTypes: ['Caster', 'Draw', 'Gold'],
+    pickCosts: [3, 3, 3],
+    offered: [],
+    status: 'finished',
+    closedAt: on(8, 41),
+    closedBy: 'ayla',
+    cardId: 'custom-1',
+    holdingId: 'h-custom',
+  })
+  const lpForBora = testLedgerEntry(0, {
+    id: 'lp-bora',
+    account: 'bora',
+    by: 'dana',
+    at: on(8, 20),
+  })
+
+  it('lists a draft as one event above an older LP change, with its card and effects', () => {
+    renderLog({ records: () => ready(records({ draws: [finished], entries: [lpForBora] })) })
+    expect(rows()).toHaveLength(2)
+    expect(rows()[0]).toHaveTextContent(
+      "Custom Card draft'ı açtı ve 3-Cost Custom Card kartını yaptı (−3 LP): Caster, Draw, Gold.",
+    )
+  })
+
+  it("keeps a player's drafts in the player filter", async () => {
+    const user = userEvent.setup()
+    const boraDraft = testCustomDraft({ id: 'c-bora', uid: 'bora', by: 'bora', at: on(8, 45) })
+    const all = records({ draws: [boraDraft, finished] })
+    renderLog({
+      records: (uid) =>
+        ready(
+          uid === null ? all : records({ draws: all.draws.filter((draw) => draw.uid === uid) }),
+        ),
+    })
+    expect(rows()).toHaveLength(2)
+
+    await user.selectOptions(main().getByRole('combobox', { name: 'Oyuncu' }), 'Ayla')
+
+    expect(rows()).toHaveLength(1)
+    expect(rows()[0]).toHaveTextContent('3-Cost Custom Card kartını yaptı')
+  })
+
+  it('updates an open draft live when it ends', () => {
+    const open = testCustomDraft({ id: 'c-ayla', uid: 'ayla', by: 'ayla', at: on(8, 40) })
+    const view = renderLog({ records: () => ready(records({ draws: [open] })) })
+    expect(rows()[0]).toHaveTextContent("3-Cost Custom Card draft'ı açıyor (−3 LP).")
+    view.setActivityLog({ records: () => ready(records({ draws: [finished] })) })
+    expect(rows()[0]).toHaveTextContent('kartını yaptı')
   })
 })

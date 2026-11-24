@@ -13,6 +13,8 @@ import { ClockIcon } from '@/components/ui/icons'
 import { useArt } from '@/features/art/artContext'
 import { CardPicture } from '@/features/art/CardPicture'
 import { usePicture } from '@/features/art/usePicture'
+import { CustomEffectsPreview } from '@/features/custom-draft/CustomEffectsPreview'
+import { composeText } from '@/features/custom-draft/draftRules'
 import { useSetIndex } from '@/features/sets/setsContext'
 import { cn } from '@/lib/cn'
 
@@ -41,6 +43,7 @@ const FRAME_CLASSES: Record<CardFrame, string> = {
   blessed: 'border-blessed',
   cursed: 'border-cursed',
   word: 'border-true-word-line',
+  custom: 'border-custom-ink',
 }
 
 /**
@@ -208,7 +211,12 @@ export function CardFace({
   onOpen,
   openLabel,
 }: CardFaceProps) {
-  const picture = usePicture(useArt().pictureUrl(card.picture))
+  const art = useArt()
+  // A Custom Card shows the cover of its draft cost (spec: custom-cards, "The Custom Card's face").
+  const picture = usePicture(
+    card.kind === 'custom' ? art.customCover(card.base) : art.pictureUrl(card.picture),
+  )
+  const [isPointerOver, setIsPointerOver] = useState(false)
   const { setName } = useSetIndex()
   const infoId = useId()
   // A tap shows the set symbol's note until the symbol loses the focus; a pointer resting on it shows it too (CSS).
@@ -221,7 +229,12 @@ export function CardFace({
   const isInHand = handCost !== undefined
   const cost = (isInHand ? handCost : card.cost) ?? NO_VALUE
   const change = isInHand ? costChange(card.cost, handCost) : null
-  const text = visibleText(card.text)
+  // A Custom Card's text is composed from its effects; without its cover, the face lists only their types and costs.
+  const text = card.kind === 'custom' ? composeText(card.effects) : visibleText(card.text)
+  const cssText =
+    card.kind === 'custom'
+      ? card.effects.map((effect) => `${effect.type} (${effect.cost}-Cost)`).join('\n')
+      : text
   const hasMarks =
     showsMarks &&
     (isActive ||
@@ -239,6 +252,19 @@ export function CardFace({
   })
   const glowClasses = cn(GLOW_BOX_CLASSES, glow && GLOW_CLASSES[glow])
   const { ref: tiltRef, handlers: tiltHandlers } = useCardTilt(isTiltable)
+  // The pointer on a Custom Card's face shows its effects' pictures (CustomEffectsPreview).
+  const pointerHandlers =
+    card.kind === 'custom'
+      ? {
+          onPointerEnter: (event: PointerEvent<HTMLElement>) => {
+            if (event.pointerType === 'mouse') setIsPointerOver(true)
+          },
+          onPointerLeave: () => {
+            tiltHandlers.onPointerLeave?.()
+            setIsPointerOver(false)
+          },
+        }
+      : {}
 
   // The browser gives the focus back after Escape, but not when the zoom view is unmounted by "✕ Kapat": the focus
   // returns to the magnifier either way (design D6).
@@ -295,7 +321,7 @@ export function CardFace({
         className,
       )}
     >
-      {text || NO_VALUE}
+      {(look === 'css' ? cssText : text) || NO_VALUE}
     </p>
   )
   const marks = hasMarks ? (
@@ -407,6 +433,7 @@ export function CardFace({
         data-frame={frame}
         className="group relative flex h-full flex-col gap-2"
         {...tiltHandlers}
+        {...pointerHandlers}
         onPointerDown={onFacePointerDown}
         onClick={onFaceClick}
       >
@@ -418,8 +445,8 @@ export function CardFace({
           <div ref={tiltRef} className={cn('relative rounded-lg', isTiltable && 'card-tilt')}>
             <CardPicture src={picture.src} alt={card.name} onError={picture.onError} />
             {/* Over the picture's own cost (its top-left d20) whenever the hand changes it, marked or not: an "X"
-                card given "3" shows it too. */}
-            {change ? (
+                card given "3" shows it too. A Custom Card's cover prints no cost of its own, so its badge always shows. */}
+            {change || card.kind === 'custom' ? (
               costBadge(
                 'absolute top-[7.4%] left-[10.7%] -translate-x-1/2 -translate-y-1/2 border-2 shadow-md',
               )
@@ -451,6 +478,9 @@ export function CardFace({
                   {details}
                 </div>
               </>
+            ) : null}
+            {card.kind === 'custom' ? (
+              <CustomEffectsPreview effects={card.effects} isShown={isPointerOver} />
             ) : null}
             {magnifier}
             {editButton}

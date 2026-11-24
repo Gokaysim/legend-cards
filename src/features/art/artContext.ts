@@ -22,6 +22,10 @@ export type ArtLookup = {
   mascotUrl: (stem: string) => string | null
   /** A stored set's Cardmaker, by any spelling of its code, or `null` (`SetArt` adds them). */
   setMascotUrl: (setCode: string) => string | null
+  /** A Custom Card's cover for its draft cost (design D6 of add-custom-card-draft). */
+  customCover: (cost: number) => string | null
+  /** A custom effect's picture at a cost, for example `customEffect(3, 'Caster')`. */
+  customEffect: (cost: number, type: string) => string | null
 }
 
 /**
@@ -64,12 +68,16 @@ export function artLookup(
     const urls = new Map(Object.entries(pictures).map(([key, path]) => [toKey(key), at(path)]))
     return (key: string) => urls.get(toKey(key)) ?? null
   }
+  const covers = table(manifest.customCovers)
+  const effects = table(manifest.customEffects)
   return {
     pictureUrl: (path) => (path === null || storedUrl === null ? null : storedUrl(path)),
     backUrl: table(manifest.cardbacks, keyOf),
     packUrl: table(manifest.packs, packKey),
     mascotUrl: table(manifest.mascots),
     setMascotUrl: () => null,
+    customCover: (cost) => covers(`${cost}`),
+    customEffect: (cost, type) => effects(`${cost}:${type}`),
   }
 }
 

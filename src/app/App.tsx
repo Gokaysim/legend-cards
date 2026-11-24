@@ -8,6 +8,7 @@ import { BalancesProvider } from '@/features/balances/BalancesProvider'
 import { CardsProvider } from '@/features/cards/CardsProvider'
 import { CharactersProvider } from '@/features/characters/CharactersProvider'
 import { CombatProvider } from '@/features/combat/CombatProvider'
+import { CustomDraftProvider } from '@/features/custom-draft/CustomDraftProvider'
 import { DefinitionsProvider } from '@/features/definitions/DefinitionsProvider'
 import { DiceProvider } from '@/features/dice/DiceProvider'
 import { DrawsProvider } from '@/features/draws/DrawsProvider'
@@ -51,17 +52,19 @@ export function App() {
                               <StatsProvider>
                                 <DrawsProvider>
                                   <TrueWordsProvider>
-                                    <PlayerNotesProvider>
-                                      <LoreProvider>
-                                        <DefinitionsProvider>
-                                          <DiceProvider>
-                                            <CombatProvider>
-                                              <RouterProvider router={router} />
-                                            </CombatProvider>
-                                          </DiceProvider>
-                                        </DefinitionsProvider>
-                                      </LoreProvider>
-                                    </PlayerNotesProvider>
+                                    <CustomDraftProvider>
+                                      <PlayerNotesProvider>
+                                        <LoreProvider>
+                                          <DefinitionsProvider>
+                                            <DiceProvider>
+                                              <CombatProvider>
+                                                <RouterProvider router={router} />
+                                              </CombatProvider>
+                                            </DiceProvider>
+                                          </DefinitionsProvider>
+                                        </LoreProvider>
+                                      </PlayerNotesProvider>
+                                    </CustomDraftProvider>
                                   </TrueWordsProvider>
                                 </DrawsProvider>
                               </StatsProvider>

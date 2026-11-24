@@ -75,11 +75,13 @@ function statusOf(data: Record<string, unknown>): DefinitionStatus {
 
 /**
  * Every stored card and True Word, whatever its status. Both are in the cards collection (design D1 of
- * unify-cards-and-true-words): a definition of the kind `trueWord` is a word.
+ * unify-cards-and-true-words): a definition of the kind `trueWord` is a word. A Custom Card (`custom`) has no picture
+ * of its own (design D6 of add-custom-card-draft), so it is left out.
  */
 export async function readPictureDefinitions(db: Firestore): Promise<PictureDefinition[]> {
   const snapshot = await db.collection(CARDS_COLLECTION).get()
-  return snapshot.docs.map((document: QueryDocumentSnapshot): PictureDefinition => {
+  const definitions = snapshot.docs.filter((document) => document.data().kind !== 'custom')
+  return definitions.map((document: QueryDocumentSnapshot): PictureDefinition => {
     const data = document.data()
     const isWord = data.kind === 'trueWord'
     return {

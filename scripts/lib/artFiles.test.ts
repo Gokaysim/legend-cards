@@ -254,6 +254,48 @@ describe('planArt: the matching rules in order', () => {
   })
 })
 
+describe('planArt: the Custom Card pictures', () => {
+  it('matches the covers and the effect pictures by name, in any case', () => {
+    expect(matches(['1custom.png', '5CUSTOM.png', '3caster.png', '5TW.png', '1xp.png'])).toEqual({
+      '1custom.png': 'customCover:1',
+      '5CUSTOM.png': 'customCover:5',
+      '3caster.png': 'customEffect:3:Caster',
+      '5TW.png': 'customEffect:5:TW',
+      '1xp.png': 'customEffect:1:XP',
+    })
+  })
+
+  it('leaves them to the build, so the picture import never calls them unknown cards', () => {
+    const { definitions, sets } = plansOf(['3caster.png', '1custom.png', '2caster.png'])
+    expect(definitions.leftTo.assets.map(({ name }) => name)).toEqual([
+      '1custom.png',
+      '3caster.png',
+    ])
+    expect(sets.leftTo.assets.map(({ name }) => name)).toEqual(['1custom.png', '3caster.png'])
+    expect(definitions.unknown.map(({ name }) => name)).toEqual(['2caster.png'])
+  })
+
+  it('counts the covers and the effect pictures, naming the missing ones', () => {
+    const effects = [
+      'blessed',
+      'caster',
+      'combat',
+      'cursed',
+      'damage',
+      'discard',
+      'draw',
+      'effects',
+      'enhance',
+    ]
+      .concat(['gain', 'gold', 'held', 'reduce', 'restore', 'roll', 'special', 'tw', 'xp'])
+      .flatMap((type) => ['1', '3', '5'].map((cost) => `${cost}${type}.png`))
+      .filter((name) => name !== '1held.png')
+    const { assets } = plansOf(['1custom.png', '3custom.png', ...effects])
+    expect(assets.coverage.customCover).toEqual({ expected: 3, found: 2, missing: ['5custom'] })
+    expect(assets.coverage.customEffect).toEqual({ expected: 54, found: 53, missing: ['1held'] })
+  })
+})
+
 describe('planArt: the stored definitions', () => {
   it('finds a card the DM renamed by the identity of its old name, before any name', () => {
     const renamed: ArtData = {
@@ -415,7 +457,13 @@ describe('planArt: coverage', () => {
       'pack_blood.png',
       'cardmaker_lib.png',
     ])
-    expect(Object.keys(assets.coverage)).toEqual(['back', 'pack', 'mascot'])
+    expect(Object.keys(assets.coverage)).toEqual([
+      'back',
+      'pack',
+      'mascot',
+      'customCover',
+      'customEffect',
+    ])
     expect(Object.keys(sets.coverage)).toEqual(['setBack', 'setMascot'])
     expect(Object.keys(definitions.coverage)).toEqual(['normal', 'blessed', 'cursed', 'word'])
     const { normal, blessed, cursed, word: words } = definitions.coverage

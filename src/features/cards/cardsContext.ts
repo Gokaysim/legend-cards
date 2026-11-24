@@ -2,7 +2,16 @@ import { createContext, useContext, useMemo } from 'react'
 
 import type { Subscription } from '@/lib/firestore/subscription'
 
-import { type Card, type Definition, isCard, isTrueWord, type TrueWord } from './schema'
+import {
+  type Card,
+  type CustomCard,
+  type Definition,
+  type HandCard,
+  isCard,
+  isCustomCard,
+  isTrueWord,
+  type TrueWord,
+} from './schema'
 
 /** The two decks the screens show: the Legend cards (normal and Blessed) and the Cursed cards. */
 export type Deck = 'legend' | 'cursed'
@@ -31,6 +40,13 @@ export type CardsContextValue = {
   words: Subscription<TrueWord[]>
   /** The same True Words by their ID. */
   wordsById: Subscription<ReadonlyMap<string, TrueWord>>
+  /**
+   * Every Custom Card (design D1 of add-custom-card-draft). They are never in `cards`, `definitions` or `cardsById`, so
+   * no list, pool, draw or pack sees them.
+   */
+  customCards: Subscription<CustomCard[]>
+  /** Every card a hand can hold as a card, by its ID: `cardsById` with the Custom Cards. */
+  handCardsById: Subscription<ReadonlyMap<string, HandCard>>
 }
 
 export const CardsContext = createContext<CardsContextValue | null>(null)
@@ -58,10 +74,14 @@ export function cardsContextValue(
       cardsById: definitions,
       words: definitions,
       wordsById: definitions,
+      customCards: definitions,
+      handCardsById: definitions,
     }
   }
   const allCards = definitions.data.filter(isCard)
   const words = definitions.data.filter(isTrueWord)
+  const customCards = definitions.data.filter(isCustomCard)
+  const handCards: HandCard[] = [...allCards, ...customCards]
   const listed = isDm ? allCards : allCards.filter((card) => card.isInLibrary)
   return {
     cards: { ...definitions, data: listed.filter((card) => card.status === 'active') },
@@ -69,6 +89,8 @@ export function cardsContextValue(
     cardsById: { ...definitions, data: new Map(allCards.map((card) => [card.id, card])) },
     words: { ...definitions, data: words },
     wordsById: { ...definitions, data: new Map(words.map((word) => [word.id, word])) },
+    customCards: { ...definitions, data: customCards },
+    handCardsById: { ...definitions, data: new Map(handCards.map((card) => [card.id, card])) },
   }
 }
 
@@ -80,6 +102,19 @@ export function useCards(): Subscription<Card[]> {
 /** Every card this device reads by its ID, retired ones included. Must be used inside `<CardsProvider>`. */
 export function useCardsById(): Subscription<ReadonlyMap<string, Card>> {
   return useCardsContext().cardsById
+}
+
+/** Every Custom Card this device reads. Must be used inside `<CardsProvider>`. */
+export function useCustomCards(): Subscription<CustomCard[]> {
+  return useCardsContext().customCards
+}
+
+/**
+ * Every card a hand can hold as a card, by its ID: the cards of `useCardsById` and the Custom Cards. For the hands, the
+ * log and a card's history; lists and pools use `useCards` instead. Must be used inside `<CardsProvider>`.
+ */
+export function useHandCardsById(): Subscription<ReadonlyMap<string, HandCard>> {
+  return useCardsContext().handCardsById
 }
 
 /** Every True Word this device reads, retired and hidden ones included. Must be used inside `<CardsProvider>`. */

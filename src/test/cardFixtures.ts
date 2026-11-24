@@ -1,4 +1,10 @@
-import { type Card, startingFlagsOf } from '@/features/cards/schema'
+import {
+  type Card,
+  type CustomCard,
+  type CustomCardEffect,
+  startingFlagsOf,
+} from '@/features/cards/schema'
+import { cardCost, customCardName, hasHeld } from '@/features/custom-draft/draftRules'
 
 /**
  * The four "where" flags off: a card only the DM gives ("Sadece DM verebilir"), hidden from players' lists. What a
@@ -86,6 +92,54 @@ export function testCursedCard(
     picture: null,
     ...startingFlagsOf('cursed', overrides.text ?? ''),
     holder: null,
+    ...overrides,
+  }
+}
+
+/** A Custom Card effect for tests, with an invented text. */
+export function testEffect(
+  type: CustomCardEffect['type'],
+  cost: CustomCardEffect['cost'] = 3,
+): CustomCardEffect {
+  return { type, cost, text: `Invented ${type} effect at ${cost}-cost.` }
+}
+
+/**
+ * A Custom Card for tests: a 3-cost card with Caster, Draw and Gold held by Ayla, unless overridden. Its cost and its
+ * Held flags follow its effects, as a finished draft writes them.
+ */
+export function testCustomCard(
+  id: string,
+  overrides: Partial<Omit<CustomCard, 'kind' | 'id'>> = {},
+): CustomCard {
+  const base = overrides.base ?? 3
+  const effects = overrides.effects ?? [
+    testEffect('Caster'),
+    testEffect('Draw'),
+    testEffect('Gold'),
+  ]
+  const held = hasHeld(effects)
+  const name = customCardName(base)
+  return {
+    id,
+    kind: 'custom',
+    name,
+    nameKey: keyOf(name),
+    setCode: null,
+    cost: `${cardCost(base, effects).total}`,
+    rarity: null,
+    mechanicPack: null,
+    text: '',
+    status: 'active',
+    changeId: null,
+    picture: null,
+    ...startingFlagsOf('custom', ''),
+    hasHeldEffect: held,
+    isKeptOnUse: held,
+    holder: { uid: 'ayla', userCardId: `${id}-holding` },
+    base,
+    draftId: 'draft-1',
+    effects,
     ...overrides,
   }
 }

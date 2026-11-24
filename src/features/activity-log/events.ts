@@ -4,6 +4,7 @@ import type { Holding, KeptUse } from '@/features/hands/schema'
 import type { SetChange } from '@/features/sets/schema'
 import type { TableChange } from '@/features/table/schema'
 import type { CombatChange } from '@/features/combat/schema'
+import type { CustomDraft } from '@/features/custom-draft/schema'
 import type { RoleChange } from '@/features/users/schema'
 import { type LearnedWord, learnedWordOf, type WordDraft } from '@/features/true-words/schema'
 
@@ -62,7 +63,8 @@ type EventBase = {
  * `to` is `null`, and `missingHoldingId` names the holding to read for it. A draw is one event for the draw, its
  * holding and its payment. A pack opening is one event for the pack, its holdings, its payment and its refund, at
  * the time it was opened; it changes as the pack goes on. A True Word draft is likewise one event for the draft, its
- * learned word, its payment and its refund. A word the DM teaches, and a word the DM takes back, are events too, and
+ * learned word, its payment and its refund, and so is a Custom Card draft for the draft, its card, its payment and
+ * its refund. A word the DM teaches, and a word the DM takes back, are events too, and
  * so is each use of a word or a card kept on use, with its payment. So is each set change, and each change of a table
  * setting by the DM.
  */
@@ -81,6 +83,7 @@ export type LogEvent =
   | (EventBase & { kind: 'pack'; pack: PackOpening })
   | (EventBase & { kind: 'balance'; entry: LedgerEntry })
   | (EventBase & { kind: 'wordDraft'; draft: WordDraft })
+  | (EventBase & { kind: 'customDraft'; draft: CustomDraft })
   | (EventBase & { kind: 'wordTaught' | 'wordTakenBack'; record: LearnedWord })
   | (EventBase & { kind: 'wordUsed' | 'keptUsed'; use: KeptUse })
   | (EventBase & { kind: 'set'; change: SetChange })
@@ -226,6 +229,14 @@ function eventOfDraw(draw: Draw): LogEvent {
       return {
         kind: 'wordDraft',
         key: `wordDraft:${draw.id}`,
+        at: draw.at,
+        by: draw.by,
+        draft: draw,
+      }
+    case 'customDraft':
+      return {
+        kind: 'customDraft',
+        key: `customDraft:${draw.id}`,
         at: draw.at,
         by: draw.by,
         draft: draw,

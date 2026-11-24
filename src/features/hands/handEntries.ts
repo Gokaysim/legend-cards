@@ -1,4 +1,4 @@
-import type { Card } from '@/features/cards/schema'
+import type { HandCard } from '@/features/cards/schema'
 
 import { holdingsOf } from './holdingsContext'
 import type { Holding } from './schema'
@@ -19,7 +19,7 @@ export type HandEntry = {
   /** The holding, its `active` already as it shows (`showsActive`). */
   holding: Holding
   /** The card's definition. A retired card keeps its last stored one until its holding closes. */
-  card: Card
+  card: HandCard
   /** The cost in this hand: the cost override, or the card's own cost. */
   cost: string | null
   /** A DM's extra copy: a card with one copy whose holder is another holding (or nobody). */
@@ -28,12 +28,12 @@ export type HandEntry = {
 
 /**
  * A player's hand in the order the cards were received, each holding with its card. `cardsById` must include
- * retired cards (see `useCardsById`). A holding whose card does not exist at all is left out, and so is a True Word,
+ * retired cards and Custom Cards (see `useHandCardsById`). A holding whose card does not exist at all is left out, and so is a True Word,
  * which is not a card. A holding shows as active only while its card's "Elde etkili" is on.
  */
 export function handEntries(
   holdings: readonly Holding[],
-  cardsById: ReadonlyMap<string, Card>,
+  cardsById: ReadonlyMap<string, HandCard>,
   uid: string,
 ): HandEntry[] {
   return holdingsOf(holdings, uid).flatMap((holding) => {

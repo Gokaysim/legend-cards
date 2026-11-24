@@ -9,14 +9,15 @@ The owner's card data, as the DM keeps it in their spreadsheets. The files are c
 
 These files are the **seed data**. An import only adds the cards and words that are not stored yet: it never changes, retires or deletes a stored one. From the first import on, the stored definitions are the truth, and the DM changes them in the app (Kart kütüphanesi, Cursed Deck, True Words). So a fix made in a file after its first import does not reach the app; make it in the app instead. A file is still useful to add a whole new set at once.
 
-| File                 | Holds                                          | Columns                                      | Used by                                                               |
-| -------------------- | ---------------------------------------------- | -------------------------------------------- | --------------------------------------------------------------------- |
-| `legend-cards.csv`   | the Legend cards: normal and Blessed           | Name, Set, Cost, Rarity, Text, Mechanic Pack | `npm run import-cards`                                                |
-| `cursed-cards.csv`   | the Cursed cards                               | Name, Set, Cost, Text                        | `npm run import-cards`                                                |
-| `true-words.csv`     | the True Words                                 | Name, Cost, Text                             | `npm run import-true-words`                                           |
-| `sets.csv`           | the sets, in shop order                        | Code, Name, Aliases, Packs                   | `npm run import-sets`                                                 |
-| `image-aliases.csv`  | picture files whose names differ from the data | File, Kind, Name                             | `npm run build-art`, `npm run import-sets`, `npm run import-pictures` |
-| `art-inventory.json` | the picture file names in the archives         | `{ "<archive>": ["<file>.png", …] }`         | `scripts/lib/artInventory.test.ts`                                    |
+| File                 | Holds                                          | Columns                                              | Used by                                                               |
+| -------------------- | ---------------------------------------------- | ---------------------------------------------------- | --------------------------------------------------------------------- |
+| `legend-cards.csv`   | the Legend cards: normal and Blessed           | Name, Set, Cost, Rarity, Text, Mechanic Pack         | `npm run import-cards`                                                |
+| `cursed-cards.csv`   | the Cursed cards                               | Name, Set, Cost, Text                                | `npm run import-cards`                                                |
+| `true-words.csv`     | the True Words                                 | Name, Cost, Text                                     | `npm run import-true-words`                                           |
+| `custom-effects.csv` | the Custom Card effect texts                   | Name, 1-Cost Version, 3-Cost Version, 5-Cost Version | `npm run import-custom-effects`                                       |
+| `sets.csv`           | the sets, in shop order                        | Code, Name, Aliases, Packs                           | `npm run import-sets`                                                 |
+| `image-aliases.csv`  | picture files whose names differ from the data | File, Kind, Name                                     | `npm run build-art`, `npm run import-sets`, `npm run import-pictures` |
+| `art-inventory.json` | the picture file names in the archives         | `{ "<archive>": ["<file>.png", …] }`                 | `scripts/lib/artInventory.test.ts`                                    |
 
 Unlike the CSV exports, `sets.csv` and `image-aliases.csv` are written by hand: edit them on the owner's machine. See [How the import reads the set file](#how-the-import-reads-the-set-file) and [Pictures](#pictures).
 
@@ -34,6 +35,13 @@ Unlike the CSV exports, `sets.csv` and `image-aliases.csv` are written by hand: 
 
 - Each row is one True Word. Name is required. A word with an empty Cost or Text, or a `—` in either, is added as a draft.
 - Cost is kept as written (`0` to `5`, or `X`): the LP a player pays at the table each time they use the word. The app shows it but never charges it.
+
+## How the import reads the custom effects file
+
+- Each row is one of the 18 Custom Card effect types (Blessed, Caster, Combat, Cursed, Damage, Discard, Draw, Effects, Enhance, Gain, Gold, Held, Reduce, Restore, Roll, Special, TW, XP), and each cost column holds that variant's text, at most 1,000 characters. The column and type names are matched without regard to case, and the rows named "True Word" and "EXP" are read as TW and XP.
+- A row whose name is not a type is skipped, and so is an empty cell. The report names both. A type written twice or a text over the limit stops the import.
+- Unlike the other files, this one is not seed data: the app has no editor for the effect texts. A new import replaces the stored text of every variant the file has, and keeps the others. Custom Cards already made keep the texts they were made with.
+- The Custom Card cost table (Effects adds 1, 2 or 2; Cursed takes away 1, 2 or 3) follows the Effects and Cursed texts but lives in the code. When those texts change, the report reminds you; see `docs/domain.md`.
 
 ## How the import reads the set file
 
@@ -64,11 +72,11 @@ The pictures are not here. They are the owner's `.7z` archives, about 610 MB of 
 | `cursed cards.7z` | the Cursed cards                                                                       |
 | `true words.7z`   | the True Words (from the earlier archives: the final export has no True Word pictures) |
 | `assets.7z`       | the cardbacks, the pack pictures, the Cardmakers, and a few extras                     |
-| `custom cards.7z` | the Custom Card pictures, which wait for the Custom Card Draft                         |
+| `custom cards.7z` | the Custom Card pictures: the covers `1custom` to `5custom` and the effect pictures    |
 
 Three scripts read the same folder (see the [README](../README.md#building-the-pictures)):
 
-- `npm run build-art -- --source <folder>` builds the Blessed and Cursed cardbacks, the pack pictures and the screens' Cardmaker into `public/art/`, which is committed.
+- `npm run build-art -- --source <folder>` builds the Blessed and Cursed cardbacks, the pack pictures, the screens' Cardmaker and the Custom Card pictures into `public/art/`, which is committed. The Custom Card pictures are named by cost: `1custom`, `3custom` and `5custom` are the covers, and `<cost><type>` (`1caster`, `3held`, `5tw`, in any case) are the 54 effect pictures, one per effect type and cost.
 - `npm run import-sets -- --source <folder>` stores the sets' cardbacks and Cardmakers in Cloud Storage, for the stored sets that never had one.
 - `npm run import-pictures -- --source <folder>` stores the card and True Word pictures in Cloud Storage, for the stored cards and words that never had a picture.
 

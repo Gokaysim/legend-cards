@@ -1,10 +1,12 @@
 import { screen, within } from '@testing-library/react'
+import { Timestamp } from 'firebase/firestore'
 import { describe, expect, it } from 'vitest'
 
 import type { Card, Definition } from '@/features/cards/schema'
 import type { Holding } from '@/features/hands/schema'
 import type { CardRecords } from '@/features/stats/cardHistory'
-import { ONLY_FROM_DM, testCard, testCursedCard } from '@/test/cardFixtures'
+import { ONLY_FROM_DM, testCard, testCursedCard, testCustomCard } from '@/test/cardFixtures'
+import { testCustomDraft } from '@/test/customDraftFixtures'
 import { ready } from '@/test/fixtures'
 import { testHolding } from '@/test/holdingFixtures'
 import { renderApp } from '@/test/renderApp'
@@ -271,3 +273,45 @@ function rowTexts() {
     .getAllByRole('listitem')
     .map((row) => row.querySelector('p')?.textContent)
 }
+
+describe("a Custom Card's page", () => {
+  it('shows the draft that made it and its holdings, to the player who holds it', () => {
+    const custom = testCustomCard('custom-1', { holder: null })
+    const made = testHolding(custom, 'ayla', 1000, {
+      id: 'h-made',
+      givenBy: 'ayla',
+      givenVia: 'draft',
+      drawId: 'c-1',
+      returnedAt: Timestamp.fromMillis(5000),
+      returnedBy: 'ayla',
+      returnReason: 'used',
+      useCost: 3,
+      useEntryId: 'e-use',
+    })
+    const draft = testCustomDraft({
+      id: 'c-1',
+      uid: 'ayla',
+      by: 'ayla',
+      pickTypes: ['Caster', 'Draw', 'Gold'],
+      pickCosts: [3, 3, 3],
+      offered: [],
+      status: 'finished',
+      closedAt: Timestamp.fromMillis(1000),
+      closedBy: 'ayla',
+      cardId: 'custom-1',
+      holdingId: 'h-made',
+    })
+    renderHistory({
+      path: '/library/custom-1',
+      cards: [...CARDS, custom],
+      records: ready({ holdings: [made], uses: [], draws: [], packs: [], customDrafts: [draft] }),
+    })
+    expect(
+      screen.getByRole('heading', { level: 1, name: '3-Cost Custom Card' }),
+    ).toBeInTheDocument()
+    expect(rowTexts()).toEqual(['Ayla kullandı', "Ayla, Custom Card draft'ında yaptı"])
+    expect(screen.getByRole('region', { name: 'Geçmiş' })).toHaveTextContent(
+      '3 LP · Caster, Draw, Gold',
+    )
+  })
+})

@@ -9,6 +9,7 @@ export const DATA_FILES = {
   legend: 'legend-cards.csv',
   cursed: 'cursed-cards.csv',
   trueWords: 'true-words.csv',
+  customEffects: 'custom-effects.csv',
   sets: 'sets.csv',
   aliases: 'image-aliases.csv',
   inventory: 'art-inventory.json',

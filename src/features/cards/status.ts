@@ -50,6 +50,8 @@ export function statusLabel(
 ): string {
   const names = status.holderNames.join(', ')
   const holders = card.kind === 'trueWord' ? 'Bilenler' : 'Elde'
+  // A Custom Card is made for one hand and is never in a pool or given by the DM from a list.
+  if (card.kind === 'custom') return names ? `${holders}: ${names}` : NO_VALUE
   if (!hasChannel(card)) return names ? `${DM_ONLY_LABEL} · ${holders}: ${names}` : DM_ONLY_LABEL
   if (card.kind === 'cursed' || !status.inPool) return names ? `${holders}: ${names}` : NO_VALUE
   return names ? `Havuzda · Elde: ${names}` : 'Havuzda'
