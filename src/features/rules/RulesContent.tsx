@@ -193,6 +193,10 @@ export function RulesContent() {
           bulabilirsin yavrum.
         </p>
         <p>
+          Mechanic, Golden ve Pandemonium Pack'lerinde her kartın Blessed çıkma şansı %2'dir yavrum;
+          Cursed paketlerde Blessed çıkmaz.
+        </p>
+        <p>
           Her Mechanic'in kendine ait Blessed kartları vardır. Bereket dediğin böyle olur işte.
           Maşallah!
         </p>

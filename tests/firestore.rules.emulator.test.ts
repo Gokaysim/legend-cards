@@ -5439,6 +5439,38 @@ describe('packs (draws/{drawId} with kind pack, table/main, and their holdings a
       await assertSucceeds(choose('ayla', { card: BLESSED_CHOICE }))
     })
 
+    /** A Cursed type's cards when it shows the Blessed card, the pool card and the Cursed card. */
+    const BLESSED_IN_CURSED = [BLESSED, POOL, CURSED, ...PACK_CARDS.slice(0, 3)]
+
+    it('denies choosing a Blessed card from a Cursed Golden or Pandemonium Cursed Pack', async () => {
+      const cursedType = { offered: BLESSED_IN_CURSED, revealed: [0, 1, 2, 3, 4, 5], cost: 3 }
+      await seedOpenPack({ ...cursedType, packType: 'cursedGolden', setCode: null })
+      await assertFails(choose('ayla', { card: BLESSED_CHOICE, cursed: CURSED_CARD }))
+      await seedOpenPack({ ...cursedType, packType: 'pandemoniumCursed', setCode: 'Pandemonium' })
+      await assertFails(choose('ayla', { card: BLESSED_CHOICE, cursed: CURSED_CARD }))
+    })
+
+    it('still allows the other cards of a Cursed Golden Pack that shows a Blessed card', async () => {
+      await seedOpenPack({
+        packType: 'cursedGolden',
+        setCode: null,
+        offered: BLESSED_IN_CURSED,
+        revealed: [0, 1, 2, 3, 4, 5],
+        cost: 3,
+      })
+      await assertSucceeds(choose('ayla', { cursed: CURSED_CARD }))
+    })
+
+    it('allows choosing a Blessed card from a Golden Pack', async () => {
+      await seedOpenPack({
+        packType: 'golden',
+        setCode: null,
+        offered: [BLESSED, ...PACK_CARDS],
+        cost: 4,
+      })
+      await assertSucceeds(choose('ayla', { card: BLESSED_CHOICE }))
+    })
+
     it("allows a Cursed Pack's choice by its owner, with both holdings", async () => {
       await seedOpenPack({
         packType: 'cursed',

@@ -273,7 +273,12 @@ describe('packStatus', () => {
     ])
     for (const def of defs) {
       const pools = packPools(def, cards)
-      const offered = [...pools.cards, ...(pools.slot ?? []), ...(pools.cursed ?? [])]
+      const offered = [
+        ...pools.cards,
+        ...(pools.slot ?? []),
+        ...(pools.blessed ?? []),
+        ...(pools.cursed ?? []),
+      ]
       expect(offered.filter((card) => secrets.has(card.name))).toEqual([])
     }
   })
@@ -293,21 +298,53 @@ describe('packStatus', () => {
     expect(packPools(bloodBattle, [bloodOnly]).cards).toHaveLength(1)
   })
 
-  it("gives a one-pack set's packs its Rares and the Blessed cards with the set flag on", () => {
+  it("gives a one-pack set's Pack its Rares, and apart the Blessed cards with the set flag on", () => {
     const rare = testCard('Pan Rare', { setCode: 'Pandemonium', rarity: 'rare' })
     const setBlessing = testBlessedCard('Set Blessing', { isInMechanicPacks: false })
     const mechanicBlessing = testBlessedCard('Mechanic Blessing', { isInSetPacks: false })
     const pools = packPools(pandemonium('pandemonium'), [rare, setBlessing, mechanicBlessing])
-    expect(pools.cards.map((card) => card.name)).toEqual(['Pan Rare', 'Set Blessing'])
+    expect(pools.cards.map((card) => card.name)).toEqual(['Pan Rare'])
+    expect(pools.blessed?.map((card) => card.name)).toEqual(['Set Blessing'])
   })
 
-  it('gives the Golden Packs the Rares and Blessed cards with "Mechanic paketlerinde çıkar" on', () => {
+  it('gives the Golden Pack the Rares, and apart the Blessed cards, with "Mechanic paketlerinde çıkar" on', () => {
     const rare = testCard('Golden Rare', { rarity: 'rare' })
     const setOnlyRare = testCard('Set Rare', { rarity: 'rare', isInMechanicPacks: false })
     const setBlessing = testBlessedCard('Set Blessing', { isInMechanicPacks: false })
     const mechanicBlessing = testBlessedCard('Mechanic Blessing', { isInSetPacks: false })
     const pools = packPools(golden, [rare, setOnlyRare, setBlessing, mechanicBlessing])
-    expect(pools.cards.map((card) => card.name)).toEqual(['Golden Rare', 'Mechanic Blessing'])
+    expect(pools.cards.map((card) => card.name)).toEqual(['Golden Rare'])
+    expect(pools.blessed?.map((card) => card.name)).toEqual(['Mechanic Blessing'])
+  })
+
+  it("gives a Mechanic Pack its normal cards, and apart its own mechanic's Blessed cards", () => {
+    const normal = testCard('Blood Card', { mechanicPack: 'Blood & Battle' })
+    const own = testBlessedCard('Second Wind', { mechanicPack: 'Blood & Battle' })
+    const other = testBlessedCard('Fresh Start', { mechanicPack: 'Risk & Reward' })
+    const pools = packPools(bloodBattle, [normal, own, other])
+    expect(pools.cards.map((card) => card.name)).toEqual(['Blood Card'])
+    expect(pools.blessed?.map((card) => card.name)).toEqual(['Second Wind'])
+  })
+
+  it('gives the Cursed types no Blessed card, and the other set packs none either', () => {
+    const cards = [
+      testCard('Pan Rare', { setCode: 'Pandemonium', rarity: 'rare' }),
+      testCard('Golden Rare', { rarity: 'rare' }),
+      ...cardsOf('K', 5),
+      testBlessedCard('Blessing'),
+      ...CURSED_DECK,
+    ]
+    for (const def of [
+      pandemonium('pandemoniumCursed'),
+      cursedGolden,
+      kesqer('standard'),
+      kesqer('premium'),
+      kesqer('cursed'),
+    ]) {
+      const pools = packPools(def, cards)
+      expect(pools.blessed).toBeNull()
+      expect(pools.cards.some((card) => card.kind === 'blessed')).toBe(false)
+    }
   })
 
   it('takes the Cursed slot from the Cursed Deck', () => {

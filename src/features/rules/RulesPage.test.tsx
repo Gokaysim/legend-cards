@@ -94,12 +94,11 @@ describe('Kurallar screen', () => {
   it('gives every card in a draw the same chance, and no fixed percentage', () => {
     renderApp({ path: '/rules' })
 
-    expect(
-      within(section('Blessed Kart Kuralları')).getByText(
-        /Kart çekerken destedeki her kartın şansı eşittir, Blessed'lar da onların arasındadır\./,
-      ),
-    ).toBeInTheDocument()
-    expect(document.body.textContent).not.toContain('%2')
+    const draw = within(section('Blessed Kart Kuralları')).getByText(
+      /Kart çekerken destedeki her kartın şansı eşittir, Blessed'lar da onların arasındadır\./,
+    )
+    expect(draw).toBeInTheDocument()
+    expect(draw.textContent).not.toContain('%')
   })
 
   it('names the packs with Blessed cards, and no per-mechanic formula', () => {
@@ -114,6 +113,11 @@ describe('Kurallar screen', () => {
     expect(
       blessed.getByText(
         "Her Mechanic'in kendine ait Blessed kartları vardır. Bereket dediğin böyle olur işte. Maşallah!",
+      ),
+    ).toBeInTheDocument()
+    expect(
+      blessed.getByText(
+        "Mechanic, Golden ve Pandemonium Pack'lerinde her kartın Blessed çıkma şansı %2'dir yavrum; Cursed paketlerde Blessed çıkmaz.",
       ),
     ).toBeInTheDocument()
     const text = rulesPage().textContent

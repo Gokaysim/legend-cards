@@ -169,6 +169,12 @@ service cloud.firestore {
       return type in ['standard', 'premium', 'cursed', 'pandemonium', 'pandemoniumCursed'];
     }
 
+    // The pack types that also show one mandatory Cursed card, and never a Blessed card (cap-blessed-odds-in-packs).
+    // Keep in step with CURSED_PACK_TYPES.
+    function isCursedPack(type) {
+      return type in ['cursed', 'pandemoniumCursed', 'cursedGolden'];
+    }
+
     // The status steps a definition may take in one write (design D5): a draft is edited or published, an active
     // definition is edited or retired, a retired one is edited or brought back. Nothing ever becomes a draft again.
     function allowedStatusStep(before, after) {
@@ -1205,8 +1211,8 @@ service cloud.firestore {
       }
 
       // An open pack that this same request marks as chosen names this holding: as its chosen card, which must be in
-      // the pack's channel (spec: pack-shop, "Packs follow the pack flags"), or as its mandatory Cursed card, which
-      // must be in the Cursed Deck. The pack's own rule checks who chooses. A card with one copy comes from the pool
+      // the pack's channel (spec: pack-shop, "Packs follow the pack flags") and, from a Cursed type, not Blessed, or
+      // as its mandatory Cursed card, which must be in the Cursed Deck. The pack's own rule checks who chooses. A card with one copy comes from the pool
       // and gets this holding as its holder.
       function chosenFromPack() {
         let data = request.resource.data;
@@ -1221,7 +1227,8 @@ service cloud.firestore {
               && after.chosen.cardId == data.cardId
               && after.chosen.cardName == data.cardName
               && after.chosen.cardKind == data.cardKind
-              && (isSetPackType(before.packType) ? card.isInSetPacks : card.isInMechanicPacks) == true)
+              && (isSetPackType(before.packType) ? card.isInSetPacks : card.isInMechanicPacks) == true
+              && !(isCursedPack(before.packType) && card.kind == 'blessed'))
             || (after.cursed != null
               && after.cursed.holdingId == holdingId
               && after.cursed.cardId == data.cardId
@@ -1554,11 +1561,6 @@ service cloud.firestore {
           'golden': 4,
           'cursedGolden': 3
         }[type];
-      }
-
-      // The pack types that also show one mandatory Cursed card. Keep in step with CURSED_PACK_TYPES.
-      function isCursedPack(type) {
-        return type in ['cursed', 'pandemoniumCursed', 'cursedGolden'];
       }
 
       function validScope(value) {

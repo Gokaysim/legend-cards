@@ -5,7 +5,7 @@ import type { RandomSource } from '@/lib/random'
 import { testBlessedCard, testCard, testCursedCard } from '@/test/cardFixtures'
 
 import type { PackDef } from './catalog'
-import { buildPack } from './contents'
+import { BLESSED_ODDS, buildPack } from './contents'
 
 /** A deterministic source of 32-bit numbers (mulberry32), so each seed gives one fixed pack. */
 function seeded(seed: number): RandomSource {
@@ -18,6 +18,19 @@ function seeded(seed: number): RandomSource {
     return (value ^ (value >>> 14)) >>> 0
   }
 }
+
+/**
+ * Answers `script` first, then the numbers of `seeded(seed)`. The first answers decide a pack's Blessed rolls, one per
+ * card: `HIT` rolls Blessed, `MISS` does not.
+ */
+function scripted(script: readonly number[], seed = 0): RandomSource {
+  const rest = seeded(seed)
+  let index = 0
+  return () => script[index++] ?? rest()
+}
+
+const HIT = 0
+const MISS = 1
 
 const SEEDS = Array.from({ length: 300 }, (_, seed) => seed)
 
@@ -112,42 +125,111 @@ describe('buildPack', () => {
     }
   })
 
-  it('can show a Blessed card in the rare packs, and never in a set pack', () => {
-    const showsBlessed = (pack: PackDef) =>
-      SEEDS.some((seed) =>
-        cardsIn(buildPack(pack, CARDS, seeded(seed))).some((card) => card.kind === 'blessed'),
-      )
-    expect(showsBlessed(def('pandemonium', { setCode: 'Pandemonium' }))).toBe(true)
-    expect(showsBlessed(def('pandemoniumCursed', { setCode: 'Pandemonium' }))).toBe(true)
-    expect(showsBlessed(def('golden'))).toBe(true)
-    expect(showsBlessed(def('cursedGolden'))).toBe(true)
-    expect(showsBlessed(def('standard', { setCode: 'Kesqer' }))).toBe(false)
-    expect(showsBlessed(def('premium', { setCode: 'Kesqer' }))).toBe(false)
+  it('shows no Blessed card when no card rolls Blessed, even with Blessed candidates', () => {
+    for (const pack of [
+      def('pandemonium', { setCode: 'Pandemonium' }),
+      def('golden'),
+      def('mechanic', { mechanicPack: 'Blood & Battle' }),
+    ]) {
+      for (const seed of SEEDS.slice(0, 20)) {
+        const shown = cardsIn(
+          buildPack(pack, CARDS, scripted([MISS, MISS, MISS, MISS, MISS], seed)),
+        )
+        expect(shown).toHaveLength(5)
+        expect(shown.some((card) => card.kind === 'blessed')).toBe(false)
+      }
+    }
+  })
+
+  it('shows one Blessed card for each card that rolls Blessed, never the same one twice', () => {
+    const golden = def('golden')
+    const blessedIn = (script: number[]) =>
+      cardsIn(buildPack(golden, CARDS, scripted(script))).filter((card) => card.kind === 'blessed')
+    expect(blessedIn([HIT, MISS, MISS, MISS, MISS])).toHaveLength(1)
+    const two = blessedIn([MISS, HIT, MISS, HIT, MISS])
+    expect(new Set(two.map((card) => card.id))).toEqual(new Set(blessed.map((card) => card.id)))
+    expect(blessedIn([HIT, HIT, HIT, MISS, MISS])).toHaveLength(2)
+  })
+
+  it('gives an ordinary card for a Blessed roll when no Blessed card is left', () => {
+    const withoutBlessed = CARDS.filter((card) => card.kind !== 'blessed')
+    const shown = cardsIn(
+      buildPack(def('golden'), withoutBlessed, scripted([HIT, HIT, HIT, HIT, HIT])),
+    )
+    expect(shown).toHaveLength(5)
+    expect(shown.every((card) => card.kind === 'normal' && card.rarity === 'rare')).toBe(true)
+    const pandemonium = cardsIn(
+      buildPack(
+        def('pandemonium', { setCode: 'Pandemonium' }),
+        withoutBlessed,
+        scripted([HIT, MISS, MISS, MISS, MISS]),
+      ),
+    )
+    expect(pandemonium.every((card) => card.setCode === 'Pandemonium')).toBe(true)
+  })
+
+  it("gives a Mechanic Pack's Blessed roll only its own mechanic's Blessed card", () => {
+    const pack = def('mechanic', { mechanicPack: 'Blood & Battle' })
+    for (const seed of SEEDS.slice(0, 20)) {
+      const shown = cardsIn(buildPack(pack, CARDS, scripted([HIT, HIT, HIT, HIT, HIT], seed)))
+      expect(shown).toHaveLength(5)
+      expect(shown.filter((card) => card.kind === 'blessed').map((card) => card.name)).toEqual([
+        'Second Wind',
+      ])
+      expect(shown.every((card) => card.mechanicPack === 'Blood & Battle')).toBe(true)
+    }
+  })
+
+  it('never shows a Blessed card in a Cursed type or a set pack', () => {
+    const alwaysZero: RandomSource = () => 0
+    for (const pack of [
+      def('pandemoniumCursed', { setCode: 'Pandemonium' }),
+      def('cursedGolden'),
+      def('standard', { setCode: 'Kesqer' }),
+      def('premium', { setCode: 'Kesqer' }),
+      def('cursed', { setCode: 'Kesqer' }),
+    ]) {
+      for (const random of [alwaysZero, ...SEEDS.map(seeded)]) {
+        const shown = cardsIn(buildPack(pack, CARDS, random))
+        expect(shown.some((card) => card.kind === 'blessed')).toBe(false)
+      }
+    }
   })
 
   it('shows only Pandemonium Rares and Blessed cards in a Pandemonium Pack', () => {
+    const pack = def('pandemonium', { setCode: 'Pandemonium' })
     for (const seed of SEEDS.slice(0, 50)) {
-      const shown = cardsIn(
-        buildPack(def('pandemonium', { setCode: 'Pandemonium' }), CARDS, seeded(seed)),
-      )
-      for (const card of shown) {
-        expect(
-          card.kind === 'blessed' || (card.setCode === 'Pandemonium' && card.rarity === 'rare'),
-        ).toBe(true)
+      for (const random of [seeded(seed), scripted([HIT, MISS, HIT, MISS, MISS], seed)]) {
+        for (const card of cardsIn(buildPack(pack, CARDS, random))) {
+          expect(
+            card.kind === 'blessed' || (card.setCode === 'Pandemonium' && card.rarity === 'rare'),
+          ).toBe(true)
+        }
       }
     }
   })
 
-  it("shows only the mechanic pack's cards in a Mechanic Pack, its Blessed card included", () => {
+  it("shows only the mechanic pack's cards in a Mechanic Pack", () => {
     const pack = def('mechanic', { mechanicPack: 'Blood & Battle' })
-    const seen = new Set<string>()
     for (const seed of SEEDS) {
       for (const card of cardsIn(buildPack(pack, CARDS, seeded(seed)))) {
         expect(card.mechanicPack).toBe('Blood & Battle')
-        seen.add(card.id)
       }
     }
-    expect(seen.has(blessed[0]?.id ?? '')).toBe(true)
+  })
+
+  it('makes about 2% of the cards of many Golden Packs Blessed', () => {
+    const random = seeded(2026)
+    const packs = 10_000
+    let blessedShown = 0
+    for (let pack = 0; pack < packs; pack += 1) {
+      const shown = cardsIn(buildPack(def('golden'), CARDS, random))
+      blessedShown += shown.filter((card) => card.kind === 'blessed').length
+    }
+    const share = blessedShown / (packs * 5)
+    expect(1 / BLESSED_ODDS).toBe(0.02)
+    expect(share).toBeGreaterThan(0.016)
+    expect(share).toBeLessThan(0.024)
   })
 
   it('can show every candidate of a pack', () => {
